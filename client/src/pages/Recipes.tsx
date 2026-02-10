@@ -1,0 +1,341 @@
+import { useState } from "react";
+import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { 
+  Plus, 
+  Search, 
+  Filter, 
+  ChefHat,
+  ArrowRight
+} from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useForm, useFieldArray } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { insertRecipeSchema, type InsertRecipe } from "@shared/schema";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+export default function Recipes() {
+  const { data: recipes, isLoading } = useRecipes();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("All");
+
+  const categories = ["All", ...Array.from(new Set(recipes?.map(r => r.category) || []))];
+
+  const filteredRecipes = recipes?.filter(recipe => {
+    const matchesSearch = recipe.title.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = categoryFilter === "All" || recipe.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-display font-bold">Recipes</h1>
+          <p className="text-muted-foreground">Standardized formulas and production methods.</p>
+        </div>
+        <CreateRecipeDialog />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border border-border shadow-sm">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search recipes..." 
+            className="pl-9 bg-background"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+          <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(cat)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                categoryFilter === cat 
+                  ? "bg-primary text-primary-foreground" 
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {isLoading ? (
+          Array(6).fill(0).map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full rounded-xl" />
+          ))
+        ) : filteredRecipes?.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-muted-foreground">
+            No recipes found matching your criteria.
+          </div>
+        ) : (
+          filteredRecipes?.map((recipe) => (
+            <Link key={recipe.id} href={`/recipes/${recipe.id}`}>
+              <Card className="industrial-card h-full cursor-pointer group hover:border-accent">
+                <CardContent className="p-6 flex flex-col h-full">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="w-12 h-12 rounded bg-primary/5 flex items-center justify-center group-hover:bg-accent/10 transition-colors">
+                      <ChefHat className="w-6 h-6 text-primary group-hover:text-accent transition-colors" />
+                    </div>
+                    <span className="text-xs font-mono font-medium px-2 py-1 bg-muted rounded text-muted-foreground">
+                      {recipe.category}
+                    </span>
+                  </div>
+                  
+                  <h3 className="text-xl font-bold mb-2 group-hover:text-primary transition-colors">{recipe.title}</h3>
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-6 flex-1">
+                    {recipe.description || "No description provided."}
+                  </p>
+                  
+                  <div className="flex items-center justify-between pt-4 border-t border-border mt-auto">
+                    <div className="text-sm font-mono text-muted-foreground">
+                      <span className="font-bold text-foreground">{recipe.yieldAmount}</span> {recipe.yieldUnit}
+                    </div>
+                    <div className="flex items-center text-primary font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                      View Formula <ArrowRight className="w-4 h-4 ml-1" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CreateRecipeDialog() {
+  const [open, setOpen] = useState(false);
+  const { mutate, isPending } = useCreateRecipe();
+
+  const form = useForm<InsertRecipe>({
+    resolver: zodResolver(insertRecipeSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      category: "Bread",
+      yieldAmount: 1,
+      yieldUnit: "kg",
+      ingredients: [],
+      instructions: []
+    }
+  });
+
+  const { fields: ingredientFields, append: appendIngredient, remove: removeIngredient } = useFieldArray({
+    control: form.control,
+    name: "ingredients" as any
+  });
+
+  const { fields: instructionFields, append: appendInstruction, remove: removeInstruction } = useFieldArray({
+    control: form.control,
+    name: "instructions" as any
+  });
+
+  const onSubmit = (data: InsertRecipe) => {
+    mutate(data, {
+      onSuccess: () => {
+        setOpen(false);
+        form.reset();
+      }
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="shadow-lg shadow-primary/20">
+          <Plus className="w-4 h-4 mr-2" /> New Recipe
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create New Recipe</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recipe Title</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. Sourdough Loaf" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. Bread, Pastry" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Brief description..." />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="yieldAmount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Base Yield Amount</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        {...field} 
+                        onChange={e => field.onChange(parseFloat(e.target.value))} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="yieldUnit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Yield Unit</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. kg, loaves" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Ingredients</h3>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => appendIngredient({ name: "", quantity: 0, unit: "g" })}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add
+                </Button>
+              </div>
+              {ingredientFields.map((field, index) => (
+                <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-5">
+                    <Input 
+                      placeholder="Name" 
+                      {...form.register(`ingredients.${index}.name` as any)} 
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <Input 
+                      type="number" 
+                      placeholder="Qty" 
+                      step="0.01"
+                      {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <Input 
+                      placeholder="Unit" 
+                      {...form.register(`ingredients.${index}.unit` as any)} 
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => removeIngredient(index)}
+                      className="text-destructive"
+                    >
+                      <Plus className="w-4 h-4 rotate-45" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Instructions</h3>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => appendInstruction({ step: instructionFields.length + 1, text: "" })}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add
+                </Button>
+              </div>
+              {instructionFields.map((field, index) => (
+                <div key={field.id} className="flex gap-2 items-start">
+                  <div className="w-8 h-10 flex items-center justify-center font-mono text-muted-foreground font-bold shrink-0">
+                    {index + 1}.
+                  </div>
+                  <Input 
+                    placeholder="Step description..." 
+                    {...form.register(`instructions.${index}.text` as any)} 
+                    // hidden field for step number
+                    {...form.register(`instructions.${index}.step` as any, { value: index + 1 })}
+                  />
+                  <Button 
+                    type="button" 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => removeInstruction(index)}
+                    className="text-destructive shrink-0"
+                  >
+                    <Plus className="w-4 h-4 rotate-45" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-6 border-t border-border">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={isPending}>
+                {isPending ? "Creating..." : "Create Recipe"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
