@@ -8,7 +8,8 @@ import {
   ChefHat, 
   ClipboardList, 
   TrendingUp, 
-  Clock 
+  Clock,
+  ArrowRight 
 } from "lucide-react";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";

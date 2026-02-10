@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -89,33 +90,35 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile Sidebar */}
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="p-0 w-64 border-r border-border">
-          <NavContent />
-        </SheetContent>
-      </Sheet>
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent side="left" className="p-0 w-64 border-r border-border">
+            <NavContent />
+          </SheetContent>
+        </Sheet>
 
-      {/* Main Content */}
-      <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
-        {/* Mobile Header */}
-        <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between sticky top-0 z-40">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-              <ChefHat className="w-5 h-5 text-primary-foreground" />
+        {/* Main Content */}
+        <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
+          {/* Mobile Header */}
+          <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between sticky top-0 z-40">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
+                <ChefHat className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <span className="font-display font-bold text-lg">JARVIS</span>
             </div>
-            <span className="font-display font-bold text-lg">JARVIS</span>
-          </div>
-          <SheetTrigger asChild onClick={() => setMobileOpen(true)}>
-            <Button variant="ghost" size="icon">
-              <Menu className="w-6 h-6" />
-            </Button>
-          </SheetTrigger>
-        </header>
+            <SheetTrigger asChild onClick={() => setMobileOpen(true)}>
+              <Button variant="ghost" size="icon">
+                <Menu className="w-6 h-6" />
+              </Button>
+            </SheetTrigger>
+          </header>
 
-        <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
-          {children}
-        </div>
-      </main>
+          <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
+            {children}
+          </div>
+        </main>
+      </Dialog>
     </div>
   );
 }
