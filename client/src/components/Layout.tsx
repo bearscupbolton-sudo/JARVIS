@@ -37,8 +37,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <ChefHat className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="font-display text-xl font-bold tracking-tight">JARVIS</h1>
-            <p className="text-xs text-muted-foreground uppercase tracking-widest">Bakery OS</p>
+            <h1 className="font-display text-xl font-bold tracking-tight text-primary">Jarvis</h1>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
           </div>
         </div>
       </div>
@@ -101,11 +101,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
           {/* Mobile Header */}
           <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-                <ChefHat className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <span className="font-display font-bold text-lg">JARVIS</span>
+            <div className="flex flex-col">
+              <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
             </div>
             <SheetTrigger asChild onClick={() => setMobileOpen(true)}>
               <Button variant="ghost" size="icon">
