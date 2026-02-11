@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useConversations, useCreateConversation, useChatStream } from "@/hooks/use-chat";
+import { useConversations, useCreateConversation } from "@/hooks/use-chat";
+import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -16,13 +17,13 @@ interface LocalMessage {
 export default function Assistant() {
   const { data: conversations } = useConversations();
   const { mutateAsync: createConversation } = useCreateConversation();
-  const { mutateAsync: streamMessage } = useChatStream();
-  
+
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const skipFetchRef = useRef(false);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -32,6 +33,10 @@ export default function Assistant() {
 
   useEffect(() => {
     if (!activeId) return;
+    if (skipFetchRef.current) {
+      skipFetchRef.current = false;
+      return;
+    }
     setMessages([]);
     fetch(`/api/conversations/${activeId}`, { credentials: "include" })
       .then(res => res.json())
@@ -57,6 +62,7 @@ export default function Assistant() {
     if (!currentId) {
       const conv = await createConversation("New Chat");
       currentId = conv.id;
+      skipFetchRef.current = true;
       setActiveId(currentId);
     }
 
@@ -66,18 +72,23 @@ export default function Assistant() {
     setIsStreaming(true);
 
     try {
-      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
-
-      const streamBody = await streamMessage({ 
-        conversationId: currentId!, 
-        content: userMsg 
+      const res = await fetch(`/api/conversations/${currentId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: userMsg }),
+        credentials: "include",
       });
 
-      if (!streamBody) throw new Error("No stream");
+      if (!res.ok || !res.body) {
+        throw new Error("Failed to connect to Jarvis");
+      }
 
-      const reader = streamBody.getReader();
+      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let assistantContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -86,35 +97,43 @@ export default function Assistant() {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-        
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const json = JSON.parse(line.slice(6));
-              if (json.content) {
-                setMessages(prev => {
-                  const newMsgs = [...prev];
-                  const lastMsg = newMsgs[newMsgs.length - 1];
-                  if (lastMsg.role === "assistant") {
-                    lastMsg.content += json.content;
-                  }
-                  return newMsgs;
-                });
-              }
-            } catch {
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload);
+            if (json.done) continue;
+            if (json.content) {
+              assistantContent += json.content;
+              const updatedContent = assistantContent;
+              setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === "assistant") {
+                  return [...prev.slice(0, -1), { role: "assistant", content: updatedContent }];
+                }
+                return [...prev, { role: "assistant", content: updatedContent }];
+              });
             }
+          } catch {
           }
         }
       }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
     } catch (err) {
-      console.error(err);
+      console.error("Jarvis stream error:", err);
       setMessages(prev => {
-        const newMsgs = [...prev];
-        const lastMsg = newMsgs[newMsgs.length - 1];
-        if (lastMsg.role === "assistant" && lastMsg.content === "") {
-          lastMsg.content = "Sorry, I couldn't connect right now. Please try again.";
+        const last = prev[prev.length - 1];
+        if (last && last.role === "assistant" && last.content === "") {
+          return [...prev.slice(0, -1), { role: "assistant", content: "Sorry, I couldn't connect right now. Please try again." }];
         }
-        return newMsgs;
+        if (!last || last.role !== "assistant") {
+          return [...prev, { role: "assistant", content: "Sorry, I couldn't connect right now. Please try again." }];
+        }
+        return prev;
       });
     } finally {
       setIsStreaming(false);
@@ -140,8 +159,8 @@ export default function Assistant() {
                   data-testid={`button-conversation-${conv.id}`}
                   className={cn(
                     "text-left px-3 py-2 rounded-md text-sm truncate transition-colors flex items-center gap-2 hover-elevate",
-                    activeId === conv.id 
-                      ? "bg-primary text-primary-foreground" 
+                    activeId === conv.id
+                      ? "bg-primary text-primary-foreground"
                       : "text-foreground"
                   )}
                 >
@@ -181,13 +200,13 @@ export default function Assistant() {
                   {msg.role === "user" ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                 </div>
                 <div className={cn(
-                  "p-4 rounded-md text-sm leading-relaxed shadow-sm",
-                  msg.role === "user" 
-                    ? "bg-primary text-primary-foreground" 
+                  "p-4 rounded-md text-sm leading-relaxed shadow-sm min-w-[40px]",
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground"
                     : "bg-muted/50 text-foreground border border-border"
                 )}>
                   {msg.role === "assistant" && isStreaming && idx === messages.length - 1 && !msg.content ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" data-testid="spinner-assistant" />
                   ) : (
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   )}
