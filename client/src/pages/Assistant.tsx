@@ -3,12 +3,11 @@ import { useConversations, useCreateConversation, useChatStream } from "@/hooks/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send, Bot, User, Plus, MessageSquare } from "lucide-react";
+import { Send, Bot, User, Plus, MessageSquare, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
-// Simple local type for displaying messages before they persist/reload
 interface LocalMessage {
   role: "user" | "assistant";
   content: string;
@@ -25,31 +24,23 @@ export default function Assistant() {
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isStreaming]);
 
-  // Load conversation history when switching activeId
   useEffect(() => {
     if (!activeId) return;
-    
-    // In a real implementation we would fetch messages for this ID
-    // For now we start fresh or would need another query here. 
-    // To keep this component simple and responsive, we'll just clear local messages
-    // The history would ideally be fetched via `useConversation(activeId)` hook 
     setMessages([]);
-    
-    // Fetch history manually to populate (optional enhancement)
-    fetch(`/api/conversations/${activeId}`)
+    fetch(`/api/conversations/${activeId}`, { credentials: "include" })
       .then(res => res.json())
       .then(data => {
         if (data.messages) {
-          setMessages(data.messages);
+          setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })));
         }
-      });
+      })
+      .catch(() => {});
   }, [activeId]);
 
   const handleNewChat = async () => {
@@ -75,27 +66,26 @@ export default function Assistant() {
     setIsStreaming(true);
 
     try {
-      // Optimistic empty assistant message
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
-      const streamReader = await streamMessage({ 
+      const streamBody = await streamMessage({ 
         conversationId: currentId!, 
         content: userMsg 
       });
 
-      if (!streamReader) throw new Error("No stream");
+      if (!streamBody) throw new Error("No stream");
 
-      const reader = streamReader.getReader();
+      const reader = streamBody.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        // Parse SSE format: data: {"content": "..."}
-        // This is a simplified parser for the example
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
         
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -111,28 +101,33 @@ export default function Assistant() {
                   return newMsgs;
                 });
               }
-            } catch (e) {
-              // ignore parse errors or done signal
+            } catch {
             }
           }
         }
       }
     } catch (err) {
       console.error(err);
-      setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not reach Jarvis." }]);
+      setMessages(prev => {
+        const newMsgs = [...prev];
+        const lastMsg = newMsgs[newMsgs.length - 1];
+        if (lastMsg.role === "assistant" && lastMsg.content === "") {
+          lastMsg.content = "Sorry, I couldn't connect right now. Please try again.";
+        }
+        return newMsgs;
+      });
     } finally {
       setIsStreaming(false);
     }
   };
 
   return (
-    <div className="h-[calc(100vh-6rem)] grid grid-cols-12 gap-6 animate-in fade-in duration-500">
-      {/* Sidebar - History */}
+    <div className="h-[calc(100vh-6rem)] grid grid-cols-12 gap-6 animate-in fade-in duration-500" data-testid="container-assistant">
       <div className="col-span-3 hidden md:flex flex-col gap-4 h-full">
-        <Button onClick={handleNewChat} className="w-full justify-start gap-2 shadow-sm" size="lg">
+        <Button onClick={handleNewChat} className="w-full justify-start gap-2 shadow-sm" size="lg" data-testid="button-new-chat">
           <Plus className="w-4 h-4" /> New Chat
         </Button>
-        <Card className="flex-1 overflow-hidden industrial-card flex flex-col">
+        <Card className="flex-1 overflow-hidden flex flex-col">
           <div className="p-3 border-b border-border bg-muted/20 text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Recent Chats
           </div>
@@ -142,11 +137,12 @@ export default function Assistant() {
                 <button
                   key={conv.id}
                   onClick={() => setActiveId(conv.id)}
+                  data-testid={`button-conversation-${conv.id}`}
                   className={cn(
-                    "text-left px-3 py-2 rounded text-sm truncate transition-colors flex items-center gap-2",
+                    "text-left px-3 py-2 rounded-md text-sm truncate transition-colors flex items-center gap-2 hover-elevate",
                     activeId === conv.id 
                       ? "bg-primary text-primary-foreground" 
-                      : "hover:bg-muted text-foreground"
+                      : "text-foreground"
                   )}
                 >
                   <MessageSquare className="w-3 h-3 shrink-0" />
@@ -158,11 +154,10 @@ export default function Assistant() {
         </Card>
       </div>
 
-      {/* Main Chat Area */}
-      <Card className="col-span-12 md:col-span-9 h-full flex flex-col industrial-card overflow-hidden shadow-xl">
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-6">
+      <Card className="col-span-12 md:col-span-9 h-full flex flex-col overflow-hidden shadow-xl">
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-6" data-testid="container-messages">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
+            <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50" data-testid="text-empty-state">
               <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-6">
                 <Bot className="w-10 h-10 text-primary-foreground" />
               </div>
@@ -173,24 +168,29 @@ export default function Assistant() {
             messages.map((msg, idx) => (
               <div
                 key={idx}
+                data-testid={`message-${msg.role}-${idx}`}
                 className={cn(
                   "flex gap-4 max-w-3xl",
                   msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"
                 )}
               >
                 <div className={cn(
-                  "w-8 h-8 rounded flex items-center justify-center shrink-0",
+                  "w-8 h-8 rounded-md flex items-center justify-center shrink-0",
                   msg.role === "user" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground"
                 )}>
                   {msg.role === "user" ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                 </div>
                 <div className={cn(
-                  "p-4 rounded-lg text-sm leading-relaxed shadow-sm",
+                  "p-4 rounded-md text-sm leading-relaxed shadow-sm",
                   msg.role === "user" 
                     ? "bg-primary text-primary-foreground" 
                     : "bg-muted/50 text-foreground border border-border"
                 )}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  {msg.role === "assistant" && isStreaming && idx === messages.length - 1 && !msg.content ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  )}
                 </div>
               </div>
             ))
@@ -206,8 +206,9 @@ export default function Assistant() {
               placeholder="Ask Jarvis..."
               className="flex-1"
               disabled={isStreaming}
+              data-testid="input-chat-message"
             />
-            <Button type="submit" disabled={isStreaming || !inputValue.trim()} size="icon">
+            <Button type="submit" disabled={isStreaming || !inputValue.trim()} size="icon" data-testid="button-send-message">
               <Send className="w-4 h-4" />
             </Button>
           </form>
