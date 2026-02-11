@@ -7,6 +7,7 @@ import {
   useAnnouncements, useCreateAnnouncement, useDeleteAnnouncement
 } from "@/hooks/use-dashboard";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,10 +20,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertTriangle, Calendar, ChefHat, ClipboardList, Plus,
   Megaphone, ArrowRight, CheckCircle2, Trash2,
-  MapPin, Clock, TrendingUp, Sparkles, Eye, EyeOff
+  MapPin, Clock, TrendingUp, Sparkles, Eye, EyeOff,
+  Coffee, UtensilsCrossed, Flame, Croissant
 } from "lucide-react";
 import { format, addDays, isSameDay, isToday, isTomorrow } from "date-fns";
-import type { Problem, CalendarEvent, Announcement } from "@shared/schema";
+import type { Problem, CalendarEvent, Announcement, BakeoffLog } from "@shared/schema";
 
 const SEVERITY_CONFIG: Record<string, { color: string; label: string }> = {
   critical: { color: "destructive", label: "Critical" },
@@ -52,6 +54,20 @@ export default function Dashboard() {
   const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
   const { data: eventsData, isLoading: loadingEvents } = useEvents();
   const { data: announcementsData, isLoading: loadingAnnouncements } = useAnnouncements();
+
+  const todayDate = new Date().toISOString().split("T")[0];
+  const { data: bakeoffLogs = [] } = useQuery<BakeoffLog[]>({
+    queryKey: [`/api/bakeoff-logs?date=${todayDate}`],
+    refetchInterval: 30000,
+  });
+
+  const bakeoffSummary = useMemo(() => {
+    const map = new Map<string, number>();
+    bakeoffLogs.forEach(log => {
+      map.set(log.itemName, (map.get(log.itemName) || 0) + log.quantity);
+    });
+    return Array.from(map.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [bakeoffLogs]);
 
   const createProblem = useCreateProblem();
   const updateProblem = useUpdateProblem();
@@ -149,53 +165,74 @@ export default function Dashboard() {
         <p className="text-muted-foreground font-mono text-sm" data-testid="text-date">{format(new Date(), "EEEE, MMMM do, yyyy")}</p>
       </div>
 
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-              <ChefHat className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{recipes?.length || 0}</p>
-              <p className="text-xs text-muted-foreground">Recipes</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-accent/10 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-accent" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{todayYield.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Today's Yield</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{activeProblems.length}</p>
-              <p className="text-xs text-muted-foreground">Open Issues</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{calendarEvents.length}</p>
-              <p className="text-xs text-muted-foreground">Upcoming</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Station Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link href="/bakery">
+          <Card className="hover-elevate cursor-pointer" data-testid="button-station-bakery">
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Croissant className="w-7 h-7 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-display font-bold">Bakery</h2>
+                <p className="text-sm text-muted-foreground">Recipes, shaping, bake-off</p>
+              </div>
+              <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/coffee">
+          <Card className="hover-elevate cursor-pointer" data-testid="button-station-coffee">
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-lg bg-accent/10 flex items-center justify-center">
+                <Coffee className="w-7 h-7 text-accent" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-display font-bold">Coffee</h2>
+                <p className="text-sm text-muted-foreground">Coming soon</p>
+              </div>
+              <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/kitchen">
+          <Card className="hover-elevate cursor-pointer" data-testid="button-station-kitchen">
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+                <UtensilsCrossed className="w-7 h-7 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-display font-bold">Kitchen</h2>
+                <p className="text-sm text-muted-foreground">Coming soon</p>
+              </div>
+              <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
+
+      {/* Bake-Off Status */}
+      {bakeoffSummary.length > 0 && (
+        <Card data-testid="container-bakeoff-status">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+            <CardTitle className="text-lg font-display flex items-center gap-2">
+              <Flame className="w-5 h-5 text-primary" />
+              Out of the Oven Today
+            </CardTitle>
+            <Badge variant="secondary">{bakeoffLogs.length} racks</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              {bakeoffSummary.map(item => (
+                <div key={item.name} className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2">
+                  <span className="text-2xl font-bold font-mono" data-testid={`text-bakeoff-count-${item.name}`}>{item.qty}</span>
+                  <span className="text-sm" data-testid={`text-bakeoff-name-${item.name}`}>{item.name}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
 
       <div className="grid lg:grid-cols-2 gap-6">

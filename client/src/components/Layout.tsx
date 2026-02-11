@@ -11,7 +11,10 @@ import {
   X,
   Users,
   ShieldCheck,
-  UserCircle
+  UserCircle,
+  Croissant,
+  Coffee,
+  UtensilsCrossed
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
@@ -23,6 +26,9 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bakery", label: "Bakery", icon: Croissant },
+  { href: "/coffee", label: "Coffee", icon: Coffee },
+  { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
   { href: "/recipes", label: "Recipes", icon: ChefHat },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },

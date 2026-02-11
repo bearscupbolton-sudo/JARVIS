@@ -126,6 +126,47 @@ export const insertPendingChangeSchema = createInsertSchema(pendingChanges).omit
 export type PendingChange = typeof pendingChanges.$inferSelect;
 export type InsertPendingChange = z.infer<typeof insertPendingChangeSchema>;
 
+// === PASTRY TOTALS (daily target counts) ===
+export const pastryTotals = pgTable("pastry_totals", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  itemName: text("item_name").notNull(),
+  targetCount: integer("target_count").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPastryTotalSchema = createInsertSchema(pastryTotals).omit({ id: true, createdAt: true });
+export type PastryTotal = typeof pastryTotals.$inferSelect;
+export type InsertPastryTotal = z.infer<typeof insertPastryTotalSchema>;
+
+// === SHAPING LOGS (dough shaped, deducts from totals) ===
+export const shapingLogs = pgTable("shaping_logs", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  doughType: text("dough_type").notNull(),
+  yieldCount: integer("yield_count").notNull(),
+  shapedAt: text("shaped_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertShapingLogSchema = createInsertSchema(shapingLogs).omit({ id: true, createdAt: true });
+export type ShapingLog = typeof shapingLogs.$inferSelect;
+export type InsertShapingLog = z.infer<typeof insertShapingLogSchema>;
+
+// === BAKE-OFF LOGS (items out of the oven) ===
+export const bakeoffLogs = pgTable("bakeoff_logs", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  itemName: text("item_name").notNull(),
+  quantity: integer("quantity").notNull(),
+  bakedAt: text("baked_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBakeoffLogSchema = createInsertSchema(bakeoffLogs).omit({ id: true, createdAt: true });
+export type BakeoffLog = typeof bakeoffLogs.$inferSelect;
+export type InsertBakeoffLog = z.infer<typeof insertBakeoffLogSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;

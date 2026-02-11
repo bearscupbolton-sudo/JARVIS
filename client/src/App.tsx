@@ -9,6 +9,9 @@ import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import Bakery from "@/pages/Bakery";
+import Coffee from "@/pages/Coffee";
+import Kitchen from "@/pages/Kitchen";
 import Recipes from "@/pages/Recipes";
 import RecipeDetail from "@/pages/RecipeDetail";
 import Production from "@/pages/Production";
@@ -61,6 +64,15 @@ function Router() {
       {/* Protected Routes */}
       <Route path="/">
         {() => <ProtectedRoute component={Dashboard} />}
+      </Route>
+      <Route path="/bakery">
+        {() => <ProtectedRoute component={Bakery} />}
+      </Route>
+      <Route path="/coffee">
+        {() => <ProtectedRoute component={Coffee} />}
+      </Route>
+      <Route path="/kitchen">
+        {() => <ProtectedRoute component={Kitchen} />}
       </Route>
       <Route path="/recipes">
         {() => <ProtectedRoute component={Recipes} />}

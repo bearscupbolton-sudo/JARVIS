@@ -378,5 +378,97 @@ export async function registerRoutes(
     }
   });
 
+  // === PASTRY TOTALS ===
+  app.get(api.pastryTotals.list.path, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const totals = await storage.getPastryTotals(date);
+    res.json(totals);
+  });
+
+  app.post(api.pastryTotals.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.pastryTotals.create.input.parse(req.body);
+      const total = await storage.createPastryTotal(input);
+      res.status(201).json(total);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.pastryTotals.update.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.pastryTotals.update.input.parse(req.body);
+      const total = await storage.updatePastryTotal(Number(req.params.id), input);
+      if (!total) return res.status(404).json({ message: 'Pastry total not found' });
+      res.json(total);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.pastryTotals.delete.path, isAuthenticated, isUnlocked, async (req, res) => {
+    const result = await storage.deletePastryTotal(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: 'Pastry total not found' });
+    res.status(204).send();
+  });
+
+  // === SHAPING LOGS ===
+  app.get(api.shapingLogs.list.path, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const logs = await storage.getShapingLogs(date);
+    res.json(logs);
+  });
+
+  app.post(api.shapingLogs.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.shapingLogs.create.input.parse(req.body);
+      const log = await storage.createShapingLog(input);
+      res.status(201).json(log);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.shapingLogs.delete.path, isAuthenticated, isUnlocked, async (req, res) => {
+    const result = await storage.deleteShapingLog(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: 'Shaping log not found' });
+    res.status(204).send();
+  });
+
+  // === BAKE-OFF LOGS ===
+  app.get(api.bakeoffLogs.list.path, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const logs = await storage.getBakeoffLogs(date);
+    res.json(logs);
+  });
+
+  app.post(api.bakeoffLogs.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.bakeoffLogs.create.input.parse(req.body);
+      const log = await storage.createBakeoffLog(input);
+      res.status(201).json(log);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.bakeoffLogs.delete.path, isAuthenticated, isUnlocked, async (req, res) => {
+    const result = await storage.deleteBakeoffLog(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: 'Bake-off log not found' });
+    res.status(204).send();
+  });
+
   return httpServer;
 }

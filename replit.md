@@ -58,6 +58,9 @@ script/          → Build scripts
   - `problems` — Issue tracker with severity, location, completed toggle, notes
   - `events` — Calendar events for Forward 5 Look (meetings, deliveries, deadlines)
   - `announcements` — Team message board posts
+  - `pastry_totals` — Daily target counts per pastry item (date, item_name, target_count)
+  - `shaping_logs` — Dough shaping entries that deduct from pastry totals (date, dough_type, yield_count, shaped_at)
+  - `bakeoff_logs` — Bake-off entries showing items out of the oven (date, item_name, quantity, baked_at), feeds to dashboard
 
 ### Authentication
 - **Method**: Replit OpenID Connect (OIDC) authentication via Passport.js

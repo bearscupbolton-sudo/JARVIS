@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, recipes, productionLogs, sops, problems, events, announcements } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -211,6 +211,83 @@ export const api = {
     delete: {
       method: 'DELETE' as const,
       path: '/api/announcements/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  pastryTotals: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/pastry-totals' as const,
+      responses: {
+        200: z.array(z.custom<typeof pastryTotals.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/pastry-totals' as const,
+      input: insertPastryTotalSchema,
+      responses: {
+        201: z.custom<typeof pastryTotals.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/pastry-totals/:id' as const,
+      input: insertPastryTotalSchema.partial(),
+      responses: {
+        200: z.custom<typeof pastryTotals.$inferSelect>(),
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/pastry-totals/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  shapingLogs: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/shaping-logs' as const,
+      responses: {
+        200: z.array(z.custom<typeof shapingLogs.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/shaping-logs' as const,
+      input: insertShapingLogSchema,
+      responses: {
+        201: z.custom<typeof shapingLogs.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/shaping-logs/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  bakeoffLogs: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/bakeoff-logs' as const,
+      responses: {
+        200: z.array(z.custom<typeof bakeoffLogs.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/bakeoff-logs' as const,
+      input: insertBakeoffLogSchema,
+      responses: {
+        201: z.custom<typeof bakeoffLogs.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/bakeoff-logs/:id' as const,
       responses: { 204: z.void() },
     },
   },

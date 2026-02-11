@@ -1,12 +1,16 @@
 import {
   recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
+  pastryTotals, shapingLogs, bakeoffLogs,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
   type Problem, type InsertProblem,
   type CalendarEvent, type InsertEvent,
   type Announcement, type InsertAnnouncement,
-  type PendingChange, type InsertPendingChange
+  type PendingChange, type InsertPendingChange,
+  type PastryTotal, type InsertPastryTotal,
+  type ShapingLog, type InsertShapingLog,
+  type BakeoffLog, type InsertBakeoffLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and } from "drizzle-orm";
@@ -53,6 +57,22 @@ export interface IStorage {
   getPendingChange(id: number): Promise<PendingChange | undefined>;
   createPendingChange(change: InsertPendingChange): Promise<PendingChange>;
   updatePendingChangeStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<PendingChange>;
+
+  // Pastry Totals
+  getPastryTotals(date: string): Promise<PastryTotal[]>;
+  createPastryTotal(total: InsertPastryTotal): Promise<PastryTotal>;
+  updatePastryTotal(id: number, updates: Partial<InsertPastryTotal>): Promise<PastryTotal>;
+  deletePastryTotal(id: number): Promise<boolean>;
+
+  // Shaping Logs
+  getShapingLogs(date: string): Promise<ShapingLog[]>;
+  createShapingLog(log: InsertShapingLog): Promise<ShapingLog>;
+  deleteShapingLog(id: number): Promise<boolean>;
+
+  // Bake-off Logs
+  getBakeoffLogs(date: string): Promise<BakeoffLog[]>;
+  createBakeoffLog(log: InsertBakeoffLog): Promise<BakeoffLog>;
+  deleteBakeoffLog(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -214,6 +234,55 @@ export class DatabaseStorage implements IStorage {
       .where(eq(pendingChanges.id, id))
       .returning();
     return updated;
+  }
+  // Pastry Totals
+  async getPastryTotals(date: string): Promise<PastryTotal[]> {
+    return await db.select().from(pastryTotals).where(eq(pastryTotals.date, date)).orderBy(pastryTotals.itemName);
+  }
+
+  async createPastryTotal(insertTotal: InsertPastryTotal): Promise<PastryTotal> {
+    const [total] = await db.insert(pastryTotals).values(insertTotal).returning();
+    return total;
+  }
+
+  async updatePastryTotal(id: number, updates: Partial<InsertPastryTotal>): Promise<PastryTotal> {
+    const [updated] = await db.update(pastryTotals).set(updates).where(eq(pastryTotals.id, id)).returning();
+    return updated;
+  }
+
+  async deletePastryTotal(id: number): Promise<boolean> {
+    const result = await db.delete(pastryTotals).where(eq(pastryTotals.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Shaping Logs
+  async getShapingLogs(date: string): Promise<ShapingLog[]> {
+    return await db.select().from(shapingLogs).where(eq(shapingLogs.date, date)).orderBy(desc(shapingLogs.createdAt));
+  }
+
+  async createShapingLog(insertLog: InsertShapingLog): Promise<ShapingLog> {
+    const [log] = await db.insert(shapingLogs).values(insertLog).returning();
+    return log;
+  }
+
+  async deleteShapingLog(id: number): Promise<boolean> {
+    const result = await db.delete(shapingLogs).where(eq(shapingLogs.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Bake-off Logs
+  async getBakeoffLogs(date: string): Promise<BakeoffLog[]> {
+    return await db.select().from(bakeoffLogs).where(eq(bakeoffLogs.date, date)).orderBy(desc(bakeoffLogs.createdAt));
+  }
+
+  async createBakeoffLog(insertLog: InsertBakeoffLog): Promise<BakeoffLog> {
+    const [log] = await db.insert(bakeoffLogs).values(insertLog).returning();
+    return log;
+  }
+
+  async deleteBakeoffLog(id: number): Promise<boolean> {
+    const result = await db.delete(bakeoffLogs).where(eq(bakeoffLogs.id, id)).returning();
+    return result.length > 0;
   }
 }
 
