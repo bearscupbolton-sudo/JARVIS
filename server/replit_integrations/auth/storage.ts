@@ -5,6 +5,10 @@ import { eq, like } from "drizzle-orm";
 export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  getAllUsers(): Promise<User[]>;
+  updateUserRole(id: string, role: string): Promise<User>;
+  updateUserLocked(id: string, locked: boolean): Promise<User>;
+  deleteUser(id: string): Promise<void>;
 }
 
 function generateBaseUsername(firstName?: string | null, lastName?: string | null): string {
@@ -42,20 +46,28 @@ class AuthStorage implements IAuthStorage {
     return `${baseUsername}${counter}`;
   }
 
+  private async isFirstUser(): Promise<boolean> {
+    const allUsers = await db.select({ id: users.id }).from(users);
+    return allUsers.length === 0;
+  }
+
   async upsertUser(userData: UpsertUser): Promise<User> {
     const existingUser = userData.id ? await this.getUser(userData.id) : undefined;
 
     if (!existingUser) {
       const baseUsername = generateBaseUsername(userData.firstName, userData.lastName);
       const username = await this.generateUniqueUsername(baseUsername, userData.id!);
+      const isFirst = await this.isFirstUser();
+      const role = isFirst ? "owner" : "member";
       const [user] = await db
         .insert(users)
-        .values({ ...userData, username })
+        .values({ ...userData, username, role })
         .onConflictDoUpdate({
           target: users.id,
           set: {
             ...userData,
             username,
+            role,
             updatedAt: new Date(),
           },
         })
@@ -75,7 +87,7 @@ class AuthStorage implements IAuthStorage {
 
     const [user] = await db
       .insert(users)
-      .values({ ...userData, username })
+      .values({ ...userData, username, role: existingUser.role, locked: existingUser.locked })
       .onConflictDoUpdate({
         target: users.id,
         set: {
@@ -86,6 +98,24 @@ class AuthStorage implements IAuthStorage {
       })
       .returning();
     return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(users.createdAt);
+  }
+
+  async updateUserRole(id: string, role: string): Promise<User> {
+    const [user] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+    return user;
+  }
+
+  async updateUserLocked(id: string, locked: boolean): Promise<User> {
+    const [user] = await db.update(users).set({ locked, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+    return user;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 }
 

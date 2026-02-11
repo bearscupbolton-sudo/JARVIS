@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useSOPs, useCreateSOP, useDeleteSOP } from "@/hooks/use-sops";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 export default function SOPs() {
   const { data: sops, isLoading } = useSOPs();
+  const { user } = useAuth();
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -27,6 +30,12 @@ export default function SOPs() {
         </div>
         <CreateSOPDialog />
       </div>
+
+      {user?.locked && (
+        <div className="bg-muted border border-border rounded-lg p-3 text-sm text-muted-foreground">
+          Your account is read-only. You can view SOPs but cannot make changes.
+        </div>
+      )}
 
       <div className="grid gap-6">
         {isLoading ? (
@@ -44,6 +53,7 @@ export default function SOPs() {
 function SOPCard({ sop }: { sop: any }) {
   const [isOpen, setIsOpen] = useState(false);
   const { mutate: deleteSOP } = useDeleteSOP();
+  const { user } = useAuth();
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -71,16 +81,19 @@ function SOPCard({ sop }: { sop: any }) {
             <div className="prose prose-sm prose-slate max-w-none py-6">
               <ReactMarkdown>{sop.content}</ReactMarkdown>
             </div>
-            <div className="flex justify-end pt-4 border-t border-border/50">
-               <Button 
-                 variant="ghost" 
-                 size="sm" 
-                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                 onClick={() => deleteSOP(sop.id)}
-               >
-                 <Trash2 className="w-4 h-4 mr-2" /> Delete SOP
-               </Button>
-            </div>
+            {user?.role === "owner" && (
+              <div className="flex justify-end pt-4 border-t border-border/50">
+                 <Button 
+                   variant="ghost" 
+                   size="sm" 
+                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                   onClick={() => deleteSOP(sop.id)}
+                   data-testid={`button-delete-sop-${sop.id}`}
+                 >
+                   <Trash2 className="w-4 h-4 mr-2" /> Delete SOP
+                 </Button>
+              </div>
+            )}
           </div>
         </CollapsibleContent>
       </Card>
@@ -91,6 +104,8 @@ function SOPCard({ sop }: { sop: any }) {
 function CreateSOPDialog() {
   const [open, setOpen] = useState(false);
   const { mutate, isPending } = useCreateSOP();
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   const form = useForm<InsertSOP>({
     resolver: zodResolver(insertSopSchema),
@@ -103,17 +118,24 @@ function CreateSOPDialog() {
 
   const onSubmit = (data: InsertSOP) => {
     mutate(data, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         setOpen(false);
         form.reset();
+        if (result.pending) {
+          toast({ title: "Submitted for approval", description: "Your SOP will be reviewed by the owner before it goes live." });
+        } else {
+          toast({ title: "SOP created" });
+        }
       }
     });
   };
 
+  if (user?.locked) return null;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="shadow-lg shadow-primary/20">
+        <Button className="shadow-lg shadow-primary/20" data-testid="button-create-sop">
           <Plus className="w-4 h-4 mr-2" /> New SOP
         </Button>
       </DialogTrigger>

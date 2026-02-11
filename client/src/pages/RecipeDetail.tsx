@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useRecipe, useDeleteRecipe } from "@/hooks/use-recipes";
+import { useAuth } from "@/hooks/use-auth";
 import { useRoute, Link, useLocation } from "wouter";
 import { RecipeScaler } from "@/components/RecipeScaler";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export default function RecipeDetail() {
   const id = parseInt(params?.id || "0");
   const { data: recipe, isLoading } = useRecipe(id);
   const { mutate: deleteRecipe } = useDeleteRecipe();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
   const printRef = useRef<HTMLDivElement>(null);
@@ -174,28 +176,32 @@ export default function RecipeDetail() {
           <Button variant="default" className="gap-2" onClick={handlePrint} data-testid="button-print-recipe">
             <Printer className="w-4 h-4" /> Print / Export
           </Button>
-          <Button variant="outline" size="sm" className="gap-2" disabled>
-            <Edit2 className="w-4 h-4" /> Edit
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm" className="gap-2" data-testid="button-delete-recipe">
-                <Trash2 className="w-4 h-4" /> Delete
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete the recipe "{recipe.title}".
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {!user?.locked && (
+            <Button variant="outline" size="sm" className="gap-2" disabled>
+              <Edit2 className="w-4 h-4" /> Edit
+            </Button>
+          )}
+          {user?.role === "owner" && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" className="gap-2" data-testid="button-delete-recipe">
+                  <Trash2 className="w-4 h-4" /> Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the recipe "{recipe.title}".
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 

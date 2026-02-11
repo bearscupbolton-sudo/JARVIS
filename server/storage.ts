@@ -1,11 +1,12 @@
 import {
-  recipes, productionLogs, sops, problems, events, announcements,
+  recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
   type Problem, type InsertProblem,
   type CalendarEvent, type InsertEvent,
-  type Announcement, type InsertAnnouncement
+  type Announcement, type InsertAnnouncement,
+  type PendingChange, type InsertPendingChange
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and } from "drizzle-orm";
@@ -46,6 +47,12 @@ export interface IStorage {
   createAnnouncement(announcement: InsertAnnouncement): Promise<Announcement>;
   updateAnnouncement(id: number, updates: Partial<InsertAnnouncement>): Promise<Announcement>;
   deleteAnnouncement(id: number): Promise<void>;
+
+  // Pending Changes
+  getPendingChanges(status?: string): Promise<PendingChange[]>;
+  getPendingChange(id: number): Promise<PendingChange | undefined>;
+  createPendingChange(change: InsertPendingChange): Promise<PendingChange>;
+  updatePendingChangeStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<PendingChange>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -183,6 +190,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAnnouncement(id: number): Promise<void> {
     await db.delete(announcements).where(eq(announcements.id, id));
+  }
+
+  // Pending Changes
+  async getPendingChanges(status = "pending"): Promise<PendingChange[]> {
+    return await db.select().from(pendingChanges).where(eq(pendingChanges.status, status)).orderBy(desc(pendingChanges.createdAt));
+  }
+
+  async getPendingChange(id: number): Promise<PendingChange | undefined> {
+    const [change] = await db.select().from(pendingChanges).where(eq(pendingChanges.id, id));
+    return change;
+  }
+
+  async createPendingChange(change: InsertPendingChange): Promise<PendingChange> {
+    const [pc] = await db.insert(pendingChanges).values(change).returning();
+    return pc;
+  }
+
+  async updatePendingChangeStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<PendingChange> {
+    const [updated] = await db
+      .update(pendingChanges)
+      .set({ status, reviewedBy, reviewNote: reviewNote || null, reviewedAt: new Date() })
+      .where(eq(pendingChanges.id, id))
+      .returning();
+    return updated;
   }
 }
 

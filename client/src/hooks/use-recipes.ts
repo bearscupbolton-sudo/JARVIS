@@ -37,11 +37,16 @@ export function useCreateRecipe() {
         body: JSON.stringify(data),
         credentials: "include",
       });
+      if (res.status === 202) {
+        return { pending: true, ...(await res.json()) };
+      }
       if (!res.ok) throw new Error("Failed to create recipe");
-      return api.recipes.create.responses[201].parse(await res.json());
+      return { pending: false, ...(await res.json()) };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
+    onSuccess: (result) => {
+      if (!result.pending) {
+        queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
+      }
     },
   });
 }
@@ -57,12 +62,17 @@ export function useUpdateRecipe() {
         body: JSON.stringify(updates),
         credentials: "include",
       });
+      if (res.status === 202) {
+        return { pending: true, ...(await res.json()) };
+      }
       if (!res.ok) throw new Error("Failed to update recipe");
-      return api.recipes.update.responses[200].parse(await res.json());
+      return { pending: false, ...(await res.json()) };
     },
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.recipes.get.path, id] });
+    onSuccess: (result, { id }) => {
+      if (!result.pending) {
+        queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
+        queryClient.invalidateQueries({ queryKey: [api.recipes.get.path, id] });
+      }
     },
   });
 }

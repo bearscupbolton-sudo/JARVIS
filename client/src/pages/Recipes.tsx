@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export default function Recipes() {
   const { data: recipes, isLoading } = useRecipes();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
@@ -42,6 +45,12 @@ export default function Recipes() {
         </div>
         <CreateRecipeDialog />
       </div>
+
+      {user?.locked && (
+        <div className="bg-muted border border-border rounded-lg p-3 text-sm text-muted-foreground">
+          Your account is read-only. You can view recipes but cannot make changes.
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border border-border shadow-sm">
         <div className="relative w-full sm:w-72">
@@ -120,6 +129,8 @@ export default function Recipes() {
 function CreateRecipeDialog() {
   const [open, setOpen] = useState(false);
   const { mutate, isPending } = useCreateRecipe();
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   const form = useForm<InsertRecipe>({
     resolver: zodResolver(insertRecipeSchema),
@@ -144,11 +155,18 @@ function CreateRecipeDialog() {
     name: "instructions" as any
   });
 
+  if (user?.locked) return null;
+
   const onSubmit = (data: InsertRecipe) => {
     mutate(data, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         setOpen(false);
         form.reset();
+        if (result.pending) {
+          toast({ title: "Submitted for approval", description: "Your recipe will be reviewed by the owner before it goes live." });
+        } else {
+          toast({ title: "Recipe created" });
+        }
       }
     });
   };

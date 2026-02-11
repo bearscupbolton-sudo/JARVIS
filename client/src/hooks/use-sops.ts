@@ -36,11 +36,16 @@ export function useCreateSOP() {
         body: JSON.stringify(data),
         credentials: "include",
       });
+      if (res.status === 202) {
+        return { pending: true, ...(await res.json()) };
+      }
       if (!res.ok) throw new Error("Failed to create SOP");
-      return api.sops.create.responses[201].parse(await res.json());
+      return { pending: false, ...(await res.json()) };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.sops.list.path] });
+    onSuccess: (result) => {
+      if (!result.pending) {
+        queryClient.invalidateQueries({ queryKey: [api.sops.list.path] });
+      }
     },
   });
 }
@@ -56,12 +61,17 @@ export function useUpdateSOP() {
         body: JSON.stringify(updates),
         credentials: "include",
       });
+      if (res.status === 202) {
+        return { pending: true, ...(await res.json()) };
+      }
       if (!res.ok) throw new Error("Failed to update SOP");
-      return api.sops.update.responses[200].parse(await res.json());
+      return { pending: false, ...(await res.json()) };
     },
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: [api.sops.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.sops.get.path, id] });
+    onSuccess: (result, { id }) => {
+      if (!result.pending) {
+        queryClient.invalidateQueries({ queryKey: [api.sops.list.path] });
+        queryClient.invalidateQueries({ queryKey: [api.sops.get.path, id] });
+      }
     },
   });
 }

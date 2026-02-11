@@ -14,6 +14,8 @@ import RecipeDetail from "@/pages/RecipeDetail";
 import Production from "@/pages/Production";
 import SOPs from "@/pages/SOPs";
 import Assistant from "@/pages/Assistant";
+import AdminUsers from "@/pages/AdminUsers";
+import AdminApprovals from "@/pages/AdminApprovals";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -73,6 +75,12 @@ function Router() {
       </Route>
       <Route path="/assistant">
         {() => <ProtectedRoute component={Assistant} />}
+      </Route>
+      <Route path="/admin/users">
+        {() => <ProtectedRoute component={AdminUsers} />}
+      </Route>
+      <Route path="/admin/approvals">
+        {() => <ProtectedRoute component={AdminApprovals} />}
       </Route>
 
       <Route component={NotFound} />
