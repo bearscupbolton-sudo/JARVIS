@@ -88,6 +88,7 @@ Located in `server/replit_integrations/`:
 
 ### Optional AI Services
 - **OpenAI-compatible API** (via Replit AI Integrations): Powers the Jarvis assistant chat, voice features, and image generation. Requires `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL`
+- **Jarvis Context**: On each chat message, the system prompt is dynamically built by fetching all recipes (with ingredients, instructions, baker's percentages) and all SOPs from the database. This makes Jarvis aware of the bakery's actual data and able to answer questions about specific recipes and procedures.
 
 ### Key NPM Packages
 - `drizzle-orm` / `drizzle-kit` / `drizzle-zod` — Database ORM and schema management

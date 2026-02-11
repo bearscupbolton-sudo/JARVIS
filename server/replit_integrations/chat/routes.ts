@@ -1,23 +1,68 @@
 import type { Express, Request, Response } from "express";
 import OpenAI from "openai";
 import { chatStorage } from "./storage";
+import { storage } from "../../storage";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
-const SYSTEM_PROMPT = `You are Jarvis, a knowledgeable bakery assistant for Bear's Cup Bakehouse. You specialize in:
-- Baker's math and percentages (flour-based calculations)
-- Recipe scaling and conversions (metric/imperial, volume to weight)
-- Ingredient substitutions and their effects on texture/flavor
-- Fermentation science (sourdough, yeast, proofing times and temperatures)
-- Laminated dough techniques (croissants, danish, puff pastry)
-- Troubleshooting baking issues (dense crumb, poor oven spring, etc.)
-- Food safety and shelf life
-- Production scheduling and workflow optimization
+const BASE_SYSTEM_PROMPT = `You are Jarvis, the in-house AI assistant for Bear's Cup Bakehouse. You have direct access to the bakery's own recipes and Standard Operating Procedures (SOPs). Always refer to this data when answering questions — it is the source of truth for how this bakery operates.
 
-Keep answers practical and concise. Use baker's terminology when appropriate. If asked about non-baking topics, you can help but gently steer toward your bakery expertise.`;
+Your capabilities:
+- Answer questions about the bakery's recipes, ingredients, baker's percentages, and procedures
+- Help with recipe scaling and conversions based on the actual recipes in the system
+- Advise on ingredient substitutions and their effects
+- Explain SOPs and help the team follow proper procedures
+- Assist with fermentation, lamination, troubleshooting, food safety, and production scheduling
+- General baking knowledge when the question goes beyond what's in the system
+
+Keep answers practical and concise. Use baker's terminology when appropriate. When referencing a recipe or SOP from the system, mention it by name so the team knows exactly what you're referring to. If asked about something not covered by the bakery's data, you can still help with general baking knowledge but note that it's not from the bakery's own records.`;
+
+async function buildSystemPrompt(): Promise<string> {
+  let context = BASE_SYSTEM_PROMPT;
+
+  try {
+    const recipes = await storage.getRecipes();
+    if (recipes.length > 0) {
+      context += "\n\n=== BAKERY RECIPES ===\n";
+      for (const recipe of recipes) {
+        const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+        const instructions = Array.isArray(recipe.instructions) ? recipe.instructions : [];
+        context += `\n--- ${recipe.title} (${recipe.category}) ---\n`;
+        if (recipe.description) context += `Description: ${recipe.description}\n`;
+        context += `Yield: ${recipe.yieldAmount} ${recipe.yieldUnit}\n`;
+        if (ingredients.length > 0) {
+          context += "Ingredients:\n";
+          for (const ing of ingredients as any[]) {
+            const bp = ing.bakersPercentage ? ` (${ing.bakersPercentage}%)` : "";
+            context += `  - ${ing.name}: ${ing.quantity} ${ing.unit}${bp}\n`;
+          }
+        }
+        if (instructions.length > 0) {
+          context += "Instructions:\n";
+          for (const inst of instructions as any[]) {
+            context += `  ${inst.step}. ${inst.text}\n`;
+          }
+        }
+      }
+    }
+
+    const allSOPs = await storage.getSOPs();
+    if (allSOPs.length > 0) {
+      context += "\n\n=== STANDARD OPERATING PROCEDURES ===\n";
+      for (const sop of allSOPs) {
+        context += `\n--- ${sop.title} (${sop.category}) ---\n`;
+        context += sop.content + "\n";
+      }
+    }
+  } catch (error) {
+    console.error("Error loading bakery data for Jarvis context:", error);
+  }
+
+  return context;
+}
 
 export function registerChatRoutes(app: Express): void {
   app.get("/api/conversations", async (_req: Request, res: Response) => {
@@ -75,8 +120,9 @@ export function registerChatRoutes(app: Express): void {
       await chatStorage.createMessage(conversationId, "user", content);
 
       const messages = await chatStorage.getMessagesByConversation(conversationId);
+      const systemPrompt = await buildSystemPrompt();
       const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         ...messages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
