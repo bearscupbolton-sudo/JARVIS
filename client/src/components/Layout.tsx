@@ -8,7 +8,6 @@ import {
   Bot, 
   LogOut, 
   Menu,
-  X,
   Users,
   ShieldCheck,
   UserCircle,
@@ -20,8 +19,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -159,12 +157,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile Sidebar */}
-      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="p-0 w-64 border-r border-border">
-            <NavContent />
-          </SheetContent>
-        </Sheet>
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="p-0 w-64 border-r border-border">
+          <NavContent />
+        </SheetContent>
 
         {/* Main Content */}
         <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
@@ -174,18 +170,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
             </div>
-            <SheetTrigger asChild onClick={() => setMobileOpen(true)}>
-              <Button variant="ghost" size="icon">
-                <Menu className="w-6 h-6" />
-              </Button>
-            </SheetTrigger>
+            <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} data-testid="button-mobile-menu">
+              <Menu className="w-6 h-6" />
+            </Button>
           </header>
 
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
             {children}
           </div>
         </main>
-      </Dialog>
+      </Sheet>
     </div>
   );
 }
