@@ -88,6 +88,27 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/auth/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { username } = req.body;
+      if (!username || typeof username !== "string" || username.trim().length < 2) {
+        return res.status(400).json({ message: "Username must be at least 2 characters" });
+      }
+      if (username.trim().length > 30) {
+        return res.status(400).json({ message: "Username must be 30 characters or less" });
+      }
+      const user = await authStorage.updateUsername(userId, username.trim());
+      res.json(user);
+    } catch (error: any) {
+      if (error.message === "Username already taken") {
+        return res.status(409).json({ message: "That display name is already in use" });
+      }
+      console.error("Error updating profile:", error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   app.delete("/api/admin/users/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const targetId = req.params.id;

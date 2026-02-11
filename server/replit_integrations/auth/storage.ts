@@ -8,6 +8,7 @@ export interface IAuthStorage {
   getAllUsers(): Promise<User[]>;
   updateUserRole(id: string, role: string): Promise<User>;
   updateUserLocked(id: string, locked: boolean): Promise<User>;
+  updateUsername(id: string, username: string): Promise<User>;
   deleteUser(id: string): Promise<void>;
 }
 
@@ -111,6 +112,23 @@ class AuthStorage implements IAuthStorage {
 
   async updateUserLocked(id: string, locked: boolean): Promise<User> {
     const [user] = await db.update(users).set({ locked, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+    return user;
+  }
+
+  async updateUsername(id: string, username: string): Promise<User> {
+    const existing = await db
+      .select({ username: users.username, id: users.id })
+      .from(users)
+      .where(eq(users.username, username));
+    const conflict = existing.find((u) => u.id !== id);
+    if (conflict) {
+      throw new Error("Username already taken");
+    }
+    const [user] = await db
+      .update(users)
+      .set({ username, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
     return user;
   }
 

@@ -10,7 +10,8 @@ import {
   Menu,
   X,
   Users,
-  ShieldCheck
+  ShieldCheck,
+  UserCircle
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
@@ -115,20 +116,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </nav>
 
       <div className="p-4 border-t border-border mt-auto">
-        <div className="bg-muted/50 rounded-lg p-4 mb-4">
-          <p className="text-sm font-semibold truncate" data-testid="text-sidebar-username">{user?.username || user?.firstName || user?.email}</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-xs text-muted-foreground" data-testid="text-sidebar-role">
-              {user?.role === "owner" ? "Owner" : "Team Member"}
-            </p>
-            {user?.locked && (
-              <Badge variant="outline" className="text-[10px]">Read Only</Badge>
-            )}
+        <Link href="/profile">
+          <div className="bg-muted/50 rounded-lg p-4 mb-4 cursor-pointer hover-elevate" onClick={() => setMobileOpen(false)} data-testid="link-profile">
+            <div className="flex items-center gap-2">
+              <UserCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+              <p className="text-sm font-semibold truncate" data-testid="text-sidebar-username">{user?.username || user?.firstName || user?.email}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap mt-1 pl-6">
+              <p className="text-xs text-muted-foreground" data-testid="text-sidebar-role">
+                {user?.role === "owner" ? "Owner" : "Team Member"}
+              </p>
+              {user?.locked && (
+                <Badge variant="outline" className="text-[10px]">Read Only</Badge>
+              )}
+            </div>
           </div>
-        </div>
+        </Link>
         <Button 
-          variant="outline" 
-          className="w-full justify-start gap-2 border-destructive/20 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
+          variant="destructive" 
+          className="w-full justify-start gap-2"
           onClick={() => logout()}
           data-testid="button-logout"
         >

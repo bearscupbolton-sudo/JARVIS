@@ -16,6 +16,7 @@ import SOPs from "@/pages/SOPs";
 import Assistant from "@/pages/Assistant";
 import AdminUsers from "@/pages/AdminUsers";
 import AdminApprovals from "@/pages/AdminApprovals";
+import Profile from "@/pages/Profile";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -81,6 +82,9 @@ function Router() {
       </Route>
       <Route path="/admin/approvals">
         {() => <ProtectedRoute component={AdminApprovals} />}
+      </Route>
+      <Route path="/profile">
+        {() => <ProtectedRoute component={Profile} />}
       </Route>
 
       <Route component={NotFound} />
