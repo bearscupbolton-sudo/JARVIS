@@ -105,9 +105,9 @@ export default function Dashboard() {
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
 
-  const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.firstName || "", notes: "" });
+  const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
   const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event" });
-  const [announcementForm, setAnnouncementForm] = useState({ title: "", content: "", authorName: user?.firstName || "", pinned: false });
+  const [announcementForm, setAnnouncementForm] = useState({ title: "", content: "", authorName: user?.username || user?.firstName || "", pinned: false });
 
   const quote = useMemo(() => getDailyQuote(), []);
 
@@ -151,7 +151,7 @@ export default function Dashboard() {
       notes: problemForm.notes || null,
       completed: false,
     });
-    setProblemForm({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.firstName || "", notes: "" });
+    setProblemForm({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
     setShowProblemForm(false);
   }
 
@@ -175,7 +175,7 @@ export default function Dashboard() {
       authorName: announcementForm.authorName || null,
       pinned: announcementForm.pinned,
     });
-    setAnnouncementForm({ title: "", content: "", authorName: user?.firstName || "", pinned: false });
+    setAnnouncementForm({ title: "", content: "", authorName: user?.username || user?.firstName || "", pinned: false });
     setShowAnnouncementForm(false);
   }
 
@@ -184,7 +184,7 @@ export default function Dashboard() {
       {/* Welcome Header */}
       <div className="flex flex-col gap-1" data-testid="container-welcome">
         <h1 className="text-3xl font-display font-bold" data-testid="text-greeting">
-          {greeting}, {user?.firstName || "Baker"}
+          {greeting}, {user?.username || user?.firstName || "Baker"}
         </h1>
         <p className="text-muted-foreground font-mono text-sm" data-testid="text-date">{format(new Date(), "EEEE, MMMM do, yyyy")}</p>
       </div>

@@ -67,7 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       <div className="p-4 border-t border-border mt-auto">
         <div className="bg-muted/50 rounded-lg p-4 mb-4">
-          <p className="text-sm font-semibold truncate">{user?.firstName || user?.email}</p>
+          <p className="text-sm font-semibold truncate">{user?.username || user?.firstName || user?.email}</p>
           <p className="text-xs text-muted-foreground">Baker</p>
         </div>
         <Button 
