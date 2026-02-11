@@ -106,6 +106,26 @@ export const insertAnnouncementSchema = createInsertSchema(announcements).omit({
 export type Announcement = typeof announcements.$inferSelect;
 export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
 
+// === PENDING CHANGES (Approval Workflow) ===
+export const pendingChanges = pgTable("pending_changes", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  action: text("action").notNull(),
+  entityId: integer("entity_id"),
+  payload: jsonb("payload").notNull(),
+  submittedBy: text("submitted_by").notNull(),
+  submittedByUsername: text("submitted_by_username"),
+  status: text("status").default("pending").notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+
+export const insertPendingChangeSchema = createInsertSchema(pendingChanges).omit({ id: true, createdAt: true, reviewedAt: true });
+export type PendingChange = typeof pendingChanges.$inferSelect;
+export type InsertPendingChange = z.infer<typeof insertPendingChangeSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
