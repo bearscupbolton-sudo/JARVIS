@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, recipes, productionLogs, sops } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, recipes, productionLogs, sops, problems, events, announcements } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -119,6 +119,99 @@ export const api = {
         204: z.void(),
         404: errorSchemas.notFound,
       },
+    },
+  },
+  problems: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/problems' as const,
+      responses: {
+        200: z.array(z.custom<typeof problems.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/problems' as const,
+      input: insertProblemSchema,
+      responses: {
+        201: z.custom<typeof problems.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/problems/:id' as const,
+      input: insertProblemSchema.partial(),
+      responses: {
+        200: z.custom<typeof problems.$inferSelect>(),
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/problems/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  events: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/events' as const,
+      responses: {
+        200: z.array(z.custom<typeof events.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/events' as const,
+      input: insertEventSchema,
+      responses: {
+        201: z.custom<typeof events.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/events/:id' as const,
+      input: insertEventSchema.partial(),
+      responses: {
+        200: z.custom<typeof events.$inferSelect>(),
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/events/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  announcements: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/announcements' as const,
+      responses: {
+        200: z.array(z.custom<typeof announcements.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/announcements' as const,
+      input: insertAnnouncementSchema,
+      responses: {
+        201: z.custom<typeof announcements.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/announcements/:id' as const,
+      input: insertAnnouncementSchema.partial(),
+      responses: {
+        200: z.custom<typeof announcements.$inferSelect>(),
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/announcements/:id' as const,
+      responses: { 204: z.void() },
     },
   },
 };

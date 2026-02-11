@@ -141,5 +141,118 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // Problems
+  app.get(api.problems.list.path, async (req, res) => {
+    const includeCompleted = req.query.includeCompleted === "true";
+    const problems = await storage.getProblems(includeCompleted);
+    res.json(problems);
+  });
+
+  app.post(api.problems.create.path, async (req, res) => {
+    try {
+      const input = api.problems.create.input.parse(req.body);
+      const problem = await storage.createProblem(input);
+      res.status(201).json(problem);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.problems.update.path, async (req, res) => {
+    try {
+      const input = api.problems.update.input.parse(req.body);
+      const problem = await storage.updateProblem(Number(req.params.id), input);
+      res.json(problem);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      res.status(404).json({ message: 'Problem not found' });
+    }
+  });
+
+  app.delete(api.problems.delete.path, async (req, res) => {
+    await storage.deleteProblem(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // Events
+  app.get(api.events.list.path, async (req, res) => {
+    const days = req.query.days ? Number(req.query.days) : 5;
+    const events = await storage.getUpcomingEvents(days);
+    res.json(events);
+  });
+
+  app.post(api.events.create.path, async (req, res) => {
+    try {
+      const input = api.events.create.input.parse(req.body);
+      const event = await storage.createEvent(input);
+      res.status(201).json(event);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.events.update.path, async (req, res) => {
+    try {
+      const input = api.events.update.input.parse(req.body);
+      const event = await storage.updateEvent(Number(req.params.id), input);
+      res.json(event);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      res.status(404).json({ message: 'Event not found' });
+    }
+  });
+
+  app.delete(api.events.delete.path, async (req, res) => {
+    await storage.deleteEvent(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // Announcements
+  app.get(api.announcements.list.path, async (req, res) => {
+    const announcements = await storage.getAnnouncements();
+    res.json(announcements);
+  });
+
+  app.post(api.announcements.create.path, async (req, res) => {
+    try {
+      const input = api.announcements.create.input.parse(req.body);
+      const announcement = await storage.createAnnouncement(input);
+      res.status(201).json(announcement);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.announcements.update.path, async (req, res) => {
+    try {
+      const input = api.announcements.update.input.parse(req.body);
+      const announcement = await storage.updateAnnouncement(Number(req.params.id), input);
+      res.json(announcement);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      res.status(404).json({ message: 'Announcement not found' });
+    }
+  });
+
+  app.delete(api.announcements.delete.path, async (req, res) => {
+    await storage.deleteAnnouncement(Number(req.params.id));
+    res.status(204).send();
+  });
+
   return httpServer;
 }

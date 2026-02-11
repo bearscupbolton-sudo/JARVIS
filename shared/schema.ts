@@ -61,6 +61,51 @@ export const sops = pgTable("sops", {
 
 export const insertSopSchema = createInsertSchema(sops).omit({ id: true, createdAt: true, updatedAt: true });
 
+// === PROBLEMS ===
+export const problems = pgTable("problems", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  severity: text("severity").notNull(), // "critical", "high", "medium", "low"
+  location: text("location"), // e.g., "Oven 2", "Walk-in cooler", "Front display"
+  reportedBy: text("reported_by"),
+  notes: text("notes"),
+  completed: boolean("completed").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertProblemSchema = createInsertSchema(problems).omit({ id: true, createdAt: true });
+export type Problem = typeof problems.$inferSelect;
+export type InsertProblem = z.infer<typeof insertProblemSchema>;
+
+// === EVENTS (Forward 5 Look) ===
+export const events = pgTable("events", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  date: timestamp("date").notNull(),
+  eventType: text("event_type").notNull(), // "meeting", "delivery", "deadline", "event", "schedule"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEventSchema = createInsertSchema(events).omit({ id: true, createdAt: true });
+export type CalendarEvent = typeof events.$inferSelect;
+export type InsertEvent = z.infer<typeof insertEventSchema>;
+
+// === ANNOUNCEMENTS (Message Board) ===
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  authorName: text("author_name"),
+  pinned: boolean("pinned").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAnnouncementSchema = createInsertSchema(announcements).omit({ id: true, createdAt: true });
+export type Announcement = typeof announcements.$inferSelect;
+export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
