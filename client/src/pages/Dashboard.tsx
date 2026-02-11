@@ -18,50 +18,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertTriangle, Calendar, ChefHat, ClipboardList, Plus,
-  Quote, Megaphone, ArrowRight, CheckCircle2, Trash2,
+  Megaphone, ArrowRight, CheckCircle2, Trash2,
   MapPin, Clock, TrendingUp, Sparkles, Eye, EyeOff
 } from "lucide-react";
 import { format, addDays, isSameDay, isToday, isTomorrow } from "date-fns";
 import type { Problem, CalendarEvent, Announcement } from "@shared/schema";
-
-const QUOTES = [
-  { text: "I raise up my voice — not so I can shout, but so that those without a voice can be heard.", author: "Malala Yousafzai" },
-  { text: "You may not control all the events that happen to you, but you can decide not to be reduced by them.", author: "Maya Angelou" },
-  { text: "I have learned over the years that when one's mind is made up, this diminishes fear.", author: "Rosa Parks" },
-  { text: "The most common way people give up their power is by thinking they don't have any.", author: "Alice Walker" },
-  { text: "We realize the importance of our voices only when we are silenced.", author: "Malala Yousafzai" },
-  { text: "Life is not measured by the number of breaths we take, but by the moments that take our breath away.", author: "Maya Angelou" },
-  { text: "I am not free while any woman is unfree, even when her chains are very different from my own.", author: "Audre Lorde" },
-  { text: "Think like a queen. A queen is not afraid to fail. Failure is another stepping stone to greatness.", author: "Oprah Winfrey" },
-  { text: "You don't make progress by standing on the sidelines, whimpering and complaining. You make progress by implementing ideas.", author: "Shirley Chisholm" },
-  { text: "The question isn't who is going to let me; it's who is going to stop me.", author: "Ayn Rand" },
-  { text: "I never dreamed about success. I worked for it.", author: "Estee Lauder" },
-  { text: "Do not wait for leaders; do it alone, person to person.", author: "Mother Teresa" },
-  { text: "We need to reshape our own perception of how we view ourselves.", author: "Beyonce" },
-  { text: "You can't use up creativity. The more you use, the more you have.", author: "Maya Angelou" },
-  { text: "Life shrinks or expands in proportion to one's courage.", author: "Anais Nin" },
-  { text: "You are the one that possesses the keys to your being.", author: "Celia Cruz" },
-  { text: "I was smart enough to go through any door that opened.", author: "Joan Rivers" },
-  { text: "Nothing is impossible, the word itself says 'I'm possible'!", author: "Audrey Hepburn" },
-  { text: "A woman with a voice is, by definition, a strong woman.", author: "Melinda Gates" },
-  { text: "Success is liking yourself, liking what you do, and liking how you do it.", author: "Maya Angelou" },
-  { text: "You proof that you knead to rise? Just loaf at what we've built.", author: "Jarvis" },
-  { text: "Life is what you bake of it. So preheat and get going.", author: "Jarvis" },
-  { text: "Don't be afraid to take whisks. That's how the best pastries are born.", author: "Jarvis" },
-  { text: "When life gives you lemons, make lemon curd. It's more useful.", author: "Jarvis" },
-  { text: "Stay positive and keep rolling. The dough doesn't shape itself.", author: "Jarvis" },
-  { text: "A balanced diet is a croissant in each hand.", author: "Jarvis" },
-  { text: "Flour power is the only kind of power we knead.", author: "Jarvis" },
-  { text: "We're on a roll today — and I'm not just talking about the brioche.", author: "Jarvis" },
-  { text: "Every batch is a fresh start. Yesterday's burnt loaves don't define today.", author: "Jarvis" },
-  { text: "The secret ingredient is always showing up. And butter. Lots of butter.", author: "Jarvis" },
-];
-
-function getDailyQuote() {
-  const now = new Date();
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
-  return QUOTES[dayOfYear % QUOTES.length];
-}
 
 const SEVERITY_CONFIG: Record<string, { color: string; label: string }> = {
   critical: { color: "destructive", label: "Critical" },
@@ -109,7 +70,6 @@ export default function Dashboard() {
   const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event" });
   const [announcementForm, setAnnouncementForm] = useState({ title: "", content: "", authorName: user?.username || user?.firstName || "", pinned: false });
 
-  const quote = useMemo(() => getDailyQuote(), []);
 
   const today = new Date().toDateString();
   const todayYield = logs?.filter((log: any) => new Date(log.date).toDateString() === today)
@@ -237,20 +197,6 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Daily Quote */}
-      <Card data-testid="container-daily-quote">
-        <CardContent className="p-5 flex items-start gap-4">
-          <div className="w-10 h-10 rounded-md bg-accent/10 flex-shrink-0 flex items-center justify-center">
-            {quote.author === "Jarvis" ? <Sparkles className="w-5 h-5 text-accent" /> : <Quote className="w-5 h-5 text-accent" />}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm italic leading-relaxed" data-testid="text-quote">"{quote.text}"</p>
-            <p className="text-xs text-muted-foreground mt-2 font-medium" data-testid="text-quote-author">
-              {quote.author === "Jarvis" ? "Jarvis, your friendly bakery AI" : `- ${quote.author}`}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Problems That Need Attention */}
