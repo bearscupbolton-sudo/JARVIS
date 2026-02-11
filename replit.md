@@ -55,6 +55,9 @@ script/          → Build scripts
   - `production_logs` — Daily production yield tracking linked to recipes
   - `sops` — Standard Operating Procedures (markdown content)
   - `conversations` / `messages` — AI chat history
+  - `problems` — Issue tracker with severity, location, completed toggle, notes
+  - `events` — Calendar events for Forward 5 Look (meetings, deliveries, deadlines)
+  - `announcements` — Team message board posts
 
 ### Authentication
 - **Method**: Replit OpenID Connect (OIDC) authentication via Passport.js

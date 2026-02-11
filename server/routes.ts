@@ -188,7 +188,9 @@ export async function registerRoutes(
 
   app.post(api.events.create.path, async (req, res) => {
     try {
-      const input = api.events.create.input.parse(req.body);
+      const body = { ...req.body };
+      if (typeof body.date === "string") body.date = new Date(body.date);
+      const input = api.events.create.input.parse(body);
       const event = await storage.createEvent(input);
       res.status(201).json(event);
     } catch (err) {
@@ -201,7 +203,9 @@ export async function registerRoutes(
 
   app.put(api.events.update.path, async (req, res) => {
     try {
-      const input = api.events.update.input.parse(req.body);
+      const body = { ...req.body };
+      if (typeof body.date === "string") body.date = new Date(body.date);
+      const input = api.events.update.input.parse(body);
       const event = await storage.updateEvent(Number(req.params.id), input);
       res.json(event);
     } catch (err) {

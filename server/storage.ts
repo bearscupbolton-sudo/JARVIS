@@ -8,7 +8,7 @@ import {
   type Announcement, type InsertAnnouncement
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, gte, and } from "drizzle-orm";
+import { eq, desc, gte, lte, and } from "drizzle-orm";
 
 export interface IStorage {
   // Recipes
@@ -149,7 +149,7 @@ export class DatabaseStorage implements IStorage {
     now.setHours(0, 0, 0, 0);
     const future = new Date(now);
     future.setDate(future.getDate() + days);
-    return await db.select().from(events).where(gte(events.date, now)).orderBy(events.date);
+    return await db.select().from(events).where(and(gte(events.date, now), lte(events.date, future))).orderBy(events.date);
   }
 
   async createEvent(insertEvent: InsertEvent): Promise<CalendarEvent> {
