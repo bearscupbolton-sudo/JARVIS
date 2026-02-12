@@ -528,6 +528,8 @@ export async function registerRoutes(
         {
           vendorName: input.vendorName,
           invoiceDate: input.invoiceDate,
+          invoiceNumber: input.invoiceNumber || null,
+          invoiceTotal: input.invoiceTotal ?? null,
           notes: input.notes || null,
           enteredBy: user?.username || user?.firstName || "Unknown",
         },
@@ -539,6 +541,83 @@ export async function registerRoutes(
         return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
       }
       throw err;
+    }
+  });
+
+  app.post(api.invoices.scan.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const { image } = api.invoices.scan.input.parse(req.body);
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert invoice parser for a bakery. Extract ALL data from the invoice image.
+Return a JSON object with this exact structure:
+{
+  "vendorName": "string - the vendor/supplier name",
+  "invoiceDate": "string - date in YYYY-MM-DD format",
+  "invoiceNumber": "string or null - the invoice number if visible",
+  "invoiceTotal": number or null - the grand total amount,
+  "notes": "string or null - any special notes on the invoice",
+  "lines": [
+    {
+      "itemDescription": "string - item name/description exactly as shown",
+      "quantity": number - the quantity ordered,
+      "unit": "string or null - unit of measure (case, lb, ea, bag, etc.)",
+      "unitPrice": number or null - price per unit,
+      "lineTotal": number or null - total for this line
+    }
+  ]
+}
+Be thorough - capture EVERY line item. For prices, use numbers without currency symbols. If a field isn't visible, use null. Parse the date into YYYY-MM-DD format. Return ONLY the JSON, no other text.`
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Parse this invoice image and extract all the data into the specified JSON format."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`,
+                }
+              }
+            ]
+          }
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(400).json({ message: "Could not parse invoice image" });
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          return res.status(400).json({ message: "Could not extract structured data from the invoice. Please try a clearer photo." });
+        }
+      }
+      res.json(parsed);
+    } catch (err: any) {
+      console.error("Invoice scan error:", err);
+      res.status(500).json({ message: err.message || "Failed to scan invoice" });
     }
   });
 

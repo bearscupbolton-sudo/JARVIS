@@ -309,15 +309,27 @@ export const api = {
       input: z.object({
         vendorName: z.string().min(1),
         invoiceDate: z.string().min(1),
+        invoiceNumber: z.string().nullable().optional(),
+        invoiceTotal: z.number().nullable().optional(),
         notes: z.string().nullable().optional(),
         enteredBy: z.string().nullable().optional(),
         lines: z.array(z.object({
           itemDescription: z.string().min(1),
           quantity: z.number().positive(),
           unit: z.string().nullable().optional(),
+          unitPrice: z.number().nullable().optional(),
+          lineTotal: z.number().nullable().optional(),
         })),
       }),
       responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    scan: {
+      method: 'POST' as const,
+      path: '/api/invoices/scan' as const,
+      input: z.object({
+        image: z.string().min(1),
+      }),
+      responses: { 200: z.any(), 400: errorSchemas.validation },
     },
   },
   inventoryCounts: {

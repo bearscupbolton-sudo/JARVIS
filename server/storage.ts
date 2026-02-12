@@ -348,7 +348,7 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoiceWithLines(
     invoiceData: InsertInvoice,
-    lines: { itemDescription: string; quantity: number; unit?: string | null }[]
+    lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null }[]
   ): Promise<Invoice & { lines: InvoiceLine[] }> {
     const [invoice] = await db.insert(invoices).values(invoiceData).returning();
 
@@ -374,6 +374,8 @@ export class DatabaseStorage implements IStorage {
         itemDescription: line.itemDescription,
         quantity: line.quantity,
         unit: line.unit || null,
+        unitPrice: line.unitPrice ?? null,
+        lineTotal: line.lineTotal ?? null,
         inventoryItemId: matchedItem?.id || null,
       }).returning();
       createdLines.push(createdLine);

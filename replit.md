@@ -74,6 +74,7 @@ Located in `server/replit_integrations/`:
 - **Chat**: OpenAI-compatible API for text conversations with streaming SSE responses. Conversations and messages are persisted in PostgreSQL
 - **Audio/Voice**: Voice recording, speech-to-text, text-to-speech with AudioWorklet playback
 - **Image Generation**: Image generation via `gpt-image-1` model
+- **Invoice Scanning**: GPT-5.2 vision model parses invoice photos into structured data (vendor, date, line items with prices). Endpoint: `POST /api/invoices/scan`
 - **Batch Processing**: Generic batch processor with rate limiting and retries for bulk LLM operations
 - **Environment Variables**: `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL`
 

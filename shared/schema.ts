@@ -187,6 +187,8 @@ export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
   vendorName: text("vendor_name").notNull(),
   invoiceDate: text("invoice_date").notNull(),
+  invoiceNumber: text("invoice_number"),
+  invoiceTotal: doublePrecision("invoice_total"),
   notes: text("notes"),
   enteredBy: text("entered_by"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -203,6 +205,8 @@ export const invoiceLines = pgTable("invoice_lines", {
   itemDescription: text("item_description").notNull(),
   quantity: doublePrecision("quantity").notNull(),
   unit: text("unit"),
+  unitPrice: doublePrecision("unit_price"),
+  lineTotal: doublePrecision("line_total"),
   inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
 });
 
