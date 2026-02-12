@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Crown
 } from "lucide-react";
+import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -82,12 +83,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
       <div className="p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-            <ChefHat className="w-6 h-6 text-primary-foreground" />
+          <div className="w-10 h-10 rounded-lg bg-foreground flex items-center justify-center shadow-lg overflow-hidden">
+            <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain invert dark:invert-0" data-testid="img-sidebar-logo" />
           </div>
           <div>
-            <h1 className="font-display text-xl font-bold tracking-tight text-primary">Jarvis</h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
+            <h1 className="font-display text-xl font-bold tracking-tight text-foreground" data-testid="text-sidebar-brand">Jarvis</h1>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">Bear's Cup Bakehouse</p>
           </div>
         </div>
       </div>
@@ -193,10 +194,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Main Content */}
         <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
           {/* Mobile Header */}
-          <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between sticky top-0 z-40">
-            <div className="flex flex-col">
-              <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
+          <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between gap-2 sticky top-0 z-40">
+            <div className="flex items-center gap-2">
+              <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain dark:invert" />
+              <div className="flex flex-col">
+                <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Bear's Cup Bakehouse</span>
+              </div>
             </div>
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} data-testid="button-mobile-menu">
               <Menu className="w-6 h-6" />
