@@ -160,6 +160,7 @@ export const bakeoffLogs = pgTable("bakeoff_logs", {
   itemName: text("item_name").notNull(),
   quantity: integer("quantity").notNull(),
   bakedAt: text("baked_at").notNull(),
+  locationId: integer("location_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -306,6 +307,20 @@ export const scheduleMessages = pgTable("schedule_messages", {
 export const insertScheduleMessageSchema = createInsertSchema(scheduleMessages).omit({ id: true, createdAt: true });
 export type ScheduleMessage = typeof scheduleMessages.$inferSelect;
 export type InsertScheduleMessage = z.infer<typeof insertScheduleMessageSchema>;
+
+// === PRE-SHIFT NOTES ===
+export const preShiftNotes = pgTable("pre_shift_notes", {
+  id: serial("id").primaryKey(),
+  content: text("content").notNull(),
+  date: text("date").notNull(),
+  authorId: text("author_id").notNull(),
+  locationId: integer("location_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPreShiftNoteSchema = createInsertSchema(preShiftNotes).omit({ id: true, createdAt: true });
+export type PreShiftNote = typeof preShiftNotes.$inferSelect;
+export type InsertPreShiftNote = z.infer<typeof insertPreShiftNoteSchema>;
 
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;

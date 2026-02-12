@@ -881,5 +881,87 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     res.status(204).send();
   });
 
+  // === PRE-SHIFT NOTES ===
+  app.get("/api/pre-shift-notes", isAuthenticated, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const notes = await storage.getPreShiftNotes(date);
+    res.json(notes);
+  });
+
+  app.post("/api/pre-shift-notes", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { content, date, locationId } = req.body;
+      if (!content || !date) return res.status(400).json({ message: "Content and date are required" });
+      const userId = req.user?.claims?.sub;
+      const note = await storage.createPreShiftNote({ content, date, authorId: userId, locationId: locationId || null });
+      res.status(201).json(note);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.put("/api/pre-shift-notes/:id", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const note = await storage.updatePreShiftNote(Number(req.params.id), req.body);
+      res.json(note);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update note" });
+    }
+  });
+
+  app.delete("/api/pre-shift-notes/:id", isAuthenticated, isManager, async (req, res) => {
+    await storage.deletePreShiftNote(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === TODAY'S SHIFTS (enriched with user names for Who's On) ===
+  app.get("/api/shifts/today", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const todayShifts = await storage.getShifts(date, date);
+      const allUsers = await authStorage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      const timeOffReqs = await storage.getTimeOffRequests();
+      const coverageMessages = await storage.getScheduleMessages();
+
+      const enrichedShifts = todayShifts.map(shift => {
+        const shiftUser = userMap.get(shift.userId);
+        const displayName = shiftUser?.username || shiftUser?.firstName || shiftUser?.email || shift.userId;
+
+        const hasCallout = timeOffReqs.some(r =>
+          r.userId === shift.userId &&
+          (r.status === "approved" || r.status === "pending") &&
+          r.startDate <= date && r.endDate >= date
+        );
+
+        const hasCoverageRequest = coverageMessages.some(m =>
+          m.userId === shift.userId &&
+          !m.resolved &&
+          (m.relatedDate === date || !m.relatedDate)
+        );
+
+        return {
+          ...shift,
+          displayName,
+          hasCallout,
+          hasCoverageRequest,
+          calloutType: hasCallout ? timeOffReqs.find(r =>
+            r.userId === shift.userId &&
+            (r.status === "approved" || r.status === "pending") &&
+            r.startDate <= date && r.endDate >= date
+          )?.requestType : null,
+        };
+      });
+
+      res.json(enrichedShifts);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch today's shifts" });
+    }
+  });
+
   return httpServer;
 }

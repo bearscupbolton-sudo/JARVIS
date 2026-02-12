@@ -2,7 +2,7 @@ import {
   recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
-  shifts, timeOffRequests, locations, scheduleMessages,
+  shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -21,7 +21,8 @@ import {
   type Shift, type InsertShift,
   type TimeOffRequest, type InsertTimeOffRequest,
   type Location, type InsertLocation,
-  type ScheduleMessage, type InsertScheduleMessage
+  type ScheduleMessage, type InsertScheduleMessage,
+  type PreShiftNote, type InsertPreShiftNote
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -129,6 +130,12 @@ export interface IStorage {
   createScheduleMessage(message: InsertScheduleMessage): Promise<ScheduleMessage>;
   resolveScheduleMessage(id: number, resolved: boolean): Promise<ScheduleMessage>;
   deleteScheduleMessage(id: number): Promise<void>;
+
+  // Pre-Shift Notes
+  getPreShiftNotes(date: string): Promise<PreShiftNote[]>;
+  createPreShiftNote(note: InsertPreShiftNote): Promise<PreShiftNote>;
+  updatePreShiftNote(id: number, updates: Partial<InsertPreShiftNote>): Promise<PreShiftNote>;
+  deletePreShiftNote(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -560,6 +567,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteScheduleMessage(id: number): Promise<void> {
     await db.delete(scheduleMessages).where(eq(scheduleMessages.id, id));
+  }
+
+  // Pre-Shift Notes
+  async getPreShiftNotes(date: string): Promise<PreShiftNote[]> {
+    return await db.select().from(preShiftNotes).where(eq(preShiftNotes.date, date)).orderBy(desc(preShiftNotes.createdAt));
+  }
+
+  async createPreShiftNote(note: InsertPreShiftNote): Promise<PreShiftNote> {
+    const [created] = await db.insert(preShiftNotes).values(note).returning();
+    return created;
+  }
+
+  async updatePreShiftNote(id: number, updates: Partial<InsertPreShiftNote>): Promise<PreShiftNote> {
+    const [updated] = await db.update(preShiftNotes).set(updates).where(eq(preShiftNotes.id, id)).returning();
+    return updated;
+  }
+
+  async deletePreShiftNote(id: number): Promise<void> {
+    await db.delete(preShiftNotes).where(eq(preShiftNotes.id, id));
   }
 }
 

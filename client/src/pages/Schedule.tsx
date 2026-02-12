@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import type { Shift, TimeOffRequest, ScheduleMessage, Location } from "@shared/schema";
+import { insertLocationSchema } from "@shared/schema";
 import type { User } from "@shared/models/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -97,7 +98,8 @@ export default function Schedule() {
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum">("schedule");
+  const isOwner = user?.role === "owner";
+  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "locations">("schedule");
 
   const shiftForm = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
@@ -366,6 +368,16 @@ export default function Schedule() {
             </Badge>
           )}
         </Button>
+        {isOwner && (
+          <Button
+            variant={activeTab === "locations" ? "default" : "outline"}
+            onClick={() => setActiveTab("locations")}
+            data-testid="button-tab-locations"
+          >
+            <MapPin className="w-4 h-4 mr-2" />
+            Locations
+          </Button>
+        )}
       </div>
 
       {activeTab === "schedule" && (
@@ -809,6 +821,10 @@ export default function Schedule() {
         </div>
       )}
 
+      {activeTab === "locations" && isOwner && (
+        <LocationsManager locations={locationsData || []} />
+      )}
+
       <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
         <DialogContent data-testid="dialog-shift">
           <DialogHeader>
@@ -1045,6 +1061,192 @@ export default function Schedule() {
                 data-testid="button-submit-timeoff"
               >
                 Submit Request
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+const locationFormSchema = insertLocationSchema.pick({ name: true, address: true }).extend({
+  name: z.string().min(1, "Name is required"),
+  address: z.string().optional(),
+});
+
+type LocationFormValues = z.infer<typeof locationFormSchema>;
+
+function LocationsManager({ locations }: { locations: Location[] }) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+
+  const form = useForm<LocationFormValues>({
+    resolver: zodResolver(locationFormSchema),
+    defaultValues: { name: "", address: "" },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: LocationFormValues) => {
+      const res = await apiRequest("POST", "/api/locations", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+      toast({ title: "Location created" });
+      setDialogOpen(false);
+      form.reset();
+    },
+    onError: () => toast({ title: "Failed to create location", variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...data }: LocationFormValues & { id: number }) => {
+      const res = await apiRequest("PUT", `/api/locations/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+      toast({ title: "Location updated" });
+      setDialogOpen(false);
+      setEditingLocation(null);
+      form.reset();
+    },
+    onError: () => toast({ title: "Failed to update location", variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/locations/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+      toast({ title: "Location deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete location", variant: "destructive" }),
+  });
+
+  function openCreate() {
+    setEditingLocation(null);
+    form.reset({ name: "", address: "" });
+    setDialogOpen(true);
+  }
+
+  function openEdit(loc: Location) {
+    setEditingLocation(loc);
+    form.reset({ name: loc.name, address: loc.address || "" });
+    setDialogOpen(true);
+  }
+
+  function handleSubmit(values: LocationFormValues) {
+    if (editingLocation) {
+      updateMutation.mutate({ ...values, id: editingLocation.id });
+    } else {
+      createMutation.mutate(values);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h2 className="text-xl font-display font-bold">Manage Locations</h2>
+          <p className="text-sm text-muted-foreground">Add and manage bakery locations for scheduling</p>
+        </div>
+        <Button onClick={openCreate} data-testid="button-add-location">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Location
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        {locations.map((loc) => (
+          <Card key={loc.id} data-testid={`card-location-${loc.id}`}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold" data-testid={`text-location-name-${loc.id}`}>{loc.name}</span>
+                      {loc.isDefault && <Badge variant="secondary" className="text-[10px]">Default</Badge>}
+                    </div>
+                    {loc.address && <p className="text-sm text-muted-foreground">{loc.address}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => openEdit(loc)} data-testid={`button-edit-location-${loc.id}`}>
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  {!loc.isDefault && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        if (confirm("Delete this location?")) deleteMutation.mutate(loc.id);
+                      }}
+                      data-testid={`button-delete-location-${loc.id}`}
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        {locations.length === 0 && (
+          <div className="text-center py-8">
+            <MapPin className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground">No locations configured</p>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent data-testid="dialog-location">
+          <DialogHeader>
+            <DialogTitle>{editingLocation ? "Edit Location" : "Add Location"}</DialogTitle>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Location Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. Downtown" data-testid="input-location-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Address (optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="123 Main St" data-testid="input-location-address" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={createMutation.isPending || updateMutation.isPending}
+                data-testid="button-submit-location"
+              >
+                {editingLocation ? "Update Location" : "Create Location"}
               </Button>
             </form>
           </Form>
