@@ -61,8 +61,10 @@ script/          → Build scripts
   - `pastry_totals` — Daily target counts per pastry item (date, item_name, target_count)
   - `shaping_logs` — Dough shaping entries that deduct from pastry totals (date, dough_type, yield_count, shaped_at)
   - `bakeoff_logs` — Bake-off entries showing items out of the oven (date, item_name, quantity, baked_at), feeds to dashboard
-  - `shifts` — Team schedule entries (userId, shiftDate, startTime, endTime, position, notes, createdBy)
+  - `shifts` — Team schedule entries with department-based staffing (userId, shiftDate, startTime, endTime, department, position, notes, createdBy, locationId). Max 10 staff per department per day enforced server-side
   - `time_off_requests` — Time off requests with approval workflow (userId, startDate, endDate, requestType, reason, status, reviewedBy)
+  - `locations` — Multi-location support (name, address, isActive). Default location created on startup
+  - `schedule_messages` — Shift coverage forum (userId, message, messageType, relatedDate, resolved, locationId)
 
 ### Authentication & Roles
 - **Method**: Replit OpenID Connect (OIDC) authentication via Passport.js
@@ -97,6 +99,12 @@ Located in `server/replit_integrations/`:
 ### Optional AI Services
 - **OpenAI-compatible API** (via Replit AI Integrations): Powers the Jarvis assistant chat, voice features, and image generation. Requires `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL`
 - **Jarvis Context**: On each chat message, the system prompt is dynamically built by fetching all recipes (with ingredients, instructions, baker's percentages) and all SOPs from the database. This makes Jarvis aware of the bakery's actual data and able to answer questions about specific recipes and procedures.
+
+### Optional SMS Notifications (Twilio — not yet configured)
+- **Status**: Stub implementation in `server/sms.ts` — logs messages to console until Twilio is configured
+- **To enable**: Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` environment variables (or connect the Twilio integration via Replit)
+- **Features**: Schedule change notifications (shift created/updated/deleted) sent to team members who opt in via Profile page
+- **User opt-in**: Users must enter their phone number and enable SMS notifications on their Profile page
 
 ### Key NPM Packages
 - `drizzle-orm` / `drizzle-kit` / `drizzle-zod` — Database ORM and schema management

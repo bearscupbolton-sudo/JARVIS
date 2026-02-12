@@ -1,8 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import type { Shift, TimeOffRequest, ScheduleMessage, Location } from "@shared/schema";
 import type { User } from "@shared/models/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
@@ -53,6 +57,34 @@ const REQUEST_TYPES = [
   { value: "other", label: "Other" },
 ];
 
+const shiftFormSchema = z.object({
+  userId: z.string().min(1, "Please select a team member"),
+  shiftDate: z.string().min(1, "Please select a date"),
+  startTime: z.string().min(1, "Required"),
+  endTime: z.string().min(1, "Required"),
+  department: z.string().min(1, "Required"),
+  position: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+type ShiftFormValues = z.infer<typeof shiftFormSchema>;
+
+const timeOffFormSchema = z.object({
+  startDate: z.string().min(1, "Please select a start date"),
+  endDate: z.string().min(1, "Please select an end date"),
+  requestType: z.string().min(1, "Required"),
+  reason: z.string().optional(),
+});
+
+type TimeOffFormValues = z.infer<typeof timeOffFormSchema>;
+
+const forumFormSchema = z.object({
+  message: z.string().min(1, "Please enter a message"),
+  relatedDate: z.string().optional(),
+});
+
+type ForumFormValues = z.infer<typeof forumFormSchema>;
+
 export default function Schedule() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -64,27 +96,39 @@ export default function Schedule() {
 
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-  const [shiftForm, setShiftForm] = useState({
-    userId: "",
-    shiftDate: "",
-    startTime: "6:00 AM",
-    endTime: "2:00 PM",
-    department: "kitchen",
-    position: "",
-    notes: "",
-  });
-
   const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
-  const [timeOffForm, setTimeOffForm] = useState({
-    startDate: "",
-    endDate: "",
-    requestType: "vacation",
-    reason: "",
+  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum">("schedule");
+
+  const shiftForm = useForm<ShiftFormValues>({
+    resolver: zodResolver(shiftFormSchema),
+    defaultValues: {
+      userId: "",
+      shiftDate: format(new Date(), "yyyy-MM-dd"),
+      startTime: "6:00 AM",
+      endTime: "2:00 PM",
+      department: "kitchen",
+      position: "",
+      notes: "",
+    },
   });
 
-  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum">("schedule");
-  const [forumMessage, setForumMessage] = useState("");
-  const [forumDate, setForumDate] = useState("");
+  const timeOffForm = useForm<TimeOffFormValues>({
+    resolver: zodResolver(timeOffFormSchema),
+    defaultValues: {
+      startDate: "",
+      endDate: "",
+      requestType: "vacation",
+      reason: "",
+    },
+  });
+
+  const forumForm = useForm<ForumFormValues>({
+    resolver: zodResolver(forumFormSchema),
+    defaultValues: {
+      message: "",
+      relatedDate: "",
+    },
+  });
 
   const startStr = format(weekStart, "yyyy-MM-dd");
   const endStr = format(weekEnd, "yyyy-MM-dd");
@@ -172,8 +216,7 @@ export default function Schedule() {
     mutationFn: (data: any) => apiRequest("POST", "/api/schedule-messages", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-messages"] });
-      setForumMessage("");
-      setForumDate("");
+      forumForm.reset();
       toast({ title: "Message posted" });
     },
     onError: (e: Error) => toast({ title: "Failed to post message", description: e.message, variant: "destructive" }),
@@ -197,7 +240,7 @@ export default function Schedule() {
 
   function openAddShift(date?: Date, dept?: string) {
     setEditingShift(null);
-    setShiftForm({
+    shiftForm.reset({
       userId: "",
       shiftDate: date ? format(date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       startTime: "6:00 AM",
@@ -211,7 +254,7 @@ export default function Schedule() {
 
   function openEditShift(shift: Shift) {
     setEditingShift(shift);
-    setShiftForm({
+    shiftForm.reset({
       userId: shift.userId,
       shiftDate: shift.shiftDate,
       startTime: shift.startTime,
@@ -223,15 +266,11 @@ export default function Schedule() {
     setShiftDialogOpen(true);
   }
 
-  function handleShiftSubmit() {
-    if (!shiftForm.userId || !shiftForm.shiftDate) {
-      toast({ title: "Please select a team member and date", variant: "destructive" });
-      return;
-    }
+  function handleShiftSubmit(values: ShiftFormValues) {
     const payload = {
-      ...shiftForm,
-      position: shiftForm.position || null,
-      notes: shiftForm.notes || null,
+      ...values,
+      position: values.position || null,
+      notes: values.notes || null,
       createdBy: user!.id,
       locationId: null,
     };
@@ -242,28 +281,20 @@ export default function Schedule() {
     }
   }
 
-  function handleTimeOffSubmit() {
-    if (!timeOffForm.startDate || !timeOffForm.endDate) {
-      toast({ title: "Please select start and end dates", variant: "destructive" });
-      return;
-    }
+  function handleTimeOffSubmit(values: TimeOffFormValues) {
     createTimeOffMutation.mutate({
-      ...timeOffForm,
+      ...values,
       userId: user!.id,
-      reason: timeOffForm.reason || null,
+      reason: values.reason || null,
     });
   }
 
-  function handlePostMessage() {
-    if (!forumMessage.trim()) {
-      toast({ title: "Please enter a message", variant: "destructive" });
-      return;
-    }
+  function handlePostMessage(values: ForumFormValues) {
     createMessageMutation.mutate({
       userId: user!.id,
-      message: forumMessage.trim(),
+      message: values.message.trim(),
       messageType: "coverage",
-      relatedDate: forumDate || null,
+      relatedDate: values.relatedDate || null,
       locationId: null,
     });
   }
@@ -288,8 +319,8 @@ export default function Schedule() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-schedule">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-          <CalendarDays className="w-5 h-5 text-primary" />
+        <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
+          <CalendarDays className="w-5 h-5 text-muted-foreground" />
         </div>
         <div className="min-w-0">
           <h1 className="text-3xl font-display font-bold" data-testid="text-schedule-title">Schedule</h1>
@@ -386,14 +417,14 @@ export default function Schedule() {
                         return (
                           <Card
                             key={day.toISOString()}
-                            className={isToday ? "border-primary" : ""}
+                            className={isToday ? "border-foreground/30" : ""}
                             data-testid={`card-day-${dept.value}-${format(day, "yyyy-MM-dd")}`}
                           >
                             <CardHeader className="p-2 pb-1">
                               <div className="flex items-center justify-between gap-1">
                                 <CardTitle className="text-xs font-semibold">
                                   {format(day, "EEE")}
-                                  <span className={`ml-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                                  <span className={`ml-1 ${isToday ? "font-bold" : "text-muted-foreground"}`}>
                                     {format(day, "d")}
                                   </span>
                                 </CardTitle>
@@ -405,7 +436,6 @@ export default function Schedule() {
                                     <Button
                                       size="icon"
                                       variant="ghost"
-                                      className="h-5 w-5"
                                       onClick={() => openAddShift(day, dept.value)}
                                       data-testid={`button-add-shift-${dept.value}-${format(day, "yyyy-MM-dd")}`}
                                     >
@@ -437,7 +467,6 @@ export default function Schedule() {
                                           <Button
                                             size="icon"
                                             variant="ghost"
-                                            className="h-5 w-5"
                                             onClick={() => openEditShift(shift)}
                                             data-testid={`button-edit-shift-${shift.id}`}
                                           >
@@ -446,7 +475,6 @@ export default function Schedule() {
                                           <Button
                                             size="icon"
                                             variant="ghost"
-                                            className="h-5 w-5"
                                             onClick={() => {
                                               if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
                                             }}
@@ -485,7 +513,7 @@ export default function Schedule() {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-xl font-display font-bold">Time Off Requests</h2>
             <Button onClick={() => {
-              setTimeOffForm({ startDate: "", endDate: "", requestType: "vacation", reason: "" });
+              timeOffForm.reset({ startDate: "", endDate: "", requestType: "vacation", reason: "" });
               setTimeOffDialogOpen(true);
             }} data-testid="button-request-time-off">
               <Plus className="w-4 h-4 mr-2" />
@@ -614,32 +642,54 @@ export default function Schedule() {
           </div>
 
           <Card data-testid="card-post-message">
-            <CardContent className="p-4 space-y-3">
-              <Textarea
-                placeholder="Need coverage for Saturday morning? Can pick up a shift? Post here..."
-                value={forumMessage}
-                onChange={e => setForumMessage(e.target.value)}
-                className="resize-none"
-                data-testid="input-forum-message"
-              />
-              <div className="flex items-center gap-2 flex-wrap">
-                <Input
-                  type="date"
-                  value={forumDate}
-                  onChange={e => setForumDate(e.target.value)}
-                  className="w-auto"
-                  placeholder="Related date (optional)"
-                  data-testid="input-forum-date"
-                />
-                <Button
-                  onClick={handlePostMessage}
-                  disabled={createMessageMutation.isPending || !forumMessage.trim()}
-                  data-testid="button-post-message"
-                >
-                  <Send className="w-4 h-4 mr-2" />
-                  Post
-                </Button>
-              </div>
+            <CardContent className="p-4">
+              <Form {...forumForm}>
+                <form onSubmit={forumForm.handleSubmit(handlePostMessage)} className="space-y-3">
+                  <FormField
+                    control={forumForm.control}
+                    name="message"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Need coverage for Saturday morning? Can pick up a shift? Post here..."
+                            className="resize-none"
+                            data-testid="input-forum-message"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <FormField
+                      control={forumForm.control}
+                      name="relatedDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type="date"
+                              className="w-auto"
+                              data-testid="input-forum-date"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <Button
+                      type="submit"
+                      disabled={createMessageMutation.isPending}
+                      data-testid="button-post-message"
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      Post
+                    </Button>
+                  </div>
+                </form>
+              </Form>
             </CardContent>
           </Card>
 
@@ -764,94 +814,152 @@ export default function Schedule() {
           <DialogHeader>
             <DialogTitle>{editingShift ? "Edit Shift" : "Add Shift"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Department</label>
-              <Select value={shiftForm.department} onValueChange={v => setShiftForm(f => ({ ...f, department: v }))}>
-                <SelectTrigger data-testid="select-shift-department">
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEPARTMENTS.map(d => (
-                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Team Member</label>
-              <Select value={shiftForm.userId} onValueChange={v => setShiftForm(f => ({ ...f, userId: v }))}>
-                <SelectTrigger data-testid="select-shift-user">
-                  <SelectValue placeholder="Select team member" />
-                </SelectTrigger>
-                <SelectContent>
-                  {members.map(m => (
-                    <SelectItem key={m.id} value={m.id}>{getDisplayName(m)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Date</label>
-              <Input
-                type="date"
-                value={shiftForm.shiftDate}
-                onChange={e => setShiftForm(f => ({ ...f, shiftDate: e.target.value }))}
-                data-testid="input-shift-date"
+          <Form {...shiftForm}>
+            <form onSubmit={shiftForm.handleSubmit(handleShiftSubmit)} className="space-y-4">
+              <FormField
+                control={shiftForm.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-shift-department">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {DEPARTMENTS.map(d => (
+                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Start Time</label>
-                <Select value={shiftForm.startTime} onValueChange={v => setShiftForm(f => ({ ...f, startTime: v }))}>
-                  <SelectTrigger data-testid="select-shift-start">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <FormField
+                control={shiftForm.control}
+                name="userId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Team Member</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-shift-user">
+                          <SelectValue placeholder="Select team member" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {members.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{getDisplayName(m)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={shiftForm.control}
+                name="shiftDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Date</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="date" data-testid="input-shift-date" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={shiftForm.control}
+                  name="startTime"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Time</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-shift-start">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={shiftForm.control}
+                  name="endTime"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>End Time</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-shift-end">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <div>
-                <label className="text-sm font-medium">End Time</label>
-                <Select value={shiftForm.endTime} onValueChange={v => setShiftForm(f => ({ ...f, endTime: v }))}>
-                  <SelectTrigger data-testid="select-shift-end">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Position / Role (optional)</label>
-              <Input
-                value={shiftForm.position}
-                onChange={e => setShiftForm(f => ({ ...f, position: e.target.value }))}
-                placeholder="e.g., Lead Baker, Cashier"
-                data-testid="input-shift-position"
+              <FormField
+                control={shiftForm.control}
+                name="position"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Position / Role (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="e.g., Lead Baker, Cashier"
+                        data-testid="input-shift-position"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Notes (optional)</label>
-              <Textarea
-                value={shiftForm.notes}
-                onChange={e => setShiftForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Any special instructions..."
-                className="resize-none"
-                data-testid="input-shift-notes"
+              <FormField
+                control={shiftForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Any special instructions..."
+                        className="resize-none"
+                        data-testid="input-shift-notes"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <Button
-              className="w-full"
-              onClick={handleShiftSubmit}
-              disabled={createShiftMutation.isPending || updateShiftMutation.isPending}
-              data-testid="button-save-shift"
-            >
-              {editingShift ? "Update Shift" : "Create Shift"}
-            </Button>
-          </div>
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={createShiftMutation.isPending || updateShiftMutation.isPending}
+                data-testid="button-save-shift"
+              >
+                {editingShift ? "Update Shift" : "Create Shift"}
+              </Button>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
 
@@ -860,59 +968,86 @@ export default function Schedule() {
           <DialogHeader>
             <DialogTitle>Request Time Off</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Type</label>
-              <Select value={timeOffForm.requestType} onValueChange={v => setTimeOffForm(f => ({ ...f, requestType: v }))}>
-                <SelectTrigger data-testid="select-timeoff-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {REQUEST_TYPES.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Start Date</label>
-                <Input
-                  type="date"
-                  value={timeOffForm.startDate}
-                  onChange={e => setTimeOffForm(f => ({ ...f, startDate: e.target.value }))}
-                  data-testid="input-timeoff-start"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">End Date</label>
-                <Input
-                  type="date"
-                  value={timeOffForm.endDate}
-                  onChange={e => setTimeOffForm(f => ({ ...f, endDate: e.target.value }))}
-                  data-testid="input-timeoff-end"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Reason (optional)</label>
-              <Textarea
-                value={timeOffForm.reason}
-                onChange={e => setTimeOffForm(f => ({ ...f, reason: e.target.value }))}
-                placeholder="Brief reason for the request..."
-                className="resize-none"
-                data-testid="input-timeoff-reason"
+          <Form {...timeOffForm}>
+            <form onSubmit={timeOffForm.handleSubmit(handleTimeOffSubmit)} className="space-y-4">
+              <FormField
+                control={timeOffForm.control}
+                name="requestType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-timeoff-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {REQUEST_TYPES.map(t => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <Button
-              className="w-full"
-              onClick={handleTimeOffSubmit}
-              disabled={createTimeOffMutation.isPending}
-              data-testid="button-submit-timeoff"
-            >
-              Submit Request
-            </Button>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={timeOffForm.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Date</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="date" data-testid="input-timeoff-start" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={timeOffForm.control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>End Date</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="date" data-testid="input-timeoff-end" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={timeOffForm.control}
+                name="reason"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reason (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Brief reason for the request..."
+                        className="resize-none"
+                        data-testid="input-timeoff-reason"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={createTimeOffMutation.isPending}
+                data-testid="button-submit-timeoff"
+              >
+                Submit Request
+              </Button>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>
