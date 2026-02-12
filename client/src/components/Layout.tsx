@@ -15,10 +15,13 @@ import {
   Coffee,
   UtensilsCrossed,
   Package,
-  CalendarDays
+  CalendarDays,
+  Crown
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -45,6 +48,7 @@ const OWNER_NAV_ITEMS = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const isOwner = user?.role === "owner";
 
@@ -53,6 +57,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
     enabled: isOwner,
     refetchInterval: 30000,
   });
+
+  const { data: ownerStatus } = useQuery<{ hasOwner: boolean }>({
+    queryKey: ["/api/auth/has-owner"],
+    enabled: user?.role === "member",
+  });
+
+  const claimOwnerMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/auth/claim-owner"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/has-owner"] });
+      toast({ title: "You are now the owner! You have full access to all features." });
+      window.location.reload();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not claim ownership", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const showClaimBanner = user?.role === "member" && ownerStatus && !ownerStatus.hasOwner;
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
@@ -180,6 +204,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </header>
 
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
+            {showClaimBanner && (
+              <div className="mb-6 p-4 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-between gap-4 flex-wrap" data-testid="banner-claim-owner">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Crown className="w-5 h-5 text-primary shrink-0" />
+                  <div>
+                    <p className="font-semibold text-sm">No owner has been set up yet</p>
+                    <p className="text-xs text-muted-foreground">Claim ownership to unlock team management, scheduling, and all admin features.</p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => claimOwnerMutation.mutate()}
+                  disabled={claimOwnerMutation.isPending}
+                  data-testid="button-claim-owner"
+                >
+                  {claimOwnerMutation.isPending ? "Claiming..." : "Become Owner"}
+                </Button>
+              </div>
+            )}
             {children}
           </div>
         </main>

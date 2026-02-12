@@ -1,4 +1,5 @@
 import type { Express, RequestHandler } from "express";
+import type { User } from "@shared/models/auth";
 import { authStorage } from "./storage";
 import { isAuthenticated } from "./replitAuth";
 
@@ -136,6 +137,32 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error: any) {
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  app.post("/api/auth/claim-owner", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const allUsers = await authStorage.getAllUsers();
+      const hasOwner = allUsers.some((u: User) => u.role === "owner");
+      if (hasOwner) {
+        return res.status(403).json({ message: "An owner already exists" });
+      }
+      const user = await authStorage.updateUserRole(userId, "owner");
+      res.json(user);
+    } catch (error) {
+      console.error("Error claiming owner:", error);
+      res.status(500).json({ message: "Failed to claim owner role" });
+    }
+  });
+
+  app.get("/api/auth/has-owner", isAuthenticated, async (_req, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      const hasOwner = allUsers.some((u: User) => u.role === "owner");
+      res.json({ hasOwner });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to check owner status" });
     }
   });
 
