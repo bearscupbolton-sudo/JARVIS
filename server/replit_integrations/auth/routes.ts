@@ -105,19 +105,35 @@ export function registerAuthRoutes(app: Express): void {
   app.patch("/api/auth/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { username } = req.body;
-      if (!username || typeof username !== "string" || username.trim().length < 2) {
-        return res.status(400).json({ message: "Username must be at least 2 characters" });
+      const { username, phone, smsOptIn } = req.body;
+
+      if (username !== undefined) {
+        if (!username || typeof username !== "string" || username.trim().length < 2) {
+          return res.status(400).json({ message: "Username must be at least 2 characters" });
+        }
+        if (username.trim().length > 30) {
+          return res.status(400).json({ message: "Username must be 30 characters or less" });
+        }
+        try {
+          await authStorage.updateUsername(userId, username.trim());
+        } catch (error: any) {
+          if (error.message === "Username already taken") {
+            return res.status(409).json({ message: "That display name is already in use" });
+          }
+          throw error;
+        }
       }
-      if (username.trim().length > 30) {
-        return res.status(400).json({ message: "Username must be 30 characters or less" });
+
+      if (phone !== undefined || smsOptIn !== undefined) {
+        const profileUpdates: { phone?: string | null; smsOptIn?: boolean } = {};
+        if (phone !== undefined) profileUpdates.phone = phone || null;
+        if (smsOptIn !== undefined) profileUpdates.smsOptIn = !!smsOptIn;
+        await authStorage.updateUserProfile(userId, profileUpdates);
       }
-      const user = await authStorage.updateUsername(userId, username.trim());
+
+      const user = await authStorage.getUser(userId);
       res.json(user);
     } catch (error: any) {
-      if (error.message === "Username already taken") {
-        return res.status(409).json({ message: "That display name is already in use" });
-      }
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
     }

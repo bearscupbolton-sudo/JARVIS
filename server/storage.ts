@@ -2,7 +2,7 @@ import {
   recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
-  shifts, timeOffRequests,
+  shifts, timeOffRequests, locations, scheduleMessages,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -19,7 +19,9 @@ import {
   type InventoryCount, type InsertInventoryCount,
   type InventoryCountLine, type InsertInventoryCountLine,
   type Shift, type InsertShift,
-  type TimeOffRequest, type InsertTimeOffRequest
+  type TimeOffRequest, type InsertTimeOffRequest,
+  type Location, type InsertLocation,
+  type ScheduleMessage, type InsertScheduleMessage
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -113,6 +115,20 @@ export interface IStorage {
   createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
   updateTimeOffRequestStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<TimeOffRequest>;
   deleteTimeOffRequest(id: number): Promise<void>;
+
+  // Locations
+  getLocations(): Promise<Location[]>;
+  getLocation(id: number): Promise<Location | undefined>;
+  createLocation(location: InsertLocation): Promise<Location>;
+  updateLocation(id: number, updates: Partial<InsertLocation>): Promise<Location>;
+  deleteLocation(id: number): Promise<void>;
+  getOrCreateDefaultLocation(): Promise<Location>;
+
+  // Schedule Messages
+  getScheduleMessages(): Promise<ScheduleMessage[]>;
+  createScheduleMessage(message: InsertScheduleMessage): Promise<ScheduleMessage>;
+  resolveScheduleMessage(id: number, resolved: boolean): Promise<ScheduleMessage>;
+  deleteScheduleMessage(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -494,6 +510,56 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTimeOffRequest(id: number): Promise<void> {
     await db.delete(timeOffRequests).where(eq(timeOffRequests.id, id));
+  }
+
+  // Locations
+  async getLocations(): Promise<Location[]> {
+    return await db.select().from(locations).orderBy(locations.name);
+  }
+
+  async getLocation(id: number): Promise<Location | undefined> {
+    const [location] = await db.select().from(locations).where(eq(locations.id, id));
+    return location;
+  }
+
+  async createLocation(location: InsertLocation): Promise<Location> {
+    const [created] = await db.insert(locations).values(location).returning();
+    return created;
+  }
+
+  async updateLocation(id: number, updates: Partial<InsertLocation>): Promise<Location> {
+    const [updated] = await db.update(locations).set(updates).where(eq(locations.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLocation(id: number): Promise<void> {
+    await db.delete(locations).where(eq(locations.id, id));
+  }
+
+  async getOrCreateDefaultLocation(): Promise<Location> {
+    const existing = await db.select().from(locations).where(eq(locations.isDefault, true));
+    if (existing.length > 0) return existing[0];
+    const [created] = await db.insert(locations).values({ name: "Bear's Cup Bakehouse", isDefault: true }).returning();
+    return created;
+  }
+
+  // Schedule Messages
+  async getScheduleMessages(): Promise<ScheduleMessage[]> {
+    return await db.select().from(scheduleMessages).orderBy(desc(scheduleMessages.createdAt));
+  }
+
+  async createScheduleMessage(message: InsertScheduleMessage): Promise<ScheduleMessage> {
+    const [created] = await db.insert(scheduleMessages).values(message).returning();
+    return created;
+  }
+
+  async resolveScheduleMessage(id: number, resolved: boolean): Promise<ScheduleMessage> {
+    const [updated] = await db.update(scheduleMessages).set({ resolved }).where(eq(scheduleMessages.id, id)).returning();
+    return updated;
+  }
+
+  async deleteScheduleMessage(id: number): Promise<void> {
+    await db.delete(scheduleMessages).where(eq(scheduleMessages.id, id));
   }
 }
 

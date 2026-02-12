@@ -24,6 +24,8 @@ export const users = pgTable("users", {
   role: varchar("role").default("member").notNull(),
   locked: boolean("locked").default(false).notNull(),
   profileImageUrl: varchar("profile_image_url"),
+  phone: varchar("phone"),
+  smsOptIn: boolean("sms_opt_in").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

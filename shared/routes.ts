@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, insertShiftSchema, insertTimeOffRequestSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines, shifts, timeOffRequests } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, insertShiftSchema, insertTimeOffRequestSchema, insertLocationSchema, insertScheduleMessageSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines, shifts, timeOffRequests, locations, scheduleMessages } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -449,6 +449,54 @@ export const api = {
     delete: {
       method: 'DELETE' as const,
       path: '/api/time-off/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  locations: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/locations' as const,
+      responses: { 200: z.array(z.custom<typeof locations.$inferSelect>()) },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/locations' as const,
+      input: insertLocationSchema,
+      responses: { 201: z.custom<typeof locations.$inferSelect>(), 400: errorSchemas.validation },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/locations/:id' as const,
+      input: insertLocationSchema.partial(),
+      responses: { 200: z.custom<typeof locations.$inferSelect>(), 404: errorSchemas.notFound },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/locations/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  scheduleMessages: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/schedule-messages' as const,
+      responses: { 200: z.array(z.custom<typeof scheduleMessages.$inferSelect>()) },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/schedule-messages' as const,
+      input: insertScheduleMessageSchema,
+      responses: { 201: z.custom<typeof scheduleMessages.$inferSelect>(), 400: errorSchemas.validation },
+    },
+    resolve: {
+      method: 'PATCH' as const,
+      path: '/api/schedule-messages/:id/resolve' as const,
+      input: z.object({ resolved: z.boolean() }),
+      responses: { 200: z.custom<typeof scheduleMessages.$inferSelect>() },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/schedule-messages/:id' as const,
       responses: { 204: z.void() },
     },
   },

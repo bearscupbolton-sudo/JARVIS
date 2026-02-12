@@ -674,6 +674,92 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     }
   });
 
+  // Ensure default location exists
+  storage.getOrCreateDefaultLocation().catch(err => console.error("Failed to create default location:", err));
+
+  // === LOCATIONS ===
+  app.get(api.locations.list.path, isAuthenticated, async (req, res) => {
+    const locs = await storage.getLocations();
+    res.json(locs);
+  });
+
+  app.post(api.locations.create.path, isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const input = api.locations.create.input.parse(req.body);
+      const location = await storage.createLocation(input);
+      res.status(201).json(location);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.locations.update.path, isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const input = api.locations.update.input.parse(req.body);
+      const location = await storage.updateLocation(Number(req.params.id), input);
+      res.json(location);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.locations.delete.path, isAuthenticated, isOwner, async (req, res) => {
+    await storage.deleteLocation(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === SCHEDULE MESSAGES ===
+  app.get(api.scheduleMessages.list.path, isAuthenticated, async (req, res) => {
+    const messages = await storage.getScheduleMessages();
+    res.json(messages);
+  });
+
+  app.post(api.scheduleMessages.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.scheduleMessages.create.input.parse(req.body);
+      const userId = req.user?.claims?.sub;
+      const message = await storage.createScheduleMessage({ ...input, userId });
+      res.status(201).json(message);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.scheduleMessages.resolve.path, isAuthenticated, isManager, async (req, res) => {
+    try {
+      const input = api.scheduleMessages.resolve.input.parse(req.body);
+      const message = await storage.resolveScheduleMessage(Number(req.params.id), input.resolved);
+      res.json(message);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.scheduleMessages.delete.path, isAuthenticated, async (req: any, res) => {
+    const user = await getUserFromReq(req);
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    const messages = await storage.getScheduleMessages();
+    const target = messages.find(m => m.id === Number(req.params.id));
+    if (!target) return res.status(404).json({ message: "Message not found" });
+    if (target.userId !== user.id && user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "You can only delete your own messages" });
+    }
+    await storage.deleteScheduleMessage(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // === TEAM MEMBERS (for managers to see team) ===
   app.get("/api/team-members", isAuthenticated, isManager, async (req, res) => {
     try {
@@ -685,6 +771,8 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
         lastName: u.lastName,
         email: u.email,
         role: u.role,
+        phone: u.phone,
+        smsOptIn: u.smsOptIn,
       }));
       res.json(teamMembers);
     } catch (err) {
@@ -703,6 +791,11 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.post(api.shifts.create.path, isAuthenticated, isManager, async (req: any, res) => {
     try {
       const input = api.shifts.create.input.parse(req.body);
+      const existingShifts = await storage.getShifts(input.shiftDate, input.shiftDate);
+      const deptCount = existingShifts.filter(s => s.department === (input.department || "kitchen")).length;
+      if (deptCount >= 10) {
+        return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${input.department || "kitchen"}` });
+      }
       const shift = await storage.createShift(input);
       res.status(201).json(shift);
     } catch (err) {

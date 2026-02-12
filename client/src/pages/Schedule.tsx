@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import type { Shift, TimeOffRequest } from "@shared/schema";
+import type { Shift, TimeOffRequest, ScheduleMessage, Location } from "@shared/schema";
 import type { User } from "@shared/models/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
-  Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil
+  Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
+  MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check
 } from "lucide-react";
-import { format, addDays, startOfWeek, endOfWeek, isSameDay, parseISO } from "date-fns";
+import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
 
-type TeamMember = Pick<User, "id" | "username" | "firstName" | "lastName" | "email" | "role">;
+type TeamMember = Pick<User, "id" | "username" | "firstName" | "lastName" | "email" | "role" | "phone" | "smsOptIn">;
+
+const DEPARTMENTS = [
+  { value: "kitchen", label: "Kitchen", icon: ChefHat, color: "text-orange-600 dark:text-orange-400" },
+  { value: "foh", label: "FOH", icon: Store, color: "text-blue-600 dark:text-blue-400" },
+  { value: "bakery", label: "Bakery", icon: CakeSlice, color: "text-amber-700 dark:text-amber-400" },
+] as const;
 
 function getDisplayName(member: TeamMember): string {
   return member.username || member.firstName || member.email || "Unknown";
@@ -31,7 +38,7 @@ function getUserDisplayName(userId: string, members: TeamMember[]): string {
 }
 
 const TIME_OPTIONS = [
-  "5:00 AM", "5:30 AM", "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM",
+  "4:00 AM", "4:30 AM", "5:00 AM", "5:30 AM", "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM",
   "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
   "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM",
   "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM",
@@ -62,6 +69,7 @@ export default function Schedule() {
     shiftDate: "",
     startTime: "6:00 AM",
     endTime: "2:00 PM",
+    department: "kitchen",
     position: "",
     notes: "",
   });
@@ -74,7 +82,9 @@ export default function Schedule() {
     reason: "",
   });
 
-  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff">("schedule");
+  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum">("schedule");
+  const [forumMessage, setForumMessage] = useState("");
+  const [forumDate, setForumDate] = useState("");
 
   const startStr = format(weekStart, "yyyy-MM-dd");
   const endStr = format(weekEnd, "yyyy-MM-dd");
@@ -91,6 +101,14 @@ export default function Schedule() {
   const { data: teamMembers } = useQuery<TeamMember[]>({
     queryKey: ["/api/team-members"],
     enabled: isManagerOrOwner,
+  });
+
+  const { data: locationsData } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+  });
+
+  const { data: messagesData, isLoading: messagesLoading } = useQuery<ScheduleMessage[]>({
+    queryKey: ["/api/schedule-messages"],
   });
 
   const createShiftMutation = useMutation({
@@ -150,13 +168,41 @@ export default function Schedule() {
     },
   });
 
-  function openAddShift(date?: Date) {
+  const createMessageMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/schedule-messages", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-messages"] });
+      setForumMessage("");
+      setForumDate("");
+      toast({ title: "Message posted" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to post message", description: e.message, variant: "destructive" }),
+  });
+
+  const resolveMessageMutation = useMutation({
+    mutationFn: ({ id, resolved }: { id: number; resolved: boolean }) =>
+      apiRequest("PATCH", `/api/schedule-messages/${id}/resolve`, { resolved }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-messages"] });
+    },
+  });
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/schedule-messages/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-messages"] });
+      toast({ title: "Message deleted" });
+    },
+  });
+
+  function openAddShift(date?: Date, dept?: string) {
     setEditingShift(null);
     setShiftForm({
       userId: "",
       shiftDate: date ? format(date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       startTime: "6:00 AM",
       endTime: "2:00 PM",
+      department: dept || "kitchen",
       position: "",
       notes: "",
     });
@@ -170,6 +216,7 @@ export default function Schedule() {
       shiftDate: shift.shiftDate,
       startTime: shift.startTime,
       endTime: shift.endTime,
+      department: shift.department || "kitchen",
       position: shift.position || "",
       notes: shift.notes || "",
     });
@@ -186,6 +233,7 @@ export default function Schedule() {
       position: shiftForm.position || null,
       notes: shiftForm.notes || null,
       createdBy: user!.id,
+      locationId: null,
     };
     if (editingShift) {
       updateShiftMutation.mutate({ id: editingShift.id, ...payload });
@@ -206,19 +254,36 @@ export default function Schedule() {
     });
   }
 
+  function handlePostMessage() {
+    if (!forumMessage.trim()) {
+      toast({ title: "Please enter a message", variant: "destructive" });
+      return;
+    }
+    createMessageMutation.mutate({
+      userId: user!.id,
+      message: forumMessage.trim(),
+      messageType: "coverage",
+      relatedDate: forumDate || null,
+      locationId: null,
+    });
+  }
+
   function prevWeek() { setWeekStart(prev => addDays(prev, -7)); }
   function nextWeek() { setWeekStart(prev => addDays(prev, 7)); }
   function goToday() { setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 })); }
 
-  const shiftsForDay = (date: Date) => {
+  const shiftsForDayDept = (date: Date, dept: string) => {
     const dateStr = format(date, "yyyy-MM-dd");
-    return (shiftsData || []).filter(s => s.shiftDate === dateStr);
+    return (shiftsData || []).filter(s => s.shiftDate === dateStr && (s.department || "kitchen") === dept);
   };
 
   const pendingRequests = (timeOffData || []).filter(r => r.status === "pending");
   const myRequests = (timeOffData || []).filter(r => r.userId === user?.id);
-
   const members = teamMembers || [];
+  const activeMessages = (messagesData || []).filter(m => !m.resolved);
+  const resolvedMessages = (messagesData || []).filter(m => m.resolved);
+
+  const locationName = locationsData?.[0]?.name || "Bear's Cup Bakehouse";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-schedule">
@@ -226,9 +291,12 @@ export default function Schedule() {
         <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
           <CalendarDays className="w-5 h-5 text-primary" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-3xl font-display font-bold" data-testid="text-schedule-title">Schedule</h1>
-          <p className="text-sm text-muted-foreground">Team scheduling and time off management</p>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <MapPin className="w-3 h-3" />
+            <span data-testid="text-location-name">{locationName}</span>
+          </div>
         </div>
       </div>
 
@@ -251,6 +319,19 @@ export default function Schedule() {
           {isManagerOrOwner && pendingRequests.length > 0 && (
             <Badge variant="destructive" className="ml-2 text-[10px]" data-testid="badge-pending-timeoff">
               {pendingRequests.length}
+            </Badge>
+          )}
+        </Button>
+        <Button
+          variant={activeTab === "forum" ? "default" : "outline"}
+          onClick={() => setActiveTab("forum")}
+          data-testid="button-tab-forum"
+        >
+          <MessageSquare className="w-4 h-4 mr-2" />
+          Shift Coverage
+          {activeMessages.length > 0 && (
+            <Badge variant="secondary" className="ml-2 text-[10px]" data-testid="badge-active-messages">
+              {activeMessages.length}
             </Badge>
           )}
         </Button>
@@ -282,97 +363,116 @@ export default function Schedule() {
           </div>
 
           {shiftsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-              {Array.from({ length: 7 }).map((_, i) => (
-                <Skeleton key={i} className="h-40 rounded-md" />
+            <div className="space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-md" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-              {weekDays.map((day) => {
-                const dayShifts = shiftsForDay(day);
-                const isToday = isSameDay(day, new Date());
+            <div className="space-y-4">
+              {DEPARTMENTS.map((dept) => {
+                const DeptIcon = dept.icon;
                 return (
-                  <Card
-                    key={day.toISOString()}
-                    className={isToday ? "border-primary" : ""}
-                    data-testid={`card-day-${format(day, "yyyy-MM-dd")}`}
-                  >
-                    <CardHeader className="p-3 pb-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <CardTitle className="text-xs font-semibold">
-                          {format(day, "EEE")}
-                          <span className={`ml-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                            {format(day, "d")}
-                          </span>
-                        </CardTitle>
-                        {isManagerOrOwner && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => openAddShift(day)}
-                            data-testid={`button-add-shift-${format(day, "yyyy-MM-dd")}`}
+                  <div key={dept.value} data-testid={`section-dept-${dept.value}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <DeptIcon className={`w-5 h-5 ${dept.color}`} />
+                      <h3 className="text-lg font-display font-semibold">{dept.label}</h3>
+                      <span className="text-xs text-muted-foreground">(max 10 per day)</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
+                      {weekDays.map((day) => {
+                        const dayShifts = shiftsForDayDept(day, dept.value);
+                        const isToday = isSameDay(day, new Date());
+                        return (
+                          <Card
+                            key={day.toISOString()}
+                            className={isToday ? "border-primary" : ""}
+                            data-testid={`card-day-${dept.value}-${format(day, "yyyy-MM-dd")}`}
                           >
-                            <Plus className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-3 pt-0 space-y-1">
-                      {dayShifts.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic">No shifts</p>
-                      ) : (
-                        dayShifts.map((shift) => (
-                          <div
-                            key={shift.id}
-                            className="p-2 rounded-md bg-muted/50 space-y-1 group"
-                            data-testid={`shift-card-${shift.id}`}
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <div className="flex items-center gap-1 min-w-0">
-                                <UserCircle className="w-3 h-3 text-muted-foreground shrink-0" />
-                                <span className="text-xs font-medium truncate">
-                                  {getUserDisplayName(shift.userId, members)}
-                                </span>
-                              </div>
-                              {isManagerOrOwner && (
-                                <div className="flex items-center gap-0.5 invisible group-hover:visible">
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-5 w-5"
-                                    onClick={() => openEditShift(shift)}
-                                    data-testid={`button-edit-shift-${shift.id}`}
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-5 w-5"
-                                    onClick={() => {
-                                      if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
-                                    }}
-                                    data-testid={`button-delete-shift-${shift.id}`}
-                                  >
-                                    <Trash2 className="w-3 h-3 text-destructive" />
-                                  </Button>
+                            <CardHeader className="p-2 pb-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <CardTitle className="text-xs font-semibold">
+                                  {format(day, "EEE")}
+                                  <span className={`ml-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                                    {format(day, "d")}
+                                  </span>
+                                </CardTitle>
+                                <div className="flex items-center gap-1">
+                                  <Badge variant="outline" className="text-[9px] px-1">
+                                    {dayShifts.length}/10
+                                  </Badge>
+                                  {isManagerOrOwner && dayShifts.length < 10 && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5"
+                                      onClick={() => openAddShift(day, dept.value)}
+                                      data-testid={`button-add-shift-${dept.value}-${format(day, "yyyy-MM-dd")}`}
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                    </Button>
+                                  )}
                                 </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="p-2 pt-0 space-y-1">
+                              {dayShifts.length === 0 ? (
+                                <p className="text-[10px] text-muted-foreground italic">No staff</p>
+                              ) : (
+                                dayShifts.map((shift) => (
+                                  <div
+                                    key={shift.id}
+                                    className="p-1.5 rounded-md bg-muted/50 space-y-0.5 group"
+                                    data-testid={`shift-card-${shift.id}`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="flex items-center gap-1 min-w-0">
+                                        <UserCircle className="w-3 h-3 text-muted-foreground shrink-0" />
+                                        <span className="text-[11px] font-medium truncate">
+                                          {getUserDisplayName(shift.userId, members)}
+                                        </span>
+                                      </div>
+                                      {isManagerOrOwner && (
+                                        <div className="flex items-center gap-0.5 invisible group-hover:visible">
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-5 w-5"
+                                            onClick={() => openEditShift(shift)}
+                                            data-testid={`button-edit-shift-${shift.id}`}
+                                          >
+                                            <Pencil className="w-2.5 h-2.5" />
+                                          </Button>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-5 w-5"
+                                            onClick={() => {
+                                              if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
+                                            }}
+                                            data-testid={`button-delete-shift-${shift.id}`}
+                                          >
+                                            <Trash2 className="w-2.5 h-2.5 text-destructive" />
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1 text-muted-foreground">
+                                      <Clock className="w-2.5 h-2.5" />
+                                      <span className="text-[10px]">{shift.startTime} - {shift.endTime}</span>
+                                    </div>
+                                    {shift.position && (
+                                      <Badge variant="secondary" className="text-[9px]">{shift.position}</Badge>
+                                    )}
+                                  </div>
+                                ))
                               )}
-                            </div>
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              <Clock className="w-3 h-3" />
-                              <span className="text-[10px]">{shift.startTime} - {shift.endTime}</span>
-                            </div>
-                            {shift.position && (
-                              <Badge variant="secondary" className="text-[10px]">{shift.position}</Badge>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </CardContent>
-                  </Card>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -494,9 +594,7 @@ export default function Schedule() {
                       )}
                     </CardContent>
                   </Card>
-                )) || (
-                  <p className="text-muted-foreground col-span-full">No time off requests</p>
-                )}
+                )) || null}
                 {(isManagerOrOwner ? timeOffData : myRequests)?.length === 0 && (
                   <p className="text-muted-foreground col-span-full">No time off requests yet</p>
                 )}
@@ -506,12 +604,180 @@ export default function Schedule() {
         </div>
       )}
 
+      {activeTab === "forum" && (
+        <div className="space-y-6">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div>
+              <h2 className="text-xl font-display font-bold">Shift Coverage Board</h2>
+              <p className="text-sm text-muted-foreground">Post when you need coverage or can pick up shifts</p>
+            </div>
+          </div>
+
+          <Card data-testid="card-post-message">
+            <CardContent className="p-4 space-y-3">
+              <Textarea
+                placeholder="Need coverage for Saturday morning? Can pick up a shift? Post here..."
+                value={forumMessage}
+                onChange={e => setForumMessage(e.target.value)}
+                className="resize-none"
+                data-testid="input-forum-message"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input
+                  type="date"
+                  value={forumDate}
+                  onChange={e => setForumDate(e.target.value)}
+                  className="w-auto"
+                  placeholder="Related date (optional)"
+                  data-testid="input-forum-date"
+                />
+                <Button
+                  onClick={handlePostMessage}
+                  disabled={createMessageMutation.isPending || !forumMessage.trim()}
+                  data-testid="button-post-message"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Post
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {messagesLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-md" />)}
+            </div>
+          ) : (
+            <>
+              {activeMessages.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold">Open Requests</h3>
+                  <div className="space-y-2">
+                    {activeMessages.map((msg) => (
+                      <Card key={msg.id} data-testid={`card-message-${msg.id}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-sm">
+                                  {getUserDisplayName(msg.userId, members)}
+                                </span>
+                                {msg.relatedDate && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {msg.relatedDate}
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground">
+                                  {msg.createdAt ? format(new Date(msg.createdAt), "MMM d, h:mm a") : ""}
+                                </span>
+                              </div>
+                              <p className="text-sm">{msg.message}</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isManagerOrOwner && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => resolveMessageMutation.mutate({ id: msg.id, resolved: true })}
+                                  data-testid={`button-resolve-${msg.id}`}
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                              )}
+                              {(msg.userId === user?.id || isManagerOrOwner) && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (confirm("Delete this message?")) deleteMessageMutation.mutate(msg.id);
+                                  }}
+                                  data-testid={`button-delete-message-${msg.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {resolvedMessages.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold text-muted-foreground">Resolved</h3>
+                  <div className="space-y-2">
+                    {resolvedMessages.map((msg) => (
+                      <Card key={msg.id} className="opacity-60" data-testid={`card-message-resolved-${msg.id}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-sm">
+                                  {getUserDisplayName(msg.userId, members)}
+                                </span>
+                                {msg.relatedDate && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {msg.relatedDate}
+                                  </Badge>
+                                )}
+                                <Badge variant="default" className="text-[10px]">Resolved</Badge>
+                              </div>
+                              <p className="text-sm line-through">{msg.message}</p>
+                            </div>
+                            {isManagerOrOwner && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  if (confirm("Delete this message?")) deleteMessageMutation.mutate(msg.id);
+                                }}
+                                data-testid={`button-delete-resolved-${msg.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeMessages.length === 0 && resolvedMessages.length === 0 && (
+                <div className="text-center py-8">
+                  <MessageSquare className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-muted-foreground">No coverage requests yet</p>
+                  <p className="text-sm text-muted-foreground">Post above when you need someone to cover your shift</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
         <DialogContent data-testid="dialog-shift">
           <DialogHeader>
             <DialogTitle>{editingShift ? "Edit Shift" : "Add Shift"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Department</label>
+              <Select value={shiftForm.department} onValueChange={v => setShiftForm(f => ({ ...f, department: v }))}>
+                <SelectTrigger data-testid="select-shift-department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEPARTMENTS.map(d => (
+                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <label className="text-sm font-medium">Team Member</label>
               <Select value={shiftForm.userId} onValueChange={v => setShiftForm(f => ({ ...f, userId: v }))}>
@@ -559,20 +825,20 @@ export default function Schedule() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium">Position / Role</label>
+              <label className="text-sm font-medium">Position / Role (optional)</label>
               <Input
                 value={shiftForm.position}
                 onChange={e => setShiftForm(f => ({ ...f, position: e.target.value }))}
-                placeholder="e.g. Baker, Barista, Front"
+                placeholder="e.g., Lead Baker, Cashier"
                 data-testid="input-shift-position"
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Notes</label>
+              <label className="text-sm font-medium">Notes (optional)</label>
               <Textarea
                 value={shiftForm.notes}
                 onChange={e => setShiftForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Optional notes"
+                placeholder="Any special instructions..."
                 className="resize-none"
                 data-testid="input-shift-notes"
               />
@@ -602,7 +868,9 @@ export default function Schedule() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {REQUEST_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  {REQUEST_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -631,7 +899,7 @@ export default function Schedule() {
               <Textarea
                 value={timeOffForm.reason}
                 onChange={e => setTimeOffForm(f => ({ ...f, reason: e.target.value }))}
-                placeholder="Why you need time off"
+                placeholder="Brief reason for the request..."
                 className="resize-none"
                 data-testid="input-timeoff-reason"
               />

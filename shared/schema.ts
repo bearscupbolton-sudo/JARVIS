@@ -240,6 +240,19 @@ export const insertInventoryCountLineSchema = createInsertSchema(inventoryCountL
 export type InventoryCountLine = typeof inventoryCountLines.$inferSelect;
 export type InsertInventoryCountLine = z.infer<typeof insertInventoryCountLineSchema>;
 
+// === LOCATIONS ===
+export const locations = pgTable("locations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  address: text("address"),
+  isDefault: boolean("is_default").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLocationSchema = createInsertSchema(locations).omit({ id: true, createdAt: true });
+export type Location = typeof locations.$inferSelect;
+export type InsertLocation = z.infer<typeof insertLocationSchema>;
+
 // === SHIFTS (Schedule) ===
 export const shifts = pgTable("shifts", {
   id: serial("id").primaryKey(),
@@ -247,8 +260,10 @@ export const shifts = pgTable("shifts", {
   shiftDate: text("shift_date").notNull(),
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),
+  department: text("department").notNull().default("kitchen"),
   position: text("position"),
   notes: text("notes"),
+  locationId: integer("location_id"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -275,6 +290,22 @@ export const timeOffRequests = pgTable("time_off_requests", {
 export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true, createdAt: true, reviewedAt: true, status: true, reviewedBy: true, reviewNote: true });
 export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
 export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
+
+// === SCHEDULE MESSAGES (Shift Coverage Forum) ===
+export const scheduleMessages = pgTable("schedule_messages", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  message: text("message").notNull(),
+  messageType: text("message_type").notNull().default("coverage"),
+  relatedDate: text("related_date"),
+  locationId: integer("location_id"),
+  resolved: boolean("resolved").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertScheduleMessageSchema = createInsertSchema(scheduleMessages).omit({ id: true, createdAt: true });
+export type ScheduleMessage = typeof scheduleMessages.$inferSelect;
+export type InsertScheduleMessage = z.infer<typeof insertScheduleMessageSchema>;
 
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
