@@ -61,12 +61,16 @@ script/          → Build scripts
   - `pastry_totals` — Daily target counts per pastry item (date, item_name, target_count)
   - `shaping_logs` — Dough shaping entries that deduct from pastry totals (date, dough_type, yield_count, shaped_at)
   - `bakeoff_logs` — Bake-off entries showing items out of the oven (date, item_name, quantity, baked_at), feeds to dashboard
+  - `shifts` — Team schedule entries (userId, shiftDate, startTime, endTime, position, notes, createdBy)
+  - `time_off_requests` — Time off requests with approval workflow (userId, startDate, endDate, requestType, reason, status, reviewedBy)
 
-### Authentication
+### Authentication & Roles
 - **Method**: Replit OpenID Connect (OIDC) authentication via Passport.js
 - **Sessions**: Server-side sessions stored in PostgreSQL via `connect-pg-simple`
 - **Flow**: `/api/login` redirects to Replit OIDC, callback upserts user, session cookie is set
 - **Protected Routes**: `isAuthenticated` middleware on server; client-side `useAuth` hook redirects unauthenticated users to login
+- **Roles**: Three roles — `owner` (full access), `manager` (can create schedules, approve time off), `member` (basic access, can request time off)
+- **Middleware**: `isOwner` (owner only), `isManager` (owner or manager), `isUnlocked` (non-locked users)
 - **Important**: The `users` and `sessions` tables are mandatory for Replit Auth — do not drop them
 
 ### AI Integration (Replit AI Integrations)

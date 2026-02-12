@@ -14,7 +14,8 @@ import {
   Croissant,
   Coffee,
   UtensilsCrossed,
-  Package
+  Package,
+  CalendarDays
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },
   { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/assistant", label: "Jarvis", icon: Bot },
 ];
 
@@ -130,7 +132,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-2 flex-wrap mt-1 pl-6">
               <p className="text-xs text-muted-foreground" data-testid="text-sidebar-role">
-                {user?.role === "owner" ? "Owner" : "Team Member"}
+                {user?.role === "owner" ? "Owner" : user?.role === "manager" ? "Manager" : "Team Member"}
               </p>
               {user?.locked && (
                 <Badge variant="outline" className="text-[10px]">Read Only</Badge>

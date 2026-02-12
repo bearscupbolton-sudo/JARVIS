@@ -16,6 +16,20 @@ export const isOwner: RequestHandler = async (req: any, res, next) => {
   }
 };
 
+export const isManager: RequestHandler = async (req: any, res, next) => {
+  try {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const user = await authStorage.getUser(userId);
+    if (!user || (user.role !== "owner" && user.role !== "manager")) {
+      return res.status(403).json({ message: "Manager access required" });
+    }
+    next();
+  } catch {
+    res.status(500).json({ message: "Authorization check failed" });
+  }
+};
+
 export const isUnlocked: RequestHandler = async (req: any, res, next) => {
   try {
     const userId = req.user?.claims?.sub;
@@ -56,7 +70,7 @@ export function registerAuthRoutes(app: Express): void {
   app.patch("/api/admin/users/:id/role", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { role } = req.body;
-      if (!["owner", "member"].includes(role)) {
+      if (!["owner", "manager", "member"].includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
       const targetId = req.params.id;

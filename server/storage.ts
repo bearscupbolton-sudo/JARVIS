@@ -2,6 +2,7 @@ import {
   recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
+  shifts, timeOffRequests,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -16,7 +17,9 @@ import {
   type Invoice, type InsertInvoice,
   type InvoiceLine, type InsertInvoiceLine,
   type InventoryCount, type InsertInventoryCount,
-  type InventoryCountLine, type InsertInventoryCountLine
+  type InventoryCountLine, type InsertInventoryCountLine,
+  type Shift, type InsertShift,
+  type TimeOffRequest, type InsertTimeOffRequest
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -98,6 +101,18 @@ export interface IStorage {
   startInventoryCount(count: InsertInventoryCount): Promise<InventoryCount>;
   addInventoryCountLine(countId: number, line: Omit<InsertInventoryCountLine, 'countId'>): Promise<InventoryCountLine>;
   completeInventoryCount(id: number): Promise<InventoryCount>;
+
+  // Shifts
+  getShifts(startDate: string, endDate: string): Promise<Shift[]>;
+  createShift(shift: InsertShift): Promise<Shift>;
+  updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift>;
+  deleteShift(id: number): Promise<void>;
+
+  // Time Off Requests
+  getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]>;
+  createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
+  updateTimeOffRequestStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<TimeOffRequest>;
+  deleteTimeOffRequest(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -431,6 +446,54 @@ export class DatabaseStorage implements IStorage {
       .where(eq(inventoryCounts.id, id))
       .returning();
     return updated;
+  }
+
+  // Shifts
+  async getShifts(startDate: string, endDate: string): Promise<Shift[]> {
+    return await db.select().from(shifts)
+      .where(and(gte(shifts.shiftDate, startDate), lte(shifts.shiftDate, endDate)))
+      .orderBy(shifts.shiftDate, shifts.startTime);
+  }
+
+  async createShift(shift: InsertShift): Promise<Shift> {
+    const [created] = await db.insert(shifts).values(shift).returning();
+    return created;
+  }
+
+  async updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift> {
+    const [updated] = await db.update(shifts).set(updates).where(eq(shifts.id, id)).returning();
+    return updated;
+  }
+
+  async deleteShift(id: number): Promise<void> {
+    await db.delete(shifts).where(eq(shifts.id, id));
+  }
+
+  // Time Off Requests
+  async getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]> {
+    if (userId) {
+      return await db.select().from(timeOffRequests)
+        .where(eq(timeOffRequests.userId, userId))
+        .orderBy(desc(timeOffRequests.createdAt));
+    }
+    return await db.select().from(timeOffRequests).orderBy(desc(timeOffRequests.createdAt));
+  }
+
+  async createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest> {
+    const [created] = await db.insert(timeOffRequests).values(request).returning();
+    return created;
+  }
+
+  async updateTimeOffRequestStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<TimeOffRequest> {
+    const [updated] = await db.update(timeOffRequests)
+      .set({ status, reviewedBy, reviewNote: reviewNote || null, reviewedAt: new Date() })
+      .where(eq(timeOffRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTimeOffRequest(id: number): Promise<void> {
+    await db.delete(timeOffRequests).where(eq(timeOffRequests.id, id));
   }
 }
 

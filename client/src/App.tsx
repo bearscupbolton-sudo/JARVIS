@@ -24,6 +24,7 @@ import Inventory from "@/pages/Inventory";
 import InventoryItems from "@/pages/InventoryItems";
 import InvoiceCapture from "@/pages/InvoiceCapture";
 import InventoryCount from "@/pages/InventoryCount";
+import Schedule from "@/pages/Schedule";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -113,6 +114,9 @@ function Router() {
       </Route>
       <Route path="/inventory/count">
         {() => <ProtectedRoute component={InventoryCount} />}
+      </Route>
+      <Route path="/schedule">
+        {() => <ProtectedRoute component={Schedule} />}
       </Route>
 
       <Route component={NotFound} />

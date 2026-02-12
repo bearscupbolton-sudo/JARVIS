@@ -6,6 +6,7 @@ import type { User } from "@shared/models/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Lock, Unlock, Trash2, Users } from "lucide-react";
 
 export default function AdminUsers() {
@@ -14,6 +15,18 @@ export default function AdminUsers() {
 
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
+  });
+
+  const roleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      apiRequest("PATCH", `/api/admin/users/${id}/role`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Role updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update role", description: error.message, variant: "destructive" });
+    },
   });
 
   const lockMutation = useMutation({
@@ -82,10 +95,10 @@ export default function AdminUsers() {
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
                     <Badge
-                      variant={u.role === "owner" ? "default" : "secondary"}
+                      variant={u.role === "owner" ? "default" : u.role === "manager" ? "secondary" : "outline"}
                       data-testid={`badge-role-${u.id}`}
                     >
-                      {u.role === "owner" ? "Owner" : "Member"}
+                      {u.role === "owner" ? "Owner" : u.role === "manager" ? "Manager" : "Member"}
                     </Badge>
                     {u.locked && (
                       <Badge variant="destructive" data-testid={`badge-locked-${u.id}`}>
@@ -96,25 +109,43 @@ export default function AdminUsers() {
                 </div>
 
                 {!isCurrentUser && (
-                  <div className="flex items-center gap-2 pt-1">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => lockMutation.mutate({ id: u.id, locked: !u.locked })}
-                      disabled={lockMutation.isPending}
-                      data-testid={`button-lock-user-${u.id}`}
-                    >
-                      {u.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => handleDelete(u.id, displayName)}
-                      disabled={deleteMutation.isPending}
-                      data-testid={`button-delete-user-${u.id}`}
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <label className="text-xs text-muted-foreground">Role</label>
+                      <Select
+                        value={u.role}
+                        onValueChange={(role) => roleMutation.mutate({ id: u.id, role })}
+                      >
+                        <SelectTrigger data-testid={`select-role-${u.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="owner">Owner</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="member">Member</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={() => lockMutation.mutate({ id: u.id, locked: !u.locked })}
+                        disabled={lockMutation.isPending}
+                        data-testid={`button-lock-user-${u.id}`}
+                      >
+                        {u.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={() => handleDelete(u.id, displayName)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`button-delete-user-${u.id}`}
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, authStorage } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
 
 async function getUserFromReq(req: any) {
@@ -672,6 +672,120 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     } catch (err) {
       res.status(500).json({ message: "Failed to complete count" });
     }
+  });
+
+  // === TEAM MEMBERS (for managers to see team) ===
+  app.get("/api/team-members", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      const teamMembers = allUsers.map(u => ({
+        id: u.id,
+        username: u.username,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        role: u.role,
+      }));
+      res.json(teamMembers);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch team members" });
+    }
+  });
+
+  // === SHIFTS (Schedule) ===
+  app.get(api.shifts.list.path, isAuthenticated, async (req, res) => {
+    const start = (req.query.start as string) || "";
+    const end = (req.query.end as string) || "";
+    const result = await storage.getShifts(start, end);
+    res.json(result);
+  });
+
+  app.post(api.shifts.create.path, isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const input = api.shifts.create.input.parse(req.body);
+      const shift = await storage.createShift(input);
+      res.status(201).json(shift);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.shifts.update.path, isAuthenticated, isManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const input = api.shifts.update.input.parse(req.body);
+      const shift = await storage.updateShift(id, input);
+      if (!shift) return res.status(404).json({ message: "Shift not found" });
+      res.json(shift);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.shifts.delete.path, isAuthenticated, isManager, async (req, res) => {
+    await storage.deleteShift(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === TIME OFF REQUESTS ===
+  app.get(api.timeOffRequests.list.path, isAuthenticated, async (req: any, res) => {
+    const user = await getUserFromReq(req);
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    if (user.role === "owner" || user.role === "manager") {
+      const result = await storage.getTimeOffRequests();
+      return res.json(result);
+    }
+    const result = await storage.getTimeOffRequests(user.id);
+    res.json(result);
+  });
+
+  app.post(api.timeOffRequests.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.timeOffRequests.create.input.parse(req.body);
+      const userId = req.user?.claims?.sub;
+      const request = await storage.createTimeOffRequest({ ...input, userId });
+      res.status(201).json(request);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.timeOffRequests.updateStatus.path, isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status, reviewNote } = api.timeOffRequests.updateStatus.input.parse(req.body);
+      const userId = req.user?.claims?.sub;
+      const updated = await storage.updateTimeOffRequestStatus(id, status, userId, reviewNote);
+      if (!updated) return res.status(404).json({ message: "Request not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.timeOffRequests.delete.path, isAuthenticated, async (req: any, res) => {
+    const user = await getUserFromReq(req);
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    const allRequests = await storage.getTimeOffRequests();
+    const target = allRequests.find(r => r.id === Number(req.params.id));
+    if (!target) return res.status(404).json({ message: "Request not found" });
+    if (target.userId !== user.id && user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "You can only cancel your own requests" });
+    }
+    await storage.deleteTimeOffRequest(Number(req.params.id));
+    res.status(204).send();
   });
 
   return httpServer;

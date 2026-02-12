@@ -240,6 +240,42 @@ export const insertInventoryCountLineSchema = createInsertSchema(inventoryCountL
 export type InventoryCountLine = typeof inventoryCountLines.$inferSelect;
 export type InsertInventoryCountLine = z.infer<typeof insertInventoryCountLineSchema>;
 
+// === SHIFTS (Schedule) ===
+export const shifts = pgTable("shifts", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  shiftDate: text("shift_date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  position: text("position"),
+  notes: text("notes"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true, createdAt: true });
+export type Shift = typeof shifts.$inferSelect;
+export type InsertShift = z.infer<typeof insertShiftSchema>;
+
+// === TIME OFF REQUESTS ===
+export const timeOffRequests = pgTable("time_off_requests", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  requestType: text("request_type").notNull(),
+  reason: text("reason"),
+  status: text("status").default("pending").notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+
+export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true, createdAt: true, reviewedAt: true, status: true, reviewedBy: true, reviewNote: true });
+export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
+export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;

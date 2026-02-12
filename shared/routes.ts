@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, insertShiftSchema, insertTimeOffRequestSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines, shifts, timeOffRequests } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -382,6 +382,73 @@ export const api = {
     delete: {
       method: 'DELETE' as const,
       path: '/api/bakeoff-logs/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  shifts: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/shifts' as const,
+      responses: {
+        200: z.array(z.custom<typeof shifts.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/shifts' as const,
+      input: insertShiftSchema,
+      responses: {
+        201: z.custom<typeof shifts.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/shifts/:id' as const,
+      input: insertShiftSchema.partial(),
+      responses: {
+        200: z.custom<typeof shifts.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/shifts/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  timeOffRequests: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/time-off' as const,
+      responses: {
+        200: z.array(z.custom<typeof timeOffRequests.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/time-off' as const,
+      input: insertTimeOffRequestSchema,
+      responses: {
+        201: z.custom<typeof timeOffRequests.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    updateStatus: {
+      method: 'PATCH' as const,
+      path: '/api/time-off/:id/status' as const,
+      input: z.object({
+        status: z.enum(["approved", "denied"]),
+        reviewNote: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof timeOffRequests.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/time-off/:id' as const,
       responses: { 204: z.void() },
     },
   },
