@@ -167,6 +167,75 @@ export const insertBakeoffLogSchema = createInsertSchema(bakeoffLogs).omit({ id:
 export type BakeoffLog = typeof bakeoffLogs.$inferSelect;
 export type InsertBakeoffLog = z.infer<typeof insertBakeoffLogSchema>;
 
+// === INVENTORY ITEMS (Master List) ===
+export const inventoryItems = pgTable("inventory_items", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  unit: text("unit").notNull(),
+  aliases: text("aliases").array().notNull().default([]),
+  onHand: doublePrecision("on_hand").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({ id: true, createdAt: true });
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+
+// === INVOICES ===
+export const invoices = pgTable("invoices", {
+  id: serial("id").primaryKey(),
+  vendorName: text("vendor_name").notNull(),
+  invoiceDate: text("invoice_date").notNull(),
+  notes: text("notes"),
+  enteredBy: text("entered_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+
+// === INVOICE LINES ===
+export const invoiceLines = pgTable("invoice_lines", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id),
+  itemDescription: text("item_description").notNull(),
+  quantity: doublePrecision("quantity").notNull(),
+  unit: text("unit"),
+  inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
+});
+
+export const insertInvoiceLineSchema = createInsertSchema(invoiceLines).omit({ id: true });
+export type InvoiceLine = typeof invoiceLines.$inferSelect;
+export type InsertInvoiceLine = z.infer<typeof insertInvoiceLineSchema>;
+
+// === INVENTORY COUNTS (End-of-Day snapshots) ===
+export const inventoryCounts = pgTable("inventory_counts", {
+  id: serial("id").primaryKey(),
+  countDate: text("count_date").notNull(),
+  countedBy: text("counted_by"),
+  status: text("status").notNull().default("in_progress"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertInventoryCountSchema = createInsertSchema(inventoryCounts).omit({ id: true, createdAt: true, completedAt: true });
+export type InventoryCount = typeof inventoryCounts.$inferSelect;
+export type InsertInventoryCount = z.infer<typeof insertInventoryCountSchema>;
+
+// === INVENTORY COUNT LINES ===
+export const inventoryCountLines = pgTable("inventory_count_lines", {
+  id: serial("id").primaryKey(),
+  countId: integer("count_id").notNull().references(() => inventoryCounts.id),
+  inventoryItemId: integer("inventory_item_id").notNull().references(() => inventoryItems.id),
+  quantity: doublePrecision("quantity").notNull(),
+});
+
+export const insertInventoryCountLineSchema = createInsertSchema(inventoryCountLines).omit({ id: true });
+export type InventoryCountLine = typeof inventoryCountLines.$inferSelect;
+export type InsertInventoryCountLine = z.infer<typeof insertInventoryCountLineSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;

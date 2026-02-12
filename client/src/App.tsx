@@ -20,6 +20,10 @@ import Assistant from "@/pages/Assistant";
 import AdminUsers from "@/pages/AdminUsers";
 import AdminApprovals from "@/pages/AdminApprovals";
 import Profile from "@/pages/Profile";
+import Inventory from "@/pages/Inventory";
+import InventoryItems from "@/pages/InventoryItems";
+import InvoiceCapture from "@/pages/InvoiceCapture";
+import InventoryCount from "@/pages/InventoryCount";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -97,6 +101,18 @@ function Router() {
       </Route>
       <Route path="/profile">
         {() => <ProtectedRoute component={Profile} />}
+      </Route>
+      <Route path="/inventory">
+        {() => <ProtectedRoute component={Inventory} />}
+      </Route>
+      <Route path="/inventory/items">
+        {() => <ProtectedRoute component={InventoryItems} />}
+      </Route>
+      <Route path="/inventory/invoices">
+        {() => <ProtectedRoute component={InvoiceCapture} />}
+      </Route>
+      <Route path="/inventory/count">
+        {() => <ProtectedRoute component={InventoryCount} />}
       </Route>
 
       <Route component={NotFound} />

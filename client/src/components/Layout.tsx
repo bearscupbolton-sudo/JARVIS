@@ -13,7 +13,8 @@ import {
   UserCircle,
   Croissant,
   Coffee,
-  UtensilsCrossed
+  UtensilsCrossed,
+  Package
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/recipes", label: "Recipes", icon: ChefHat },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },
+  { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/assistant", label: "Jarvis", icon: Bot },
 ];
 
@@ -66,7 +68,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       <nav className="flex-1 px-4 space-y-2 mt-4">
         {NAV_ITEMS.map((item) => {
-          const isActive = location === item.href;
+          const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href}>
               <div

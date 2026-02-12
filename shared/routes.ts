@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -266,6 +266,88 @@ export const api = {
       method: 'DELETE' as const,
       path: '/api/shaping-logs/:id' as const,
       responses: { 204: z.void() },
+    },
+  },
+  inventoryItems: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/inventory-items' as const,
+      responses: { 200: z.array(z.custom<typeof inventoryItems.$inferSelect>()) },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/inventory-items' as const,
+      input: insertInventoryItemSchema,
+      responses: { 201: z.custom<typeof inventoryItems.$inferSelect>(), 400: errorSchemas.validation },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/inventory-items/:id' as const,
+      input: insertInventoryItemSchema.partial(),
+      responses: { 200: z.custom<typeof inventoryItems.$inferSelect>(), 404: errorSchemas.notFound },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/inventory-items/:id' as const,
+      responses: { 204: z.void() },
+    },
+  },
+  invoices: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/invoices' as const,
+      responses: { 200: z.array(z.custom<typeof invoices.$inferSelect>()) },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/invoices/:id' as const,
+      responses: { 200: z.any(), 404: errorSchemas.notFound },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/invoices' as const,
+      input: z.object({
+        vendorName: z.string().min(1),
+        invoiceDate: z.string().min(1),
+        notes: z.string().nullable().optional(),
+        enteredBy: z.string().nullable().optional(),
+        lines: z.array(z.object({
+          itemDescription: z.string().min(1),
+          quantity: z.number().positive(),
+          unit: z.string().nullable().optional(),
+        })),
+      }),
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+  },
+  inventoryCounts: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/inventory-counts' as const,
+      responses: { 200: z.array(z.custom<typeof inventoryCounts.$inferSelect>()) },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/inventory-counts/:id' as const,
+      responses: { 200: z.any(), 404: errorSchemas.notFound },
+    },
+    start: {
+      method: 'POST' as const,
+      path: '/api/inventory-counts' as const,
+      input: insertInventoryCountSchema,
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    addLine: {
+      method: 'POST' as const,
+      path: '/api/inventory-counts/:id/lines' as const,
+      input: z.object({ inventoryItemId: z.number(), quantity: z.number() }),
+      responses: { 201: z.custom<typeof inventoryCountLines.$inferSelect>(), 400: errorSchemas.validation },
+    },
+    complete: {
+      method: 'POST' as const,
+      path: '/api/inventory-counts/:id/complete' as const,
+      input: z.object({}),
+      responses: { 200: z.any() },
     },
   },
   bakeoffLogs: {

@@ -470,5 +470,130 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === INVENTORY ITEMS ===
+  app.get(api.inventoryItems.list.path, isAuthenticated, async (req, res) => {
+    const items = await storage.getInventoryItems();
+    res.json(items);
+  });
+
+  app.post(api.inventoryItems.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.inventoryItems.create.input.parse(req.body);
+      const item = await storage.createInventoryItem(input);
+      res.status(201).json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.inventoryItems.update.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = api.inventoryItems.update.input.parse(req.body);
+      const item = await storage.updateInventoryItem(Number(req.params.id), input);
+      if (!item) return res.status(404).json({ message: 'Item not found' });
+      res.json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.inventoryItems.delete.path, isAuthenticated, isOwner, async (req, res) => {
+    await storage.deleteInventoryItem(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === INVOICES ===
+  app.get(api.invoices.list.path, isAuthenticated, async (req, res) => {
+    const invoiceList = await storage.getInvoices();
+    res.json(invoiceList);
+  });
+
+  app.get(api.invoices.get.path, isAuthenticated, async (req, res) => {
+    const invoice = await storage.getInvoice(Number(req.params.id));
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+    res.json(invoice);
+  });
+
+  app.post(api.invoices.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.invoices.create.input.parse(req.body);
+      const user = await getUserFromReq(req);
+      const invoice = await storage.createInvoiceWithLines(
+        {
+          vendorName: input.vendorName,
+          invoiceDate: input.invoiceDate,
+          notes: input.notes || null,
+          enteredBy: user?.username || user?.firstName || "Unknown",
+        },
+        input.lines
+      );
+      res.status(201).json(invoice);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  // === INVENTORY COUNTS ===
+  app.get(api.inventoryCounts.list.path, isAuthenticated, async (req, res) => {
+    const counts = await storage.getInventoryCounts();
+    res.json(counts);
+  });
+
+  app.get(api.inventoryCounts.get.path, isAuthenticated, async (req, res) => {
+    const count = await storage.getInventoryCount(Number(req.params.id));
+    if (!count) return res.status(404).json({ message: 'Count not found' });
+    res.json(count);
+  });
+
+  app.post(api.inventoryCounts.start.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.inventoryCounts.start.input.parse(req.body);
+      const user = await getUserFromReq(req);
+      const count = await storage.startInventoryCount({
+        ...input,
+        countedBy: user?.username || user?.firstName || "Unknown",
+      });
+      res.status(201).json(count);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.inventoryCounts.addLine.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const countId = Number(req.params.id);
+      const input = api.inventoryCounts.addLine.input.parse(req.body);
+      const line = await storage.addInventoryCountLine(countId, input);
+      res.status(201).json(line);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.inventoryCounts.complete.path, isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const countId = Number(req.params.id);
+      const count = await storage.completeInventoryCount(countId);
+      res.json(count);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to complete count" });
+    }
+  });
+
   return httpServer;
 }

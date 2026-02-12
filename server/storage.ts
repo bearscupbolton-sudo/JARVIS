@@ -1,6 +1,7 @@
 import {
   recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
+  inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -10,10 +11,15 @@ import {
   type PendingChange, type InsertPendingChange,
   type PastryTotal, type InsertPastryTotal,
   type ShapingLog, type InsertShapingLog,
-  type BakeoffLog, type InsertBakeoffLog
+  type BakeoffLog, type InsertBakeoffLog,
+  type InventoryItem, type InsertInventoryItem,
+  type Invoice, type InsertInvoice,
+  type InvoiceLine, type InsertInvoiceLine,
+  type InventoryCount, type InsertInventoryCount,
+  type InventoryCountLine, type InsertInventoryCountLine
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, gte, lte, and } from "drizzle-orm";
+import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Recipes
@@ -73,6 +79,25 @@ export interface IStorage {
   getBakeoffLogs(date: string): Promise<BakeoffLog[]>;
   createBakeoffLog(log: InsertBakeoffLog): Promise<BakeoffLog>;
   deleteBakeoffLog(id: number): Promise<boolean>;
+
+  // Inventory Items
+  getInventoryItems(): Promise<InventoryItem[]>;
+  getInventoryItem(id: number): Promise<InventoryItem | undefined>;
+  createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
+  updateInventoryItem(id: number, updates: Partial<InsertInventoryItem>): Promise<InventoryItem>;
+  deleteInventoryItem(id: number): Promise<void>;
+
+  // Invoices
+  getInvoices(): Promise<Invoice[]>;
+  getInvoice(id: number): Promise<(Invoice & { lines: InvoiceLine[] }) | undefined>;
+  createInvoiceWithLines(invoice: InsertInvoice, lines: { itemDescription: string; quantity: number; unit?: string | null }[]): Promise<Invoice & { lines: InvoiceLine[] }>;
+
+  // Inventory Counts
+  getInventoryCounts(): Promise<InventoryCount[]>;
+  getInventoryCount(id: number): Promise<(InventoryCount & { lines: (InventoryCountLine & { item: InventoryItem })[] }) | undefined>;
+  startInventoryCount(count: InsertInventoryCount): Promise<InventoryCount>;
+  addInventoryCountLine(countId: number, line: Omit<InsertInventoryCountLine, 'countId'>): Promise<InventoryCountLine>;
+  completeInventoryCount(id: number): Promise<InventoryCount>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -283,6 +308,127 @@ export class DatabaseStorage implements IStorage {
   async deleteBakeoffLog(id: number): Promise<boolean> {
     const result = await db.delete(bakeoffLogs).where(eq(bakeoffLogs.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Inventory Items
+  async getInventoryItems(): Promise<InventoryItem[]> {
+    return await db.select().from(inventoryItems).orderBy(inventoryItems.category, inventoryItems.name);
+  }
+
+  async getInventoryItem(id: number): Promise<InventoryItem | undefined> {
+    const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+    return item;
+  }
+
+  async createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem> {
+    const [created] = await db.insert(inventoryItems).values(item).returning();
+    return created;
+  }
+
+  async updateInventoryItem(id: number, updates: Partial<InsertInventoryItem>): Promise<InventoryItem> {
+    const [updated] = await db.update(inventoryItems).set(updates).where(eq(inventoryItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteInventoryItem(id: number): Promise<void> {
+    await db.delete(inventoryItems).where(eq(inventoryItems.id, id));
+  }
+
+  // Invoices
+  async getInvoices(): Promise<Invoice[]> {
+    return await db.select().from(invoices).orderBy(desc(invoices.createdAt));
+  }
+
+  async getInvoice(id: number): Promise<(Invoice & { lines: InvoiceLine[] }) | undefined> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    if (!invoice) return undefined;
+    const lines = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, id));
+    return { ...invoice, lines };
+  }
+
+  async createInvoiceWithLines(
+    invoiceData: InsertInvoice,
+    lines: { itemDescription: string; quantity: number; unit?: string | null }[]
+  ): Promise<Invoice & { lines: InvoiceLine[] }> {
+    const [invoice] = await db.insert(invoices).values(invoiceData).returning();
+
+    const allItems = await this.getInventoryItems();
+    const createdLines: InvoiceLine[] = [];
+
+    for (const line of lines) {
+      const descLower = line.itemDescription.toLowerCase().trim();
+      let matchedItem: InventoryItem | undefined;
+      for (const item of allItems) {
+        if (item.name.toLowerCase().trim() === descLower) {
+          matchedItem = item;
+          break;
+        }
+        if (item.aliases && item.aliases.some(a => a.toLowerCase().trim() === descLower)) {
+          matchedItem = item;
+          break;
+        }
+      }
+
+      const [createdLine] = await db.insert(invoiceLines).values({
+        invoiceId: invoice.id,
+        itemDescription: line.itemDescription,
+        quantity: line.quantity,
+        unit: line.unit || null,
+        inventoryItemId: matchedItem?.id || null,
+      }).returning();
+      createdLines.push(createdLine);
+
+      if (matchedItem) {
+        await db.update(inventoryItems)
+          .set({ onHand: sql`${inventoryItems.onHand} + ${line.quantity}` })
+          .where(eq(inventoryItems.id, matchedItem.id));
+      }
+    }
+
+    return { ...invoice, lines: createdLines };
+  }
+
+  // Inventory Counts
+  async getInventoryCounts(): Promise<InventoryCount[]> {
+    return await db.select().from(inventoryCounts).orderBy(desc(inventoryCounts.createdAt));
+  }
+
+  async getInventoryCount(id: number): Promise<(InventoryCount & { lines: (InventoryCountLine & { item: InventoryItem })[] }) | undefined> {
+    const [count] = await db.select().from(inventoryCounts).where(eq(inventoryCounts.id, id));
+    if (!count) return undefined;
+    const lines = await db.select().from(inventoryCountLines).where(eq(inventoryCountLines.countId, id));
+    const linesWithItems: (InventoryCountLine & { item: InventoryItem })[] = [];
+    for (const line of lines) {
+      const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, line.inventoryItemId));
+      if (item) {
+        linesWithItems.push({ ...line, item });
+      }
+    }
+    return { ...count, lines: linesWithItems };
+  }
+
+  async startInventoryCount(countData: InsertInventoryCount): Promise<InventoryCount> {
+    const [count] = await db.insert(inventoryCounts).values(countData).returning();
+    return count;
+  }
+
+  async addInventoryCountLine(countId: number, line: Omit<InsertInventoryCountLine, 'countId'>): Promise<InventoryCountLine> {
+    const [created] = await db.insert(inventoryCountLines).values({ ...line, countId }).returning();
+    return created;
+  }
+
+  async completeInventoryCount(id: number): Promise<InventoryCount> {
+    const lines = await db.select().from(inventoryCountLines).where(eq(inventoryCountLines.countId, id));
+    for (const line of lines) {
+      await db.update(inventoryItems)
+        .set({ onHand: line.quantity })
+        .where(eq(inventoryItems.id, line.inventoryItemId));
+    }
+    const [updated] = await db.update(inventoryCounts)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(inventoryCounts.id, id))
+      .returning();
+    return updated;
   }
 }
 
