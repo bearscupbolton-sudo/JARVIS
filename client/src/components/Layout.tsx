@@ -95,7 +95,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4">
+      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
