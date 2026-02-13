@@ -88,7 +88,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <div>
             <h1 className="font-display text-xl font-bold tracking-tight text-foreground" data-testid="text-sidebar-brand">Jarvis</h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">Bear's Cup Bakehouse</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
           </div>
         </div>
       </div>
@@ -199,7 +199,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain dark:invert" />
               <div className="flex flex-col">
                 <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Bear's Cup Bakehouse</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
               </div>
             </div>
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} data-testid="button-mobile-menu">
