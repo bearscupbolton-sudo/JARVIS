@@ -58,6 +58,14 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    scan: {
+      method: 'POST' as const,
+      path: '/api/recipes/scan' as const,
+      input: z.object({
+        image: z.string().min(1),
+      }),
+      responses: { 200: z.any(), 400: errorSchemas.validation },
+    },
   },
   productionLogs: {
     list: {

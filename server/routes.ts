@@ -99,6 +99,99 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.post(api.recipes.scan.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image } = api.recipes.scan.input.parse(req.body);
+      const base64Size = image.length * 0.75;
+      if (base64Size > 15 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image too large. Please upload an image under 10MB." });
+      }
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are Jarvis, an expert bakery recipe parser for Bear's Cup Bakehouse. Extract recipe data from the uploaded image (handwritten notes, printed recipes, spreadsheets, or formula sheets).
+
+Return a JSON object with this exact structure:
+{
+  "title": "string - the recipe name",
+  "description": "string - a brief description of the recipe",
+  "category": "string - one of: Bread, Viennoiserie, Component, Gluten Free, Cookies, Muffin/Cake, Mother",
+  "yieldAmount": number - the yield quantity (default 1 if not clear),
+  "yieldUnit": "string - the yield unit (e.g. batch, loaves, kg, pieces)",
+  "ingredients": [
+    {
+      "name": "string - ingredient name exactly as shown",
+      "quantity": number - the quantity (weight/amount),
+      "unit": "string - unit of measure (g, kg, ml, oz, lb, ea, etc.)"
+    }
+  ],
+  "instructions": [
+    {
+      "step": number - step number starting at 1,
+      "text": "string - instruction text"
+    }
+  ]
+}
+
+Guidelines:
+- Weights should be in grams (g) when possible. Convert if needed.
+- If no instructions are visible, return an empty instructions array.
+- Choose the most appropriate category from the allowed list.
+- If the yield is not clear, default to 1 batch.
+- Return ONLY the JSON, no other text.`
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Parse this recipe image and extract all the data into the specified JSON format."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`,
+                }
+              }
+            ]
+          }
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(400).json({ message: "Could not parse recipe image" });
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          return res.status(400).json({ message: "Could not extract recipe data. Please try a clearer photo." });
+        }
+      }
+
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Recipe scan error:", error);
+      res.status(500).json({ message: "Failed to parse recipe image. Please try again." });
+    }
+  });
+
   // === PRODUCTION LOGS ===
   app.get(api.productionLogs.list.path, async (req, res) => {
     const logs = await storage.getProductionLogs();

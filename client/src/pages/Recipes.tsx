@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -11,7 +11,12 @@ import {
   Search, 
   Filter, 
   ChefHat,
-  ArrowRight
+  ArrowRight,
+  Camera,
+  Bot,
+  Loader2,
+  ImageIcon,
+  X
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -21,6 +26,7 @@ import { insertRecipeSchema, type InsertRecipe } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { apiRequest } from "@/lib/queryClient";
 
 const RECIPE_CATEGORIES = [
   "Bread",
@@ -143,6 +149,9 @@ function CreateRecipeDialog() {
   const { mutate, isPending } = useCreateRecipe();
   const { user } = useAuth();
   const { toast } = useToast();
+  const [scanning, setScanning] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<InsertRecipe>({
     resolver: zodResolver(insertRecipeSchema),
@@ -157,23 +166,79 @@ function CreateRecipeDialog() {
     }
   });
 
-  const { fields: ingredientFields, append: appendIngredient, remove: removeIngredient } = useFieldArray({
+  const { fields: ingredientFields, append: appendIngredient, remove: removeIngredient, replace: replaceIngredients } = useFieldArray({
     control: form.control,
     name: "ingredients" as any
   });
 
-  const { fields: instructionFields, append: appendInstruction, remove: removeInstruction } = useFieldArray({
+  const { fields: instructionFields, append: appendInstruction, remove: removeInstruction, replace: replaceInstructions } = useFieldArray({
     control: form.control,
     name: "instructions" as any
   });
 
   if (user?.locked) return null;
 
+  const handlePhotoUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please upload an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Please upload an image under 10MB.", variant: "destructive" });
+      return;
+    }
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    setScanning(true);
+
+    try {
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await apiRequest("POST", "/api/recipes/scan", { image: dataUrl });
+      const parsed = await res.json();
+
+      if (parsed.title) form.setValue("title", parsed.title);
+      if (parsed.description) form.setValue("description", parsed.description);
+      if (parsed.category && RECIPE_CATEGORIES.includes(parsed.category)) {
+        form.setValue("category", parsed.category);
+      }
+      if (parsed.yieldAmount) form.setValue("yieldAmount", Number(parsed.yieldAmount) || 1);
+      if (parsed.yieldUnit) form.setValue("yieldUnit", String(parsed.yieldUnit));
+      if (parsed.ingredients?.length) {
+        replaceIngredients(parsed.ingredients.map((i: any) => ({
+          name: String(i.name || ""),
+          quantity: Number(i.quantity) || 0,
+          unit: String(i.unit || "g"),
+        })));
+      }
+      if (parsed.instructions?.length) {
+        replaceInstructions(parsed.instructions.map((i: any, idx: number) => ({
+          step: Number(i.step) || idx + 1,
+          text: String(i.text || ""),
+        })));
+      }
+
+      toast({ title: "Jarvis parsed your recipe", description: "Review and edit the details below before saving." });
+    } catch (error: any) {
+      toast({ title: "Could not parse recipe", description: error.message || "Please try a clearer photo.", variant: "destructive" });
+    } finally {
+      setScanning(false);
+    }
+  }, [form, replaceIngredients, replaceInstructions, toast, previewUrl]);
+
   const onSubmit = (data: InsertRecipe) => {
     mutate(data, {
       onSuccess: (result) => {
         setOpen(false);
         form.reset();
+        setPreviewUrl(null);
         if (result.pending) {
           toast({ title: "Submitted for approval", description: "Your recipe will be reviewed by the owner before it goes live." });
         } else {
@@ -183,8 +248,13 @@ function CreateRecipeDialog() {
     });
   };
 
+  const clearPhoto = () => {
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); } }}>
       <DialogTrigger asChild>
         <Button className="shadow-lg shadow-primary/20">
           <Plus className="w-4 h-4 mr-2" /> New Recipe
@@ -194,6 +264,63 @@ function CreateRecipeDialog() {
         <DialogHeader>
           <DialogTitle>Create New Recipe</DialogTitle>
         </DialogHeader>
+
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <Bot className="w-5 h-5 text-primary" />
+            <div>
+              <p className="font-semibold text-sm">Scan with Jarvis</p>
+              <p className="text-xs text-muted-foreground">Upload a photo of a recipe and Jarvis will parse it for you</p>
+            </div>
+          </div>
+
+          {previewUrl ? (
+            <div className="relative">
+              <img src={previewUrl} alt="Recipe preview" className="w-full max-h-48 object-contain rounded-md bg-background" />
+              {scanning ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-md">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    Jarvis is reading your recipe...
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2"
+                  onClick={clearPhoto}
+                  data-testid="button-clear-recipe-photo"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div
+              className="flex flex-col items-center justify-center gap-2 py-6 cursor-pointer rounded-md border border-border bg-background hover-elevate transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+              data-testid="button-upload-recipe-photo"
+            >
+              <Camera className="w-8 h-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Tap to upload a recipe photo</p>
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="input-recipe-photo"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handlePhotoUpload(file);
+            }}
+          />
+        </div>
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -204,7 +331,7 @@ function CreateRecipeDialog() {
                   <FormItem>
                     <FormLabel>Recipe Title</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="e.g. Sourdough Loaf" />
+                      <Input {...field} placeholder="e.g. Sourdough Loaf" data-testid="input-recipe-title" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -243,7 +370,7 @@ function CreateRecipeDialog() {
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Brief description..." />
+                    <Input {...field} placeholder="Brief description..." data-testid="input-recipe-description" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -262,6 +389,7 @@ function CreateRecipeDialog() {
                         type="number" 
                         {...field} 
                         onChange={e => field.onChange(parseFloat(e.target.value))} 
+                        data-testid="input-recipe-yield-amount"
                       />
                     </FormControl>
                     <FormMessage />
@@ -275,7 +403,7 @@ function CreateRecipeDialog() {
                   <FormItem>
                     <FormLabel>Yield Unit</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="e.g. kg, loaves" />
+                      <Input {...field} placeholder="e.g. kg, loaves" data-testid="input-recipe-yield-unit" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -291,6 +419,7 @@ function CreateRecipeDialog() {
                   variant="outline" 
                   size="sm"
                   onClick={() => appendIngredient({ name: "", quantity: 0, unit: "g" })}
+                  data-testid="button-add-ingredient"
                 >
                   <Plus className="w-4 h-4 mr-1" /> Add
                 </Button>
@@ -301,6 +430,7 @@ function CreateRecipeDialog() {
                     <Input 
                       placeholder="Name" 
                       {...form.register(`ingredients.${index}.name` as any)} 
+                      data-testid={`input-ingredient-name-${index}`}
                     />
                   </div>
                   <div className="col-span-3">
@@ -309,12 +439,14 @@ function CreateRecipeDialog() {
                       placeholder="Qty" 
                       step="0.01"
                       {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
+                      data-testid={`input-ingredient-qty-${index}`}
                     />
                   </div>
                   <div className="col-span-3">
                     <Input 
                       placeholder="Unit" 
                       {...form.register(`ingredients.${index}.unit` as any)} 
+                      data-testid={`input-ingredient-unit-${index}`}
                     />
                   </div>
                   <div className="col-span-1">
@@ -340,6 +472,7 @@ function CreateRecipeDialog() {
                   variant="outline" 
                   size="sm"
                   onClick={() => appendInstruction({ step: instructionFields.length + 1, text: "" })}
+                  data-testid="button-add-instruction"
                 >
                   <Plus className="w-4 h-4 mr-1" /> Add
                 </Button>
@@ -352,8 +485,8 @@ function CreateRecipeDialog() {
                   <Input 
                     placeholder="Step description..." 
                     {...form.register(`instructions.${index}.text` as any)} 
-                    // hidden field for step number
                     {...form.register(`instructions.${index}.step` as any, { value: index + 1 })}
+                    data-testid={`input-instruction-${index}`}
                   />
                   <Button 
                     type="button" 
@@ -369,8 +502,8 @@ function CreateRecipeDialog() {
             </div>
 
             <div className="flex justify-end gap-3 pt-6 border-t border-border">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={isPending}>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} data-testid="button-cancel-recipe">Cancel</Button>
+              <Button type="submit" disabled={isPending || scanning} data-testid="button-submit-recipe">
                 {isPending ? "Creating..." : "Create Recipe"}
               </Button>
             </div>
