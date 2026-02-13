@@ -1,6 +1,6 @@
 import { users, type User, type UpsertUser } from "@shared/models/auth";
 import { db } from "../../db";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 export interface IAuthStorage {
@@ -15,6 +15,7 @@ export interface IAuthStorage {
   updateUserPin(id: string, pin: string): Promise<void>;
   verifyPin(userId: string, pin: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
+  deleteLegacyUsers(): Promise<void>;
   hasAnyUsers(): Promise<boolean>;
 }
 
@@ -96,9 +97,14 @@ class AuthStorage implements IAuthStorage {
     await db.delete(users).where(eq(users.id, id));
   }
 
+  async deleteLegacyUsers(): Promise<void> {
+    const { isNull } = await import("drizzle-orm");
+    await db.delete(users).where(isNull(users.pinHash));
+  }
+
   async hasAnyUsers(): Promise<boolean> {
-    const allUsers = await db.select({ id: users.id }).from(users);
-    return allUsers.length > 0;
+    const usersWithPin = await db.select({ id: users.id }).from(users).where(isNotNull(users.pinHash));
+    return usersWithPin.length > 0;
   }
 }
 

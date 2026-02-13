@@ -68,6 +68,7 @@ export async function setupAuth(app: Express) {
         return res.status(403).json({ message: "Setup already completed" });
       }
       const input = setupOwnerSchema.parse(req.body);
+      await authStorage.deleteLegacyUsers();
       const user = await authStorage.createUser({
         firstName: input.firstName,
         lastName: input.lastName || null,
