@@ -28,7 +28,7 @@ import {
   Megaphone, ArrowRight, CheckCircle2, Trash2,
   MapPin, Clock, TrendingUp, Sparkles, Eye, EyeOff,
   Coffee, UtensilsCrossed, Flame, Croissant, Users,
-  FileText, AlertCircle
+  FileText, AlertCircle, Phone, Mail, X
 } from "lucide-react";
 import { format, addDays, isSameDay, isToday, isTomorrow } from "date-fns";
 import type { Problem, CalendarEvent, Announcement, BakeoffLog, Shift, Location, PreShiftNote } from "@shared/schema";
@@ -80,7 +80,9 @@ export default function Dashboard() {
   const { data: recipes, isLoading: loadingRecipes } = useRecipes();
   const { data: logs, isLoading: loadingLogs } = useProductionLogs();
   const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
-  const { data: eventsData, isLoading: loadingEvents } = useEvents();
+  const [lookAheadDays, setLookAheadDays] = useState(5);
+  const { data: eventsData, isLoading: loadingEvents } = useEvents(lookAheadDays);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const { data: announcementsData, isLoading: loadingAnnouncements } = useAnnouncements();
 
   const todayDate = new Date().toISOString().split("T")[0];
@@ -155,7 +157,7 @@ export default function Dashboard() {
   const [locationFilter, setLocationFilter] = useState<number | "all">("all");
 
   const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
-  const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event" });
+  const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
   const [announcementForm, setAnnouncementForm] = useState({ title: "", content: "", authorName: user?.username || user?.firstName || "", pinned: false });
 
   const noteForm = useForm<PreShiftNoteFormValues>({
@@ -176,7 +178,7 @@ export default function Dashboard() {
   const activeProblems = problems.filter(p => !p.completed);
   const completedProblems = problems.filter(p => p.completed);
 
-  const next5Days = Array.from({ length: 5 }, (_, i) => {
+  const lookAheadData = Array.from({ length: lookAheadDays }, (_, i) => {
     const date = addDays(new Date(), i);
     date.setHours(0, 0, 0, 0);
     return {
@@ -236,9 +238,16 @@ export default function Dashboard() {
       title: eventForm.title,
       description: eventForm.description || null,
       date: new Date(eventForm.date + "T09:00:00").toISOString() as any,
+      endDate: null,
       eventType: eventForm.eventType,
+      contactName: eventForm.contactName || null,
+      contactPhone: eventForm.contactPhone || null,
+      contactEmail: eventForm.contactEmail || null,
+      address: eventForm.address || null,
+      startTime: eventForm.startTime || null,
+      endTime: eventForm.endTime || null,
     });
-    setEventForm({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event" });
+    setEventForm({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
     setShowEventForm(false);
   }
 
@@ -699,85 +708,210 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Forward 5 Look */}
+        {/* Forward Look */}
         <Card data-testid="container-forward5">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
                 <Calendar className="w-4 h-4 text-primary" />
               </div>
-              Forward 5 Look
+              Forward {lookAheadDays} Look
             </CardTitle>
-            <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
-              <DialogTrigger asChild>
-                <Button size="icon" variant="ghost" data-testid="button-add-event">
-                  <Plus />
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Event</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <Input placeholder="Event title" value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} data-testid="input-event-title" />
-                  <Input placeholder="Details (optional)" value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} data-testid="input-event-description" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <Input type="date" value={eventForm.date} onChange={e => setEventForm(p => ({ ...p, date: e.target.value }))} data-testid="input-event-date" />
-                    <Select value={eventForm.eventType} onValueChange={v => setEventForm(p => ({ ...p, eventType: v }))}>
-                      <SelectTrigger data-testid="select-event-type"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="meeting">Meeting</SelectItem>
-                        <SelectItem value="delivery">Delivery</SelectItem>
-                        <SelectItem value="deadline">Deadline</SelectItem>
-                        <SelectItem value="event">Event</SelectItem>
-                        <SelectItem value="schedule">Schedule</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button className="w-full" onClick={handleAddEvent} disabled={createEvent.isPending} data-testid="button-submit-event">
-                    {createEvent.isPending ? "Saving..." : "Add Event"}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`toggle-elevate ${lookAheadDays === 5 ? "toggle-elevated" : ""}`}
+                onClick={() => setLookAheadDays(5)}
+                data-testid="button-lookahead-5"
+              >
+                5
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`toggle-elevate ${lookAheadDays === 30 ? "toggle-elevated" : ""}`}
+                onClick={() => setLookAheadDays(30)}
+                data-testid="button-lookahead-30"
+              >
+                30
+              </Button>
+              <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
+                <DialogTrigger asChild>
+                  <Button size="icon" variant="ghost" data-testid="button-add-event">
+                    <Plus />
                   </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+                </DialogTrigger>
+                <DialogContent className="max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Add Event</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Input placeholder="Event title" value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} data-testid="input-event-title" />
+                    <Textarea placeholder="Description (optional)" value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} data-testid="input-event-description" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input type="date" value={eventForm.date} onChange={e => setEventForm(p => ({ ...p, date: e.target.value }))} data-testid="input-event-date" />
+                      <Select value={eventForm.eventType} onValueChange={v => setEventForm(p => ({ ...p, eventType: v }))}>
+                        <SelectTrigger data-testid="select-event-type"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="meeting">Meeting</SelectItem>
+                          <SelectItem value="delivery">Delivery</SelectItem>
+                          <SelectItem value="deadline">Deadline</SelectItem>
+                          <SelectItem value="event">Event</SelectItem>
+                          <SelectItem value="schedule">Schedule</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input type="time" placeholder="Start time" value={eventForm.startTime} onChange={e => setEventForm(p => ({ ...p, startTime: e.target.value }))} data-testid="input-event-start-time" />
+                      <Input type="time" placeholder="End time" value={eventForm.endTime} onChange={e => setEventForm(p => ({ ...p, endTime: e.target.value }))} data-testid="input-event-end-time" />
+                    </div>
+                    <Input placeholder="Contact name (optional)" value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-event-contact-name" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input placeholder="Phone (optional)" value={eventForm.contactPhone} onChange={e => setEventForm(p => ({ ...p, contactPhone: e.target.value }))} data-testid="input-event-contact-phone" />
+                      <Input placeholder="Email (optional)" type="email" value={eventForm.contactEmail} onChange={e => setEventForm(p => ({ ...p, contactEmail: e.target.value }))} data-testid="input-event-contact-email" />
+                    </div>
+                    <Input placeholder="Address (optional)" value={eventForm.address} onChange={e => setEventForm(p => ({ ...p, address: e.target.value }))} data-testid="input-event-address" />
+                    <Button className="w-full" onClick={handleAddEvent} disabled={createEvent.isPending} data-testid="button-submit-event">
+                      {createEvent.isPending ? "Saving..." : "Add Event"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             {loadingEvents ? (
               <div className="space-y-3">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-12 rounded-md" />)}</div>
             ) : (
-              <div className="space-y-1">
-                {next5Days.map((day, idx) => (
-                  <div key={idx} data-testid={`container-day-${idx}`}>
-                    <div className={`flex items-center gap-2 py-2 ${idx > 0 ? "border-t border-border" : ""}`}>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isToday(day.date) ? "text-foreground" : "text-muted-foreground"}`}>
-                        {day.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-mono">{format(day.date, "M/d")}</span>
-                    </div>
-                    {day.events.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-1 pl-4">No events</p>
-                    ) : (
-                      <div className="space-y-1 pl-2">
-                        {day.events.map(event => (
-                          <div key={event.id} className="flex items-center gap-2 py-1 group" data-testid={`card-event-${event.id}`}>
-                            <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary flex-shrink-0">
-                              {EVENT_TYPE_ICONS[event.eventType] || "E"}
-                            </div>
-                            <span className="text-sm flex-1 min-w-0 truncate">{event.title}</span>
-                            <Badge variant="outline" className="text-[10px]">{event.eventType}</Badge>
-                            <Button size="icon" variant="ghost" className="invisible group-hover:visible flex-shrink-0" onClick={() => deleteEvent.mutate(event.id)} data-testid={`button-delete-event-${event.id}`}>
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        ))}
+              <div className={`space-y-1 ${lookAheadDays === 30 ? "max-h-96 overflow-y-auto pr-1" : ""}`}>
+                {lookAheadData.map((day, idx) => {
+                  if (lookAheadDays === 30 && day.events.length === 0) return null;
+                  return (
+                    <div key={idx} data-testid={`container-day-${idx}`}>
+                      <div className={`flex items-center gap-2 py-2 ${idx > 0 ? "border-t border-border" : ""}`}>
+                        <span className={`text-xs font-bold uppercase tracking-wider ${isToday(day.date) ? "text-foreground" : "text-muted-foreground"}`}>
+                          {day.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-mono">{format(day.date, "M/d")}</span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {day.events.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-1 pl-4">No events</p>
+                      ) : (
+                        <div className="space-y-1 pl-2">
+                          {day.events.map(event => (
+                            <div
+                              key={event.id}
+                              className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover-elevate group"
+                              onClick={() => setSelectedEvent(event)}
+                              data-testid={`card-event-${event.id}`}
+                            >
+                              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary flex-shrink-0">
+                                {EVENT_TYPE_ICONS[event.eventType] || "E"}
+                              </div>
+                              <span className="text-sm flex-1 min-w-0 truncate">{event.title}</span>
+                              {event.startTime && (
+                                <span className="text-[10px] text-muted-foreground flex-shrink-0">{event.startTime}</span>
+                              )}
+                              <Badge variant="outline" className="text-[10px]">{event.eventType}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {lookAheadDays === 30 && lookAheadData.every(d => d.events.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No events in the next 30 days.</p>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Event Detail Dialog */}
+        <Dialog open={!!selectedEvent} onOpenChange={(open) => { if (!open) setSelectedEvent(null); }}>
+          <DialogContent>
+            {selectedEvent && (
+              <>
+                <DialogHeader>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
+                      {EVENT_TYPE_ICONS[selectedEvent.eventType] || "E"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <DialogTitle data-testid="text-event-detail-title">{selectedEvent.title}</DialogTitle>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <Badge variant="outline" data-testid="badge-event-detail-type">{selectedEvent.eventType}</Badge>
+                        <span className="text-xs text-muted-foreground" data-testid="text-event-detail-date">
+                          {format(new Date(selectedEvent.date), "EEEE, MMMM d, yyyy")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </DialogHeader>
+                <div className="space-y-4 mt-2">
+                  {(selectedEvent.startTime || selectedEvent.endTime) && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span data-testid="text-event-detail-time">
+                        {selectedEvent.startTime}{selectedEvent.endTime ? ` – ${selectedEvent.endTime}` : ""}
+                      </span>
+                    </div>
+                  )}
+                  {selectedEvent.description && (
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Description</p>
+                      <p className="text-sm" data-testid="text-event-detail-description">{selectedEvent.description}</p>
+                    </div>
+                  )}
+                  {selectedEvent.address && (
+                    <div className="flex items-start gap-2 text-sm">
+                      <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      <span data-testid="text-event-detail-address">{selectedEvent.address}</span>
+                    </div>
+                  )}
+                  {(selectedEvent.contactName || selectedEvent.contactPhone || selectedEvent.contactEmail) && (
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Contact</p>
+                      <div className="space-y-1.5">
+                        {selectedEvent.contactName && (
+                          <p className="text-sm font-medium" data-testid="text-event-detail-contact-name">{selectedEvent.contactName}</p>
+                        )}
+                        {selectedEvent.contactPhone && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Phone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                            <a href={`tel:${selectedEvent.contactPhone}`} className="underline" data-testid="link-event-detail-phone">{selectedEvent.contactPhone}</a>
+                          </div>
+                        )}
+                        {selectedEvent.contactEmail && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                            <a href={`mailto:${selectedEvent.contactEmail}`} className="underline" data-testid="link-event-detail-email">{selectedEvent.contactEmail}</a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end pt-2 border-t border-border">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        deleteEvent.mutate(selectedEvent.id);
+                        setSelectedEvent(null);
+                      }}
+                      data-testid="button-delete-event-detail"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Delete Event
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* 7. Message Board */}

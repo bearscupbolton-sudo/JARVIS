@@ -49,11 +49,11 @@ export function useDeleteProblem() {
   });
 }
 
-export function useEvents() {
+export function useEvents(days = 5) {
   return useQuery({
-    queryKey: [api.events.list.path],
+    queryKey: [api.events.list.path, days],
     queryFn: async () => {
-      const res = await fetch(api.events.list.path, { credentials: "include" });
+      const res = await fetch(`${api.events.list.path}?days=${days}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch events");
       return res.json();
     },

@@ -56,7 +56,7 @@ script/          → Build scripts
   - `sops` — Standard Operating Procedures (markdown content)
   - `conversations` / `messages` — AI chat history
   - `problems` — Issue tracker with severity, location, completed toggle, notes
-  - `events` — Calendar events for Forward 5 Look (meetings, deliveries, deadlines)
+  - `events` — Calendar events with detail fields (title, description, date, endDate, eventType, contactName, contactPhone, contactEmail, address, startTime, endTime). Feeds Forward Look on Dashboard and Calendar page. Any authenticated user can delete events
   - `announcements` — Team message board posts
   - `pastry_totals` — Daily target counts per pastry item (date, item_name, target_count)
   - `shaping_logs` — Dough shaping entries that deduct from pastry totals (date, dough_type, yield_count, shaped_at)

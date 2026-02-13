@@ -16,6 +16,7 @@ import {
   UtensilsCrossed,
   Package,
   CalendarDays,
+  Calendar,
   Crown
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { href: "/sops", label: "SOPs", icon: BookOpen },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
+  { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/assistant", label: "Jarvis", icon: Bot },
 ];
 

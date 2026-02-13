@@ -84,7 +84,14 @@ export const events = pgTable("events", {
   title: text("title").notNull(),
   description: text("description"),
   date: timestamp("date").notNull(),
+  endDate: timestamp("end_date"),
   eventType: text("event_type").notNull(), // "meeting", "delivery", "deadline", "event", "schedule"
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  address: text("address"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

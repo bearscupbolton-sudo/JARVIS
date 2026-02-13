@@ -240,6 +240,19 @@ export async function registerRoutes(
   });
 
   // === EVENTS ===
+  app.get("/api/events/month", async (req, res) => {
+    const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? Number(req.query.month) : new Date().getMonth() + 1;
+    const events = await storage.getEventsByMonth(year, month);
+    res.json(events);
+  });
+
+  app.get("/api/events/:id", async (req, res) => {
+    const event = await storage.getEvent(Number(req.params.id));
+    if (!event) return res.status(404).json({ message: "Event not found" });
+    res.json(event);
+  });
+
   app.get(api.events.list.path, async (req, res) => {
     const days = req.query.days ? Number(req.query.days) : 5;
     const events = await storage.getUpcomingEvents(days);
@@ -276,7 +289,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.events.delete.path, isAuthenticated, isOwner, async (req, res) => {
+  app.delete(api.events.delete.path, isAuthenticated, isUnlocked, async (req, res) => {
     await storage.deleteEvent(Number(req.params.id));
     res.status(204).send();
   });
