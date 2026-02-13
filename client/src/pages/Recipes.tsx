@@ -22,13 +22,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+const RECIPE_CATEGORIES = [
+  "Bread",
+  "Viennoiserie",
+  "Component",
+  "Gluten Free",
+  "Cookies",
+  "Muffin/Cake",
+  "Mother",
+] as const;
+
 export default function Recipes() {
   const { data: recipes, isLoading } = useRecipes();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
-  const categories = ["All", ...Array.from(new Set(recipes?.map(r => r.category) || []))];
+  const existingCategories = Array.from(new Set(recipes?.map(r => r.category) || []));
+  const allCategories = Array.from(new Set([...RECIPE_CATEGORIES, ...existingCategories]));
+  const categories = ["All", ...allCategories];
 
   const filteredRecipes = recipes?.filter(recipe => {
     const matchesSearch = recipe.title.toLowerCase().includes(searchTerm.toLowerCase());
@@ -137,7 +149,7 @@ function CreateRecipeDialog() {
     defaultValues: {
       title: "",
       description: "",
-      category: "Bread",
+      category: "",
       yieldAmount: 1,
       yieldUnit: "kg",
       ingredients: [],
@@ -204,9 +216,20 @@ function CreateRecipeDialog() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Category</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="e.g. Bread, Pastry" />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-recipe-category">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {RECIPE_CATEGORIES.map((cat) => (
+                          <SelectItem key={cat} value={cat} data-testid={`select-category-${cat.toLowerCase().replace(/\//g, "-")}`}>
+                            {cat}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
