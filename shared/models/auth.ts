@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
 
-// Session storage table.
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const sessions = pgTable(
   "sessions",
   {
@@ -13,22 +13,63 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
-// User storage table.
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  email: varchar("email"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  username: varchar("username"),
+  username: varchar("username").unique(),
+  pinHash: varchar("pin_hash"),
   role: varchar("role").default("member").notNull(),
   locked: boolean("locked").default(false).notNull(),
   profileImageUrl: varchar("profile_image_url"),
   phone: varchar("phone"),
+  contactEmail: varchar("contact_email"),
+  emergencyContactName: varchar("emergency_contact_name"),
+  emergencyContactPhone: varchar("emergency_contact_phone"),
   smsOptIn: boolean("sms_opt_in").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  pinHash: true,
+  locked: true,
+  smsOptIn: true,
+  profileImageUrl: true,
+});
+
+export const createTeamMemberSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().optional(),
+  username: z.string().min(2, "Username must be at least 2 characters"),
+  pin: z.string().min(4, "PIN must be at least 4 digits").max(8, "PIN must be 8 digits or fewer"),
+  role: z.enum(["manager", "member"]).default("member"),
+  phone: z.string().optional(),
+  contactEmail: z.string().email().optional().or(z.literal("")),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+});
+
+export const loginSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  pin: z.string().min(1, "PIN is required"),
+});
+
+export const setupOwnerSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().optional(),
+  username: z.string().min(2, "Username must be at least 2 characters"),
+  pin: z.string().min(4, "PIN must be at least 4 digits").max(8, "PIN must be 8 digits or fewer"),
+  phone: z.string().optional(),
+  contactEmail: z.string().email().optional().or(z.literal("")),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type CreateTeamMember = z.infer<typeof createTeamMemberSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type SetupOwnerInput = z.infer<typeof setupOwnerSchema>;

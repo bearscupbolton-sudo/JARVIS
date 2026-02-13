@@ -67,13 +67,14 @@ script/          → Build scripts
   - `schedule_messages` — Shift coverage forum (userId, message, messageType, relatedDate, resolved, locationId)
 
 ### Authentication & Roles
-- **Method**: Replit OpenID Connect (OIDC) authentication via Passport.js
+- **Method**: PIN-based authentication (no sign-up; managers/owners add team members)
 - **Sessions**: Server-side sessions stored in PostgreSQL via `connect-pg-simple`
-- **Flow**: `/api/login` redirects to Replit OIDC, callback upserts user, session cookie is set
-- **Protected Routes**: `isAuthenticated` middleware on server; client-side `useAuth` hook redirects unauthenticated users to login
-- **Roles**: Three roles — `owner` (full access), `manager` (can create schedules, approve time off), `member` (basic access, can request time off)
+- **Flow**: Login page shows username + PIN form. First-time setup creates owner account. Managers/owners add new team members via Team page with a login PIN
+- **Protected Routes**: `isAuthenticated` middleware checks `req.session.userId` and attaches `req.appUser`; client-side `useAuth` hook redirects unauthenticated users to login
+- **Roles**: Three roles — `owner` (full access), `manager` (can manage team, create schedules, approve time off), `member` (basic access, can request time off)
 - **Middleware**: `isOwner` (owner only), `isManager` (owner or manager), `isUnlocked` (non-locked users)
-- **Important**: The `users` and `sessions` tables are mandatory for Replit Auth — do not drop them
+- **Team Management**: Accessible to managers and owners. Shows contact info (phone, email, emergency contact). Managers can add members, owners can change roles/lock/delete/reset PINs
+- **Important**: The `users` and `sessions` tables must not be dropped. PINs are bcrypt-hashed and never exposed via API
 
 ### AI Integration (Replit AI Integrations)
 Located in `server/replit_integrations/`:

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -6,15 +7,24 @@ import type { User } from "@shared/models/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Lock, Unlock, Trash2, Users } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound } from "lucide-react";
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState<User | null>(null);
+  const [resetPinUser, setResetPinUser] = useState<User | null>(null);
+
+  const isManagerOrOwner = currentUser?.role === "owner" || currentUser?.role === "manager";
 
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
+    enabled: isManagerOrOwner,
   });
 
   const roleMutation = useMutation({
@@ -22,7 +32,7 @@ export default function AdminUsers() {
       apiRequest("PATCH", `/api/admin/users/${id}/role`, { role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({ title: "Role updated successfully" });
+      toast({ title: "Role updated" });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update role", description: error.message, variant: "destructive" });
@@ -34,7 +44,7 @@ export default function AdminUsers() {
       apiRequest("PATCH", `/api/admin/users/${id}/lock`, { locked }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({ title: "User updated successfully" });
+      toast({ title: "User updated" });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update user", description: error.message, variant: "destructive" });
@@ -45,17 +55,26 @@ export default function AdminUsers() {
     mutationFn: (id: string) => apiRequest("DELETE", `/api/admin/users/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({ title: "User deleted successfully" });
+      toast({ title: "Team member removed" });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete user", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to remove", description: error.message, variant: "destructive" });
     },
   });
 
   function handleDelete(id: string, name: string) {
-    if (window.confirm(`Are you sure you want to delete ${name}?`)) {
+    if (window.confirm(`Are you sure you want to remove ${name} from the team?`)) {
       deleteMutation.mutate(id);
     }
+  }
+
+  if (!isManagerOrOwner) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4" data-testid="container-admin-users">
+        <AlertTriangle className="w-12 h-12 text-muted-foreground" />
+        <p className="text-muted-foreground">You don't have permission to view this page.</p>
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -68,30 +87,35 @@ export default function AdminUsers() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-admin-users">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-          <Users className="w-5 h-5 text-primary" />
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
+            <Users className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-display font-bold" data-testid="text-team-title">Team Management</h1>
+            <p className="text-sm text-muted-foreground">{users?.length || 0} team members</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-display font-bold">Team Management</h1>
-          <p className="text-sm text-muted-foreground">{users?.length || 0} team members</p>
-        </div>
+        <Button onClick={() => setAddOpen(true)} data-testid="button-add-team-member">
+          <UserPlus className="w-4 h-4 mr-2" />
+          Add Team Member
+        </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {users?.map((u) => {
-          const displayName = u.username || u.firstName || u.email || "Unknown";
+          const displayName = u.username || u.firstName || "Unknown";
+          const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ") || displayName;
           const isCurrentUser = u.id === currentUser?.id;
 
           return (
-            <Card key={u.id} data-testid={`card-user-${u.id}`}>
+            <Card key={u.id} className="hover-elevate cursor-pointer" onClick={() => setDetailUser(u)} data-testid={`card-user-${u.id}`}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold truncate">{displayName}</p>
-                    {u.email && (
-                      <p className="text-sm text-muted-foreground truncate">{u.email}</p>
-                    )}
+                    <p className="font-semibold truncate" data-testid={`text-username-${u.id}`}>{displayName}</p>
+                    <p className="text-sm text-muted-foreground truncate">{fullName}</p>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
                     <Badge
@@ -108,51 +132,338 @@ export default function AdminUsers() {
                   </div>
                 </div>
 
-                {!isCurrentUser && (
-                  <div className="space-y-2 pt-1">
-                    <div>
-                      <label className="text-xs text-muted-foreground">Role</label>
-                      <Select
-                        value={u.role}
-                        onValueChange={(role) => roleMutation.mutate({ id: u.id, role })}
-                      >
-                        <SelectTrigger data-testid={`select-role-${u.id}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="owner">Owner</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          <SelectItem value="member">Member</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  {u.phone && (
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        onClick={() => lockMutation.mutate({ id: u.id, locked: !u.locked })}
-                        disabled={lockMutation.isPending}
-                        data-testid={`button-lock-user-${u.id}`}
-                      >
-                        {u.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        onClick={() => handleDelete(u.id, displayName)}
-                        disabled={deleteMutation.isPending}
-                        data-testid={`button-delete-user-${u.id}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      <Phone className="w-3 h-3" />
+                      <span data-testid={`text-phone-${u.id}`}>{u.phone}</span>
                     </div>
-                  </div>
-                )}
+                  )}
+                  {u.contactEmail && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-3 h-3" />
+                      <span data-testid={`text-email-${u.id}`}>{u.contactEmail}</span>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <AddTeamMemberDialog open={addOpen} onOpenChange={setAddOpen} />
+
+      {detailUser && (
+        <UserDetailDialog
+          user={detailUser}
+          open={!!detailUser}
+          onOpenChange={(open) => { if (!open) setDetailUser(null); }}
+          currentUser={currentUser}
+          onRoleChange={(id, role) => roleMutation.mutate({ id, role })}
+          onLockToggle={(id, locked) => lockMutation.mutate({ id, locked })}
+          onDelete={(id, name) => { handleDelete(id, name); setDetailUser(null); }}
+          onResetPin={(u) => { setDetailUser(null); setResetPinUser(u); }}
+        />
+      )}
+
+      {resetPinUser && (
+        <ResetPinDialog
+          user={resetPinUser}
+          open={!!resetPinUser}
+          onOpenChange={(open) => { if (!open) setResetPinUser(null); }}
+        />
+      )}
     </div>
+  );
+}
+
+function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { toast } = useToast();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [username, setUsername] = useState("");
+  const [pin, setPin] = useState("");
+  const [role, setRole] = useState("member");
+  const [phone, setPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/users", {
+        firstName,
+        lastName: lastName || undefined,
+        username,
+        pin,
+        role,
+        phone: phone || undefined,
+        contactEmail: contactEmail || undefined,
+        emergencyContactName: emergencyContactName || undefined,
+        emergencyContactPhone: emergencyContactPhone || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Team member added" });
+      resetForm();
+      onOpenChange(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to add", description: error.message, variant: "destructive" });
+    },
+  });
+
+  function resetForm() {
+    setFirstName("");
+    setLastName("");
+    setUsername("");
+    setPin("");
+    setRole("member");
+    setPhone("");
+    setContactEmail("");
+    setEmergencyContactName("");
+    setEmergencyContactPhone("");
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle data-testid="text-add-member-title">Add Team Member</DialogTitle>
+          <DialogDescription>Create a new team member account with a login PIN.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>First Name *</Label>
+              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" required data-testid="input-member-first-name" />
+            </div>
+            <div className="space-y-2">
+              <Label>Last Name</Label>
+              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" data-testid="input-member-last-name" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Username *</Label>
+            <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Login username" required data-testid="input-member-username" />
+          </div>
+          <div className="space-y-2">
+            <Label>Login PIN * (4-8 digits)</Label>
+            <Input type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Create PIN" required data-testid="input-member-pin" />
+          </div>
+          <div className="space-y-2">
+            <Label>Role</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger data-testid="select-member-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="manager">Manager</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="border-t pt-4 space-y-4">
+            <p className="text-sm font-medium text-muted-foreground">Contact Information</p>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" data-testid="input-member-phone" />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="Email address" data-testid="input-member-email" />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-4">
+            <p className="text-sm font-medium text-muted-foreground">Emergency Contact</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} placeholder="Emergency contact" data-testid="input-member-emergency-name" />
+              </div>
+              <div className="space-y-2">
+                <Label>Phone</Label>
+                <Input value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} placeholder="Emergency phone" data-testid="input-member-emergency-phone" />
+              </div>
+            </div>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={createMutation.isPending || !firstName || !username || !pin} data-testid="button-submit-member">
+            {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add Team Member"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function UserDetailDialog({
+  user: u,
+  open,
+  onOpenChange,
+  currentUser,
+  onRoleChange,
+  onLockToggle,
+  onDelete,
+  onResetPin,
+}: {
+  user: User;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  currentUser: User | null | undefined;
+  onRoleChange: (id: string, role: string) => void;
+  onLockToggle: (id: string, locked: boolean) => void;
+  onDelete: (id: string, name: string) => void;
+  onResetPin: (u: User) => void;
+}) {
+  const displayName = u.username || u.firstName || "Unknown";
+  const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ") || displayName;
+  const isCurrentUser = u.id === currentUser?.id;
+  const isOwner = currentUser?.role === "owner";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle data-testid="text-detail-name">{fullName}</DialogTitle>
+          <DialogDescription>@{u.username}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={u.role === "owner" ? "default" : u.role === "manager" ? "secondary" : "outline"}>
+              {u.role === "owner" ? "Owner" : u.role === "manager" ? "Manager" : "Member"}
+            </Badge>
+            {u.locked && <Badge variant="destructive">Locked</Badge>}
+          </div>
+
+          <div className="space-y-2 text-sm">
+            {u.phone && (
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-muted-foreground" />
+                <span data-testid="text-detail-phone">{u.phone}</span>
+              </div>
+            )}
+            {u.contactEmail && (
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-muted-foreground" />
+                <span data-testid="text-detail-email">{u.contactEmail}</span>
+              </div>
+            )}
+            {u.emergencyContactName && (
+              <div className="border-t pt-2 mt-2 space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">Emergency Contact</p>
+                <p data-testid="text-detail-emergency-name">{u.emergencyContactName}</p>
+                {u.emergencyContactPhone && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-3 h-3 text-muted-foreground" />
+                    <span data-testid="text-detail-emergency-phone">{u.emergencyContactPhone}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!isCurrentUser && isOwner && (
+            <div className="border-t pt-4 space-y-3">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Role</Label>
+                <Select value={u.role} onValueChange={(role) => onRoleChange(u.id, role)}>
+                  <SelectTrigger data-testid={`select-detail-role-${u.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="owner">Owner</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="member">Member</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  onClick={() => onLockToggle(u.id, !u.locked)}
+                  data-testid={`button-lock-user-${u.id}`}
+                >
+                  {u.locked ? <Unlock className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
+                  {u.locked ? "Unlock" : "Lock"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => onResetPin(u)}
+                  data-testid={`button-reset-pin-${u.id}`}
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Reset PIN
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => onDelete(u.id, displayName)}
+                  data-testid={`button-delete-user-${u.id}`}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Remove
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResetPinDialog({ user: u, open, onOpenChange }: { user: User; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const [newPin, setNewPin] = useState("");
+  const { toast } = useToast();
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/pin`, { pin: newPin });
+    },
+    onSuccess: () => {
+      toast({ title: "PIN reset successfully" });
+      setNewPin("");
+      onOpenChange(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reset PIN", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Reset PIN for {u.username || u.firstName}</DialogTitle>
+          <DialogDescription>Enter a new 4-8 digit PIN for this team member.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={(e) => { e.preventDefault(); resetMutation.mutate(); }} className="space-y-4">
+          <div className="space-y-2">
+            <Label>New PIN</Label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value)}
+              placeholder="Enter new PIN"
+              data-testid="input-reset-pin"
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={resetMutation.isPending || newPin.length < 4} data-testid="button-submit-reset-pin">
+            {resetMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Reset PIN"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

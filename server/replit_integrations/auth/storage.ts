@@ -1,22 +1,21 @@
 import { users, type User, type UpsertUser } from "@shared/models/auth";
 import { db } from "../../db";
-import { eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 
 export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(userData: UpsertUser & { pin?: string }): Promise<User>;
   getAllUsers(): Promise<User[]>;
   updateUserRole(id: string, role: string): Promise<User>;
   updateUserLocked(id: string, locked: boolean): Promise<User>;
   updateUsername(id: string, username: string): Promise<User>;
-  updateUserProfile(id: string, updates: { phone?: string | null; smsOptIn?: boolean }): Promise<User>;
+  updateUserProfile(id: string, updates: Partial<User>): Promise<User>;
+  updateUserPin(id: string, pin: string): Promise<void>;
+  verifyPin(userId: string, pin: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
-}
-
-function generateBaseUsername(firstName?: string | null, lastName?: string | null): string {
-  const first = (firstName || "Baker").trim();
-  const lastInitial = (lastName || "").trim().charAt(0).toUpperCase();
-  return lastInitial ? `${first} ${lastInitial}` : first;
+  hasAnyUsers(): Promise<boolean>;
 }
 
 class AuthStorage implements IAuthStorage {
@@ -25,79 +24,20 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
-  private async generateUniqueUsername(baseUsername: string, userId: string): Promise<string> {
-    const existing = await db
-      .select({ username: users.username, id: users.id })
-      .from(users)
-      .where(like(users.username, `${baseUsername}%`));
-
-    const taken = new Set(
-      existing
-        .filter((u) => u.id !== userId && u.username != null)
-        .map((u) => u.username!)
-    );
-
-    if (!taken.has(baseUsername)) {
-      return baseUsername;
-    }
-
-    let counter = 1;
-    while (taken.has(`${baseUsername}${counter}`)) {
-      counter++;
-    }
-    return `${baseUsername}${counter}`;
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
-  private async isFirstUser(): Promise<boolean> {
-    const allUsers = await db.select({ id: users.id }).from(users);
-    return allUsers.length === 0;
-  }
-
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    const existingUser = userData.id ? await this.getUser(userData.id) : undefined;
-
-    if (!existingUser) {
-      const baseUsername = generateBaseUsername(userData.firstName, userData.lastName);
-      const username = await this.generateUniqueUsername(baseUsername, userData.id!);
-      const isFirst = await this.isFirstUser();
-      const role = isFirst ? "owner" : "member";
-      const [user] = await db
-        .insert(users)
-        .values({ ...userData, username, role })
-        .onConflictDoUpdate({
-          target: users.id,
-          set: {
-            ...userData,
-            username,
-            role,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
-      return user;
+  async createUser(userData: UpsertUser & { pin?: string }): Promise<User> {
+    const { pin, ...rest } = userData;
+    let pinHash: string | null = null;
+    if (pin) {
+      pinHash = await bcrypt.hash(pin, 10);
     }
-
-    const nameChanged =
-      userData.firstName !== existingUser.firstName ||
-      userData.lastName !== existingUser.lastName;
-
-    let username = existingUser.username;
-    if (nameChanged || !username) {
-      const baseUsername = generateBaseUsername(userData.firstName, userData.lastName);
-      username = await this.generateUniqueUsername(baseUsername, userData.id!);
-    }
-
     const [user] = await db
       .insert(users)
-      .values({ ...userData, username, role: existingUser.role, locked: existingUser.locked })
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          username,
-          updatedAt: new Date(),
-        },
-      })
+      .values({ ...rest, pinHash })
       .returning();
     return user;
   }
@@ -133,7 +73,7 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
-  async updateUserProfile(id: string, updates: { phone?: string | null; smsOptIn?: boolean }): Promise<User> {
+  async updateUserProfile(id: string, updates: Partial<User>): Promise<User> {
     const [user] = await db.update(users)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, id))
@@ -141,8 +81,24 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
+  async updateUserPin(id: string, pin: string): Promise<void> {
+    const pinHash = await bcrypt.hash(pin, 10);
+    await db.update(users).set({ pinHash, updatedAt: new Date() }).where(eq(users.id, id));
+  }
+
+  async verifyPin(userId: string, pin: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user || !user.pinHash) return false;
+    return bcrypt.compare(pin, user.pinHash);
+  }
+
   async deleteUser(id: string): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  async hasAnyUsers(): Promise<boolean> {
+    const allUsers = await db.select({ id: users.id }).from(users);
+    return allUsers.length > 0;
   }
 }
 

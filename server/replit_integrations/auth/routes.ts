@@ -1,13 +1,12 @@
 import type { Express, RequestHandler } from "express";
 import type { User } from "@shared/models/auth";
+import { createTeamMemberSchema } from "@shared/models/auth";
 import { authStorage } from "./storage";
 import { isAuthenticated } from "./replitAuth";
 
 export const isOwner: RequestHandler = async (req: any, res, next) => {
   try {
-    const userId = req.user?.claims?.sub;
-    if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const user = await authStorage.getUser(userId);
+    const user = req.appUser as User | undefined;
     if (!user || user.role !== "owner") {
       return res.status(403).json({ message: "Owner access required" });
     }
@@ -19,9 +18,7 @@ export const isOwner: RequestHandler = async (req: any, res, next) => {
 
 export const isManager: RequestHandler = async (req: any, res, next) => {
   try {
-    const userId = req.user?.claims?.sub;
-    if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const user = await authStorage.getUser(userId);
+    const user = req.appUser as User | undefined;
     if (!user || (user.role !== "owner" && user.role !== "manager")) {
       return res.status(403).json({ message: "Manager access required" });
     }
@@ -33,12 +30,10 @@ export const isManager: RequestHandler = async (req: any, res, next) => {
 
 export const isUnlocked: RequestHandler = async (req: any, res, next) => {
   try {
-    const userId = req.user?.claims?.sub;
-    if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const user = await authStorage.getUser(userId);
+    const user = req.appUser as User | undefined;
     if (!user) return res.status(401).json({ message: "Unauthorized" });
     if (user.locked) {
-      return res.status(403).json({ message: "Your account is read-only. Contact the owner for access." });
+      return res.status(403).json({ message: "Your account is read-only. Contact a manager for access." });
     }
     next();
   } catch {
@@ -49,22 +44,64 @@ export const isUnlocked: RequestHandler = async (req: any, res, next) => {
 export function registerAuthRoutes(app: Express): void {
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await authStorage.getUser(userId);
-      res.json(user);
+      const user = req.appUser as User;
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
 
-  app.get("/api/admin/users", isAuthenticated, isOwner, async (req, res) => {
+  app.get("/api/admin/users", isAuthenticated, isManager, async (req: any, res) => {
     try {
-      const users = await authStorage.getAllUsers();
-      res.json(users);
+      const allUsers = await authStorage.getAllUsers();
+      const requestingUser = req.appUser as User;
+      const isManagerOrOwner = requestingUser.role === "owner" || requestingUser.role === "manager";
+
+      const safeUsers = allUsers.map((u) => {
+        const { pinHash, ...rest } = u;
+        if (!isManagerOrOwner) {
+          return { id: rest.id, username: rest.username, firstName: rest.firstName, lastName: rest.lastName, role: rest.role, locked: rest.locked };
+        }
+        return rest;
+      });
+      res.json(safeUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const input = createTeamMemberSchema.parse(req.body);
+      const existing = await authStorage.getUserByUsername(input.username);
+      if (existing) {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+      const user = await authStorage.createUser({
+        firstName: input.firstName,
+        lastName: input.lastName || null,
+        username: input.username,
+        role: input.role,
+        phone: input.phone || null,
+        contactEmail: input.contactEmail || null,
+        emergencyContactName: input.emergencyContactName || null,
+        emergencyContactPhone: input.emergencyContactPhone || null,
+        pin: input.pin,
+      });
+      const { pinHash, ...safeUser } = user;
+      res.status(201).json(safeUser);
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid input", errors: error.errors });
+      }
+      if (error.code === "23505") {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+      console.error("Error creating user:", error);
+      res.status(500).json({ message: "Failed to create team member" });
     }
   });
 
@@ -75,8 +112,8 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid role" });
       }
       const targetId = req.params.id;
-      const currentUserId = req.user.claims.sub;
-      if (targetId === currentUserId && role !== "owner") {
+      const currentUser = req.appUser as User;
+      if (targetId === currentUser.id && role !== "owner") {
         return res.status(400).json({ message: "Cannot remove your own owner role" });
       }
       const user = await authStorage.updateUserRole(targetId, role);
@@ -91,8 +128,8 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const { locked } = req.body;
       const targetId = req.params.id;
-      const currentUserId = req.user.claims.sub;
-      if (targetId === currentUserId) {
+      const currentUser = req.appUser as User;
+      if (targetId === currentUser.id) {
         return res.status(400).json({ message: "Cannot lock your own account" });
       }
       const user = await authStorage.updateUserLocked(targetId, !!locked);
@@ -103,11 +140,27 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/pin", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { pin } = req.body;
+      if (!pin || typeof pin !== "string" || pin.length < 4 || pin.length > 8) {
+        return res.status(400).json({ message: "PIN must be 4-8 digits" });
+      }
+      const targetId = req.params.id;
+      await authStorage.updateUserPin(targetId, pin);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error updating PIN:", error);
+      res.status(500).json({ message: "Failed to update PIN" });
+    }
+  });
+
   app.patch("/api/auth/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const { username, phone, smsOptIn } = req.body;
+      const currentUser = req.appUser as User;
+      const { username, phone, smsOptIn, contactEmail, emergencyContactName, emergencyContactPhone } = req.body;
 
+      const updates: any = {};
       if (username !== undefined) {
         if (!username || typeof username !== "string" || username.trim().length < 2) {
           return res.status(400).json({ message: "Username must be at least 2 characters" });
@@ -115,62 +168,33 @@ export function registerAuthRoutes(app: Express): void {
         if (username.trim().length > 30) {
           return res.status(400).json({ message: "Username must be 30 characters or less" });
         }
-        try {
-          await authStorage.updateUsername(userId, username.trim());
-        } catch (error: any) {
-          if (error.message === "Username already taken") {
-            return res.status(409).json({ message: "That display name is already in use" });
-          }
-          throw error;
+        const existing = await authStorage.getUserByUsername(username.trim());
+        if (existing && existing.id !== currentUser.id) {
+          return res.status(409).json({ message: "Username already taken" });
         }
+        updates.username = username.trim();
       }
+      if (phone !== undefined) updates.phone = phone || null;
+      if (smsOptIn !== undefined) updates.smsOptIn = !!smsOptIn;
+      if (contactEmail !== undefined) updates.contactEmail = contactEmail || null;
+      if (emergencyContactName !== undefined) updates.emergencyContactName = emergencyContactName || null;
+      if (emergencyContactPhone !== undefined) updates.emergencyContactPhone = emergencyContactPhone || null;
 
-      if (phone !== undefined || smsOptIn !== undefined) {
-        const profileUpdates: { phone?: string | null; smsOptIn?: boolean } = {};
-        if (phone !== undefined) profileUpdates.phone = phone || null;
-        if (smsOptIn !== undefined) profileUpdates.smsOptIn = !!smsOptIn;
-        await authStorage.updateUserProfile(userId, profileUpdates);
-      }
-
-      const user = await authStorage.getUser(userId);
-      res.json(user);
+      const user = await authStorage.updateUserProfile(currentUser.id, updates);
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
     } catch (error: any) {
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
     }
   });
 
-  app.post("/api/auth/claim-owner", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const allUsers = await authStorage.getAllUsers();
-      const hasOwner = allUsers.some((u: User) => u.role === "owner");
-      if (hasOwner) {
-        return res.status(403).json({ message: "An owner already exists" });
-      }
-      const user = await authStorage.updateUserRole(userId, "owner");
-      res.json(user);
-    } catch (error) {
-      console.error("Error claiming owner:", error);
-      res.status(500).json({ message: "Failed to claim owner role" });
-    }
-  });
-
-  app.get("/api/auth/has-owner", isAuthenticated, async (_req, res) => {
-    try {
-      const allUsers = await authStorage.getAllUsers();
-      const hasOwner = allUsers.some((u: User) => u.role === "owner");
-      res.json({ hasOwner });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to check owner status" });
-    }
-  });
 
   app.delete("/api/admin/users/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const targetId = req.params.id;
-      const currentUserId = req.user.claims.sub;
-      if (targetId === currentUserId) {
+      const currentUser = req.appUser as User;
+      if (targetId === currentUser.id) {
         return res.status(400).json({ message: "Cannot delete your own account" });
       }
       await authStorage.deleteUser(targetId);

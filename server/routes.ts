@@ -7,9 +7,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, is
 import { registerChatRoutes } from "./replit_integrations/chat";
 
 async function getUserFromReq(req: any) {
-  const userId = req.user?.claims?.sub;
-  if (!userId) return null;
-  return await authStorage.getUser(userId);
+  return req.appUser || null;
 }
 
 export async function registerRoutes(
@@ -350,7 +348,9 @@ export async function registerRoutes(
       if (!change) return res.status(404).json({ message: "Pending change not found" });
       if (change.status !== "pending") return res.status(400).json({ message: "Already reviewed" });
 
-      const userId = req.user.claims.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const payload = change.payload as any;
 
       if (change.entityType === "recipe") {
@@ -382,7 +382,9 @@ export async function registerRoutes(
       if (!change) return res.status(404).json({ message: "Pending change not found" });
       if (change.status !== "pending") return res.status(400).json({ message: "Already reviewed" });
 
-      const userId = req.user.claims.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const updated = await storage.updatePendingChangeStatus(changeId, "rejected", userId, req.body.reviewNote);
       res.json(updated);
     } catch (error) {
@@ -736,7 +738,9 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.post(api.scheduleMessages.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const input = api.scheduleMessages.create.input.parse(req.body);
-      const userId = req.user?.claims?.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const message = await storage.createScheduleMessage({ ...input, userId });
       res.status(201).json(message);
     } catch (err) {
@@ -854,7 +858,9 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.post(api.timeOffRequests.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const input = api.timeOffRequests.create.input.parse(req.body);
-      const userId = req.user?.claims?.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const request = await storage.createTimeOffRequest({ ...input, userId });
       res.status(201).json(request);
     } catch (err) {
@@ -869,7 +875,9 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     try {
       const id = Number(req.params.id);
       const { status, reviewNote } = api.timeOffRequests.updateStatus.input.parse(req.body);
-      const userId = req.user?.claims?.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const updated = await storage.updateTimeOffRequestStatus(id, status, userId, reviewNote);
       if (!updated) return res.status(404).json({ message: "Request not found" });
       res.json(updated);
@@ -905,7 +913,9 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     try {
       const { content, date, locationId } = req.body;
       if (!content || !date) return res.status(400).json({ message: "Content and date are required" });
-      const userId = req.user?.claims?.sub;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
       const note = await storage.createPreShiftNote({ content, date, authorId: userId, locationId: locationId || null });
       res.status(201).json(note);
     } catch (err) {
