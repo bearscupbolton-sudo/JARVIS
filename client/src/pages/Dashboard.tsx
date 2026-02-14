@@ -28,9 +28,9 @@ import {
   Megaphone, ArrowRight, CheckCircle2, Trash2,
   MapPin, Clock, TrendingUp, Sparkles, Eye, EyeOff,
   Coffee, UtensilsCrossed, Flame, Croissant, Users,
-  FileText, AlertCircle, Phone, Mail, X
+  FileText, AlertCircle, Phone, Mail, X, Cake
 } from "lucide-react";
-import { format, addDays, isSameDay, isToday, isTomorrow } from "date-fns";
+import { format, addDays, isSameDay, isToday, isTomorrow, getMonth, getDate } from "date-fns";
 import type { Problem, CalendarEvent, Announcement, BakeoffLog, Shift, Location, PreShiftNote } from "@shared/schema";
 import { insertPreShiftNoteSchema } from "@shared/schema";
 
@@ -54,12 +54,15 @@ function formatDayLabel(date: Date): string {
   return format(date, "EEE, MMM d");
 }
 
+type BirthdayEntry = { userId: string; name: string; birthday: string };
+
 const EVENT_TYPE_ICONS: Record<string, string> = {
   meeting: "M",
   delivery: "D",
   deadline: "!",
   event: "E",
   schedule: "S",
+  birthday: "B",
 };
 
 const DEPARTMENT_LABELS: Record<string, string> = {
@@ -82,6 +85,9 @@ export default function Dashboard() {
   const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
   const [lookAheadDays, setLookAheadDays] = useState(5);
   const { data: eventsData, isLoading: loadingEvents } = useEvents(lookAheadDays);
+  const { data: birthdaysData = [] } = useQuery<BirthdayEntry[]>({
+    queryKey: ["/api/team/birthdays"],
+  });
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const { data: announcementsData, isLoading: loadingAnnouncements } = useAnnouncements();
 
@@ -178,13 +184,43 @@ export default function Dashboard() {
   const activeProblems = problems.filter(p => !p.completed);
   const completedProblems = problems.filter(p => p.completed);
 
+  const birthdayCalEvents: CalendarEvent[] = useMemo(() => {
+    const now = new Date();
+    return birthdaysData.map((b) => {
+      const bDate = new Date(b.birthday + "T00:00:00");
+      const eventDate = new Date(now.getFullYear(), getMonth(bDate), getDate(bDate), 9, 0, 0);
+      let hash = 0;
+      for (let i = 0; i < b.userId.length; i++) {
+        hash = ((hash << 5) - hash + b.userId.charCodeAt(i)) | 0;
+      }
+      return {
+        id: -(Math.abs(hash) + getDate(bDate) * 100 + getMonth(bDate)),
+        title: `${b.name}'s Birthday`,
+        description: null,
+        date: eventDate,
+        endDate: null,
+        eventType: "birthday",
+        contactName: null,
+        contactPhone: null,
+        contactEmail: null,
+        address: null,
+        startTime: null,
+        endTime: null,
+        createdBy: null,
+        createdAt: null,
+      } as CalendarEvent;
+    });
+  }, [birthdaysData]);
+
+  const allForwardEvents = [...calendarEvents, ...birthdayCalEvents];
+
   const lookAheadData = Array.from({ length: lookAheadDays }, (_, i) => {
     const date = addDays(new Date(), i);
     date.setHours(0, 0, 0, 0);
     return {
       date,
       label: formatDayLabel(date),
-      events: calendarEvents.filter(e => isSameDay(new Date(e.date), date)),
+      events: allForwardEvents.filter(e => isSameDay(new Date(e.date), date)),
     };
   });
 
@@ -799,23 +835,26 @@ export default function Dashboard() {
                         <p className="text-xs text-muted-foreground py-1 pl-4">No events</p>
                       ) : (
                         <div className="space-y-1 pl-2">
-                          {day.events.map(event => (
+                          {day.events.map(event => {
+                            const isBirthday = event.eventType === "birthday";
+                            return (
                             <div
                               key={event.id}
-                              className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover-elevate group"
+                              className={`flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover-elevate group ${isBirthday ? "bg-pink-500/10" : ""}`}
                               onClick={() => setSelectedEvent(event)}
                               data-testid={`card-event-${event.id}`}
                             >
-                              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary flex-shrink-0">
-                                {EVENT_TYPE_ICONS[event.eventType] || "E"}
+                              <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${isBirthday ? "bg-pink-500/20 text-pink-500" : "bg-primary/10 text-primary"}`}>
+                                {isBirthday ? <Cake className="w-3.5 h-3.5" /> : (EVENT_TYPE_ICONS[event.eventType] || "E")}
                               </div>
                               <span className="text-sm flex-1 min-w-0 truncate">{event.title}</span>
                               {event.startTime && (
                                 <span className="text-[10px] text-muted-foreground flex-shrink-0">{event.startTime}</span>
                               )}
-                              <Badge variant="outline" className="text-[10px]">{event.eventType}</Badge>
+                              <Badge variant="outline" className={`text-[10px] ${isBirthday ? "border-pink-500/30 text-pink-500" : ""}`}>{event.eventType}</Badge>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -836,8 +875,8 @@ export default function Dashboard() {
               <>
                 <DialogHeader>
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
-                      {EVENT_TYPE_ICONS[selectedEvent.eventType] || "E"}
+                    <div className={`w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${selectedEvent.eventType === "birthday" ? "bg-pink-500/20 text-pink-500" : "bg-primary/10 text-primary"}`}>
+                      {selectedEvent.eventType === "birthday" ? <Cake className="w-4 h-4" /> : (EVENT_TYPE_ICONS[selectedEvent.eventType] || "E")}
                     </div>
                     <div className="flex-1 min-w-0">
                       <DialogTitle data-testid="text-event-detail-title">{selectedEvent.title}</DialogTitle>
