@@ -89,6 +89,7 @@ export function registerAuthRoutes(app: Express): void {
         contactEmail: input.contactEmail || null,
         emergencyContactName: input.emergencyContactName || null,
         emergencyContactPhone: input.emergencyContactPhone || null,
+        birthday: input.birthday || null,
         pin: input.pin,
       });
       const { pinHash, ...safeUser } = user;
@@ -158,7 +159,7 @@ export function registerAuthRoutes(app: Express): void {
   app.patch("/api/auth/profile", isAuthenticated, async (req: any, res) => {
     try {
       const currentUser = req.appUser as User;
-      const { username, phone, smsOptIn, contactEmail, emergencyContactName, emergencyContactPhone } = req.body;
+      const { username, phone, smsOptIn, contactEmail, emergencyContactName, emergencyContactPhone, birthday } = req.body;
 
       const updates: any = {};
       if (username !== undefined) {
@@ -179,6 +180,7 @@ export function registerAuthRoutes(app: Express): void {
       if (contactEmail !== undefined) updates.contactEmail = contactEmail || null;
       if (emergencyContactName !== undefined) updates.emergencyContactName = emergencyContactName || null;
       if (emergencyContactPhone !== undefined) updates.emergencyContactPhone = emergencyContactPhone || null;
+      if (birthday !== undefined) updates.birthday = birthday || null;
 
       const user = await authStorage.updateUserProfile(currentUser.id, updates);
       const { pinHash, ...safeUser } = user;
@@ -189,6 +191,23 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+
+  app.get("/api/team/birthdays", isAuthenticated, async (req: any, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      const birthdays = allUsers
+        .filter((u) => u.birthday && !u.locked)
+        .map((u) => ({
+          userId: u.id,
+          name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.username || "Unknown",
+          birthday: u.birthday,
+        }));
+      res.json(birthdays);
+    } catch (error) {
+      console.error("Error fetching birthdays:", error);
+      res.status(500).json({ message: "Failed to fetch birthdays" });
+    }
+  });
 
   app.delete("/api/admin/users/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {

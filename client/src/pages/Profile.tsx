@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { UserCircle, Save, Phone, Bell } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, Cake } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,6 +25,7 @@ export default function Profile() {
 
   const [phone, setPhone] = useState(user?.phone || "");
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
+  const [birthday, setBirthday] = useState(user?.birthday || "");
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -39,7 +40,8 @@ export default function Profile() {
     }
     if (user?.phone !== undefined) setPhone(user.phone || "");
     if (user?.smsOptIn !== undefined) setSmsOptIn(user.smsOptIn);
-  }, [user?.username, user?.phone, user?.smsOptIn]);
+    if (user?.birthday !== undefined) setBirthday(user.birthday || "");
+  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday]);
 
   const mutation = useMutation({
     mutationFn: async (data: ProfileFormValues) => {
@@ -65,7 +67,7 @@ export default function Profile() {
   });
 
   const contactMutation = useMutation({
-    mutationFn: async (data: { phone: string; smsOptIn: boolean }) => {
+    mutationFn: async (data: { phone: string; smsOptIn: boolean; birthday: string }) => {
       const res = await fetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -92,13 +94,13 @@ export default function Profile() {
   };
 
   const handleSaveContact = () => {
-    contactMutation.mutate({ phone: phone.trim(), smsOptIn });
+    contactMutation.mutate({ phone: phone.trim(), smsOptIn, birthday: birthday.trim() });
   };
 
   if (!user) return null;
 
   const hasNameChanged = form.watch("username")?.trim() !== (user.username || "");
-  const hasContactChanged = phone.trim() !== (user.phone || "") || smsOptIn !== (user.smsOptIn || false);
+  const hasContactChanged = phone.trim() !== (user.phone || "") || smsOptIn !== (user.smsOptIn || false) || birthday.trim() !== (user.birthday || "");
   const roleLabel = user.role === "owner" ? "Owner" : user.role === "manager" ? "Manager" : "Team Member";
 
   return (
@@ -179,6 +181,19 @@ export default function Profile() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium flex items-center gap-2">
+              <Cake className="w-4 h-4" />
+              Birthday
+            </label>
+            <Input
+              type="date"
+              value={birthday}
+              onChange={e => setBirthday(e.target.value)}
+              data-testid="input-birthday"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Your birthday will appear on the team calendar</p>
+          </div>
           <div>
             <label className="text-sm font-medium">Phone Number</label>
             <Input

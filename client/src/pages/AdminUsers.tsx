@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake } from "lucide-react";
+import { format } from "date-fns";
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuth();
@@ -145,6 +146,12 @@ export default function AdminUsers() {
                       <span data-testid={`text-email-${u.id}`}>{u.contactEmail}</span>
                     </div>
                   )}
+                  {u.birthday && (
+                    <div className="flex items-center gap-2">
+                      <Cake className="w-3 h-3" />
+                      <span data-testid={`text-birthday-${u.id}`}>{format(new Date(u.birthday + "T00:00:00"), "MMM d")}</span>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -189,6 +196,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [contactEmail, setContactEmail] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+  const [birthday, setBirthday] = useState("");
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -202,6 +210,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         contactEmail: contactEmail || undefined,
         emergencyContactName: emergencyContactName || undefined,
         emergencyContactPhone: emergencyContactPhone || undefined,
+        birthday: birthday || undefined,
       });
       return res.json();
     },
@@ -226,6 +235,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     setContactEmail("");
     setEmergencyContactName("");
     setEmergencyContactPhone("");
+    setBirthday("");
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -270,6 +280,11 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 <SelectItem value="manager">Manager</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Birthday</Label>
+            <Input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} data-testid="input-member-birthday" />
           </div>
 
           <div className="border-t pt-4 space-y-4">
@@ -347,6 +362,12 @@ function UserDetailDialog({
           </div>
 
           <div className="space-y-2 text-sm">
+            {u.birthday && (
+              <div className="flex items-center gap-2">
+                <Cake className="w-4 h-4 text-muted-foreground" />
+                <span data-testid="text-detail-birthday">{format(new Date(u.birthday + "T00:00:00"), "MMMM d, yyyy")}</span>
+              </div>
+            )}
             {u.phone && (
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-muted-foreground" />

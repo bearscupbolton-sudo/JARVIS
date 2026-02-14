@@ -13,9 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, Trash2,
-  MapPin, Clock, Phone, Mail
+  MapPin, Clock, Phone, Mail, Cake
 } from "lucide-react";
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths, getMonth, getDate } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
 import { api } from "@shared/routes";
 
@@ -25,6 +25,7 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   deadline: "bg-red-500",
   event: "bg-purple-500",
   schedule: "bg-amber-500",
+  birthday: "bg-pink-500",
 };
 
 const EVENT_TYPE_ICONS: Record<string, string> = {
@@ -33,6 +34,13 @@ const EVENT_TYPE_ICONS: Record<string, string> = {
   deadline: "!",
   event: "E",
   schedule: "S",
+  birthday: "B",
+};
+
+type BirthdayEntry = {
+  userId: string;
+  name: string;
+  birthday: string;
 };
 
 export default function CalendarPage() {
@@ -51,7 +59,7 @@ export default function CalendarPage() {
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth() + 1;
 
-  const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
+  const { data: rawEvents = [], isLoading } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/events/month", year, month],
     queryFn: async () => {
       const res = await fetch(`/api/events/month?year=${year}&month=${month}`, { credentials: "include" });
@@ -59,6 +67,43 @@ export default function CalendarPage() {
       return res.json();
     },
   });
+
+  const { data: birthdays = [] } = useQuery<BirthdayEntry[]>({
+    queryKey: ["/api/team/birthdays"],
+  });
+
+  const events = useMemo(() => {
+    const birthdayEvents: CalendarEvent[] = birthdays
+      .filter((b) => {
+        const bDate = new Date(b.birthday + "T00:00:00");
+        return getMonth(bDate) === currentMonth.getMonth();
+      })
+      .map((b) => {
+        const bDate = new Date(b.birthday + "T00:00:00");
+        const eventDate = new Date(year, getMonth(bDate), getDate(bDate), 9, 0, 0);
+        let hash = 0;
+        for (let i = 0; i < b.userId.length; i++) {
+          hash = ((hash << 5) - hash + b.userId.charCodeAt(i)) | 0;
+        }
+        return {
+          id: -(Math.abs(hash) + getDate(bDate) * 100 + getMonth(bDate)),
+          title: `${b.name}'s Birthday`,
+          description: null,
+          date: eventDate,
+          endDate: null,
+          eventType: "birthday",
+          contactName: null,
+          contactPhone: null,
+          contactEmail: null,
+          address: null,
+          startTime: null,
+          endTime: null,
+          createdBy: null,
+          createdAt: null,
+        } as CalendarEvent;
+      });
+    return [...rawEvents, ...birthdayEvents];
+  }, [rawEvents, birthdays, currentMonth, year]);
 
   const createEvent = useMutation({
     mutationFn: async (data: any) => {
@@ -234,10 +279,11 @@ export default function CalendarPage() {
                           {dayEvents.slice(0, 3).map(event => (
                             <div
                               key={event.id}
-                              className={`text-[10px] leading-tight px-1 py-0.5 rounded truncate text-white ${EVENT_TYPE_COLORS[event.eventType] || "bg-primary"}`}
-                              onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); }}
+                              className={`text-[10px] leading-tight px-1 py-0.5 rounded truncate text-white ${EVENT_TYPE_COLORS[event.eventType] || "bg-primary"} ${event.eventType === "birthday" ? "font-bold" : ""}`}
+                              onClick={(e) => { e.stopPropagation(); if (event.eventType !== "birthday") setSelectedEvent(event); }}
                               data-testid={`cal-event-dot-${event.id}`}
                             >
+                              {event.eventType === "birthday" && <Cake className="w-2.5 h-2.5 inline mr-0.5 -mt-0.5" />}
                               {event.title}
                             </div>
                           ))}
@@ -278,14 +324,22 @@ export default function CalendarPage() {
                   {selectedDateEvents.map(event => (
                     <div
                       key={event.id}
-                      className="p-3 rounded-md border border-border cursor-pointer hover-elevate"
-                      onClick={() => setSelectedEvent(event)}
+                      className={`p-3 rounded-md border cursor-pointer hover-elevate ${
+                        event.eventType === "birthday"
+                          ? "border-pink-300 dark:border-pink-700 bg-pink-50 dark:bg-pink-950/30"
+                          : "border-border"
+                      }`}
+                      onClick={() => { if (event.eventType !== "birthday") setSelectedEvent(event); }}
                       data-testid={`cal-sidebar-event-${event.id}`}
                     >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${EVENT_TYPE_COLORS[event.eventType] || "bg-primary"}`} />
-                        <span className="text-sm font-medium flex-1 min-w-0 truncate">{event.title}</span>
-                        <Badge variant="outline" className="text-[10px]">{event.eventType}</Badge>
+                        {event.eventType === "birthday" ? (
+                          <Cake className="w-4 h-4 flex-shrink-0 text-pink-500" />
+                        ) : (
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${EVENT_TYPE_COLORS[event.eventType] || "bg-primary"}`} />
+                        )}
+                        <span className={`text-sm font-medium flex-1 min-w-0 truncate ${event.eventType === "birthday" ? "text-pink-700 dark:text-pink-300" : ""}`}>{event.title}</span>
+                        <Badge variant={event.eventType === "birthday" ? "secondary" : "outline"} className={`text-[10px] ${event.eventType === "birthday" ? "bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300" : ""}`}>{event.eventType}</Badge>
                       </div>
                       {event.startTime && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
@@ -309,7 +363,11 @@ export default function CalendarPage() {
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(EVENT_TYPE_COLORS).map(([type, color]) => (
                   <div key={type} className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${color}`} />
+                    {type === "birthday" ? (
+                      <Cake className="w-3 h-3 text-pink-500" />
+                    ) : (
+                      <div className={`w-3 h-3 rounded-full ${color}`} />
+                    )}
                     <span className="text-xs capitalize">{type}</span>
                   </div>
                 ))}
