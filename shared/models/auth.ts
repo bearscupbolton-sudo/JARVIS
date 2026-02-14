@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -28,6 +28,7 @@ export const users = pgTable("users", {
   emergencyContactName: varchar("emergency_contact_name"),
   emergencyContactPhone: varchar("emergency_contact_phone"),
   smsOptIn: boolean("sms_opt_in").default(false).notNull(),
+  birthday: date("birthday"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -52,6 +53,7 @@ export const createTeamMemberSchema = z.object({
   contactEmail: z.string().email().optional().or(z.literal("")),
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
+  birthday: z.string().optional(),
 });
 
 export const loginSchema = z.object({
