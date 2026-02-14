@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Calendar,
   Stamp,
+  Mic,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/assistant", label: "Jarvis", icon: Bot },
+  { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
 ];
 
 const MANAGER_NAV_ITEMS = [

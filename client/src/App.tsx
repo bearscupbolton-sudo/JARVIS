@@ -28,9 +28,10 @@ import Schedule from "@/pages/Schedule";
 import CalendarPage from "@/pages/CalendarPage";
 import PastryPassports from "@/pages/PastryPassports";
 import PastryPassportDetail from "@/pages/PastryPassportDetail";
+import Kiosk from "@/pages/Kiosk";
 import NotFound from "@/pages/not-found";
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
   const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -45,6 +46,10 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   if (!user) {
     setLocation("/login");
     return null;
+  }
+
+  if (noLayout) {
+    return <Component />;
   }
 
   return (
@@ -129,6 +134,9 @@ function Router() {
       </Route>
       <Route path="/pastry-passports/:id">
         {() => <ProtectedRoute component={PastryPassportDetail} />}
+      </Route>
+      <Route path="/kiosk">
+        {() => <ProtectedRoute component={Kiosk} noLayout />}
       </Route>
 
       <Route component={NotFound} />

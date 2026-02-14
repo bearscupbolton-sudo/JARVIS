@@ -5,6 +5,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
+import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrations/audio/client";
 
 async function getUserFromReq(req: any) {
   return req.appUser || null;
@@ -1192,6 +1193,149 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       res.json({ url });
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === KIOSK VOICE LOGGING ===
+  app.post("/api/kiosk/voice-log", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { audio } = req.body;
+      if (!audio) {
+        return res.status(400).json({ message: "Audio data (base64) is required" });
+      }
+
+      const rawBuffer = Buffer.from(audio, "base64");
+      const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
+      const transcript = await speechToText(audioBuffer, inputFormat);
+
+      if (!transcript || transcript.trim().length === 0) {
+        return res.status(400).json({ message: "Could not understand the audio. Please try again." });
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+      const [pastryTotalsData, recipesData, existingBakeoffs] = await Promise.all([
+        storage.getPastryTotals(today),
+        storage.getRecipes(),
+        storage.getBakeoffLogs(today),
+      ]);
+
+      const knownItems = [
+        ...pastryTotalsData.map(pt => pt.itemName),
+        ...recipesData.map(r => r.title),
+      ];
+      const uniqueItems = Array.from(new Set(knownItems));
+
+      const parseResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are a bakery production log parser. Given a baker's spoken input, extract bake-off log entries (items coming out of the oven) and/or shaping log entries (dough being shaped).
+
+Known bakery items: ${uniqueItems.join(", ")}
+
+Rules:
+- Match spoken item names to the closest known item. Be flexible with abbreviations and informal names (e.g. "choc chip" = "Choc Chip Cookie Dough", "croissants" = "Croissant Dough" or "Butter Croissant").
+- If the baker says "shaped" or "dough" or mentions shaping, those are shaping entries.
+- Otherwise, assume bake-off entries (items out of the oven).
+- Extract the item name and quantity for each entry.
+- If a quantity is not clear, default to 1.
+
+Respond with JSON:
+{
+  "bakeoff": [{ "itemName": "exact known name", "quantity": number }],
+  "shaping": [{ "doughType": "exact known name", "yieldCount": number }],
+  "summary": "brief confirmation message"
+}`
+          },
+          {
+            role: "user",
+            content: transcript
+          }
+        ],
+      });
+
+      const parsed = JSON.parse(parseResponse.choices[0]?.message?.content || "{}");
+
+      const bakeoffSchema = z.array(z.object({
+        itemName: z.string().min(1),
+        quantity: z.number().int().min(1).max(9999),
+      }));
+      const shapingSchema = z.array(z.object({
+        doughType: z.string().min(1),
+        yieldCount: z.number().int().min(1).max(9999),
+      }));
+
+      const bakeoffEntries = bakeoffSchema.safeParse(parsed.bakeoff);
+      const shapingEntries = shapingSchema.safeParse(parsed.shaping);
+
+      const validBakeoffs = bakeoffEntries.success ? bakeoffEntries.data : [];
+      const validShapings = shapingEntries.success ? shapingEntries.data : [];
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+      const createdBakeoffs = [];
+      for (const entry of validBakeoffs) {
+        const log = await storage.createBakeoffLog({
+          date: today,
+          itemName: entry.itemName,
+          quantity: entry.quantity,
+          bakedAt: timeStr,
+        });
+        createdBakeoffs.push(log);
+      }
+
+      const createdShapings = [];
+      for (const entry of validShapings) {
+        const log = await storage.createShapingLog({
+          date: today,
+          doughType: entry.doughType,
+          yieldCount: entry.yieldCount,
+          shapedAt: timeStr,
+        });
+        createdShapings.push(log);
+      }
+
+      res.json({
+        transcript,
+        summary: parsed.summary || "Logged successfully",
+        bakeoff: createdBakeoffs,
+        shaping: createdShapings,
+      });
+    } catch (err: any) {
+      console.error("Kiosk voice-log error:", err);
+      res.status(500).json({ message: err.message || "Failed to process voice input" });
+    }
+  });
+
+  app.post("/api/kiosk/voice-log/undo", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const undoSchema = z.object({
+        bakeoffIds: z.array(z.number().int().positive()).max(50),
+        shapingIds: z.array(z.number().int().positive()).max(50),
+      });
+      const { bakeoffIds, shapingIds } = undoSchema.parse(req.body);
+
+      const today = new Date().toISOString().split("T")[0];
+      const todayBakeoffs = await storage.getBakeoffLogs(today);
+      const todayShapings = await storage.getShapingLogs(today);
+      const validBakeoffIds = bakeoffIds.filter(id => todayBakeoffs.some(l => l.id === id));
+      const validShapingIds = shapingIds.filter(id => todayShapings.some(l => l.id === id));
+
+      for (const id of validBakeoffIds) {
+        await storage.deleteBakeoffLog(id);
+      }
+      for (const id of validShapingIds) {
+        await storage.deleteShapingLog(id);
+      }
+      res.json({ undone: true, bakeoffRemoved: validBakeoffIds.length, shapingRemoved: validShapingIds.length });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid undo request" });
+      }
+      res.status(500).json({ message: err.message });
     }
   });
 
