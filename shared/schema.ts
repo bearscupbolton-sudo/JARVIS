@@ -329,6 +329,64 @@ export const insertPreShiftNoteSchema = createInsertSchema(preShiftNotes).omit({
 export type PreShiftNote = typeof preShiftNotes.$inferSelect;
 export type InsertPreShiftNote = z.infer<typeof insertPreShiftNoteSchema>;
 
+// === PASTRY PASSPORTS ===
+export const pastryPassports = pgTable("pastry_passports", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  photoUrl: text("photo_url"),
+  primaryRecipeId: integer("primary_recipe_id").references(() => recipes.id),
+  motherRecipeId: integer("mother_recipe_id").references(() => recipes.id),
+  descriptionText: text("description_text"),
+  assemblyText: text("assembly_text"),
+  bakingText: text("baking_text"),
+  finishText: text("finish_text"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPastryPassportSchema = createInsertSchema(pastryPassports).omit({ id: true, createdAt: true, updatedAt: true });
+export type PastryPassport = typeof pastryPassports.$inferSelect;
+export type InsertPastryPassport = z.infer<typeof insertPastryPassportSchema>;
+
+export const pastryMedia = pgTable("pastry_media", {
+  id: serial("id").primaryKey(),
+  pastryId: integer("pastry_id").notNull().references(() => pastryPassports.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  url: text("url").notNull(),
+  caption: text("caption"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPastryMediaSchema = createInsertSchema(pastryMedia).omit({ id: true, createdAt: true });
+export type PastryMedia = typeof pastryMedia.$inferSelect;
+export type InsertPastryMedia = z.infer<typeof insertPastryMediaSchema>;
+
+export const pastryComponents = pgTable("pastry_components", {
+  id: serial("id").primaryKey(),
+  pastryId: integer("pastry_id").notNull().references(() => pastryPassports.id, { onDelete: "cascade" }),
+  recipeId: integer("recipe_id").notNull().references(() => recipes.id),
+  notes: text("notes"),
+});
+
+export const insertPastryComponentSchema = createInsertSchema(pastryComponents).omit({ id: true });
+export type PastryComponent = typeof pastryComponents.$inferSelect;
+export type InsertPastryComponent = z.infer<typeof insertPastryComponentSchema>;
+
+export const pastryAddins = pgTable("pastry_addins", {
+  id: serial("id").primaryKey(),
+  pastryId: integer("pastry_id").notNull().references(() => pastryPassports.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  unit: text("unit"),
+  quantity: doublePrecision("quantity"),
+  notes: text("notes"),
+});
+
+export const insertPastryAddinSchema = createInsertSchema(pastryAddins).omit({ id: true });
+export type PastryAddin = typeof pastryAddins.$inferSelect;
+export type InsertPastryAddin = z.infer<typeof insertPastryAddinSchema>;
+
 // === TYPES ===
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
@@ -339,7 +397,6 @@ export type InsertProductionLog = z.infer<typeof insertProductionLogSchema>;
 export type SOP = typeof sops.$inferSelect;
 export type InsertSOP = z.infer<typeof insertSopSchema>;
 
-// Helper types for JSON columns
 export type Ingredient = {
   name: string;
   quantity: number;

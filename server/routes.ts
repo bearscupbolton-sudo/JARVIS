@@ -1079,5 +1079,121 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     }
   });
 
+  // === PASTRY PASSPORTS ===
+  app.get(api.pastryPassports.list.path, isAuthenticated, async (req, res) => {
+    const passports = await storage.getPastryPassports();
+    res.json(passports);
+  });
+
+  app.get(api.pastryPassports.get.path, isAuthenticated, async (req, res) => {
+    const passport = await storage.getPastryPassport(Number(req.params.id));
+    if (!passport) return res.status(404).json({ message: "Pastry passport not found" });
+    res.json(passport);
+  });
+
+  app.post(api.pastryPassports.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.pastryPassports.create.input.parse(req.body);
+      const passport = await storage.createPastryPassport(input);
+      res.status(201).json(passport);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.put(api.pastryPassports.update.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.pastryPassports.update.input.parse(req.body);
+      const passport = await storage.updatePastryPassport(Number(req.params.id), input);
+      res.json(passport);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete(api.pastryPassports.delete.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    await storage.deletePastryPassport(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  app.post(api.pastryPassports.addMedia.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.pastryPassports.addMedia.input.parse(req.body);
+      const media = await storage.addPastryMedia({ ...input, pastryId: Number(req.params.id) });
+      res.status(201).json(media);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/pastry-passports/:pastryId/media/:mediaId", isAuthenticated, isUnlocked, async (req: any, res) => {
+    await storage.deletePastryMedia(Number(req.params.mediaId));
+    res.status(204).send();
+  });
+
+  app.post(api.pastryPassports.addComponent.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.pastryPassports.addComponent.input.parse(req.body);
+      const component = await storage.addPastryComponent({ ...input, pastryId: Number(req.params.id) });
+      res.status(201).json(component);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/pastry-passports/:pastryId/components/:componentId", isAuthenticated, isUnlocked, async (req: any, res) => {
+    await storage.deletePastryComponent(Number(req.params.componentId));
+    res.status(204).send();
+  });
+
+  app.post(api.pastryPassports.addAddin.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const input = api.pastryPassports.addAddin.input.parse(req.body);
+      const addin = await storage.addPastryAddin({ ...input, pastryId: Number(req.params.id) });
+      res.status(201).json(addin);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/pastry-passports/:pastryId/addins/:addinId", isAuthenticated, isUnlocked, async (req: any, res) => {
+    await storage.deletePastryAddin(Number(req.params.addinId));
+    res.status(204).send();
+  });
+
+  app.post(api.pastryPassports.uploadPhoto.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image } = api.pastryPassports.uploadPhoto.input.parse(req.body);
+      const base64Size = image.length * 0.75;
+      if (base64Size > 15 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image too large" });
+      }
+
+      const fs = await import("fs");
+      const path = await import("path");
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (!matches) return res.status(400).json({ message: "Invalid image format" });
+
+      const allowedTypes = ["jpeg", "jpg", "png", "webp", "gif"];
+      if (!allowedTypes.includes(matches[1].toLowerCase())) {
+        return res.status(400).json({ message: "Unsupported image type. Use JPEG, PNG, WebP, or GIF." });
+      }
+
+      const ext = matches[1] === "jpeg" ? "jpg" : matches[1];
+      const buffer = Buffer.from(matches[2], "base64");
+      const filename = `pastry_${req.params.id}_${Date.now()}.${ext}`;
+      const filePath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
+      const url = `/uploads/${filename}`;
+      res.json({ url });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

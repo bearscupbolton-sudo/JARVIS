@@ -65,6 +65,10 @@ script/          → Build scripts
   - `time_off_requests` — Time off requests with approval workflow (userId, startDate, endDate, requestType, reason, status, reviewedBy)
   - `locations` — Multi-location support (name, address, isActive). Default location created on startup
   - `schedule_messages` — Shift coverage forum (userId, message, messageType, relatedDate, resolved, locationId)
+  - `pastry_passports` — Detailed pastry profiles with description, assembly instructions, baking notes, finish steps, linked to a mother dough recipe and category
+  - `pastry_media` — Photos/videos attached to pastry passports (uploaded photos stored in uploads/ dir, video URLs)
+  - `pastry_components` — Links pastry passports to component recipes (many-to-many with notes)
+  - `pastry_addins` — Free-form store-bought add-in ingredients for pastry passports
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)

@@ -3,6 +3,7 @@ import {
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
+  pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -22,7 +23,11 @@ import {
   type TimeOffRequest, type InsertTimeOffRequest,
   type Location, type InsertLocation,
   type ScheduleMessage, type InsertScheduleMessage,
-  type PreShiftNote, type InsertPreShiftNote
+  type PreShiftNote, type InsertPreShiftNote,
+  type PastryPassport, type InsertPastryPassport,
+  type PastryMedia, type InsertPastryMedia,
+  type PastryComponent, type InsertPastryComponent,
+  type PastryAddin, type InsertPastryAddin,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -138,6 +143,19 @@ export interface IStorage {
   createPreShiftNote(note: InsertPreShiftNote): Promise<PreShiftNote>;
   updatePreShiftNote(id: number, updates: Partial<InsertPreShiftNote>): Promise<PreShiftNote>;
   deletePreShiftNote(id: number): Promise<void>;
+
+  // Pastry Passports
+  getPastryPassports(): Promise<PastryPassport[]>;
+  getPastryPassport(id: number): Promise<(PastryPassport & { media: PastryMedia[]; components: (PastryComponent & { recipe: Recipe })[]; addins: PastryAddin[]; motherRecipe?: Recipe | null; primaryRecipe?: Recipe | null }) | undefined>;
+  createPastryPassport(passport: InsertPastryPassport): Promise<PastryPassport>;
+  updatePastryPassport(id: number, updates: Partial<InsertPastryPassport>): Promise<PastryPassport>;
+  deletePastryPassport(id: number): Promise<void>;
+  addPastryMedia(media: InsertPastryMedia): Promise<PastryMedia>;
+  deletePastryMedia(id: number): Promise<void>;
+  addPastryComponent(component: InsertPastryComponent): Promise<PastryComponent>;
+  deletePastryComponent(id: number): Promise<void>;
+  addPastryAddin(addin: InsertPastryAddin): Promise<PastryAddin>;
+  deletePastryAddin(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -599,6 +617,81 @@ export class DatabaseStorage implements IStorage {
 
   async deletePreShiftNote(id: number): Promise<void> {
     await db.delete(preShiftNotes).where(eq(preShiftNotes.id, id));
+  }
+
+  // Pastry Passports
+  async getPastryPassports(): Promise<PastryPassport[]> {
+    return await db.select().from(pastryPassports).orderBy(desc(pastryPassports.createdAt));
+  }
+
+  async getPastryPassport(id: number) {
+    const [passport] = await db.select().from(pastryPassports).where(eq(pastryPassports.id, id));
+    if (!passport) return undefined;
+
+    const media = await db.select().from(pastryMedia).where(eq(pastryMedia.pastryId, id)).orderBy(pastryMedia.sortOrder);
+    const componentsRaw = await db.select().from(pastryComponents).where(eq(pastryComponents.pastryId, id));
+    const addins = await db.select().from(pastryAddins).where(eq(pastryAddins.pastryId, id));
+
+    const components: (PastryComponent & { recipe: Recipe })[] = [];
+    for (const comp of componentsRaw) {
+      const [recipe] = await db.select().from(recipes).where(eq(recipes.id, comp.recipeId));
+      if (recipe) components.push({ ...comp, recipe });
+    }
+
+    let motherRecipe: Recipe | null = null;
+    if (passport.motherRecipeId) {
+      const [r] = await db.select().from(recipes).where(eq(recipes.id, passport.motherRecipeId));
+      motherRecipe = r || null;
+    }
+
+    let primaryRecipe: Recipe | null = null;
+    if (passport.primaryRecipeId) {
+      const [r] = await db.select().from(recipes).where(eq(recipes.id, passport.primaryRecipeId));
+      primaryRecipe = r || null;
+    }
+
+    return { ...passport, media, components, addins, motherRecipe, primaryRecipe };
+  }
+
+  async createPastryPassport(passport: InsertPastryPassport): Promise<PastryPassport> {
+    const [created] = await db.insert(pastryPassports).values(passport).returning();
+    return created;
+  }
+
+  async updatePastryPassport(id: number, updates: Partial<InsertPastryPassport>): Promise<PastryPassport> {
+    const [updated] = await db.update(pastryPassports).set({ ...updates, updatedAt: new Date() }).where(eq(pastryPassports.id, id)).returning();
+    return updated;
+  }
+
+  async deletePastryPassport(id: number): Promise<void> {
+    await db.delete(pastryPassports).where(eq(pastryPassports.id, id));
+  }
+
+  async addPastryMedia(media: InsertPastryMedia): Promise<PastryMedia> {
+    const [created] = await db.insert(pastryMedia).values(media).returning();
+    return created;
+  }
+
+  async deletePastryMedia(id: number): Promise<void> {
+    await db.delete(pastryMedia).where(eq(pastryMedia.id, id));
+  }
+
+  async addPastryComponent(component: InsertPastryComponent): Promise<PastryComponent> {
+    const [created] = await db.insert(pastryComponents).values(component).returning();
+    return created;
+  }
+
+  async deletePastryComponent(id: number): Promise<void> {
+    await db.delete(pastryComponents).where(eq(pastryComponents.id, id));
+  }
+
+  async addPastryAddin(addin: InsertPastryAddin): Promise<PastryAddin> {
+    const [created] = await db.insert(pastryAddins).values(addin).returning();
+    return created;
+  }
+
+  async deletePastryAddin(id: number): Promise<void> {
+    await db.delete(pastryAddins).where(eq(pastryAddins.id, id));
   }
 }
 

@@ -17,6 +17,7 @@ import {
   Package,
   CalendarDays,
   Calendar,
+  Stamp,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
   { href: "/recipes", label: "Recipes", icon: ChefHat },
+  { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },
   { href: "/inventory", label: "Inventory", icon: Package },

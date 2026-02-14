@@ -26,6 +26,8 @@ import InvoiceCapture from "@/pages/InvoiceCapture";
 import InventoryCount from "@/pages/InventoryCount";
 import Schedule from "@/pages/Schedule";
 import CalendarPage from "@/pages/CalendarPage";
+import PastryPassports from "@/pages/PastryPassports";
+import PastryPassportDetail from "@/pages/PastryPassportDetail";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -121,6 +123,12 @@ function Router() {
       </Route>
       <Route path="/calendar">
         {() => <ProtectedRoute component={CalendarPage} />}
+      </Route>
+      <Route path="/pastry-passports">
+        {() => <ProtectedRoute component={PastryPassports} />}
+      </Route>
+      <Route path="/pastry-passports/:id">
+        {() => <ProtectedRoute component={PastryPassportDetail} />}
       </Route>
 
       <Route component={NotFound} />

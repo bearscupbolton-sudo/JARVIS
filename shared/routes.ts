@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, insertShiftSchema, insertTimeOffRequestSchema, insertLocationSchema, insertScheduleMessageSchema, insertPreShiftNoteSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines, shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes } from './schema';
+import { insertRecipeSchema, insertProductionLogSchema, insertSopSchema, insertProblemSchema, insertEventSchema, insertAnnouncementSchema, insertPastryTotalSchema, insertShapingLogSchema, insertBakeoffLogSchema, insertInventoryItemSchema, insertInvoiceSchema, insertInvoiceLineSchema, insertInventoryCountSchema, insertInventoryCountLineSchema, insertShiftSchema, insertTimeOffRequestSchema, insertLocationSchema, insertScheduleMessageSchema, insertPreShiftNoteSchema, insertPastryPassportSchema, insertPastryMediaSchema, insertPastryComponentSchema, insertPastryAddinSchema, recipes, productionLogs, sops, problems, events, announcements, pastryTotals, shapingLogs, bakeoffLogs, inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines, shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes, pastryPassports, pastryMedia, pastryComponents, pastryAddins } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -506,6 +506,88 @@ export const api = {
       method: 'DELETE' as const,
       path: '/api/schedule-messages/:id' as const,
       responses: { 204: z.void() },
+    },
+  },
+  pastryPassports: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/pastry-passports' as const,
+      responses: { 200: z.any() },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/pastry-passports/:id' as const,
+      responses: { 200: z.any(), 404: errorSchemas.notFound },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/pastry-passports' as const,
+      input: insertPastryPassportSchema,
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/pastry-passports/:id' as const,
+      input: insertPastryPassportSchema.partial(),
+      responses: { 200: z.any(), 404: errorSchemas.notFound },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/pastry-passports/:id' as const,
+      responses: { 204: z.void() },
+    },
+    addMedia: {
+      method: 'POST' as const,
+      path: '/api/pastry-passports/:id/media' as const,
+      input: z.object({
+        kind: z.enum(["photo", "video"]),
+        url: z.string().min(1),
+        caption: z.string().optional(),
+      }),
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    deleteMedia: {
+      method: 'DELETE' as const,
+      path: '/api/pastry-passports/:pastryId/media/:mediaId' as const,
+      responses: { 204: z.void() },
+    },
+    addComponent: {
+      method: 'POST' as const,
+      path: '/api/pastry-passports/:id/components' as const,
+      input: z.object({
+        recipeId: z.number(),
+        notes: z.string().optional(),
+      }),
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    deleteComponent: {
+      method: 'DELETE' as const,
+      path: '/api/pastry-passports/:pastryId/components/:componentId' as const,
+      responses: { 204: z.void() },
+    },
+    addAddin: {
+      method: 'POST' as const,
+      path: '/api/pastry-passports/:id/addins' as const,
+      input: z.object({
+        name: z.string().min(1),
+        unit: z.string().optional(),
+        quantity: z.number().optional(),
+        notes: z.string().optional(),
+      }),
+      responses: { 201: z.any(), 400: errorSchemas.validation },
+    },
+    deleteAddin: {
+      method: 'DELETE' as const,
+      path: '/api/pastry-passports/:pastryId/addins/:addinId' as const,
+      responses: { 204: z.void() },
+    },
+    uploadPhoto: {
+      method: 'POST' as const,
+      path: '/api/pastry-passports/:id/upload-photo' as const,
+      input: z.object({
+        image: z.string().min(1),
+      }),
+      responses: { 200: z.object({ url: z.string() }), 400: errorSchemas.validation },
     },
   },
 };
