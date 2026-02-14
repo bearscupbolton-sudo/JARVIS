@@ -1199,17 +1199,19 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   // === KIOSK VOICE LOGGING ===
   app.post("/api/kiosk/voice-log", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
-      const { audio } = req.body;
-      if (!audio) {
-        return res.status(400).json({ message: "Audio data (base64) is required" });
+      const { audio, text } = req.body;
+      let transcript = "";
+
+      if (text && typeof text === "string" && text.trim().length > 0) {
+        transcript = text.trim();
+      } else if (audio) {
+        const rawBuffer = Buffer.from(audio, "base64");
+        const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
+        transcript = await speechToText(audioBuffer, inputFormat);
       }
 
-      const rawBuffer = Buffer.from(audio, "base64");
-      const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
-      const transcript = await speechToText(audioBuffer, inputFormat);
-
       if (!transcript || transcript.trim().length === 0) {
-        return res.status(400).json({ message: "Could not understand the audio. Please try again." });
+        return res.status(400).json({ message: "No input provided. Send audio or text." });
       }
 
       const today = new Date().toISOString().split("T")[0];
@@ -1231,21 +1233,29 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
         messages: [
           {
             role: "system",
-            content: `You are a bakery production log parser. Given a baker's spoken input, extract bake-off log entries (items coming out of the oven) and/or shaping log entries (dough being shaped).
+            content: `You are Jarvis, a bakery assistant. Parse a baker's spoken command and determine the action type.
 
 Known bakery items: ${uniqueItems.join(", ")}
 
+Commands you handle:
+1. BAKE-OFF LOG: Items coming out of the oven. E.g. "12 croissants", "36 plain croissants out".
+2. SHAPING LOG: Dough being shaped. E.g. "shaped 24 danish dough".
+3. TIMER: Setting a kitchen timer. E.g. "set a timer for 18 minutes", "timer 12 minutes for croissants". Parse the duration in seconds and a label.
+4. QUESTION: A question about recipes, procedures, or the bakery. E.g. "what temp for danishes?"
+
 Rules:
-- Match spoken item names to the closest known item. Be flexible with abbreviations and informal names (e.g. "choc chip" = "Choc Chip Cookie Dough", "croissants" = "Croissant Dough" or "Butter Croissant").
-- If the baker says "shaped" or "dough" or mentions shaping, those are shaping entries.
-- Otherwise, assume bake-off entries (items out of the oven).
-- Extract the item name and quantity for each entry.
+- Match spoken item names to the closest known item. Be flexible with abbreviations.
+- If they say "shaped" or "dough" or mentions shaping, those are shaping entries.
+- For timers, parse the duration in total seconds. "18 minutes" = 1080, "1 hour" = 3600, "90 seconds" = 90.
 - If a quantity is not clear, default to 1.
+- If it's a question, leave bakeoff/shaping/timer empty and put the answer in "answer".
 
 Respond with JSON:
 {
   "bakeoff": [{ "itemName": "exact known name", "quantity": number }],
   "shaping": [{ "doughType": "exact known name", "yieldCount": number }],
+  "timer": { "label": "description", "durationSeconds": number } | null,
+  "answer": "response to a question if asked" | null,
   "summary": "brief confirmation message"
 }`
           },
@@ -1298,15 +1308,82 @@ Respond with JSON:
         createdShapings.push(log);
       }
 
+      let createdTimer = null;
+      const timerSchema = z.object({
+        label: z.string().min(1),
+        durationSeconds: z.number().int().min(1).max(86400),
+      });
+      const timerParsed = timerSchema.safeParse(parsed.timer);
+      if (timerParsed.success) {
+        const timerNow = new Date();
+        createdTimer = await storage.createTimer({
+          label: timerParsed.data.label,
+          durationSeconds: timerParsed.data.durationSeconds,
+          startedAt: timerNow,
+          expiresAt: new Date(timerNow.getTime() + timerParsed.data.durationSeconds * 1000),
+          dismissed: false,
+          createdBy: req.appUser?.id || null,
+        });
+      }
+
       res.json({
         transcript,
         summary: parsed.summary || "Logged successfully",
         bakeoff: createdBakeoffs,
         shaping: createdShapings,
+        timer: createdTimer,
+        answer: parsed.answer || null,
       });
     } catch (err: any) {
       console.error("Kiosk voice-log error:", err);
       res.status(500).json({ message: err.message || "Failed to process voice input" });
+    }
+  });
+
+  app.get("/api/kiosk/timers", isAuthenticated, async (req: any, res) => {
+    try {
+      const timers = await storage.getActiveTimers();
+      res.json(timers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/kiosk/timers", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const timerInput = z.object({
+        label: z.string().min(1).max(200),
+        durationSeconds: z.number().int().min(1).max(86400),
+      }).parse(req.body);
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + timerInput.durationSeconds * 1000);
+
+      const timer = await storage.createTimer({
+        label: timerInput.label,
+        durationSeconds: timerInput.durationSeconds,
+        startedAt: now,
+        expiresAt,
+        dismissed: false,
+        createdBy: req.appUser?.id || null,
+      });
+      res.status(201).json(timer);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid timer input" });
+      }
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/kiosk/timers/:id/dismiss", isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const dismissed = await storage.dismissTimer(id);
+      if (!dismissed) return res.status(404).json({ message: "Timer not found" });
+      res.json({ dismissed: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

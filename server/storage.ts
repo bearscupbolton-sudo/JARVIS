@@ -4,6 +4,7 @@ import {
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
+  kioskTimers,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -28,6 +29,7 @@ import {
   type PastryMedia, type InsertPastryMedia,
   type PastryComponent, type InsertPastryComponent,
   type PastryAddin, type InsertPastryAddin,
+  type KioskTimer, type InsertKioskTimer,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -92,6 +94,11 @@ export interface IStorage {
   getBakeoffLogs(date: string): Promise<BakeoffLog[]>;
   createBakeoffLog(log: InsertBakeoffLog): Promise<BakeoffLog>;
   deleteBakeoffLog(id: number): Promise<boolean>;
+
+  // Kiosk Timers
+  getActiveTimers(): Promise<KioskTimer[]>;
+  createTimer(timer: InsertKioskTimer): Promise<KioskTimer>;
+  dismissTimer(id: number): Promise<boolean>;
 
   // Inventory Items
   getInventoryItems(): Promise<InventoryItem[]>;
@@ -376,6 +383,22 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBakeoffLog(id: number): Promise<boolean> {
     const result = await db.delete(bakeoffLogs).where(eq(bakeoffLogs.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getActiveTimers(): Promise<KioskTimer[]> {
+    return await db.select().from(kioskTimers)
+      .where(eq(kioskTimers.dismissed, false))
+      .orderBy(kioskTimers.expiresAt);
+  }
+
+  async createTimer(timer: InsertKioskTimer): Promise<KioskTimer> {
+    const [t] = await db.insert(kioskTimers).values(timer).returning();
+    return t;
+  }
+
+  async dismissTimer(id: number): Promise<boolean> {
+    const result = await db.update(kioskTimers).set({ dismissed: true }).where(eq(kioskTimers.id, id)).returning();
     return result.length > 0;
   }
 

@@ -69,6 +69,7 @@ script/          → Build scripts
   - `pastry_media` — Photos/videos attached to pastry passports (uploaded photos stored in uploads/ dir, video URLs)
   - `pastry_components` — Links pastry passports to component recipes (many-to-many with notes)
   - `pastry_addins` — Free-form store-bought add-in ingredients for pastry passports
+  - `kiosk_timers` — Kitchen timers set via voice commands (label, durationSeconds, startedAt, expiresAt, dismissed, createdBy)
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)
@@ -104,6 +105,11 @@ Located in `server/replit_integrations/`:
 ### Optional AI Services
 - **OpenAI-compatible API** (via Replit AI Integrations): Powers the Jarvis assistant chat, voice features, and image generation. Requires `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL`
 - **Jarvis Context**: On each chat message, the system prompt is dynamically built by fetching all recipes (with ingredients, instructions, baker's percentages) and all SOPs from the database. This makes Jarvis aware of the bakery's actual data and able to answer questions about specific recipes and procedures.
+- **Kiosk Voice Commands**: POST `/api/kiosk/voice-log` accepts `{ text }` (from Web Speech API) or `{ audio }` (base64 webm). AI parses commands into bake-off logs, shaping logs, timer creation, or question answering. Timers managed via GET/POST `/api/kiosk/timers` and POST `/api/kiosk/timers/:id/dismiss`.
+
+### Kiosk & Display Screens
+- **Jarvis Kiosk** (`/kiosk`): Always-listening voice assistant with "Jarvis" wake word via Web Speech API. Chat-style UI, manual push-to-talk fallback, active timer panel with countdown and audio alarms. Protected route, no sidebar (noLayout). Supports bake-off logging, shaping logging, timer setting, and answering bakery questions.
+- **Bakery by the Numbers** (`/display`): Public commercial display showing production scoreboard. Auto-refreshes every 15s. Shows targets vs out-of-oven vs shaped vs remaining per item with progress bars. No auth required — designed for wall-mounted monitors.
 
 ### Optional SMS Notifications (Twilio — not yet configured)
 - **Status**: Stub implementation in `server/sms.ts` — logs messages to console until Twilio is configured

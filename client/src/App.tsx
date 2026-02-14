@@ -29,6 +29,7 @@ import CalendarPage from "@/pages/CalendarPage";
 import PastryPassports from "@/pages/PastryPassports";
 import PastryPassportDetail from "@/pages/PastryPassportDetail";
 import Kiosk from "@/pages/Kiosk";
+import Display from "@/pages/Display";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -137,6 +138,9 @@ function Router() {
       </Route>
       <Route path="/kiosk">
         {() => <ProtectedRoute component={Kiosk} noLayout />}
+      </Route>
+      <Route path="/display">
+        {() => <Display />}
       </Route>
 
       <Route component={NotFound} />

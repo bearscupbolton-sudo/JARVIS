@@ -397,6 +397,22 @@ export type InsertProductionLog = z.infer<typeof insertProductionLogSchema>;
 export type SOP = typeof sops.$inferSelect;
 export type InsertSOP = z.infer<typeof insertSopSchema>;
 
+// === KIOSK TIMERS ===
+export const kioskTimers = pgTable("kiosk_timers", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  startedAt: timestamp("started_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  dismissed: boolean("dismissed").default(false),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertKioskTimerSchema = createInsertSchema(kioskTimers);
+export type KioskTimer = typeof kioskTimers.$inferSelect;
+export type InsertKioskTimer = z.infer<typeof insertKioskTimerSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;
