@@ -5,6 +5,7 @@ import {
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
+  taskJobs, taskLists, taskListItems,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -30,6 +31,9 @@ import {
   type PastryComponent, type InsertPastryComponent,
   type PastryAddin, type InsertPastryAddin,
   type KioskTimer, type InsertKioskTimer,
+  type TaskJob, type InsertTaskJob,
+  type TaskList, type InsertTaskList,
+  type TaskListItem, type InsertTaskListItem,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
@@ -163,6 +167,25 @@ export interface IStorage {
   deletePastryComponent(id: number): Promise<void>;
   addPastryAddin(addin: InsertPastryAddin): Promise<PastryAddin>;
   deletePastryAddin(id: number): Promise<void>;
+
+  // Task Jobs
+  getTaskJobs(): Promise<TaskJob[]>;
+  getTaskJob(id: number): Promise<TaskJob | undefined>;
+  createTaskJob(job: InsertTaskJob): Promise<TaskJob>;
+  updateTaskJob(id: number, updates: Partial<InsertTaskJob>): Promise<TaskJob>;
+  deleteTaskJob(id: number): Promise<void>;
+
+  // Task Lists
+  getTaskLists(): Promise<TaskList[]>;
+  getTaskList(id: number): Promise<(TaskList & { items: (TaskListItem & { job?: TaskJob | null })[] }) | undefined>;
+  createTaskList(list: InsertTaskList): Promise<TaskList>;
+  updateTaskList(id: number, updates: Partial<InsertTaskList>): Promise<TaskList>;
+  deleteTaskList(id: number): Promise<void>;
+
+  // Task List Items
+  createTaskListItem(item: InsertTaskListItem): Promise<TaskListItem>;
+  updateTaskListItem(id: number, updates: Partial<InsertTaskListItem>): Promise<TaskListItem>;
+  deleteTaskListItem(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -715,6 +738,84 @@ export class DatabaseStorage implements IStorage {
 
   async deletePastryAddin(id: number): Promise<void> {
     await db.delete(pastryAddins).where(eq(pastryAddins.id, id));
+  }
+
+  // Task Jobs
+  async getTaskJobs(): Promise<TaskJob[]> {
+    return await db.select().from(taskJobs).orderBy(desc(taskJobs.createdAt));
+  }
+
+  async getTaskJob(id: number): Promise<TaskJob | undefined> {
+    const [job] = await db.select().from(taskJobs).where(eq(taskJobs.id, id));
+    return job;
+  }
+
+  async createTaskJob(job: InsertTaskJob): Promise<TaskJob> {
+    const [created] = await db.insert(taskJobs).values(job).returning();
+    return created;
+  }
+
+  async updateTaskJob(id: number, updates: Partial<InsertTaskJob>): Promise<TaskJob> {
+    const [updated] = await db.update(taskJobs).set(updates).where(eq(taskJobs.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTaskJob(id: number): Promise<void> {
+    await db.delete(taskJobs).where(eq(taskJobs.id, id));
+  }
+
+  // Task Lists
+  async getTaskLists(): Promise<TaskList[]> {
+    return await db.select().from(taskLists).orderBy(desc(taskLists.createdAt));
+  }
+
+  async getTaskList(id: number): Promise<(TaskList & { items: (TaskListItem & { job?: TaskJob | null })[] }) | undefined> {
+    const [list] = await db.select().from(taskLists).where(eq(taskLists.id, id));
+    if (!list) return undefined;
+
+    const items = await db
+      .select()
+      .from(taskListItems)
+      .leftJoin(taskJobs, eq(taskListItems.jobId, taskJobs.id))
+      .where(eq(taskListItems.listId, id))
+      .orderBy(taskListItems.sortOrder);
+
+    return {
+      ...list,
+      items: items.map((row) => ({
+        ...row.task_list_items,
+        job: row.task_jobs || null,
+      })),
+    };
+  }
+
+  async createTaskList(list: InsertTaskList): Promise<TaskList> {
+    const [created] = await db.insert(taskLists).values(list).returning();
+    return created;
+  }
+
+  async updateTaskList(id: number, updates: Partial<InsertTaskList>): Promise<TaskList> {
+    const [updated] = await db.update(taskLists).set({ ...updates, updatedAt: new Date() }).where(eq(taskLists.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTaskList(id: number): Promise<void> {
+    await db.delete(taskLists).where(eq(taskLists.id, id));
+  }
+
+  // Task List Items
+  async createTaskListItem(item: InsertTaskListItem): Promise<TaskListItem> {
+    const [created] = await db.insert(taskListItems).values(item).returning();
+    return created;
+  }
+
+  async updateTaskListItem(id: number, updates: Partial<InsertTaskListItem>): Promise<TaskListItem> {
+    const [updated] = await db.update(taskListItems).set(updates).where(eq(taskListItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTaskListItem(id: number): Promise<void> {
+    await db.delete(taskListItems).where(eq(taskListItems.id, id));
   }
 }
 

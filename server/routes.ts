@@ -1416,5 +1416,129 @@ Respond with JSON:
     }
   });
 
+  // === TASK JOBS ===
+  app.get("/api/task-jobs", isAuthenticated, async (req, res) => {
+    const jobs = await storage.getTaskJobs();
+    res.json(jobs);
+  });
+
+  app.get("/api/task-jobs/:id", isAuthenticated, async (req, res) => {
+    const job = await storage.getTaskJob(Number(req.params.id));
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
+  });
+
+  app.post("/api/task-jobs", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { insertTaskJobSchema } = await import("@shared/schema");
+      const input = insertTaskJobSchema.parse(req.body);
+      const user = await getUserFromReq(req);
+      const job = await storage.createTaskJob({ ...input, createdBy: user?.id || null });
+      res.status(201).json(job);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/task-jobs/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { insertTaskJobSchema } = await import("@shared/schema");
+      const updates = insertTaskJobSchema.partial().parse(req.body);
+      const job = await storage.updateTaskJob(Number(req.params.id), updates);
+      res.json(job);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/task-jobs/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    await storage.deleteTaskJob(Number(req.params.id));
+    res.json({ deleted: true });
+  });
+
+  // === TASK LISTS ===
+  app.get("/api/task-lists", isAuthenticated, async (req, res) => {
+    const lists = await storage.getTaskLists();
+    res.json(lists);
+  });
+
+  app.get("/api/task-lists/:id", isAuthenticated, async (req, res) => {
+    const list = await storage.getTaskList(Number(req.params.id));
+    if (!list) return res.status(404).json({ message: "List not found" });
+    res.json(list);
+  });
+
+  app.post("/api/task-lists", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { insertTaskListSchema } = await import("@shared/schema");
+      const input = insertTaskListSchema.parse(req.body);
+      const user = await getUserFromReq(req);
+      const list = await storage.createTaskList({ ...input, createdBy: user?.id || null });
+      res.status(201).json(list);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/task-lists/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { insertTaskListSchema } = await import("@shared/schema");
+      const updates = insertTaskListSchema.partial().parse(req.body);
+      const list = await storage.updateTaskList(Number(req.params.id), updates);
+      res.json(list);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/task-lists/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    await storage.deleteTaskList(Number(req.params.id));
+    res.json({ deleted: true });
+  });
+
+  // === TASK LIST ITEMS ===
+  app.post("/api/task-lists/:listId/items", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { insertTaskListItemSchema } = await import("@shared/schema");
+      const input = insertTaskListItemSchema.parse({
+        ...req.body,
+        listId: Number(req.params.listId),
+      });
+      const item = await storage.createTaskListItem(input);
+      res.status(201).json(item);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/task-list-items/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const updateSchema = z.object({
+        completed: z.boolean().optional(),
+        manualTitle: z.string().nullable().optional(),
+        startTime: z.string().nullable().optional(),
+        endTime: z.string().nullable().optional(),
+        sortOrder: z.number().int().optional(),
+        jobId: z.number().int().nullable().optional(),
+      });
+      const updates = updateSchema.parse(req.body);
+      const item = await storage.updateTaskListItem(Number(req.params.id), updates);
+      res.json(item);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/task-list-items/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    await storage.deleteTaskListItem(Number(req.params.id));
+    res.json({ deleted: true });
+  });
+
   return httpServer;
 }

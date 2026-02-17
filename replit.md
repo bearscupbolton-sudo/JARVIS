@@ -70,6 +70,9 @@ script/          → Build scripts
   - `pastry_components` — Links pastry passports to component recipes (many-to-many with notes)
   - `pastry_addins` — Free-form store-bought add-in ingredients for pastry passports
   - `kiosk_timers` — Kitchen timers set via voice commands (label, durationSeconds, startedAt, expiresAt, dismissed, createdBy)
+  - `task_jobs` — Reusable saved activities/tasks, optionally linked to SOPs (name, description, sopId, createdBy)
+  - `task_lists` — Task list metadata (title, description, createdBy)
+  - `task_list_items` — Entries in a task list with time windows (listId, jobId or manualTitle, startTime, endTime, sortOrder, completed)
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)

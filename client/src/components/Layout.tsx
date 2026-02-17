@@ -19,6 +19,7 @@ import {
   Calendar,
   Stamp,
   Mic,
+  ListChecks,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/calendar", label: "Calendar", icon: Calendar },
+  { href: "/tasks", label: "Task Manager", icon: ListChecks },
   { href: "/assistant", label: "Jarvis", icon: Bot },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
 ];

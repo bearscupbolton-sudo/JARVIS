@@ -413,6 +413,50 @@ export const insertKioskTimerSchema = createInsertSchema(kioskTimers);
 export type KioskTimer = typeof kioskTimers.$inferSelect;
 export type InsertKioskTimer = z.infer<typeof insertKioskTimerSchema>;
 
+// === TASK JOBS (reusable saved activities) ===
+export const taskJobs = pgTable("task_jobs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sopId: integer("sop_id").references(() => sops.id),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTaskJobSchema = createInsertSchema(taskJobs).omit({ id: true, createdAt: true });
+export type TaskJob = typeof taskJobs.$inferSelect;
+export type InsertTaskJob = z.infer<typeof insertTaskJobSchema>;
+
+// === TASK LISTS (checklists with time windows) ===
+export const taskLists = pgTable("task_lists", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTaskListSchema = createInsertSchema(taskLists).omit({ id: true, createdAt: true, updatedAt: true });
+export type TaskList = typeof taskLists.$inferSelect;
+export type InsertTaskList = z.infer<typeof insertTaskListSchema>;
+
+// === TASK LIST ITEMS (entries in a list) ===
+export const taskListItems = pgTable("task_list_items", {
+  id: serial("id").primaryKey(),
+  listId: integer("list_id").notNull().references(() => taskLists.id, { onDelete: "cascade" }),
+  jobId: integer("job_id").references(() => taskJobs.id),
+  manualTitle: text("manual_title"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+});
+
+export const insertTaskListItemSchema = createInsertSchema(taskListItems).omit({ id: true });
+export type TaskListItem = typeof taskListItems.$inferSelect;
+export type InsertTaskListItem = z.infer<typeof insertTaskListItemSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;
