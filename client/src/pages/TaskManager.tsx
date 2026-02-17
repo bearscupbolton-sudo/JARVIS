@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -212,25 +212,82 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
     },
   });
 
-  const [showPrintView, setShowPrintView] = useState(false);
-
-  const handlePrint = () => {
+  const handleExport = () => {
     if (!list) return;
-    setShowPrintView(true);
-  };
 
-  useEffect(() => {
-    if (!showPrintView) return;
-    const handleAfterPrint = () => setShowPrintView(false);
-    window.addEventListener("afterprint", handleAfterPrint);
-    const timer = setTimeout(() => {
-      window.print();
-    }, 300);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("afterprint", handleAfterPrint);
-    };
-  }, [showPrintView]);
+    const sopIds = new Set<number>();
+    list.items.forEach((item) => {
+      if (item.job?.sopId) sopIds.add(item.job.sopId);
+    });
+    const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
+
+    const esc = (str: string) =>
+      str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const rowsHtml = list.items.map((item) => {
+      const title = esc(item.job?.name || item.manualTitle || "Untitled");
+      const timeStr = item.startTime
+        ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
+        : "";
+      const hasSop = !!item.job?.sopId;
+      const descHtml = item.job?.description
+        ? `<br><span style="font-size:12px;color:#777">${esc(item.job.description)}</span>`
+        : "";
+      return `<tr><td class="ck"><span class="cb"></span></td><td class="tm">${timeStr}</td><td>${title}${descHtml}</td><td>${hasSop ? '<span class="sb">See SOP below</span>' : ""}</td></tr>`;
+    }).join("");
+
+    const sopsHtml = linkedSOPs.map((sop) => {
+      const content = (sop.content || "").replace(/\n/g, "<br>");
+      const cat = sop.category ? ` <span class="sb">${esc(sop.category)}</span>` : "";
+      return `<div style="margin-top:40px;page-break-before:auto"><div style="font-size:18px;font-weight:700;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #ccc">${esc(sop.title)}${cat}</div><div style="font-size:13px;line-height:1.6">${content}</div></div>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${esc(list.title)} - Bear's Cup Bakehouse</title>
+<style>
+@page{margin:0.75in}*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#1a1a1a;line-height:1.5;padding:20px}
+.hd{text-align:center;border-bottom:2px solid #333;padding-bottom:16px;margin-bottom:24px}
+.hd h1{font-size:28px;font-weight:700;margin-bottom:4px}
+.st{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:2px}
+.mt{font-size:14px;color:#555;margin-top:8px}
+.sc{margin-bottom:28px}
+.sct{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #ccc;padding-bottom:6px;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;padding:6px 8px;border-bottom:2px solid #999}
+td{padding:7px 8px;border-bottom:1px solid #e5e5e5;vertical-align:middle}
+.ck{width:28px;text-align:center}
+.cb{width:16px;height:16px;border:2px solid #555;border-radius:50%;display:inline-block}
+tr:nth-child(even){background:#f8f8f8}
+.tm{font-variant-numeric:tabular-nums;white-space:nowrap;color:#555;font-size:13px}
+.sb{display:inline-block;font-size:10px;background:#eee;color:#555;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:uppercase;letter-spacing:0.5px}
+.nb{border:1px solid #ccc;border-radius:4px;padding:12px;min-height:60px;margin-top:16px}
+.nl{font-size:12px;color:#888;margin-bottom:4px}
+.ft{margin-top:32px;padding-top:12px;border-top:1px solid #ccc;text-align:center;font-size:11px;color:#999}
+@media print{.no-print{display:none!important}}
+</style></head><body>
+<div class="no-print" style="text-align:center;margin-bottom:20px;padding:12px;background:#f0f0f0;border-radius:8px">
+<p style="margin-bottom:8px;font-size:14px;color:#555">Use your browser's <strong>Print</strong> function (Ctrl+P / Cmd+P) or <strong>Save as PDF</strong></p>
+</div>
+<div class="hd"><div class="st">Bear's Cup Bakehouse</div><h1>${esc(list.title)}</h1>${list.description ? `<div class="mt">${esc(list.description)}</div>` : ""}<div class="mt">Date: ____________</div></div>
+<div class="sc"><div class="sct">Checklist</div>
+<table><thead><tr><th style="width:28px"></th><th>Time</th><th>Task</th><th>SOP</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+<div class="sc"><div class="nb"><div class="nl">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div></div></div>
+${sopsHtml}
+<div class="ft">Jarvis Task Manager - Bear's Cup Bakehouse</div>
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${list.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}_checklist.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Checklist downloaded! Open the file and print from there." });
+  };
 
   if (isLoading) {
     return (
@@ -252,114 +309,6 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
 
   const completedCount = list.items.filter((i) => i.completed).length;
 
-  const sopIds = new Set<number>();
-  list.items.forEach((item) => {
-    if (item.job?.sopId) sopIds.add(item.job.sopId);
-  });
-  const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
-
-  if (showPrintView) {
-    return (
-      <div className="print-view bg-white text-black p-8" style={{ fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif" }}>
-        <style>{`
-          @media print {
-            body * { visibility: hidden !important; }
-            .print-view, .print-view * { visibility: visible !important; }
-            .print-view .no-print, .print-view .no-print * { visibility: hidden !important; display: none !important; }
-            .print-view { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; z-index: 99999 !important; padding: 0.75in !important; background: white !important; }
-          }
-          .print-view .pv-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
-          .print-view .pv-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; color: #1a1a1a; }
-          .print-view .pv-subtitle { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
-          .print-view .pv-meta { font-size: 14px; color: #555; margin-top: 8px; }
-          .print-view .pv-section { margin-bottom: 28px; }
-          .print-view .pv-section-title { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 12px; color: #1a1a1a; }
-          .print-view table { width: 100%; border-collapse: collapse; font-size: 14px; }
-          .print-view th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; padding: 6px 8px; border-bottom: 2px solid #999; }
-          .print-view td { padding: 7px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; color: #1a1a1a; }
-          .print-view .pv-check { width: 28px; text-align: center; }
-          .print-view .pv-checkbox { width: 16px; height: 16px; border: 2px solid #555; border-radius: 50%; display: inline-block; }
-          .print-view tr:nth-child(even) { background: #f8f8f8; }
-          .print-view .pv-time { font-variant-numeric: tabular-nums; white-space: nowrap; color: #555; font-size: 13px; }
-          .print-view .pv-sop-badge { display: inline-block; font-size: 10px; background: #eee; color: #555; padding: 2px 8px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .print-view .pv-sop-section { margin-top: 40px; page-break-before: auto; }
-          .print-view .pv-sop-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ccc; color: #1a1a1a; }
-          .print-view .pv-sop-content { font-size: 13px; line-height: 1.6; color: #1a1a1a; }
-          .print-view .pv-notes-box { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-height: 60px; margin-top: 16px; }
-          .print-view .pv-notes-label { font-size: 12px; color: #888; margin-bottom: 4px; }
-          .print-view .pv-footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; text-align: center; font-size: 11px; color: #999; }
-        `}</style>
-        <div className="pv-header">
-          <div className="pv-subtitle">Bear's Cup Bakehouse</div>
-          <h1>{list.title}</h1>
-          {list.description && <div className="pv-meta">{list.description}</div>}
-          <div className="pv-meta">Date: ____________</div>
-        </div>
-        <div className="pv-section">
-          <div className="pv-section-title">Checklist</div>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 28 }}></th>
-                <th>Time</th>
-                <th>Task</th>
-                <th>SOP</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((item) => {
-                const title = item.job?.name || item.manualTitle || "Untitled";
-                const timeStr = item.startTime
-                  ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
-                  : "";
-                const hasSop = !!item.job?.sopId;
-                return (
-                  <tr key={item.id}>
-                    <td className="pv-check"><span className="pv-checkbox" /></td>
-                    <td className="pv-time">{timeStr}</td>
-                    <td>
-                      {title}
-                      {item.job?.description && (
-                        <><br /><span style={{ fontSize: 12, color: "#777" }}>{item.job.description}</span></>
-                      )}
-                    </td>
-                    <td>{hasSop && <span className="pv-sop-badge">See SOP below</span>}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="pv-section">
-          <div className="pv-notes-box">
-            <div className="pv-notes-label">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div>
-          </div>
-        </div>
-        {linkedSOPs.map((sop) => (
-          <div key={sop.id} className="pv-sop-section">
-            <div className="pv-sop-title">
-              {sop.title}
-              {sop.category && <span className="pv-sop-badge">{sop.category}</span>}
-            </div>
-            <div className="pv-sop-content">
-              <ReactMarkdown>{sop.content || ""}</ReactMarkdown>
-            </div>
-          </div>
-        ))}
-        <div className="pv-footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
-        <div className="no-print" style={{ marginTop: 24, textAlign: "center" }}>
-          <button
-            onClick={() => setShowPrintView(false)}
-            style={{ padding: "8px 24px", fontSize: 14, cursor: "pointer", background: "#333", color: "#fff", border: "none", borderRadius: 4 }}
-            data-testid="button-back-from-print"
-          >
-            Back to List
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-task-list-detail">
       <div className="flex items-center gap-2">
@@ -371,8 +320,8 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
           {list.description && <p className="text-sm text-muted-foreground">{list.description}</p>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button variant="default" onClick={handlePrint} data-testid="button-print-list">
-            <Printer className="w-4 h-4 mr-2" /> Print
+          <Button variant="default" onClick={handleExport} data-testid="button-print-list">
+            <Printer className="w-4 h-4 mr-2" /> Export
           </Button>
           <Button
             variant="ghost"
