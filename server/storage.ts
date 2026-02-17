@@ -7,6 +7,7 @@ import {
   kioskTimers,
   taskJobs, taskLists, taskListItems,
   directMessages, messageRecipients,
+  pushSubscriptions,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -38,6 +39,7 @@ import {
   type DirectMessage, type InsertDirectMessage,
   type MessageRecipient, type InsertMessageRecipient,
   type RecipeVersion, type InsertRecipeVersion,
+  type PushSubscription, type InsertPushSubscription,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -204,6 +206,13 @@ export interface IStorage {
   acknowledgeMessage(messageId: number, userId: string): Promise<void>;
   deleteMessageForUser(messageId: number, userId: string): Promise<void>;
   getSentMessages(userId: string): Promise<DirectMessage[]>;
+
+  // Push Subscriptions
+  createPushSubscription(sub: InsertPushSubscription): Promise<PushSubscription>;
+  getPushSubscriptions(userId: string): Promise<PushSubscription[]>;
+  getPushSubscriptionsByUsers(userIds: string[]): Promise<PushSubscription[]>;
+  deactivatePushSubscription(endpoint: string): Promise<void>;
+  deletePushSubscription(endpoint: string, userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -959,6 +968,42 @@ export class DatabaseStorage implements IStorage {
           user: userMap.get(r.userId) || { id: r.userId, firstName: null, lastName: null, username: null },
         })),
     }));
+  }
+  // Push Subscriptions
+  async createPushSubscription(sub: InsertPushSubscription): Promise<PushSubscription> {
+    const existing = await db.select().from(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, sub.endpoint), eq(pushSubscriptions.userId, sub.userId)));
+    if (existing.length > 0) {
+      const [updated] = await db.update(pushSubscriptions)
+        .set({ p256dh: sub.p256dh, auth: sub.auth, isActive: true, deviceLabel: sub.deviceLabel })
+        .where(eq(pushSubscriptions.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(pushSubscriptions).values(sub).returning();
+    return created;
+  }
+
+  async getPushSubscriptions(userId: string): Promise<PushSubscription[]> {
+    return await db.select().from(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.isActive, true)));
+  }
+
+  async getPushSubscriptionsByUsers(userIds: string[]): Promise<PushSubscription[]> {
+    if (userIds.length === 0) return [];
+    return await db.select().from(pushSubscriptions)
+      .where(and(inArray(pushSubscriptions.userId, userIds), eq(pushSubscriptions.isActive, true)));
+  }
+
+  async deactivatePushSubscription(endpoint: string): Promise<void> {
+    await db.update(pushSubscriptions)
+      .set({ isActive: false })
+      .where(eq(pushSubscriptions.endpoint, endpoint));
+  }
+
+  async deletePushSubscription(endpoint: string, userId: string): Promise<void> {
+    await db.delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, userId)));
   }
 }
 

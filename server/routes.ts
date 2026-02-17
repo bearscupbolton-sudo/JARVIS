@@ -6,6 +6,7 @@ import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrations/audio/client";
+import { sendPushToUsers, sendPushToUser } from "./push";
 
 async function getUserFromReq(req: any) {
   return req.appUser || null;
@@ -401,6 +402,16 @@ Guidelines:
     try {
       const input = api.announcements.create.input.parse(req.body);
       const announcement = await storage.createAnnouncement(input);
+      if (input.pinned) {
+        const allUsers = await authStorage.getAllUsers();
+        const allUserIds = allUsers.map(u => u.id);
+        sendPushToUsers(allUserIds, {
+          title: "New Announcement",
+          body: input.content.slice(0, 120) + (input.content.length > 120 ? "..." : ""),
+          tag: `announcement-${announcement.id}`,
+          url: "/dashboard",
+        }).catch(err => console.error("[Push] Announcement notification error:", err));
+      }
       res.status(201).json(announcement);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -913,6 +924,12 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
         return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${input.department || "kitchen"}` });
       }
       const shift = await storage.createShift(input);
+      sendPushToUser(input.userId, {
+        title: "New Shift Assigned",
+        body: `You've been scheduled on ${input.shiftDate} from ${input.startTime} to ${input.endTime}`,
+        tag: `shift-${shift.id}`,
+        url: "/schedule",
+      }).catch(err => console.error("[Push] Shift notification error:", err));
       res.status(201).json(shift);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -926,8 +943,18 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     try {
       const id = Number(req.params.id);
       const input = api.shifts.update.input.parse(req.body);
+      const existingShift = await storage.getShifts(input.shiftDate || "", input.shiftDate || "");
+      const oldShift = existingShift.find(s => s.id === id);
       const shift = await storage.updateShift(id, input);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
+      if (oldShift) {
+        sendPushToUser(shift.userId, {
+          title: "Shift Updated",
+          body: `Your shift on ${shift.shiftDate} has been updated: ${shift.startTime} - ${shift.endTime}`,
+          tag: `shift-${shift.id}`,
+          url: "/schedule",
+        }).catch(err => console.error("[Push] Shift update notification error:", err));
+      }
       res.json(shift);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -979,6 +1006,12 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       const userId = user.id;
       const updated = await storage.updateTimeOffRequestStatus(id, status, userId, reviewNote);
       if (!updated) return res.status(404).json({ message: "Request not found" });
+      sendPushToUser(updated.userId, {
+        title: `Time Off ${status === "approved" ? "Approved" : "Denied"}`,
+        body: `Your time off request has been ${status}${reviewNote ? `: ${reviewNote}` : ""}`,
+        tag: `timeoff-${updated.id}`,
+        url: "/schedule",
+      }).catch(err => console.error("[Push] Time off notification error:", err));
       res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -1693,6 +1726,14 @@ ${sopsHtml}
         targetValue: targetValue || null,
       }, resolvedRecipientIds);
 
+      const senderName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || "Manager";
+      sendPushToUsers(resolvedRecipientIds, {
+        title: priority === "urgent" ? `Urgent: ${subject}` : subject,
+        body: `From ${senderName}: ${body.slice(0, 100)}${body.length > 100 ? "..." : ""}`,
+        tag: `msg-${message.id}`,
+        url: "/",
+      }).catch(err => console.error("[Push] Error sending message notification:", err));
+
       res.json(message);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1726,6 +1767,69 @@ ${sopsHtml}
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       await storage.deleteMessageForUser(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PUSH NOTIFICATIONS ===
+  app.post("/api/push/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { endpoint, keys, deviceLabel } = req.body;
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ message: "Invalid subscription data" });
+      }
+      const sub = await storage.createPushSubscription({
+        userId: user.id,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        deviceLabel: deviceLabel || null,
+        isActive: true,
+      });
+      res.json(sub);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/push/unsubscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { endpoint } = req.body;
+      if (!endpoint) return res.status(400).json({ message: "Endpoint required" });
+      await storage.deletePushSubscription(endpoint, user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/push/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const subs = await storage.getPushSubscriptions(user.id);
+      res.json({ enabled: subs.length > 0, devices: subs });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/push/test", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await sendPushToUser(user.id, {
+        title: "Jarvis",
+        body: "Push notifications are working!",
+        tag: "test",
+        url: "/",
+      });
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -509,6 +509,22 @@ export const insertMessageRecipientSchema = createInsertSchema(messageRecipients
 export type MessageRecipient = typeof messageRecipients.$inferSelect;
 export type InsertMessageRecipient = z.infer<typeof insertMessageRecipientSchema>;
 
+// === PUSH SUBSCRIPTIONS ===
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  deviceLabel: text("device_label"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;
