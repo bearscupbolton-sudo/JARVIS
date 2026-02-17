@@ -1645,7 +1645,7 @@ ${sopsHtml}
     try {
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
-      const messages = await storage.getSentMessages(user.id);
+      const messages = await storage.getSentMessagesWithRecipients(user.id);
       res.json(messages);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

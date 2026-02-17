@@ -935,6 +935,31 @@ export class DatabaseStorage implements IStorage {
       .where(eq(directMessages.senderId, userId))
       .orderBy(desc(directMessages.createdAt));
   }
+
+  async getSentMessagesWithRecipients(userId: string): Promise<(DirectMessage & { recipients: (MessageRecipient & { user: { id: string; firstName: string | null; lastName: string | null; username: string | null } })[] })[]> {
+    const sent = await this.getSentMessages(userId);
+    if (sent.length === 0) return [];
+
+    const msgIds = sent.map(m => m.id);
+    const allRecipients = await db.select().from(messageRecipients)
+      .where(inArray(messageRecipients.messageId, msgIds));
+
+    const userIds = Array.from(new Set(allRecipients.map(r => r.userId)));
+    const allUsers = userIds.length > 0
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username }).from(users).where(inArray(users.id, userIds))
+      : [];
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+    return sent.map(msg => ({
+      ...msg,
+      recipients: allRecipients
+        .filter(r => r.messageId === msg.id)
+        .map(r => ({
+          ...r,
+          user: userMap.get(r.userId) || { id: r.userId, firstName: null, lastName: null, username: null },
+        })),
+    }));
+  }
 }
 
 export const storage = new DatabaseStorage();

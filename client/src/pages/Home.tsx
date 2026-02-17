@@ -19,7 +19,7 @@ import {
   Send, Megaphone, ArrowRight, CheckCircle2, Inbox,
   AlertCircle, Pin, Plus, Eye, ChefHat, ClipboardList,
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
-  Trash2, Check, MessageSquare
+  Trash2, Check, MessageSquare, SendHorizontal
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient } from "@shared/schema";
@@ -27,6 +27,14 @@ import type { Shift, Announcement, DirectMessage, MessageRecipient } from "@shar
 type InboxMessage = DirectMessage & {
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
   recipient: MessageRecipient;
+};
+
+type SentRecipient = MessageRecipient & {
+  user: { id: string; firstName: string | null; lastName: string | null; username: string | null };
+};
+
+type SentMessage = DirectMessage & {
+  recipients: SentRecipient[];
 };
 
 type HomeData = {
@@ -81,7 +89,14 @@ export default function Home() {
     enabled: isManager,
   });
 
+  const { data: sentMessages = [], isLoading: loadingSent } = useQuery<SentMessage[]>({
+    queryKey: ["/api/messages/sent"],
+    enabled: isManager,
+  });
+
+  const [messageTab, setMessageTab] = useState<"inbox" | "sent">("inbox");
   const [selectedMessage, setSelectedMessage] = useState<InboxMessage | null>(null);
+  const [selectedSentMessage, setSelectedSentMessage] = useState<SentMessage | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [composeForm, setComposeForm] = useState({
     subject: "",
@@ -135,6 +150,7 @@ export default function Home() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/sent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/home"] });
       setShowCompose(false);
       setComposeForm({
@@ -234,18 +250,39 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Inbox Card */}
+        {/* Messages Card */}
         <Card className="lg:col-span-2" data-testid="container-inbox">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <Inbox className="w-4 h-4 text-primary" />
-              </div>
-              Inbox
-              {unreadMessages.length > 0 && (
-                <Badge variant="destructive" data-testid="badge-unread-count">{unreadMessages.length}</Badge>
+            <div className="flex items-center gap-1">
+              <Button
+                variant={messageTab === "inbox" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMessageTab("inbox")}
+                className="gap-1.5"
+                data-testid="button-tab-inbox"
+              >
+                <Inbox className="w-4 h-4" />
+                Inbox
+                {unreadMessages.length > 0 && (
+                  <Badge variant="destructive" data-testid="badge-unread-count">{unreadMessages.length}</Badge>
+                )}
+              </Button>
+              {isManager && (
+                <Button
+                  variant={messageTab === "sent" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMessageTab("sent")}
+                  className="gap-1.5"
+                  data-testid="button-tab-sent"
+                >
+                  <SendHorizontal className="w-4 h-4" />
+                  Sent
+                  {sentMessages.length > 0 && (
+                    <Badge variant="secondary">{sentMessages.length}</Badge>
+                  )}
+                </Button>
               )}
-            </CardTitle>
+            </div>
             {isManager && (
               <Dialog open={showCompose} onOpenChange={setShowCompose}>
                 <DialogTrigger asChild>
@@ -396,76 +433,160 @@ export default function Home() {
             )}
           </CardHeader>
           <CardContent className="pt-0">
-            {loadingInbox ? (
-              <div className="space-y-2">
-                <Skeleton className="h-14 rounded-md" />
-                <Skeleton className="h-14 rounded-md" />
-                <Skeleton className="h-14 rounded-md" />
-              </div>
-            ) : inboxMessages.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <MailOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No messages yet</p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {unreadMessages.length > 0 && (
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Unread</p>
-                )}
-                {unreadMessages.map(msg => (
-                  <div
-                    key={msg.id}
-                    className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate bg-primary/5"
-                    onClick={() => openMessage(msg)}
-                    data-testid={`inbox-message-${msg.id}`}
-                  >
-                    <Mail className="w-4 h-4 text-primary flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm truncate">{msg.subject}</span>
-                        {msg.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
-                        {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
+            {messageTab === "inbox" ? (
+              loadingInbox ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-14 rounded-md" />
+                  <Skeleton className="h-14 rounded-md" />
+                  <Skeleton className="h-14 rounded-md" />
+                </div>
+              ) : inboxMessages.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <MailOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No messages yet</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {unreadMessages.length > 0 && (
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Unread</p>
+                  )}
+                  {unreadMessages.map(msg => (
+                    <div
+                      key={msg.id}
+                      className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate bg-primary/5"
+                      onClick={() => openMessage(msg)}
+                      data-testid={`inbox-message-${msg.id}`}
+                    >
+                      <Mail className="w-4 h-4 text-primary flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm truncate">{msg.subject}</span>
+                          {msg.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
+                          {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  ))}
 
-                {readMessages.length > 0 && unreadMessages.length > 0 && (
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-4 mb-2">Read</p>
-                )}
-                {readMessages.slice(0, 10).map(msg => (
-                  <div
-                    key={msg.id}
-                    className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate"
-                    onClick={() => openMessage(msg)}
-                    data-testid={`inbox-message-${msg.id}`}
-                  >
-                    <MailOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm truncate">{msg.subject}</span>
-                        {msg.requiresAck && msg.recipient.acknowledged && (
-                          <Badge variant="secondary">
-                            <Check className="w-3 h-3 mr-1" /> Acknowledged
-                          </Badge>
-                        )}
-                        {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
+                  {readMessages.length > 0 && unreadMessages.length > 0 && (
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-4 mb-2">Read</p>
+                  )}
+                  {readMessages.slice(0, 10).map(msg => (
+                    <div
+                      key={msg.id}
+                      className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate"
+                      onClick={() => openMessage(msg)}
+                      data-testid={`inbox-message-${msg.id}`}
+                    >
+                      <MailOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm truncate">{msg.subject}</span>
+                          {msg.requiresAck && msg.recipient.acknowledged && (
+                            <Badge variant="secondary">
+                              <Check className="w-3 h-3 mr-1" /> Acknowledged
+                            </Badge>
+                          )}
+                          {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                      </p>
                     </div>
-                  </div>
-                ))}
-                {readMessages.length > 10 && (
-                  <p className="text-xs text-muted-foreground text-center pt-2">
-                    + {readMessages.length - 10} older messages
-                  </p>
-                )}
-              </div>
+                  ))}
+                  {readMessages.length > 10 && (
+                    <p className="text-xs text-muted-foreground text-center pt-2">
+                      + {readMessages.length - 10} older messages
+                    </p>
+                  )}
+                </div>
+              )
+            ) : (
+              loadingSent ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-14 rounded-md" />
+                  <Skeleton className="h-14 rounded-md" />
+                </div>
+              ) : sentMessages.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <SendHorizontal className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No sent messages</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {sentMessages.map(msg => {
+                    const totalRecipients = msg.recipients.length;
+                    const readCount = msg.recipients.filter(r => r.read).length;
+                    const ackCount = msg.recipients.filter(r => r.acknowledged).length;
+                    const allRead = readCount === totalRecipients;
+                    return (
+                      <div
+                        key={msg.id}
+                        className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate"
+                        onClick={() => setSelectedSentMessage(selectedSentMessage?.id === msg.id ? null : msg)}
+                        data-testid={`sent-message-${msg.id}`}
+                      >
+                        <SendHorizontal className={`w-4 h-4 flex-shrink-0 ${allRead ? "text-muted-foreground" : "text-primary"}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm truncate ${allRead ? "" : "font-semibold"}`}>{msg.subject}</span>
+                            {msg.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
+                            {msg.requiresAck && (
+                              <Badge variant={ackCount === totalRecipients ? "secondary" : "outline"}>
+                                {ackCount}/{totalRecipients} Ack
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            To: {totalRecipients} {totalRecipients === 1 ? "person" : "people"}
+                            {" \u00B7 "}{readCount}/{totalRecipients} read
+                            {msg.createdAt && ` \u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                          </p>
+                          {selectedSentMessage?.id === msg.id && (
+                            <div className="mt-3 pt-3 border-t border-border space-y-2">
+                              <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground mb-1">Recipients</p>
+                              {msg.recipients.map(r => (
+                                <div key={r.id} className="flex items-center gap-2 text-xs" data-testid={`sent-recipient-${r.id}`}>
+                                  <UserCircle className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                  <span className="flex-1">
+                                    {r.user.firstName || r.user.username || "Unknown"}
+                                    {r.user.lastName ? ` ${r.user.lastName}` : ""}
+                                  </span>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {r.read ? (
+                                      <Badge variant="secondary" className="text-[10px]">
+                                        <Eye className="w-3 h-3 mr-0.5" /> Read
+                                        {r.readAt && ` ${format(new Date(r.readAt), "M/d h:mm a")}`}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px]">Unread</Badge>
+                                    )}
+                                    {msg.requiresAck && (
+                                      r.acknowledged ? (
+                                        <Badge variant="secondary" className="text-[10px]">
+                                          <Check className="w-3 h-3 mr-0.5" /> Ack
+                                          {r.acknowledgedAt && ` ${format(new Date(r.acknowledgedAt), "M/d h:mm a")}`}
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-[10px]">Not Ack</Badge>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              <div className="pt-2 text-xs text-muted-foreground whitespace-pre-wrap">{msg.body}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           </CardContent>
         </Card>
