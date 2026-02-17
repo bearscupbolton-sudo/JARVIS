@@ -20,6 +20,7 @@ import {
   Stamp,
   Mic,
   ListChecks,
+  Home,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -30,7 +31,8 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/", label: "Home", icon: Home },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
@@ -66,6 +68,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     refetchInterval: 30000,
   });
 
+  const { data: unreadCount } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: 15000,
+  });
+
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
@@ -97,6 +104,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                 <span className="font-medium">{item.label}</span>
+                {item.label === "Home" && unreadCount && unreadCount.count > 0 && (
+                  <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-unread-messages">
+                    {unreadCount.count}
+                  </Badge>
+                )}
               </div>
             </Link>
           );

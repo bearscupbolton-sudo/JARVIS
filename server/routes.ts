@@ -1612,5 +1612,182 @@ ${sopsHtml}
 </body></html>`);
   });
 
+  // === DIRECT MESSAGES (Inbox) ===
+  app.get("/api/messages/inbox", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const messages = await storage.getInboxMessages(user.id);
+      res.json(messages);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/unread-count", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const count = await storage.getUnreadCount(user.id);
+      res.json({ count });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/sent", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const messages = await storage.getSentMessages(user.id);
+      res.json(messages);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const { subject, body, priority, requiresAck, targetType, targetValue, recipientIds } = req.body;
+      if (!subject || !body) return res.status(400).json({ message: "Subject and body are required" });
+
+      let resolvedRecipientIds: string[] = [];
+
+      if (targetType === "individual" && recipientIds?.length) {
+        resolvedRecipientIds = recipientIds;
+      } else if (targetType === "role" && targetValue) {
+        const allUsers = await authStorage.getAllUsers();
+        resolvedRecipientIds = allUsers.filter(u => u.role === targetValue && u.id !== user.id).map(u => u.id);
+      } else if (targetType === "department" && targetValue) {
+        const today = new Date().toISOString().split("T")[0];
+        const todayShifts = await storage.getShifts(today, today);
+        const userIdsInDept = Array.from(new Set(todayShifts.filter(s => s.department === targetValue).map(s => s.userId)));
+        resolvedRecipientIds = userIdsInDept.filter(id => id !== user.id);
+      } else if (targetType === "everyone") {
+        const allUsers = await authStorage.getAllUsers();
+        resolvedRecipientIds = allUsers.filter(u => u.id !== user.id).map(u => u.id);
+      } else {
+        return res.status(400).json({ message: "Invalid target type or missing recipients" });
+      }
+
+      if (resolvedRecipientIds.length === 0) {
+        return res.status(400).json({ message: "No recipients found" });
+      }
+
+      const message = await storage.sendMessage({
+        senderId: user.id,
+        subject,
+        body,
+        priority: priority || "normal",
+        requiresAck: requiresAck || false,
+        targetType: targetType || "individual",
+        targetValue: targetValue || null,
+      }, resolvedRecipientIds);
+
+      res.json(message);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/read", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.markMessageRead(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.acknowledgeMessage(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/messages/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.deleteMessageForUser(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PERSONALIZED HOME ===
+  app.get("/api/home", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const today = new Date().toISOString().split("T")[0];
+      const weekEnd = new Date();
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const weekEndStr = weekEnd.toISOString().split("T")[0];
+
+      const [
+        unreadCount,
+        myShifts,
+        timeOffReqs,
+        bakeoffToday,
+        recentAnnouncements,
+      ] = await Promise.all([
+        storage.getUnreadCount(user.id),
+        storage.getShifts(today, weekEndStr),
+        storage.getTimeOffRequests(user.id),
+        storage.getBakeoffLogs(today),
+        storage.getAnnouncements(),
+      ]);
+
+      const myUpcomingShifts = myShifts
+        .filter(s => s.userId === user.id)
+        .sort((a, b) => a.shiftDate.localeCompare(b.shiftDate) || a.startTime.localeCompare(b.startTime));
+
+      const pendingTimeOff = timeOffReqs.filter(r => r.status === "pending");
+
+      const bakeoffSummary: Record<string, number> = {};
+      bakeoffToday.forEach(log => {
+        bakeoffSummary[log.itemName] = (bakeoffSummary[log.itemName] || 0) + log.quantity;
+      });
+
+      const pinnedAnnouncements = recentAnnouncements.filter(a => a.pinned).slice(0, 3);
+
+      let managerData: any = null;
+      if (user.role === "manager" || user.role === "owner") {
+        const allTimeOff = await storage.getTimeOffRequests();
+        const pendingRequests = allTimeOff.filter(r => r.status === "pending");
+        const todayAllShifts = await storage.getShifts(today, today);
+        managerData = {
+          pendingTimeOffCount: pendingRequests.length,
+          todayStaffCount: Array.from(new Set(todayAllShifts.map(s => s.userId))).length,
+          todayShiftCount: todayAllShifts.length,
+        };
+      }
+
+      res.json({
+        unreadCount,
+        myUpcomingShifts,
+        pendingTimeOff,
+        bakeoffSummary,
+        pinnedAnnouncements,
+        managerData,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

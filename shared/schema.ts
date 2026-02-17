@@ -457,6 +457,37 @@ export const insertTaskListItemSchema = createInsertSchema(taskListItems).omit({
 export type TaskListItem = typeof taskListItems.$inferSelect;
 export type InsertTaskListItem = z.infer<typeof insertTaskListItemSchema>;
 
+// === DIRECT MESSAGES (Inbox) ===
+export const directMessages = pgTable("direct_messages", {
+  id: serial("id").primaryKey(),
+  senderId: text("sender_id").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  priority: text("priority").notNull().default("normal"),
+  requiresAck: boolean("requires_ack").default(false).notNull(),
+  targetType: text("target_type").notNull().default("individual"),
+  targetValue: text("target_value"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDirectMessageSchema = createInsertSchema(directMessages).omit({ id: true, createdAt: true });
+export type DirectMessage = typeof directMessages.$inferSelect;
+export type InsertDirectMessage = z.infer<typeof insertDirectMessageSchema>;
+
+export const messageRecipients = pgTable("message_recipients", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => directMessages.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  read: boolean("read").default(false).notNull(),
+  readAt: timestamp("read_at"),
+  acknowledged: boolean("acknowledged").default(false).notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+});
+
+export const insertMessageRecipientSchema = createInsertSchema(messageRecipients).omit({ id: true });
+export type MessageRecipient = typeof messageRecipients.$inferSelect;
+export type InsertMessageRecipient = z.infer<typeof insertMessageRecipientSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;

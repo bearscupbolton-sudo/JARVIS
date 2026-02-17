@@ -6,6 +6,7 @@ import {
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
+  directMessages, messageRecipients,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -34,9 +35,12 @@ import {
   type TaskJob, type InsertTaskJob,
   type TaskList, type InsertTaskList,
   type TaskListItem, type InsertTaskListItem,
+  type DirectMessage, type InsertDirectMessage,
+  type MessageRecipient, type InsertMessageRecipient,
 } from "@shared/schema";
+import { users } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, gte, lte, and, sql } from "drizzle-orm";
+import { eq, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Recipes
@@ -186,6 +190,15 @@ export interface IStorage {
   createTaskListItem(item: InsertTaskListItem): Promise<TaskListItem>;
   updateTaskListItem(id: number, updates: Partial<InsertTaskListItem>): Promise<TaskListItem>;
   deleteTaskListItem(id: number): Promise<void>;
+
+  // Direct Messages
+  sendMessage(message: InsertDirectMessage, recipientUserIds: string[]): Promise<DirectMessage>;
+  getInboxMessages(userId: string): Promise<(DirectMessage & { sender: { id: string; firstName: string | null; lastName: string | null; username: string | null }; recipient: MessageRecipient })[]>;
+  getUnreadCount(userId: string): Promise<number>;
+  markMessageRead(messageId: number, userId: string): Promise<void>;
+  acknowledgeMessage(messageId: number, userId: string): Promise<void>;
+  deleteMessageForUser(messageId: number, userId: string): Promise<void>;
+  getSentMessages(userId: string): Promise<DirectMessage[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -816,6 +829,77 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTaskListItem(id: number): Promise<void> {
     await db.delete(taskListItems).where(eq(taskListItems.id, id));
+  }
+
+  // Direct Messages
+  async sendMessage(message: InsertDirectMessage, recipientUserIds: string[]): Promise<DirectMessage> {
+    const [created] = await db.insert(directMessages).values(message).returning();
+    for (const userId of recipientUserIds) {
+      await db.insert(messageRecipients).values({
+        messageId: created.id,
+        userId,
+        read: false,
+        acknowledged: false,
+      });
+    }
+    return created;
+  }
+
+  async getInboxMessages(userId: string) {
+    const recipientRows = await db.select().from(messageRecipients)
+      .where(eq(messageRecipients.userId, userId))
+      .orderBy(desc(messageRecipients.id));
+
+    if (recipientRows.length === 0) return [];
+
+    const messageIds = recipientRows.map(r => r.messageId);
+    const msgs = await db.select().from(directMessages)
+      .where(inArray(directMessages.id, messageIds))
+      .orderBy(desc(directMessages.createdAt));
+
+    const senderIds = Array.from(new Set(msgs.map(m => m.senderId)));
+    const senders = senderIds.length > 0
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username })
+          .from(users).where(inArray(users.id, senderIds))
+      : [];
+    const senderMap = new Map(senders.map(s => [s.id, s]));
+    const recipientMap = new Map(recipientRows.map(r => [r.messageId, r]));
+
+    return msgs.map(msg => ({
+      ...msg,
+      sender: senderMap.get(msg.senderId) || { id: msg.senderId, firstName: null, lastName: null, username: null },
+      recipient: recipientMap.get(msg.id)!,
+    }));
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)::int` })
+      .from(messageRecipients)
+      .where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false)));
+    return result[0]?.count || 0;
+  }
+
+  async markMessageRead(messageId: number, userId: string): Promise<void> {
+    await db.update(messageRecipients)
+      .set({ read: true, readAt: new Date() })
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+  }
+
+  async acknowledgeMessage(messageId: number, userId: string): Promise<void> {
+    await db.update(messageRecipients)
+      .set({ acknowledged: true, acknowledgedAt: new Date(), read: true, readAt: new Date() })
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+  }
+
+  async deleteMessageForUser(messageId: number, userId: string): Promise<void> {
+    await db.delete(messageRecipients)
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+  }
+
+  async getSentMessages(userId: string): Promise<DirectMessage[]> {
+    return await db.select().from(directMessages)
+      .where(eq(directMessages.senderId, userId))
+      .orderBy(desc(directMessages.createdAt));
   }
 }
 

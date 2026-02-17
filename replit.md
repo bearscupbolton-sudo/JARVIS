@@ -73,6 +73,8 @@ script/          → Build scripts
   - `task_jobs` — Reusable saved activities/tasks, optionally linked to SOPs (name, description, sopId, createdBy)
   - `task_lists` — Task list metadata (title, description, createdBy)
   - `task_list_items` — Entries in a task list with time windows (listId, jobId or manualTitle, startTime, endTime, sortOrder, completed)
+  - `direct_messages` — Direct messages sent by managers/owners (senderId, subject, body, priority, requiresAck, targetType, targetValue)
+  - `message_recipients` — Per-user message delivery tracking (messageId, userId, read, readAt, acknowledged, acknowledgedAt)
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)
@@ -109,6 +111,11 @@ Located in `server/replit_integrations/`:
 - **OpenAI-compatible API** (via Replit AI Integrations): Powers the Jarvis assistant chat, voice features, and image generation. Requires `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL`
 - **Jarvis Context**: On each chat message, the system prompt is dynamically built by fetching all recipes (with ingredients, instructions, baker's percentages) and all SOPs from the database. This makes Jarvis aware of the bakery's actual data and able to answer questions about specific recipes and procedures.
 - **Kiosk Voice Commands**: POST `/api/kiosk/voice-log` accepts `{ text }` (from Web Speech API) or `{ audio }` (base64 webm). AI parses commands into bake-off logs, shaping logs, timer creation, or question answering. Timers managed via GET/POST `/api/kiosk/timers` and POST `/api/kiosk/timers/:id/dismiss`.
+
+### Personalized Home Page & Inbox
+- **Home** (`/`): Personalized landing page for each user. Shows unread message count, upcoming shifts, bake-off summary, pinned announcements, and quick action links. Managers/owners see additional stats (staff count, pending time-off requests)
+- **Inbox**: Built into Home page. Managers/owners can compose messages to individuals, roles, departments, or everyone. Messages support priority levels (normal/urgent) and optional acknowledgment requirements. Unread count badge shows in sidebar
+- **Dashboard** (`/dashboard`): The original operational dashboard with pre-shift notes, out-of-oven status, who's on today, forward look, problems tracker, and announcements. Moved from `/` to `/dashboard`
 
 ### Kiosk & Display Screens
 - **Jarvis Kiosk** (`/kiosk`): Always-listening voice assistant with "Jarvis" wake word via Web Speech API. Chat-style UI, manual push-to-talk fallback, active timer panel with countdown and audio alarms. Protected route, no sidebar (noLayout). Supports bake-off logging, shaping logging, timer setting, and answering bakery questions.

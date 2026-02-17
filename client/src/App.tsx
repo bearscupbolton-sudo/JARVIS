@@ -8,6 +8,7 @@ import { Layout } from "@/components/Layout";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
+import Home from "@/pages/Home";
 import Dashboard from "@/pages/Dashboard";
 import Bakery from "@/pages/Bakery";
 import Coffee from "@/pages/Coffee";
@@ -78,6 +79,9 @@ function Router() {
       
       {/* Protected Routes */}
       <Route path="/">
+        {() => <ProtectedRoute component={Home} />}
+      </Route>
+      <Route path="/dashboard">
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
       <Route path="/bakery">
