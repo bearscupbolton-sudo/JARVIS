@@ -299,6 +299,103 @@ Guidelines:
     res.status(204).send();
   });
 
+  app.post(api.sops.scan.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image } = api.sops.scan.input.parse(req.body);
+
+      const sizeBytes = Buffer.byteLength(image, "utf8");
+      if (sizeBytes > 15 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image is too large. Please use a smaller photo (max ~10MB)." });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const allSops = await storage.getSOPs();
+      const existingCategories = Array.from(new Set(allSops.map(s => s.category)));
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 8192,
+        messages: [
+          {
+            role: "system",
+            content: `You are a professional bakery SOP writer for Bear's Cup Bakehouse. Your job is to read images of existing SOPs (handwritten, printed, or typed) and convert them into clean, uniform, well-structured Standard Operating Procedures in Markdown format.
+
+Return a JSON object with this exact structure:
+{
+  "title": "string - a clear, professional title for this SOP",
+  "category": "string - best matching category from existing ones or a new appropriate one",
+  "content": "string - the full SOP content in clean Markdown format"
+}
+
+Existing categories in use: ${existingCategories.length > 0 ? existingCategories.join(", ") : "General, Safety, Cleaning, Equipment, Production"}
+
+FORMAT RULES for the content field:
+- Use clear Markdown headings (## for sections)
+- Use numbered lists for sequential steps
+- Use bullet points for non-sequential items
+- Bold key terms, temperatures, times, and measurements
+- Include any safety warnings or notes in a clear format
+- Keep the professional but approachable tone of a bakery
+- Preserve ALL specific details from the original (temperatures, times, quantities, product names)
+- If the image is hard to read, do your best and note any uncertain parts with [unclear] markers
+- Return ONLY the JSON, no other text.`
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Read this SOP image and convert it into a clean, uniform, professional SOP document."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`,
+                }
+              }
+            ]
+          }
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(400).json({ message: "Could not read the SOP image. Try a clearer photo." });
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            parsed = JSON.parse(jsonMatch[0]);
+          } catch {
+            return res.status(400).json({ message: "AI returned invalid data. Please try again." });
+          }
+        } else {
+          return res.status(400).json({ message: "AI returned invalid data. Please try again." });
+        }
+      }
+
+      res.json({
+        title: parsed.title || "Untitled SOP",
+        category: parsed.category || "General",
+        content: parsed.content || content,
+      });
+    } catch (err: any) {
+      console.error("SOP scan error:", err);
+      res.status(500).json({ message: err.message || "Failed to scan SOP image" });
+    }
+  });
+
   // === PROBLEMS ===
   app.get(api.problems.list.path, async (req, res) => {
     const includeCompleted = req.query.includeCompleted === "true";

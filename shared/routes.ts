@@ -128,6 +128,19 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    scan: {
+      method: 'POST' as const,
+      path: '/api/sops/scan' as const,
+      input: z.object({ image: z.string() }),
+      responses: {
+        200: z.object({
+          title: z.string(),
+          category: z.string(),
+          content: z.string(),
+        }),
+        400: errorSchemas.validation,
+      },
+    },
   },
   problems: {
     list: {
