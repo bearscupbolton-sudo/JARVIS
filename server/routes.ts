@@ -1607,6 +1607,7 @@ tr:nth-child(even){background:#f8f8f8}
 </style></head><body>
 <div class="tb">
 <button onclick="window.print()">Print This Page</button>
+<a href="/" style="display:inline-block;margin-left:16px;padding:10px 32px;font-size:15px;background:#666;color:#fff;border-radius:6px;font-weight:600;text-decoration:none">Back to App</a>
 </div>
 <div class="hd"><div class="st">Bear's Cup Bakehouse</div><h1>${title}</h1>${description}<div class="mt">Date: ____________</div></div>
 <div class="sc"><div class="sct">Checklist</div>
