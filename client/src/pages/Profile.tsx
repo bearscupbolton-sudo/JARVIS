@@ -1,22 +1,49 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { UserCircle, Save, Phone, Bell, Cake } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { apiRequest } from "@/lib/queryClient";
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 const profileSchema = z.object({
   username: z.string().min(2, "Display name must be at least 2 characters").max(30, "Display name must be 30 characters or less"),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
+
+type PushDevice = {
+  id: number;
+  endpoint: string;
+  deviceLabel: string | null;
+  createdAt: string | null;
+};
+
+type PushStatus = {
+  enabled: boolean;
+  devices: PushDevice[];
+};
 
 export default function Profile() {
   const { user } = useAuth();
@@ -26,6 +53,18 @@ export default function Profile() {
   const [phone, setPhone] = useState(user?.phone || "");
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
   const [birthday, setBirthday] = useState(user?.birthday || "");
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
+  const [subscribing, setSubscribing] = useState(false);
+
+  const { data: pushStatus, isLoading: loadingPush } = useQuery<PushStatus>({
+    queryKey: ["/api/push/status"],
+  });
+
+  useEffect(() => {
+    if ("Notification" in window) {
+      setPushPermission(Notification.permission);
+    }
+  }, []);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -89,6 +128,80 @@ export default function Profile() {
     },
   });
 
+  const testPushMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/push/test");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Test notification sent!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to send test", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const unsubscribeMutation = useMutation({
+    mutationFn: async (endpoint: string) => {
+      const res = await apiRequest("DELETE", "/api/push/unsubscribe", { endpoint });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/push/status"] });
+      toast({ title: "Device removed from push notifications" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to remove device", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleEnablePush = async () => {
+    if (!VAPID_PUBLIC_KEY) {
+      toast({ title: "Push notifications not configured", description: "Contact the app administrator.", variant: "destructive" });
+      return;
+    }
+
+    setSubscribing(true);
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+
+      if (permission !== "granted") {
+        toast({ title: "Notification permission denied", description: "You can change this in your browser settings.", variant: "destructive" });
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+
+      const subJson = subscription.toJSON();
+      const ua = navigator.userAgent;
+      let deviceLabel = "Unknown device";
+      if (/iPhone|iPad/.test(ua)) deviceLabel = "iPhone/iPad";
+      else if (/Android/.test(ua)) deviceLabel = "Android";
+      else if (/Mac/.test(ua)) deviceLabel = "Mac";
+      else if (/Windows/.test(ua)) deviceLabel = "Windows";
+      else if (/Linux/.test(ua)) deviceLabel = "Linux";
+
+      await apiRequest("POST", "/api/push/subscribe", {
+        endpoint: subJson.endpoint,
+        keys: subJson.keys,
+        deviceLabel,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/push/status"] });
+      toast({ title: "Push notifications enabled!", description: "You'll now receive alerts on this device." });
+    } catch (err: any) {
+      console.error("Push subscription error:", err);
+      toast({ title: "Failed to enable push notifications", description: err.message, variant: "destructive" });
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
   const onSubmit = (data: ProfileFormValues) => {
     mutation.mutate(data);
   };
@@ -102,6 +215,8 @@ export default function Profile() {
   const hasNameChanged = form.watch("username")?.trim() !== (user.username || "");
   const hasContactChanged = phone.trim() !== (user.phone || "") || smsOptIn !== (user.smsOptIn || false) || birthday.trim() !== (user.birthday || "");
   const roleLabel = user.role === "owner" ? "Owner" : user.role === "manager" ? "Manager" : "Team Member";
+  const pushSupported = "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+  const pushEnabled = pushStatus?.enabled || false;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-xl">
@@ -233,6 +348,116 @@ export default function Profile() {
             <Save className="w-4 h-4 mr-2" />
             {contactMutation.isPending ? "Saving..." : "Save Contact Info"}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BellRing className="w-5 h-5" />
+            Push Notifications
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!pushSupported ? (
+            <div className="text-center py-4 text-muted-foreground">
+              <Bell className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">Push notifications are not supported on this browser.</p>
+              <p className="text-xs mt-1">Try using Chrome, Edge, Firefox, or Safari 16.4+</p>
+            </div>
+          ) : pushPermission === "denied" ? (
+            <div className="text-center py-4 text-muted-foreground">
+              <Bell className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">Notifications are blocked for this site.</p>
+              <p className="text-xs mt-1">Go to your browser settings to allow notifications, then refresh.</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Get notified on this device when you receive messages, schedule changes, announcements, and time-off updates.
+              </p>
+
+              {!pushEnabled ? (
+                <Button
+                  onClick={handleEnablePush}
+                  disabled={subscribing}
+                  className="w-full"
+                  data-testid="button-enable-push"
+                >
+                  <BellRing className="w-4 h-4 mr-2" />
+                  {subscribing ? "Enabling..." : "Enable Push Notifications"}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      <BellRing className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">Push Notifications Active</p>
+                        <p className="text-xs text-muted-foreground">{pushStatus?.devices.length || 0} device(s) registered</p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">Enabled</Badge>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleEnablePush}
+                    disabled={subscribing}
+                    className="w-full"
+                    data-testid="button-add-device"
+                  >
+                    <Smartphone className="w-4 h-4 mr-2" />
+                    {subscribing ? "Adding..." : "Add This Device"}
+                  </Button>
+
+                  {loadingPush ? (
+                    <Skeleton className="h-12 rounded-md" />
+                  ) : (
+                    pushStatus?.devices.map(device => (
+                      <div
+                        key={device.id}
+                        className="flex items-center justify-between gap-2 p-2 rounded-md border border-border"
+                        data-testid={`push-device-${device.id}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Smartphone className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{device.deviceLabel || "Unknown device"}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {device.createdAt ? `Added ${new Date(device.createdAt).toLocaleDateString()}` : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => unsubscribeMutation.mutate(device.endpoint)}
+                          disabled={unsubscribeMutation.isPending}
+                          data-testid={`button-remove-device-${device.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testPushMutation.mutate()}
+                    disabled={testPushMutation.isPending}
+                    className="w-full"
+                    data-testid="button-test-push"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    {testPushMutation.isPending ? "Sending..." : "Send Test Notification"}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
