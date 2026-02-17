@@ -221,11 +221,15 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
 
   useEffect(() => {
     if (!showPrintView) return;
+    const handleAfterPrint = () => setShowPrintView(false);
+    window.addEventListener("afterprint", handleAfterPrint);
     const timer = setTimeout(() => {
       window.print();
-      setShowPrintView(false);
-    }, 100);
-    return () => clearTimeout(timer);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
   }, [showPrintView]);
 
   if (isLoading) {
@@ -261,6 +265,7 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
           @media print {
             body * { visibility: hidden !important; }
             .print-view, .print-view * { visibility: visible !important; }
+            .print-view .no-print, .print-view .no-print * { visibility: hidden !important; display: none !important; }
             .print-view { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; z-index: 99999 !important; padding: 0.75in !important; background: white !important; }
           }
           .print-view .pv-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
@@ -342,6 +347,15 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
           </div>
         ))}
         <div className="pv-footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
+        <div className="no-print" style={{ marginTop: 24, textAlign: "center" }}>
+          <button
+            onClick={() => setShowPrintView(false)}
+            style={{ padding: "8px 24px", fontSize: 14, cursor: "pointer", background: "#333", color: "#fff", border: "none", borderRadius: 4 }}
+            data-testid="button-back-from-print"
+          >
+            Back to List
+          </button>
+        </div>
       </div>
     );
   }
