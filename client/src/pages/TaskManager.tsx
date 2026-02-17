@@ -214,79 +214,7 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
 
   const handleExport = () => {
     if (!list) return;
-
-    const sopIds = new Set<number>();
-    list.items.forEach((item) => {
-      if (item.job?.sopId) sopIds.add(item.job.sopId);
-    });
-    const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
-
-    const esc = (str: string) =>
-      str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const rowsHtml = list.items.map((item) => {
-      const title = esc(item.job?.name || item.manualTitle || "Untitled");
-      const timeStr = item.startTime
-        ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
-        : "";
-      const hasSop = !!item.job?.sopId;
-      const descHtml = item.job?.description
-        ? `<br><span style="font-size:12px;color:#777">${esc(item.job.description)}</span>`
-        : "";
-      return `<tr><td class="ck"><span class="cb"></span></td><td class="tm">${timeStr}</td><td>${title}${descHtml}</td><td>${hasSop ? '<span class="sb">See SOP below</span>' : ""}</td></tr>`;
-    }).join("");
-
-    const sopsHtml = linkedSOPs.map((sop) => {
-      const content = (sop.content || "").replace(/\n/g, "<br>");
-      const cat = sop.category ? ` <span class="sb">${esc(sop.category)}</span>` : "";
-      return `<div style="margin-top:40px;page-break-before:auto"><div style="font-size:18px;font-weight:700;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #ccc">${esc(sop.title)}${cat}</div><div style="font-size:13px;line-height:1.6">${content}</div></div>`;
-    }).join("");
-
-    const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${esc(list.title)} - Bear's Cup Bakehouse</title>
-<style>
-@page{margin:0.75in}*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#1a1a1a;line-height:1.5;padding:20px}
-.hd{text-align:center;border-bottom:2px solid #333;padding-bottom:16px;margin-bottom:24px}
-.hd h1{font-size:28px;font-weight:700;margin-bottom:4px}
-.st{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:2px}
-.mt{font-size:14px;color:#555;margin-top:8px}
-.sc{margin-bottom:28px}
-.sct{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #ccc;padding-bottom:6px;margin-bottom:12px}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;padding:6px 8px;border-bottom:2px solid #999}
-td{padding:7px 8px;border-bottom:1px solid #e5e5e5;vertical-align:middle}
-.ck{width:28px;text-align:center}
-.cb{width:16px;height:16px;border:2px solid #555;border-radius:50%;display:inline-block}
-tr:nth-child(even){background:#f8f8f8}
-.tm{font-variant-numeric:tabular-nums;white-space:nowrap;color:#555;font-size:13px}
-.sb{display:inline-block;font-size:10px;background:#eee;color:#555;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:uppercase;letter-spacing:0.5px}
-.nb{border:1px solid #ccc;border-radius:4px;padding:12px;min-height:60px;margin-top:16px}
-.nl{font-size:12px;color:#888;margin-bottom:4px}
-.ft{margin-top:32px;padding-top:12px;border-top:1px solid #ccc;text-align:center;font-size:11px;color:#999}
-@media print{.no-print{display:none!important}}
-</style></head><body>
-<div class="no-print" style="text-align:center;margin-bottom:20px;padding:12px;background:#f0f0f0;border-radius:8px">
-<p style="margin-bottom:8px;font-size:14px;color:#555">Use your browser's <strong>Print</strong> function (Ctrl+P / Cmd+P) or <strong>Save as PDF</strong></p>
-</div>
-<div class="hd"><div class="st">Bear's Cup Bakehouse</div><h1>${esc(list.title)}</h1>${list.description ? `<div class="mt">${esc(list.description)}</div>` : ""}<div class="mt">Date: ____________</div></div>
-<div class="sc"><div class="sct">Checklist</div>
-<table><thead><tr><th style="width:28px"></th><th>Time</th><th>Task</th><th>SOP</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
-<div class="sc"><div class="nb"><div class="nl">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div></div></div>
-${sopsHtml}
-<div class="ft">Jarvis Task Manager - Bear's Cup Bakehouse</div>
-</body></html>`;
-
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${list.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}_checklist.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast({ title: "Checklist downloaded! Open the file and print from there." });
+    window.open(`/api/task-lists/${list.id}/print`, "_blank");
   };
 
   if (isLoading) {
@@ -321,7 +249,7 @@ ${sopsHtml}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <Button variant="default" onClick={handleExport} data-testid="button-print-list">
-            <Printer className="w-4 h-4 mr-2" /> Export
+            <Printer className="w-4 h-4 mr-2" /> Print
           </Button>
           <Button
             variant="ghost"

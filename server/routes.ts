@@ -1540,5 +1540,77 @@ Respond with JSON:
     res.json({ deleted: true });
   });
 
+  app.get("/api/task-lists/:id/print", isAuthenticated, async (req, res) => {
+    const list = await storage.getTaskList(Number(req.params.id));
+    if (!list) return res.status(404).send("List not found");
+
+    const allSOPs = await storage.getSOPs();
+    const sopIds = new Set<number>();
+    (list as any).items?.forEach((item: any) => {
+      if (item.job?.sopId) sopIds.add(item.job.sopId);
+    });
+    const linkedSOPs = allSOPs.filter((s) => sopIds.has(s.id));
+
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const rowsHtml = ((list as any).items || []).map((item: any) => {
+      const title = esc(item.job?.name || item.manualTitle || "Untitled");
+      const timeStr = item.startTime
+        ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
+        : "";
+      const hasSop = !!item.job?.sopId;
+      const desc = item.job?.description ? `<br><span style="font-size:12px;color:#777">${esc(item.job.description)}</span>` : "";
+      return `<tr><td class="ck"><span class="cb"></span></td><td class="tm">${timeStr}</td><td>${title}${desc}</td><td>${hasSop ? '<span class="sb">See SOP below</span>' : ""}</td></tr>`;
+    }).join("");
+
+    const sopsHtml = linkedSOPs.map((sop) => {
+      const content = (sop.content || "").replace(/\n/g, "<br>");
+      const cat = sop.category ? ` <span class="sb">${esc(sop.category)}</span>` : "";
+      return `<div style="margin-top:40px;page-break-before:auto"><div style="font-size:18px;font-weight:700;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #ccc">${esc(sop.title)}${cat}</div><div style="font-size:13px;line-height:1.6">${content}</div></div>`;
+    }).join("");
+
+    const title = esc((list as any).title || "Checklist");
+    const description = (list as any).description ? `<div class="mt">${esc((list as any).description)}</div>` : "";
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title} - Bear's Cup Bakehouse</title>
+<style>
+@page{margin:0.75in}*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#1a1a1a;line-height:1.5;padding:20px}
+.hd{text-align:center;border-bottom:2px solid #333;padding-bottom:16px;margin-bottom:24px}
+.hd h1{font-size:28px;font-weight:700;margin-bottom:4px}
+.st{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:2px}
+.mt{font-size:14px;color:#555;margin-top:8px}
+.sc{margin-bottom:28px}
+.sct{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #ccc;padding-bottom:6px;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;padding:6px 8px;border-bottom:2px solid #999}
+td{padding:7px 8px;border-bottom:1px solid #e5e5e5;vertical-align:middle}
+.ck{width:28px;text-align:center}
+.cb{width:16px;height:16px;border:2px solid #555;border-radius:50%;display:inline-block}
+tr:nth-child(even){background:#f8f8f8}
+.tm{font-variant-numeric:tabular-nums;white-space:nowrap;color:#555;font-size:13px}
+.sb{display:inline-block;font-size:10px;background:#eee;color:#555;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:uppercase;letter-spacing:0.5px}
+.nb{border:1px solid #ccc;border-radius:4px;padding:12px;min-height:60px;margin-top:16px}
+.nl{font-size:12px;color:#888;margin-bottom:4px}
+.ft{margin-top:32px;padding-top:12px;border-top:1px solid #ccc;text-align:center;font-size:11px;color:#999}
+.tb{text-align:center;margin-bottom:20px;padding:16px;background:#f5f5f5;border-radius:8px}
+.tb button{padding:10px 32px;font-size:15px;cursor:pointer;background:#333;color:#fff;border:none;border-radius:6px;font-weight:600}
+.tb button:hover{background:#555}
+@media print{.tb{display:none!important}}
+</style></head><body>
+<div class="tb">
+<button onclick="window.print()">Print This Page</button>
+</div>
+<div class="hd"><div class="st">Bear's Cup Bakehouse</div><h1>${title}</h1>${description}<div class="mt">Date: ____________</div></div>
+<div class="sc"><div class="sct">Checklist</div>
+<table><thead><tr><th style="width:28px"></th><th>Time</th><th>Task</th><th>SOP</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+<div class="sc"><div class="nb"><div class="nl">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div></div></div>
+${sopsHtml}
+<div class="ft">Jarvis Task Manager - Bear's Cup Bakehouse</div>
+</body></html>`);
+  });
+
   return httpServer;
 }
