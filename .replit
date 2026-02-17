@@ -40,3 +40,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_openai_ai_integrations:2.0.0"]
+
+[userenv]
+
+[userenv.shared]
+VITE_VAPID_PUBLIC_KEY = "BAq7ppCBDjUp0V5Fk-zB1i723AKx2cANhn1nQgmymXDPaY-m3CzBVzdK16-rfVvOyB2gGzoa6mlVyruznECIRLc"
+VAPID_PUBLIC_KEY = "BAq7ppCBDjUp0V5Fk-zB1i723AKx2cANhn1nQgmymXDPaY-m3CzBVzdK16-rfVvOyB2gGzoa6mlVyruznECIRLc"
