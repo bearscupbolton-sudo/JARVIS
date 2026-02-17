@@ -29,6 +29,27 @@ export const recipeRelations = relations(recipes, ({ one, many }) => ({
 
 export const insertRecipeSchema = createInsertSchema(recipes).omit({ id: true, createdAt: true, updatedAt: true });
 
+// === RECIPE VERSIONS (History) ===
+export const recipeVersions = pgTable("recipe_versions", {
+  id: serial("id").primaryKey(),
+  recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
+  versionNumber: integer("version_number").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  yieldAmount: doublePrecision("yield_amount").notNull(),
+  yieldUnit: text("yield_unit").notNull(),
+  ingredients: jsonb("ingredients").notNull(),
+  instructions: jsonb("instructions").notNull(),
+  category: text("category").notNull(),
+  changedBy: text("changed_by"),
+  changeNote: text("change_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRecipeVersionSchema = createInsertSchema(recipeVersions).omit({ id: true, createdAt: true });
+export type RecipeVersion = typeof recipeVersions.$inferSelect;
+export type InsertRecipeVersion = z.infer<typeof insertRecipeVersionSchema>;
+
 // === PRODUCTION LOGS ===
 export const productionLogs = pgTable("production_logs", {
   id: serial("id").primaryKey(),

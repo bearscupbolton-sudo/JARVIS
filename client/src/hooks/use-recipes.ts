@@ -72,6 +72,7 @@ export function useUpdateRecipe() {
       if (!result.pending) {
         queryClient.invalidateQueries({ queryKey: [api.recipes.list.path] });
         queryClient.invalidateQueries({ queryKey: [api.recipes.get.path, id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/recipes", id, "versions"] });
       }
     },
   });

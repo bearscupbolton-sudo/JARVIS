@@ -71,7 +71,7 @@ export async function registerRoutes(
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
       if (user.role === "owner") {
-        const recipe = await storage.updateRecipe(Number(req.params.id), input);
+        const recipe = await storage.updateRecipe(Number(req.params.id), input, user.id, "Direct edit by owner");
         return res.json(recipe);
       }
 
@@ -86,7 +86,7 @@ export async function registerRoutes(
         reviewedBy: null,
         reviewNote: null,
       });
-      return res.status(202).json({ message: "Update submitted for approval", pendingId: pending.id });
+      return res.status(202).json({ message: "Update submitted for approval", pendingId: pending.id, pending: true });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -98,6 +98,11 @@ export async function registerRoutes(
   app.delete(api.recipes.delete.path, isAuthenticated, isOwner, async (req, res) => {
     await storage.deleteRecipe(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.get("/api/recipes/:id/versions", isAuthenticated, async (req, res) => {
+    const versions = await storage.getRecipeVersions(Number(req.params.id));
+    res.json(versions);
   });
 
   app.post(api.recipes.scan.path, isAuthenticated, isUnlocked, async (req: any, res) => {
@@ -451,7 +456,7 @@ Guidelines:
         if (change.action === "create") {
           await storage.createRecipe(payload);
         } else if (change.action === "update" && change.entityId) {
-          await storage.updateRecipe(change.entityId, payload);
+          await storage.updateRecipe(change.entityId, payload, change.submittedBy, `Approved change by ${change.submittedByUsername || "team member"}`);
         }
       } else if (change.entityType === "sop") {
         if (change.action === "create") {

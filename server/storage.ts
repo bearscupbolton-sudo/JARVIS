@@ -1,5 +1,5 @@
 import {
-  recipes, productionLogs, sops, problems, events, announcements, pendingChanges,
+  recipes, recipeVersions, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
@@ -37,6 +37,7 @@ import {
   type TaskListItem, type InsertTaskListItem,
   type DirectMessage, type InsertDirectMessage,
   type MessageRecipient, type InsertMessageRecipient,
+  type RecipeVersion, type InsertRecipeVersion,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -47,8 +48,12 @@ export interface IStorage {
   getRecipes(): Promise<Recipe[]>;
   getRecipe(id: number): Promise<Recipe | undefined>;
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
-  updateRecipe(id: number, recipe: Partial<InsertRecipe>): Promise<Recipe>;
+  updateRecipe(id: number, recipe: Partial<InsertRecipe>, changedBy?: string, changeNote?: string): Promise<Recipe>;
   deleteRecipe(id: number): Promise<void>;
+
+  // Recipe Versions
+  createRecipeVersion(version: InsertRecipeVersion): Promise<RecipeVersion>;
+  getRecipeVersions(recipeId: number): Promise<RecipeVersion[]>;
 
   // Production Logs
   getProductionLogs(): Promise<(ProductionLog & { recipe: Recipe | null })[]>;
@@ -217,7 +222,25 @@ export class DatabaseStorage implements IStorage {
     return recipe;
   }
 
-  async updateRecipe(id: number, updates: Partial<InsertRecipe>): Promise<Recipe> {
+  async updateRecipe(id: number, updates: Partial<InsertRecipe>, changedBy?: string, changeNote?: string): Promise<Recipe> {
+    const existing = await this.getRecipe(id);
+    if (existing) {
+      const versions = await this.getRecipeVersions(id);
+      const nextVersion = versions.length > 0 ? Math.max(...versions.map(v => v.versionNumber)) + 1 : 1;
+      await this.createRecipeVersion({
+        recipeId: id,
+        versionNumber: nextVersion,
+        title: existing.title,
+        description: existing.description,
+        yieldAmount: existing.yieldAmount,
+        yieldUnit: existing.yieldUnit,
+        ingredients: existing.ingredients as any,
+        instructions: existing.instructions as any,
+        category: existing.category,
+        changedBy: changedBy || null,
+        changeNote: changeNote || null,
+      });
+    }
     const [updated] = await db
       .update(recipes)
       .set({ ...updates, updatedAt: new Date() })
@@ -228,6 +251,17 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecipe(id: number): Promise<void> {
     await db.delete(recipes).where(eq(recipes.id, id));
+  }
+
+  async createRecipeVersion(version: InsertRecipeVersion): Promise<RecipeVersion> {
+    const [created] = await db.insert(recipeVersions).values(version).returning();
+    return created;
+  }
+
+  async getRecipeVersions(recipeId: number): Promise<RecipeVersion[]> {
+    return await db.select().from(recipeVersions)
+      .where(eq(recipeVersions.recipeId, recipeId))
+      .orderBy(desc(recipeVersions.versionNumber));
   }
 
   // Production Logs
