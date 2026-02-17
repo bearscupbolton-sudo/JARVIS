@@ -222,105 +222,133 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
 
     const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
 
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
+    const escapeHtml = (str: string) =>
+      str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${list.title} - Bear's Cup Bakehouse</title>
-        <style>
-          @page { margin: 0.75in; }
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a1a; line-height: 1.5; }
-          .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
-          .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-          .header .subtitle { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
-          .header .meta { font-size: 14px; color: #555; margin-top: 8px; }
-          .section { margin-bottom: 28px; }
-          .section-title { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 12px; }
-          table { width: 100%; border-collapse: collapse; font-size: 14px; }
-          th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; padding: 6px 8px; border-bottom: 2px solid #999; }
-          td { padding: 7px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; }
-          td.check { width: 28px; text-align: center; }
-          .checkbox { width: 16px; height: 16px; border: 2px solid #555; border-radius: 50%; display: inline-block; }
-          tr:nth-child(even) { background: #f8f8f8; }
-          .time-cell { font-variant-numeric: tabular-nums; white-space: nowrap; color: #555; font-size: 13px; }
-          .sop-section { margin-top: 40px; page-break-before: auto; }
-          .sop-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ccc; }
-          .sop-content { font-size: 13px; line-height: 1.6; }
-          .sop-content h1, .sop-content h2, .sop-content h3 { margin-top: 12px; margin-bottom: 6px; }
-          .sop-content p { margin-bottom: 8px; }
-          .sop-content ul, .sop-content ol { margin-left: 20px; margin-bottom: 8px; }
-          .sop-content li { margin-bottom: 4px; }
-          .sop-badge { display: inline-block; font-size: 10px; background: #eee; color: #555; padding: 2px 8px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; text-align: center; font-size: 11px; color: #999; }
-          .notes-box { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-height: 60px; margin-top: 16px; }
-          .notes-label { font-size: 12px; color: #888; margin-bottom: 4px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="subtitle">Bear's Cup Bakehouse</div>
-          <h1>${list.title}</h1>
-          ${list.description ? `<div class="meta">${list.description}</div>` : ""}
-          <div class="meta">Date: ____________</div>
-        </div>
+    const rowsHtml = list.items.map((item) => {
+      const title = escapeHtml(item.job?.name || item.manualTitle || "Untitled");
+      const timeStr = item.startTime
+        ? item.endTime
+          ? `${item.startTime} - ${item.endTime}`
+          : item.startTime
+        : "";
+      const hasSop = item.job?.sopId ? true : false;
+      const descHtml = item.job?.description
+        ? `<br><span style="font-size:12px;color:#777">${escapeHtml(item.job.description)}</span>`
+        : "";
+      return `<tr>
+        <td class="check"><span class="checkbox"></span></td>
+        <td class="time-cell">${timeStr}</td>
+        <td>${title}${descHtml}</td>
+        <td>${hasSop ? '<span class="sop-badge">See SOP below</span>' : ""}</td>
+      </tr>`;
+    }).join("");
 
-        <div class="section">
-          <div class="section-title">Checklist</div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width:28px"></th>
-                <th>Time</th>
-                <th>Task</th>
-                <th>SOP</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${list.items.map((item) => {
-                const title = item.job?.name || item.manualTitle || "Untitled";
-                const timeStr = item.startTime
-                  ? item.endTime
-                    ? `${item.startTime} - ${item.endTime}`
-                    : item.startTime
-                  : "";
-                const hasSop = item.job?.sopId ? true : false;
-                return `
-                  <tr>
-                    <td class="check"><span class="checkbox"></span></td>
-                    <td class="time-cell">${timeStr}</td>
-                    <td>${title}${item.job?.description ? `<br><span style="font-size:12px;color:#777">${item.job.description}</span>` : ""}</td>
-                    <td>${hasSop ? '<span class="sop-badge">See SOP below</span>' : ""}</td>
-                  </tr>
-                `;
-              }).join("")}
-            </tbody>
-          </table>
-        </div>
+    const sopsHtml = linkedSOPs.map((sop) => {
+      const content = (sop.content || "").replace(/\n/g, "<br>");
+      const category = sop.category ? ` <span class="sop-badge">${escapeHtml(sop.category)}</span>` : "";
+      return `<div class="sop-section">
+        <div class="sop-title">${escapeHtml(sop.title)}${category}</div>
+        <div class="sop-content">${content}</div>
+      </div>`;
+    }).join("");
 
-        <div class="section">
-          <div class="notes-box">
-            <div class="notes-label">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div>
-          </div>
-        </div>
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <title>${escapeHtml(list.title)} - Bear's Cup Bakehouse</title>
+  <style>
+    @page { margin: 0.75in; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a1a; line-height: 1.5; }
+    .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
+    .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+    .header .subtitle { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
+    .header .meta { font-size: 14px; color: #555; margin-top: 8px; }
+    .section { margin-bottom: 28px; }
+    .section-title { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; padding: 6px 8px; border-bottom: 2px solid #999; }
+    td { padding: 7px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; }
+    td.check { width: 28px; text-align: center; }
+    .checkbox { width: 16px; height: 16px; border: 2px solid #555; border-radius: 50%; display: inline-block; }
+    tr:nth-child(even) { background: #f8f8f8; }
+    .time-cell { font-variant-numeric: tabular-nums; white-space: nowrap; color: #555; font-size: 13px; }
+    .sop-section { margin-top: 40px; page-break-before: auto; }
+    .sop-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ccc; }
+    .sop-content { font-size: 13px; line-height: 1.6; }
+    .sop-content h1, .sop-content h2, .sop-content h3 { margin-top: 12px; margin-bottom: 6px; }
+    .sop-content p { margin-bottom: 8px; }
+    .sop-content ul, .sop-content ol { margin-left: 20px; margin-bottom: 8px; }
+    .sop-content li { margin-bottom: 4px; }
+    .sop-badge { display: inline-block; font-size: 10px; background: #eee; color: #555; padding: 2px 8px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; text-align: center; font-size: 11px; color: #999; }
+    .notes-box { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-height: 60px; margin-top: 16px; }
+    .notes-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="subtitle">Bear's Cup Bakehouse</div>
+    <h1>${escapeHtml(list.title)}</h1>
+    ${list.description ? `<div class="meta">${escapeHtml(list.description)}</div>` : ""}
+    <div class="meta">Date: ____________</div>
+  </div>
+  <div class="section">
+    <div class="section-title">Checklist</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th>Time</th>
+          <th>Task</th>
+          <th>SOP</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  </div>
+  <div class="section">
+    <div class="notes-box">
+      <div class="notes-label">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div>
+    </div>
+  </div>
+  ${sopsHtml}
+  <div class="footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
+</body>
+</html>`;
 
-        ${linkedSOPs.map((sop) => `
-          <div class="sop-section">
-            <div class="sop-title">${sop.title} <span class="sop-badge">${sop.category}</span></div>
-            <div class="sop-content">${sop.content.replace(/\n/g, "<br>")}</div>
-          </div>
-        `).join("")}
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
 
-        <div class="footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => printWindow.print(), 250);
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!iframeDoc) {
+      document.body.removeChild(iframe);
+      toast({ title: "Unable to open print view", variant: "destructive" });
+      return;
+    }
+
+    iframeDoc.open();
+    iframeDoc.write(html);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch {
+        toast({ title: "Print failed - try right-clicking and selecting Print", variant: "destructive" });
+      }
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 1000);
+    }, 300);
   };
 
   if (isLoading) {
