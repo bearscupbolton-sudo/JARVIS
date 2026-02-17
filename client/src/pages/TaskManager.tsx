@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -212,144 +212,21 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
     },
   });
 
+  const [showPrintView, setShowPrintView] = useState(false);
+
   const handlePrint = () => {
     if (!list) return;
-
-    const sopIds = new Set<number>();
-    list.items.forEach((item) => {
-      if (item.job?.sopId) sopIds.add(item.job.sopId);
-    });
-
-    const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
-
-    const escapeHtml = (str: string) =>
-      str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const rowsHtml = list.items.map((item) => {
-      const title = escapeHtml(item.job?.name || item.manualTitle || "Untitled");
-      const timeStr = item.startTime
-        ? item.endTime
-          ? `${item.startTime} - ${item.endTime}`
-          : item.startTime
-        : "";
-      const hasSop = item.job?.sopId ? true : false;
-      const descHtml = item.job?.description
-        ? `<br><span style="font-size:12px;color:#777">${escapeHtml(item.job.description)}</span>`
-        : "";
-      return `<tr>
-        <td class="check"><span class="checkbox"></span></td>
-        <td class="time-cell">${timeStr}</td>
-        <td>${title}${descHtml}</td>
-        <td>${hasSop ? '<span class="sop-badge">See SOP below</span>' : ""}</td>
-      </tr>`;
-    }).join("");
-
-    const sopsHtml = linkedSOPs.map((sop) => {
-      const content = (sop.content || "").replace(/\n/g, "<br>");
-      const category = sop.category ? ` <span class="sop-badge">${escapeHtml(sop.category)}</span>` : "";
-      return `<div class="sop-section">
-        <div class="sop-title">${escapeHtml(sop.title)}${category}</div>
-        <div class="sop-content">${content}</div>
-      </div>`;
-    }).join("");
-
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <title>${escapeHtml(list.title)} - Bear's Cup Bakehouse</title>
-  <style>
-    @page { margin: 0.75in; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a1a; line-height: 1.5; }
-    .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
-    .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-    .header .subtitle { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
-    .header .meta { font-size: 14px; color: #555; margin-top: 8px; }
-    .section { margin-bottom: 28px; }
-    .section-title { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 12px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; padding: 6px 8px; border-bottom: 2px solid #999; }
-    td { padding: 7px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; }
-    td.check { width: 28px; text-align: center; }
-    .checkbox { width: 16px; height: 16px; border: 2px solid #555; border-radius: 50%; display: inline-block; }
-    tr:nth-child(even) { background: #f8f8f8; }
-    .time-cell { font-variant-numeric: tabular-nums; white-space: nowrap; color: #555; font-size: 13px; }
-    .sop-section { margin-top: 40px; page-break-before: auto; }
-    .sop-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ccc; }
-    .sop-content { font-size: 13px; line-height: 1.6; }
-    .sop-content h1, .sop-content h2, .sop-content h3 { margin-top: 12px; margin-bottom: 6px; }
-    .sop-content p { margin-bottom: 8px; }
-    .sop-content ul, .sop-content ol { margin-left: 20px; margin-bottom: 8px; }
-    .sop-content li { margin-bottom: 4px; }
-    .sop-badge { display: inline-block; font-size: 10px; background: #eee; color: #555; padding: 2px 8px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; text-align: center; font-size: 11px; color: #999; }
-    .notes-box { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-height: 60px; margin-top: 16px; }
-    .notes-label { font-size: 12px; color: #888; margin-bottom: 4px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="subtitle">Bear's Cup Bakehouse</div>
-    <h1>${escapeHtml(list.title)}</h1>
-    ${list.description ? `<div class="meta">${escapeHtml(list.description)}</div>` : ""}
-    <div class="meta">Date: ____________</div>
-  </div>
-  <div class="section">
-    <div class="section-title">Checklist</div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:28px"></th>
-          <th>Time</th>
-          <th>Task</th>
-          <th>SOP</th>
-        </tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-  </div>
-  <div class="section">
-    <div class="notes-box">
-      <div class="notes-label">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div>
-    </div>
-  </div>
-  ${sopsHtml}
-  <div class="footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
-</body>
-</html>`;
-
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "none";
-    document.body.appendChild(iframe);
-
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!iframeDoc) {
-      document.body.removeChild(iframe);
-      toast({ title: "Unable to open print view", variant: "destructive" });
-      return;
-    }
-
-    iframeDoc.open();
-    iframeDoc.write(html);
-    iframeDoc.close();
-
-    setTimeout(() => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch {
-        toast({ title: "Print failed - try right-clicking and selecting Print", variant: "destructive" });
-      }
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
-    }, 300);
+    setShowPrintView(true);
   };
+
+  useEffect(() => {
+    if (!showPrintView) return;
+    const timer = setTimeout(() => {
+      window.print();
+      setShowPrintView(false);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [showPrintView]);
 
   if (isLoading) {
     return (
@@ -370,6 +247,104 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
   }
 
   const completedCount = list.items.filter((i) => i.completed).length;
+
+  const sopIds = new Set<number>();
+  list.items.forEach((item) => {
+    if (item.job?.sopId) sopIds.add(item.job.sopId);
+  });
+  const linkedSOPs = allSOPs?.filter((s) => sopIds.has(s.id)) || [];
+
+  if (showPrintView) {
+    return (
+      <div className="print-view bg-white text-black p-8" style={{ fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif" }}>
+        <style>{`
+          @media print {
+            body * { visibility: hidden !important; }
+            .print-view, .print-view * { visibility: visible !important; }
+            .print-view { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; z-index: 99999 !important; padding: 0.75in !important; background: white !important; }
+          }
+          .print-view .pv-header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
+          .print-view .pv-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; color: #1a1a1a; }
+          .print-view .pv-subtitle { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 2px; }
+          .print-view .pv-meta { font-size: 14px; color: #555; margin-top: 8px; }
+          .print-view .pv-section { margin-bottom: 28px; }
+          .print-view .pv-section-title { font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 12px; color: #1a1a1a; }
+          .print-view table { width: 100%; border-collapse: collapse; font-size: 14px; }
+          .print-view th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; padding: 6px 8px; border-bottom: 2px solid #999; }
+          .print-view td { padding: 7px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: middle; color: #1a1a1a; }
+          .print-view .pv-check { width: 28px; text-align: center; }
+          .print-view .pv-checkbox { width: 16px; height: 16px; border: 2px solid #555; border-radius: 50%; display: inline-block; }
+          .print-view tr:nth-child(even) { background: #f8f8f8; }
+          .print-view .pv-time { font-variant-numeric: tabular-nums; white-space: nowrap; color: #555; font-size: 13px; }
+          .print-view .pv-sop-badge { display: inline-block; font-size: 10px; background: #eee; color: #555; padding: 2px 8px; border-radius: 10px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .print-view .pv-sop-section { margin-top: 40px; page-break-before: auto; }
+          .print-view .pv-sop-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ccc; color: #1a1a1a; }
+          .print-view .pv-sop-content { font-size: 13px; line-height: 1.6; color: #1a1a1a; }
+          .print-view .pv-notes-box { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-height: 60px; margin-top: 16px; }
+          .print-view .pv-notes-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+          .print-view .pv-footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; text-align: center; font-size: 11px; color: #999; }
+        `}</style>
+        <div className="pv-header">
+          <div className="pv-subtitle">Bear's Cup Bakehouse</div>
+          <h1>{list.title}</h1>
+          {list.description && <div className="pv-meta">{list.description}</div>}
+          <div className="pv-meta">Date: ____________</div>
+        </div>
+        <div className="pv-section">
+          <div className="pv-section-title">Checklist</div>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 28 }}></th>
+                <th>Time</th>
+                <th>Task</th>
+                <th>SOP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.items.map((item) => {
+                const title = item.job?.name || item.manualTitle || "Untitled";
+                const timeStr = item.startTime
+                  ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
+                  : "";
+                const hasSop = !!item.job?.sopId;
+                return (
+                  <tr key={item.id}>
+                    <td className="pv-check"><span className="pv-checkbox" /></td>
+                    <td className="pv-time">{timeStr}</td>
+                    <td>
+                      {title}
+                      {item.job?.description && (
+                        <><br /><span style={{ fontSize: 12, color: "#777" }}>{item.job.description}</span></>
+                      )}
+                    </td>
+                    <td>{hasSop && <span className="pv-sop-badge">See SOP below</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="pv-section">
+          <div className="pv-notes-box">
+            <div className="pv-notes-label">Completed by: ____________&nbsp;&nbsp;&nbsp;&nbsp;Date: ____________&nbsp;&nbsp;&nbsp;&nbsp;Notes:</div>
+          </div>
+        </div>
+        {linkedSOPs.map((sop) => (
+          <div key={sop.id} className="pv-sop-section">
+            <div className="pv-sop-title">
+              {sop.title}
+              {sop.category && <span className="pv-sop-badge">{sop.category}</span>}
+            </div>
+            <div className="pv-sop-content">
+              <ReactMarkdown>{sop.content || ""}</ReactMarkdown>
+            </div>
+          </div>
+        ))}
+        <div className="pv-footer">Jarvis Task Manager - Bear's Cup Bakehouse</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-task-list-detail">
