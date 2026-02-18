@@ -20,8 +20,43 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        var refreshing = false;
+        var isFirstInstall = !navigator.serviceWorker.controller;
+
+        navigator.serviceWorker.addEventListener('controllerchange', function() {
+          if (isFirstInstall) {
+            isFirstInstall = false;
+            return;
+          }
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(function(reg) {
+            reg.addEventListener('updatefound', function() {
+              var newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', function() {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  }
+                });
+              }
+            });
+
+            setInterval(function() { reg.update(); }, 60000);
+          }).catch(function() {});
+        });
+
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'visible') {
+            navigator.serviceWorker.getRegistration().then(function(reg) {
+              if (reg) reg.update();
+            });
+          }
         });
       }
     </script>

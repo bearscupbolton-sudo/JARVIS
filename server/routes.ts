@@ -16,6 +16,20 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.get('/sw.js', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && req.accepts('html') && !req.path.startsWith('/api/') && !req.path.match(/\.\w+$/)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+    next();
+  });
+
   await setupAuth(app);
   registerAuthRoutes(app);
   registerChatRoutes(app);
