@@ -80,6 +80,9 @@ export function registerAuthRoutes(app: Express): void {
       if (existing) {
         return res.status(409).json({ message: "Username already taken" });
       }
+      if (input.pin && await authStorage.isPinTaken(input.pin)) {
+        return res.status(409).json({ message: "That PIN is already in use. Each team member needs a unique PIN." });
+      }
       const user = await authStorage.createUser({
         firstName: input.firstName,
         lastName: input.lastName || null,
@@ -148,6 +151,9 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(400).json({ message: "PIN must be 4-8 digits" });
       }
       const targetId = req.params.id;
+      if (await authStorage.isPinTaken(pin, targetId)) {
+        return res.status(409).json({ message: "That PIN is already in use. Each team member needs a unique PIN." });
+      }
       await authStorage.updateUserPin(targetId, pin);
       res.json({ ok: true });
     } catch (error) {

@@ -39,16 +39,12 @@ export async function setupAuth(app: Express) {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const input = loginSchema.parse(req.body);
-      const user = await authStorage.getUserByUsername(input.username);
+      const user = await authStorage.getUserByPin(input.pin);
       if (!user) {
-        return res.status(401).json({ message: "Invalid username or PIN" });
+        return res.status(401).json({ message: "Invalid PIN" });
       }
       if (user.locked) {
         return res.status(403).json({ message: "Your account is locked. Contact a manager." });
-      }
-      const valid = await authStorage.verifyPin(user.id, input.pin);
-      if (!valid) {
-        return res.status(401).json({ message: "Invalid username or PIN" });
       }
       req.session.userId = user.id;
       res.json(user);

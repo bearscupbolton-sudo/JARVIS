@@ -57,7 +57,6 @@ export const createTeamMemberSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  username: z.string().min(1, "Username is required"),
   pin: z.string().min(1, "PIN is required"),
 });
 

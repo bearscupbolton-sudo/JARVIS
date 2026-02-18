@@ -41,7 +41,6 @@ export default function Login() {
 }
 
 function LoginForm() {
-  const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -49,7 +48,7 @@ function LoginForm() {
 
   const loginMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/auth/login", { username, pin });
+      const res = await apiRequest("POST", "/api/auth/login", { pin });
       return res.json();
     },
     onSuccess: () => {
@@ -99,22 +98,10 @@ function LoginForm() {
               <img src={bearLogoPath} alt="Bear's Cup Bakehouse" className="w-24 h-24 object-contain dark:invert" />
             </div>
             <h2 className="text-3xl font-bold tracking-tight text-foreground" data-testid="text-login-title">Welcome back</h2>
-            <p className="text-muted-foreground">Sign in with your username and PIN.</p>
+            <p className="text-muted-foreground">Enter your PIN to sign in.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
-                autoComplete="username"
-                data-testid="input-login-username"
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="pin">PIN</Label>
               <Input
@@ -125,6 +112,7 @@ function LoginForm() {
                 onChange={(e) => setPin(e.target.value)}
                 placeholder="Enter your PIN"
                 autoComplete="current-password"
+                autoFocus
                 data-testid="input-login-pin"
               />
             </div>
@@ -132,7 +120,7 @@ function LoginForm() {
               type="submit"
               size="lg"
               className="w-full h-12 text-base font-semibold shadow-lg shadow-primary/20"
-              disabled={loginMutation.isPending || !username || !pin}
+              disabled={loginMutation.isPending || !pin}
               data-testid="button-login"
             >
               {loginMutation.isPending ? (

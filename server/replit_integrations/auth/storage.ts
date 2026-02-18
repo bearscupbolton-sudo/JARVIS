@@ -6,6 +6,8 @@ import bcrypt from "bcryptjs";
 export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByPin(pin: string): Promise<User | undefined>;
+  isPinTaken(pin: string, excludeUserId?: string): Promise<boolean>;
   createUser(userData: UpsertUser & { pin?: string }): Promise<User>;
   getAllUsers(): Promise<User[]>;
   updateUserRole(id: string, role: string): Promise<User>;
@@ -28,6 +30,27 @@ class AuthStorage implements IAuthStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
     return user;
+  }
+
+  async getUserByPin(pin: string): Promise<User | undefined> {
+    const allUsers = await db.select().from(users).where(isNotNull(users.pinHash));
+    for (const user of allUsers) {
+      if (user.pinHash && await bcrypt.compare(pin, user.pinHash)) {
+        return user;
+      }
+    }
+    return undefined;
+  }
+
+  async isPinTaken(pin: string, excludeUserId?: string): Promise<boolean> {
+    const allUsers = await db.select().from(users).where(isNotNull(users.pinHash));
+    for (const user of allUsers) {
+      if (excludeUserId && user.id === excludeUserId) continue;
+      if (user.pinHash && await bcrypt.compare(pin, user.pinHash)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async createUser(userData: UpsertUser & { pin?: string }): Promise<User> {
