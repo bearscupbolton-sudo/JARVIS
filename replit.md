@@ -51,7 +51,7 @@ script/          → Build scripts
 - **Key Tables**:
   - `users` — Replit Auth user profiles (varchar PK)
   - `sessions` — Server-side session storage for express-session
-  - `recipes` — Bakery recipes with JSONB ingredients/instructions
+  - `recipes` — Bakery recipes with JSONB ingredients/instructions. Ingredients support optional `group` field for sub-dough grouping (e.g. Beurre Manié, Détrempe). Baker's percentages are computed per-group when groups are present
   - `recipe_versions` — Recipe version history snapshots (recipeId, versionNumber, title, description, yieldAmount, yieldUnit, ingredients, instructions, category, changedBy, changeNote, createdAt). Auto-created before each recipe update to preserve historical state
   - `production_logs` — Daily production yield tracking linked to recipes
   - `sops` — Standard Operating Procedures (markdown content)

@@ -16,7 +16,8 @@ import {
   Bot,
   Loader2,
   ImageIcon,
-  X
+  X,
+  Layers
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -216,6 +217,7 @@ function CreateRecipeDialog() {
           name: String(i.name || ""),
           quantity: Number(i.quantity) || 0,
           unit: String(i.unit || "g"),
+          ...(i.group ? { group: String(i.group) } : {}),
         })));
       }
       if (parsed.instructions?.length) {
@@ -412,56 +414,103 @@ function CreateRecipeDialog() {
             </div>
 
             <div className="space-y-4 border-t border-border pt-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h3 className="font-semibold">Ingredients</h3>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => appendIngredient({ name: "", quantity: 0, unit: "g" })}
-                  data-testid="button-add-ingredient"
-                >
-                  <Plus className="w-4 h-4 mr-1" /> Add
-                </Button>
-              </div>
-              {ingredientFields.map((field, index) => (
-                <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5">
-                    <Input 
-                      placeholder="Name" 
-                      {...form.register(`ingredients.${index}.name` as any)} 
-                      data-testid={`input-ingredient-name-${index}`}
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <Input 
-                      type="number" 
-                      placeholder="Qty" 
-                      step="0.01"
-                      {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
-                      data-testid={`input-ingredient-qty-${index}`}
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <Input 
-                      placeholder="Unit" 
-                      {...form.register(`ingredients.${index}.unit` as any)} 
-                      data-testid={`input-ingredient-unit-${index}`}
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => removeIngredient(index)}
-                      className="text-destructive"
-                    >
-                      <Plus className="w-4 h-4 rotate-45" />
-                    </Button>
-                  </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => appendIngredient({ name: "", quantity: 0, unit: "g" })}
+                    data-testid="button-add-ingredient"
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const name = prompt("Enter group name (e.g. Beurre Manié, Détrempe):");
+                      if (name?.trim()) appendIngredient({ name: "", quantity: 0, unit: "g", group: name.trim() } as any);
+                    }}
+                    data-testid="button-add-group"
+                  >
+                    <Layers className="w-4 h-4 mr-1" /> Add Group
+                  </Button>
                 </div>
-              ))}
+              </div>
+              {(() => {
+                const grouped: { group: string; items: { field: typeof ingredientFields[0]; index: number }[] }[] = [];
+                const seen = new Set<string>();
+                ingredientFields.forEach((field, index) => {
+                  const g = (form.getValues(`ingredients.${index}.group` as any) as string) || "";
+                  if (!seen.has(g)) {
+                    seen.add(g);
+                    grouped.push({ group: g, items: [] });
+                  }
+                  grouped.find(gr => gr.group === g)!.items.push({ field, index });
+                });
+                return grouped.map((grp, gIdx) => (
+                  <div key={gIdx} className={grp.group ? "border border-border rounded-md p-3 space-y-2" : "space-y-2"}>
+                    {grp.group && (
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-primary" />
+                          <span className="font-semibold text-sm uppercase tracking-wider">{grp.group}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => appendIngredient({ name: "", quantity: 0, unit: "g", group: grp.group } as any)}
+                          data-testid={`button-add-to-group-${gIdx}`}
+                        >
+                          <Plus className="w-4 h-4 mr-1" /> Add to Group
+                        </Button>
+                      </div>
+                    )}
+                    {grp.items.map(({ field, index }) => (
+                      <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-5">
+                          <Input 
+                            placeholder="Name" 
+                            {...form.register(`ingredients.${index}.name` as any)} 
+                            data-testid={`input-ingredient-name-${index}`}
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <Input 
+                            type="number" 
+                            placeholder="Qty" 
+                            step="0.01"
+                            {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
+                            data-testid={`input-ingredient-qty-${index}`}
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <Input 
+                            placeholder="Unit" 
+                            {...form.register(`ingredients.${index}.unit` as any)} 
+                            data-testid={`input-ingredient-unit-${index}`}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => removeIngredient(index)}
+                            className="text-destructive"
+                          >
+                            <Plus className="w-4 h-4 rotate-45" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ));
+              })()}
             </div>
 
             <div className="space-y-4 border-t border-border pt-6">

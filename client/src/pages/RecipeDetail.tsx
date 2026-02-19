@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Ingredient, type Instruction, type RecipeVersion } from "@shared/schema";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -39,26 +39,78 @@ function isFlourIngredient(name: string): boolean {
   return FLOUR_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-function computeBakersPercentages(ingredients: Ingredient[]): (Ingredient & { computedBP: number | null; isFlour: boolean })[] {
+type IngredientWithBP = Ingredient & { computedBP: number | null; isFlour: boolean; globalIdx: number };
+
+function computeBakersPercentages(ingredients: Ingredient[]): IngredientWithBP[] {
+  const hasGroups = ingredients.some(ing => ing.group);
+
+  if (hasGroups) {
+    const groups = new Map<string, Ingredient[]>();
+    ingredients.forEach(ing => {
+      const g = ing.group || "";
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(ing);
+    });
+
+    let globalIdx = 0;
+    const result: IngredientWithBP[] = [];
+    for (const [, groupIngredients] of groups) {
+      const flourInGroup = groupIngredients.filter(ing => isFlourIngredient(ing.name));
+      const totalFlourInGroup = flourInGroup.reduce((sum, ing) => sum + ing.quantity, 0);
+
+      for (const ing of groupIngredients) {
+        const flour = isFlourIngredient(ing.name);
+        result.push({
+          ...ing,
+          computedBP: totalFlourInGroup > 0
+            ? (ing.bakersPercentage ?? Math.round((ing.quantity / totalFlourInGroup) * 10000) / 100)
+            : (ing.bakersPercentage ?? null),
+          isFlour: flour,
+          globalIdx: globalIdx++,
+        });
+      }
+    }
+    return result;
+  }
+
   const flourIngredients = ingredients.filter(ing => isFlourIngredient(ing.name));
   const totalFlour = flourIngredients.reduce((sum, ing) => sum + ing.quantity, 0);
 
   if (totalFlour === 0) {
-    return ingredients.map(ing => ({
+    return ingredients.map((ing, i) => ({
       ...ing,
       computedBP: ing.bakersPercentage ?? null,
       isFlour: false,
+      globalIdx: i,
     }));
   }
 
-  return ingredients.map(ing => {
+  return ingredients.map((ing, i) => {
     const flour = isFlourIngredient(ing.name);
     return {
       ...ing,
       computedBP: ing.bakersPercentage ?? Math.round((ing.quantity / totalFlour) * 10000) / 100,
       isFlour: flour,
+      globalIdx: i,
     };
   });
+}
+
+function groupIngredients(ingredients: IngredientWithBP[]): { group: string; items: IngredientWithBP[] }[] {
+  const hasGroups = ingredients.some(ing => ing.group);
+  if (!hasGroups) return [{ group: "", items: ingredients }];
+
+  const groups: { group: string; items: IngredientWithBP[] }[] = [];
+  const seen = new Set<string>();
+  for (const ing of ingredients) {
+    const g = ing.group || "";
+    if (!seen.has(g)) {
+      seen.add(g);
+      groups.push({ group: g, items: [] });
+    }
+    groups.find(gr => gr.group === g)!.items.push(ing);
+  }
+  return groups;
 }
 
 export default function RecipeDetail() {
@@ -170,14 +222,17 @@ export default function RecipeDetail() {
               </tr>
             </thead>
             <tbody>
-              ${ingredientsWithBP.map(ing => `
-                <tr class="${ing.isFlour ? 'flour-row' : ''}">
-                  <td class="check"><span class="checkbox"></span></td>
-                  <td>${ing.name}${ing.isFlour ? ' <span class="flour-label">(flour)</span>' : ''}</td>
-                  <td class="right">${ing.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                  <td class="right">${ing.unit}</td>
-                  <td class="right">${ing.computedBP !== null ? ing.computedBP + '%' : '\u2014'}</td>
-                </tr>
+              ${groupIngredients(ingredientsWithBP).map(grp => `
+                ${grp.group ? `<tr style="background:#e8e8e8;border-top:2px solid #999"><td colspan="5" style="padding:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:12px">${grp.group}</td></tr>` : ''}
+                ${grp.items.map(ing => `
+                  <tr class="${ing.isFlour ? 'flour-row' : ''}">
+                    <td class="check"><span class="checkbox"></span></td>
+                    <td>${ing.name}${ing.isFlour ? ' <span class="flour-label">(flour)</span>' : ''}</td>
+                    <td class="right">${ing.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td class="right">${ing.unit}</td>
+                    <td class="right">${ing.computedBP !== null ? ing.computedBP + '%' : '\u2014'}</td>
+                  </tr>
+                `).join('')}
               `).join('')}
             </tbody>
           </table>
@@ -305,13 +360,43 @@ export default function RecipeDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/30">
-                            {vIngredients.map((ing, idx) => (
-                              <tr key={idx}>
-                                <td className="py-1.5 px-2">{ing.name}</td>
-                                <td className="py-1.5 px-2 text-right font-mono">{ing.quantity}</td>
-                                <td className="py-1.5 px-2 text-right text-muted-foreground">{ing.unit}</td>
-                              </tr>
-                            ))}
+                            {(() => {
+                              const hasGroups = vIngredients.some(i => i.group);
+                              if (!hasGroups) {
+                                return vIngredients.map((ing, idx) => (
+                                  <tr key={idx}>
+                                    <td className="py-1.5 px-2">{ing.name}</td>
+                                    <td className="py-1.5 px-2 text-right font-mono">{ing.quantity}</td>
+                                    <td className="py-1.5 px-2 text-right text-muted-foreground">{ing.unit}</td>
+                                  </tr>
+                                ));
+                              }
+                              const groups: { group: string; items: Ingredient[] }[] = [];
+                              const seen = new Set<string>();
+                              vIngredients.forEach(ing => {
+                                const g = ing.group || "";
+                                if (!seen.has(g)) { seen.add(g); groups.push({ group: g, items: [] }); }
+                                groups.find(gr => gr.group === g)!.items.push(ing);
+                              });
+                              return groups.map((grp, gi) => (
+                                <>
+                                  {grp.group && (
+                                    <tr key={`vg-${gi}`} className="bg-muted/50">
+                                      <td colSpan={3} className="py-1.5 px-2 font-semibold text-[10px] uppercase tracking-wider">
+                                        {grp.group}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {grp.items.map((ing, idx) => (
+                                    <tr key={`vi-${gi}-${idx}`}>
+                                      <td className="py-1.5 px-2">{ing.name}</td>
+                                      <td className="py-1.5 px-2 text-right font-mono">{ing.quantity}</td>
+                                      <td className="py-1.5 px-2 text-right text-muted-foreground">{ing.unit}</td>
+                                    </tr>
+                                  ))}
+                                </>
+                              ));
+                            })()}
                           </tbody>
                         </table>
                       </div>
@@ -357,56 +442,72 @@ export default function RecipeDetail() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {ingredientsWithBP.map((ing, idx) => (
-                        <tr
-                          key={idx}
-                          className={`transition-colors hover:bg-muted/50 ${checkedIngredients.has(idx) ? "bg-muted/30 line-through text-muted-foreground" : ""} ${ing.isFlour ? "bg-primary/5" : ""}`}
-                          data-testid={`row-ingredient-${idx}`}
-                        >
-                          <td className="px-4 py-3 text-center">
-                            <Checkbox
-                              checked={checkedIngredients.has(idx)}
-                              onCheckedChange={() => toggleIngredient(idx)}
-                              data-testid={`checkbox-ingredient-${idx}`}
-                            />
-                          </td>
-                          <td className="px-4 py-3 font-medium text-foreground">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {ing.name}
-                              {ing.isFlour && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  <Wheat className="w-3 h-3 mr-0.5" /> Flour
-                                </Badge>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-primary tabular-nums">
-                            {ing.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-right text-muted-foreground">{ing.unit}</td>
-                          <td className="px-4 py-3 text-right font-mono text-muted-foreground tabular-nums">
-                            {ing.computedBP !== null ? `${ing.computedBP}%` : "\u2014"}
-                          </td>
-                        </tr>
-                      ))}
-                      {(() => {
-                        const flourItems = ingredientsWithBP.filter(i => i.isFlour);
-                        if (flourItems.length > 1) {
-                          const totalFlour = flourItems.reduce((sum, i) => sum + i.quantity, 0);
-                          return (
-                            <tr className="border-t-2 border-border bg-primary/5 font-semibold" data-testid="row-total-flour">
-                              <td className="px-4 py-2"></td>
-                              <td className="px-4 py-2 text-sm text-muted-foreground">Total Flour</td>
-                              <td className="px-4 py-2 text-right font-mono font-bold text-primary tabular-nums">
-                                {totalFlour.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {groupIngredients(ingredientsWithBP).map((grp, gIdx) => (
+                        <>
+                          {grp.group && (
+                            <tr key={`group-${gIdx}`} className="bg-muted/50 border-t-2 border-border" data-testid={`group-header-${gIdx}`}>
+                              <td colSpan={5} className="px-4 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Layers className="w-4 h-4 text-primary" />
+                                  <span className="font-semibold text-sm uppercase tracking-wider">{grp.group}</span>
+                                </div>
                               </td>
-                              <td className="px-4 py-2 text-right text-muted-foreground">{flourItems[0]?.unit}</td>
-                              <td className="px-4 py-2 text-right font-mono text-muted-foreground">100%</td>
                             </tr>
-                          );
-                        }
-                        return null;
-                      })()}
+                          )}
+                          {grp.items.map((ing) => (
+                            <tr
+                              key={ing.globalIdx}
+                              className={`transition-colors hover:bg-muted/50 ${checkedIngredients.has(ing.globalIdx) ? "bg-muted/30 line-through text-muted-foreground" : ""} ${ing.isFlour ? "bg-primary/5" : ""}`}
+                              data-testid={`row-ingredient-${ing.globalIdx}`}
+                            >
+                              <td className="px-4 py-3 text-center">
+                                <Checkbox
+                                  checked={checkedIngredients.has(ing.globalIdx)}
+                                  onCheckedChange={() => toggleIngredient(ing.globalIdx)}
+                                  data-testid={`checkbox-ingredient-${ing.globalIdx}`}
+                                />
+                              </td>
+                              <td className="px-4 py-3 font-medium text-foreground">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {ing.name}
+                                  {ing.isFlour && (
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      <Wheat className="w-3 h-3 mr-0.5" /> Flour
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-primary tabular-nums">
+                                {ing.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="px-4 py-3 text-right text-muted-foreground">{ing.unit}</td>
+                              <td className="px-4 py-3 text-right font-mono text-muted-foreground tabular-nums">
+                                {ing.computedBP !== null ? `${ing.computedBP}%` : "\u2014"}
+                              </td>
+                            </tr>
+                          ))}
+                          {(() => {
+                            const flourItems = grp.items.filter(i => i.isFlour);
+                            if (flourItems.length > 1) {
+                              const totalFlour = flourItems.reduce((sum, i) => sum + i.quantity, 0);
+                              return (
+                                <tr key={`flour-total-${gIdx}`} className="border-t-2 border-border bg-primary/5 font-semibold" data-testid={`row-total-flour-${gIdx}`}>
+                                  <td className="px-4 py-2"></td>
+                                  <td className="px-4 py-2 text-sm text-muted-foreground">
+                                    Total Flour{grp.group ? ` (${grp.group})` : ""}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-mono font-bold text-primary tabular-nums">
+                                    {totalFlour.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-muted-foreground">{flourItems[0]?.unit}</td>
+                                  <td className="px-4 py-2 text-right font-mono text-muted-foreground">100%</td>
+                                </tr>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -499,8 +600,10 @@ function EditRecipeDialog({
     }
   }, [open, recipe]);
 
-  const addIngredient = () => {
-    setIngredients(prev => [...prev, { name: "", quantity: 0, unit: "g" }]);
+  const existingGroups = [...new Set(ingredients.map(i => i.group).filter(Boolean))] as string[];
+
+  const addIngredient = (group?: string) => {
+    setIngredients(prev => [...prev, { name: "", quantity: 0, unit: "g", group }]);
   };
 
   const removeIngredient = (idx: number) => {
@@ -627,44 +730,91 @@ function EditRecipeDialog({
           </div>
 
           <div className="space-y-3 border-t border-border pt-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="font-semibold">Ingredients</h3>
-              <Button type="button" variant="outline" size="sm" onClick={addIngredient} data-testid="button-edit-add-ingredient">
-                <Plus className="w-4 h-4 mr-1" /> Add
-              </Button>
-            </div>
-            {ingredients.map((ing, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-center" data-testid={`edit-ingredient-row-${idx}`}>
-                <div className="col-span-5">
-                  <Input
-                    placeholder="Name"
-                    value={ing.name}
-                    onChange={(e) => updateIngredient(idx, "name", e.target.value)}
-                  />
-                </div>
-                <div className="col-span-3">
-                  <Input
-                    type="number"
-                    placeholder="Qty"
-                    step="0.01"
-                    value={ing.quantity}
-                    onChange={(e) => updateIngredient(idx, "quantity", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="col-span-3">
-                  <Input
-                    placeholder="Unit"
-                    value={ing.unit}
-                    onChange={(e) => updateIngredient(idx, "unit", e.target.value)}
-                  />
-                </div>
-                <div className="col-span-1">
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeIngredient(idx)} className="text-destructive">
-                    <Plus className="w-4 h-4 rotate-45" />
-                  </Button>
-                </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button type="button" variant="outline" size="sm" onClick={() => addIngredient()} data-testid="button-edit-add-ingredient">
+                  <Plus className="w-4 h-4 mr-1" /> Add
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const name = prompt("Enter group name (e.g. Beurre Manié, Détrempe):");
+                    if (name?.trim()) addIngredient(name.trim());
+                  }}
+                  data-testid="button-edit-add-group"
+                >
+                  <Layers className="w-4 h-4 mr-1" /> Add Group
+                </Button>
               </div>
-            ))}
+            </div>
+            {(() => {
+              const grouped: { group: string; items: { ing: Ingredient; idx: number }[] }[] = [];
+              const seen = new Set<string>();
+              ingredients.forEach((ing, idx) => {
+                const g = ing.group || "";
+                if (!seen.has(g)) {
+                  seen.add(g);
+                  grouped.push({ group: g, items: [] });
+                }
+                grouped.find(gr => gr.group === g)!.items.push({ ing, idx });
+              });
+              return grouped.map((grp, gIdx) => (
+                <div key={gIdx} className={grp.group ? "border border-border rounded-md p-3 space-y-2" : "space-y-2"}>
+                  {grp.group && (
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-primary" />
+                        <span className="font-semibold text-sm uppercase tracking-wider">{grp.group}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => addIngredient(grp.group)}
+                        data-testid={`button-add-to-group-${gIdx}`}
+                      >
+                        <Plus className="w-4 h-4 mr-1" /> Add to Group
+                      </Button>
+                    </div>
+                  )}
+                  {grp.items.map(({ ing, idx }) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center" data-testid={`edit-ingredient-row-${idx}`}>
+                      <div className="col-span-5">
+                        <Input
+                          placeholder="Name"
+                          value={ing.name}
+                          onChange={(e) => updateIngredient(idx, "name", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          type="number"
+                          placeholder="Qty"
+                          step="0.01"
+                          value={ing.quantity}
+                          onChange={(e) => updateIngredient(idx, "quantity", parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          placeholder="Unit"
+                          value={ing.unit}
+                          onChange={(e) => updateIngredient(idx, "unit", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removeIngredient(idx)} className="text-destructive">
+                          <Plus className="w-4 h-4 rotate-45" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ));
+            })()}
           </div>
 
           <div className="space-y-3 border-t border-border pt-4">
