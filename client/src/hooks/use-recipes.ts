@@ -54,12 +54,12 @@ export function useCreateRecipe() {
 export function useUpdateRecipe() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...updates }: { id: number } & Partial<InsertRecipe>) => {
+    mutationFn: async ({ id, changeReason, ...updates }: { id: number; changeReason?: string } & Partial<InsertRecipe>) => {
       const url = buildUrl(api.recipes.update.path, { id });
       const res = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ ...updates, changeReason }),
         credentials: "include",
       });
       if (res.status === 202) {

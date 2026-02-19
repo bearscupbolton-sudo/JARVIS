@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Ingredient, type Instruction, type RecipeVersion } from "@shared/schema";
@@ -483,6 +484,7 @@ function EditRecipeDialog({
   const [yieldUnit, setYieldUnit] = useState(recipe.yieldUnit);
   const [ingredients, setIngredients] = useState<Ingredient[]>(baseIngredients.map(i => ({ ...i })));
   const [instructions, setInstructions] = useState<Instruction[]>(baseInstructions.map(i => ({ ...i })));
+  const [changeReason, setChangeReason] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -493,6 +495,7 @@ function EditRecipeDialog({
       setYieldUnit(recipe.yieldUnit);
       setIngredients((recipe.ingredients as Ingredient[])?.map(i => ({ ...i })) || []);
       setInstructions((recipe.instructions as Instruction[])?.map(i => ({ ...i })) || []);
+      setChangeReason("");
     }
   }, [open, recipe]);
 
@@ -537,6 +540,7 @@ function EditRecipeDialog({
       yieldUnit,
       ingredients: validIngredients,
       instructions: validInstructions,
+      changeReason: changeReason.trim() || undefined,
     }, {
       onSuccess: (result) => {
         onOpenChange(false);
@@ -687,6 +691,20 @@ function EditRecipeDialog({
             ))}
           </div>
         </div>
+
+        {!isOwner && (
+          <div className="space-y-2">
+            <Label>Reason for Change (optional)</Label>
+            <Textarea
+              value={changeReason}
+              onChange={(e) => setChangeReason(e.target.value)}
+              placeholder="Briefly explain what you changed and why..."
+              className="resize-none"
+              rows={2}
+              data-testid="input-change-reason"
+            />
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

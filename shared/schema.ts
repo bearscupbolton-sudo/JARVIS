@@ -141,6 +141,8 @@ export const pendingChanges = pgTable("pending_changes", {
   action: text("action").notNull(),
   entityId: integer("entity_id"),
   payload: jsonb("payload").notNull(),
+  originalPayload: jsonb("original_payload"),
+  changeReason: text("change_reason"),
   submittedBy: text("submitted_by").notNull(),
   submittedByUsername: text("submitted_by_username"),
   status: text("status").default("pending").notNull(),

@@ -50,7 +50,8 @@ export async function registerRoutes(
 
   app.post(api.recipes.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
-      const input = api.recipes.create.input.parse(req.body);
+      const { changeReason, ...body } = req.body;
+      const input = api.recipes.create.input.parse(body);
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
@@ -64,6 +65,8 @@ export async function registerRoutes(
         action: "create",
         entityId: null,
         payload: input,
+        originalPayload: null,
+        changeReason: changeReason || null,
         submittedBy: user.id,
         submittedByUsername: user.username || user.firstName || "Unknown",
         status: "pending",
@@ -81,7 +84,8 @@ export async function registerRoutes(
 
   app.put(api.recipes.update.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
-      const input = api.recipes.update.input.parse(req.body);
+      const { changeReason, ...body } = req.body;
+      const input = api.recipes.update.input.parse(body);
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
@@ -90,11 +94,23 @@ export async function registerRoutes(
         return res.json(recipe);
       }
 
+      const existingRecipe = await storage.getRecipe(Number(req.params.id));
+
       const pending = await storage.createPendingChange({
         entityType: "recipe",
         action: "update",
         entityId: Number(req.params.id),
         payload: input,
+        originalPayload: existingRecipe ? {
+          title: existingRecipe.title,
+          description: existingRecipe.description,
+          category: existingRecipe.category,
+          yieldAmount: existingRecipe.yieldAmount,
+          yieldUnit: existingRecipe.yieldUnit,
+          ingredients: existingRecipe.ingredients,
+          instructions: existingRecipe.instructions,
+        } : null,
+        changeReason: changeReason || null,
         submittedBy: user.id,
         submittedByUsername: user.username || user.firstName || "Unknown",
         status: "pending",
@@ -262,6 +278,8 @@ Guidelines:
         action: "create",
         entityId: null,
         payload: input,
+        originalPayload: null,
+        changeReason: (req.body as any).changeReason || null,
         submittedBy: user.id,
         submittedByUsername: user.username || user.firstName || "Unknown",
         status: "pending",
@@ -288,11 +306,19 @@ Guidelines:
         return res.json(sop);
       }
 
+      const existingSop = await storage.getSOP(Number(req.params.id));
+
       const pending = await storage.createPendingChange({
         entityType: "sop",
         action: "update",
         entityId: Number(req.params.id),
         payload: input,
+        originalPayload: existingSop ? {
+          title: existingSop.title,
+          content: existingSop.content,
+          category: existingSop.category,
+        } : null,
+        changeReason: (req.body as any).changeReason || null,
         submittedBy: user.id,
         submittedByUsername: user.username || user.firstName || "Unknown",
         status: "pending",
@@ -590,9 +616,9 @@ FORMAT RULES for the content field:
 
       const updated = await storage.updatePendingChangeStatus(changeId, "approved", userId, req.body.reviewNote);
       res.json(updated);
-    } catch (error) {
-      console.error("Error approving change:", error);
-      res.status(500).json({ message: "Failed to approve change" });
+    } catch (error: any) {
+      console.error("Error approving change:", error?.message || error, error?.stack);
+      res.status(500).json({ message: "Failed to approve change", detail: error?.message });
     }
   });
 
