@@ -566,6 +566,7 @@ export type Ingredient = {
   quantity: number;
   unit: string;
   bakersPercentage?: number;
+  group?: string;
 };
 
 export type Instruction = {
