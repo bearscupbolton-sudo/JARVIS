@@ -9,6 +9,7 @@ import {
   directMessages, messageRecipients,
   pushSubscriptions,
   laminationDoughs,
+  pastryItems,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -42,6 +43,7 @@ import {
   type RecipeVersion, type InsertRecipeVersion,
   type PushSubscription, type InsertPushSubscription,
   type LaminationDough, type InsertLaminationDough,
+  type PastryItem, type InsertPastryItem,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -221,6 +223,12 @@ export interface IStorage {
   createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough>;
   updateLaminationDough(id: number, updates: Partial<InsertLaminationDough>): Promise<LaminationDough>;
   deleteLaminationDough(id: number): Promise<void>;
+
+  // Pastry Items (Master List)
+  getPastryItems(doughType?: string): Promise<PastryItem[]>;
+  createPastryItem(item: InsertPastryItem): Promise<PastryItem>;
+  updatePastryItem(id: number, updates: Partial<InsertPastryItem>): Promise<PastryItem>;
+  deletePastryItem(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1032,6 +1040,29 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLaminationDough(id: number): Promise<void> {
     await db.delete(laminationDoughs).where(eq(laminationDoughs.id, id));
+  }
+
+  async getPastryItems(doughType?: string): Promise<PastryItem[]> {
+    if (doughType) {
+      return await db.select().from(pastryItems)
+        .where(and(eq(pastryItems.doughType, doughType), eq(pastryItems.isActive, true)))
+        .orderBy(pastryItems.name);
+    }
+    return await db.select().from(pastryItems).orderBy(pastryItems.name);
+  }
+
+  async createPastryItem(item: InsertPastryItem): Promise<PastryItem> {
+    const [created] = await db.insert(pastryItems).values(item).returning();
+    return created;
+  }
+
+  async updatePastryItem(id: number, updates: Partial<InsertPastryItem>): Promise<PastryItem> {
+    const [updated] = await db.update(pastryItems).set(updates).where(eq(pastryItems.id, id)).returning();
+    return updated;
+  }
+
+  async deletePastryItem(id: number): Promise<void> {
+    await db.delete(pastryItems).where(eq(pastryItems.id, id));
   }
 }
 

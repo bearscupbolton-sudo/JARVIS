@@ -548,6 +548,19 @@ export const insertLaminationDoughSchema = createInsertSchema(laminationDoughs).
 export type LaminationDough = typeof laminationDoughs.$inferSelect;
 export type InsertLaminationDough = z.infer<typeof insertLaminationDoughSchema>;
 
+// === PASTRY ITEMS (Master List — maps pastries to dough types) ===
+export const pastryItems = pgTable("pastry_items", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  doughType: text("dough_type").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPastryItemSchema = createInsertSchema(pastryItems).omit({ id: true, createdAt: true });
+export type PastryItem = typeof pastryItems.$inferSelect;
+export type InsertPastryItem = z.infer<typeof insertPastryItemSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;
