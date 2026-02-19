@@ -35,7 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { format } from "date-fns";
-import type { LaminationDough } from "@shared/schema";
+import type { LaminationDough, PastryItem } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
@@ -85,6 +85,17 @@ export default function LaminationStudio() {
       return res.json();
     },
     refetchInterval: 10000,
+  });
+
+  const completeDoughType = completeDough?.doughType;
+  const { data: pastryItemsForType } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items", completeDoughType],
+    queryFn: async () => {
+      const res = await fetch(`/api/pastry-items?doughType=${encodeURIComponent(completeDoughType!)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pastry items");
+      return res.json();
+    },
+    enabled: !!completeDoughType,
   });
 
   useEffect(() => {
@@ -473,12 +484,24 @@ export default function LaminationStudio() {
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-2 block">Pastry Type</label>
-              <Input
-                placeholder="e.g. Pain au Chocolat, Almond Croissant..."
-                value={pastryType}
-                onChange={(e) => setPastryType(e.target.value)}
-                data-testid="input-pastry-type"
-              />
+              {pastryItemsForType && pastryItemsForType.length > 0 ? (
+                <Select value={pastryType} onValueChange={setPastryType} data-testid="select-pastry-type">
+                  <SelectTrigger data-testid="input-pastry-type">
+                    <SelectValue placeholder="Select pastry type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pastryItemsForType.map((item) => (
+                      <SelectItem key={item.id} value={item.name} data-testid={`option-pastry-${item.id}`}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                  No pastries configured for {completeDough?.doughType} dough yet. Add them in Settings.
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Total Pieces</label>

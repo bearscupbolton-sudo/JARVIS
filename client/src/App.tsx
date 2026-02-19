@@ -33,6 +33,7 @@ import Kiosk from "@/pages/Kiosk";
 import Display from "@/pages/Display";
 import TaskManager from "@/pages/TaskManager";
 import LaminationStudio from "@/pages/LaminationStudio";
+import PastryItems from "@/pages/PastryItems";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -114,6 +115,9 @@ function Router() {
       </Route>
       <Route path="/admin/approvals">
         {() => <ProtectedRoute component={AdminApprovals} />}
+      </Route>
+      <Route path="/admin/pastry-items">
+        {() => <ProtectedRoute component={PastryItems} />}
       </Route>
       <Route path="/profile">
         {() => <ProtectedRoute component={Profile} />}

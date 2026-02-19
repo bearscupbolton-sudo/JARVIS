@@ -22,6 +22,7 @@ import {
   ListChecks,
   Home,
   Layers,
+  Cookie,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,6 +53,7 @@ const NAV_ITEMS = [
 
 const MANAGER_NAV_ITEMS = [
   { href: "/admin/users", label: "Team", icon: Users },
+  { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
 ];
 
 const OWNER_NAV_ITEMS = [
