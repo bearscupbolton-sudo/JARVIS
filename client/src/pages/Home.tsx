@@ -199,59 +199,75 @@ export default function Home() {
 
       {/* Quick Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">
-        <Card data-testid="stat-unread">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Mail className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p>
-              <p className="text-xs text-muted-foreground">Unread</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card data-testid="stat-shifts">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Calendar className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p>
-              <p className="text-xs text-muted-foreground">Upcoming Shifts</p>
-            </div>
-          </CardContent>
-        </Card>
+        <a
+          href="#inbox-section"
+          onClick={(e) => { e.preventDefault(); document.getElementById("inbox-section")?.scrollIntoView({ behavior: "smooth" }); }}
+          className="block"
+        >
+          <Card className="cursor-pointer hover-elevate" data-testid="stat-unread">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Mail className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-2xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Unread</p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            </CardContent>
+          </Card>
+        </a>
+        <Link href="/schedule">
+          <Card className="cursor-pointer hover-elevate" data-testid="stat-shifts">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Calendar className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-2xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Upcoming Shifts</p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
         {isManager && homeData?.managerData && (
           <>
-            <Card data-testid="stat-staff-today">
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Users className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p>
-                  <p className="text-xs text-muted-foreground">Staff Today</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card data-testid="stat-time-off">
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <AlertCircle className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold font-mono">{homeData.managerData.pendingTimeOffCount}</p>
-                  <p className="text-xs text-muted-foreground">Time Off Pending</p>
-                </div>
-              </CardContent>
-            </Card>
+            <Link href="/schedule">
+              <Card className="cursor-pointer hover-elevate" data-testid="stat-staff-today">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-2xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p>
+                    <p className="text-xs text-muted-foreground">Staff Today</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/schedule">
+              <Card className="cursor-pointer hover-elevate" data-testid="stat-time-off">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <AlertCircle className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-2xl font-bold font-mono">{homeData.managerData.pendingTimeOffCount}</p>
+                    <p className="text-xs text-muted-foreground">Time Off Pending</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                </CardContent>
+              </Card>
+            </Link>
           </>
         )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Messages Card */}
-        <Card className="lg:col-span-2" data-testid="container-inbox">
+        <Card className="lg:col-span-2" id="inbox-section" data-testid="container-inbox">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
             <div className="flex items-center gap-1">
               <Button
@@ -592,7 +608,8 @@ export default function Home() {
         </Card>
 
         {/* My Schedule Card */}
-        <Card data-testid="container-my-schedule">
+        <Link href="/schedule">
+        <Card className="cursor-pointer hover-elevate" data-testid="container-my-schedule">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
@@ -600,11 +617,9 @@ export default function Home() {
               </div>
               My Schedule
             </CardTitle>
-            <Link href="/schedule">
-              <Button variant="ghost" size="sm" data-testid="link-view-schedule">
-                View All <ArrowRight className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              View All <ArrowRight className="w-3 h-3" />
+            </span>
           </CardHeader>
           <CardContent className="pt-0">
             {loadingHome ? (
@@ -637,9 +652,11 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
+        </Link>
 
         {/* Out of the Oven Today */}
-        <Card data-testid="container-home-bakeoff">
+        <Link href="/dashboard">
+        <Card className="cursor-pointer hover-elevate" data-testid="container-home-bakeoff">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
@@ -647,11 +664,9 @@ export default function Home() {
               </div>
               Out of the Oven
             </CardTitle>
-            <Link href="/dashboard">
-              <Button variant="ghost" size="sm" data-testid="link-view-dashboard">
-                Dashboard <ArrowRight className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              Dashboard <ArrowRight className="w-3 h-3" />
+            </span>
           </CardHeader>
           <CardContent className="pt-0">
             {loadingHome ? (
@@ -670,17 +685,22 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
+        </Link>
 
         {/* Pinned Announcements */}
         {homeData?.pinnedAnnouncements && homeData.pinnedAnnouncements.length > 0 && (
-          <Card className="lg:col-span-2" data-testid="container-pinned-announcements">
-            <CardHeader className="pb-3">
+          <Link href="/dashboard">
+          <Card className="lg:col-span-2 cursor-pointer hover-elevate" data-testid="container-pinned-announcements">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
               <CardTitle className="text-lg font-display flex items-center gap-2">
                 <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
                   <Megaphone className="w-4 h-4 text-primary" />
                 </div>
                 Pinned Announcements
               </CardTitle>
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                Dashboard <ArrowRight className="w-3 h-3" />
+              </span>
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
               {homeData.pinnedAnnouncements.map(ann => (
@@ -698,6 +718,7 @@ export default function Home() {
               ))}
             </CardContent>
           </Card>
+          </Link>
         )}
 
         {/* Quick Actions */}
