@@ -8,6 +8,7 @@ import {
   taskJobs, taskLists, taskListItems,
   directMessages, messageRecipients,
   pushSubscriptions,
+  laminationDoughs,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -40,6 +41,7 @@ import {
   type MessageRecipient, type InsertMessageRecipient,
   type RecipeVersion, type InsertRecipeVersion,
   type PushSubscription, type InsertPushSubscription,
+  type LaminationDough, type InsertLaminationDough,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -213,6 +215,12 @@ export interface IStorage {
   getPushSubscriptionsByUsers(userIds: string[]): Promise<PushSubscription[]>;
   deactivatePushSubscription(endpoint: string): Promise<void>;
   deletePushSubscription(endpoint: string, userId: string): Promise<void>;
+
+  // Lamination Doughs
+  getLaminationDoughs(date: string): Promise<LaminationDough[]>;
+  createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough>;
+  updateLaminationDough(id: number, updates: Partial<InsertLaminationDough>): Promise<LaminationDough>;
+  deleteLaminationDough(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1004,6 +1012,26 @@ export class DatabaseStorage implements IStorage {
   async deletePushSubscription(endpoint: string, userId: string): Promise<void> {
     await db.delete(pushSubscriptions)
       .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, userId)));
+  }
+
+  async getLaminationDoughs(date: string): Promise<LaminationDough[]> {
+    return await db.select().from(laminationDoughs)
+      .where(eq(laminationDoughs.date, date))
+      .orderBy(desc(laminationDoughs.createdAt));
+  }
+
+  async createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough> {
+    const [created] = await db.insert(laminationDoughs).values(dough).returning();
+    return created;
+  }
+
+  async updateLaminationDough(id: number, updates: Partial<InsertLaminationDough>): Promise<LaminationDough> {
+    const [updated] = await db.update(laminationDoughs).set(updates).where(eq(laminationDoughs.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLaminationDough(id: number): Promise<void> {
+    await db.delete(laminationDoughs).where(eq(laminationDoughs.id, id));
   }
 }
 

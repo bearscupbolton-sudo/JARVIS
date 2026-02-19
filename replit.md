@@ -76,6 +76,7 @@ script/          → Build scripts
   - `task_list_items` — Entries in a task list with time windows (listId, jobId or manualTitle, startTime, endTime, sortOrder, completed)
   - `direct_messages` — Direct messages sent by managers/owners (senderId, subject, body, priority, requiresAck, targetType, targetValue)
   - `message_recipients` — Per-user message delivery tracking (messageId, userId, read, readAt, acknowledged, acknowledgedAt)
+  - `lamination_doughs` — Lamination Studio dough tracking (date, doughType, turn1Fold, turn2Fold, foldSequence, status [turning/resting/completed], restStartedAt, pastryType, totalPieces, createdBy, completedAt). 30-minute rest timer enforced client-side with red "Do Not Touch" state
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)

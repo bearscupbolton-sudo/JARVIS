@@ -32,6 +32,7 @@ import PastryPassportDetail from "@/pages/PastryPassportDetail";
 import Kiosk from "@/pages/Kiosk";
 import Display from "@/pages/Display";
 import TaskManager from "@/pages/TaskManager";
+import LaminationStudio from "@/pages/LaminationStudio";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -143,6 +144,9 @@ function Router() {
       </Route>
       <Route path="/tasks">
         {() => <ProtectedRoute component={TaskManager} />}
+      </Route>
+      <Route path="/lamination">
+        {() => <ProtectedRoute component={LaminationStudio} />}
       </Route>
       <Route path="/kiosk">
         {() => <ProtectedRoute component={Kiosk} noLayout />}

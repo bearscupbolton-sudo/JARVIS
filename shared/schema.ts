@@ -527,6 +527,27 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 
+// === LAMINATION DOUGHS ===
+export const laminationDoughs = pgTable("lamination_doughs", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  doughType: text("dough_type").notNull(),
+  turn1Fold: text("turn1_fold"),
+  turn2Fold: text("turn2_fold"),
+  foldSequence: text("fold_sequence"),
+  status: text("status").notNull().default("turning"),
+  restStartedAt: timestamp("rest_started_at"),
+  pastryType: text("pastry_type"),
+  totalPieces: integer("total_pieces"),
+  createdBy: text("created_by"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLaminationDoughSchema = createInsertSchema(laminationDoughs).omit({ id: true, createdAt: true });
+export type LaminationDough = typeof laminationDoughs.$inferSelect;
+export type InsertLaminationDough = z.infer<typeof insertLaminationDoughSchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;

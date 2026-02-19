@@ -1973,6 +1973,70 @@ ${sopsHtml}
     }
   });
 
+  // === LAMINATION DOUGHS ===
+  app.get("/api/lamination/:date", isAuthenticated, async (req: any, res) => {
+    try {
+      const doughs = await storage.getLaminationDoughs(req.params.date);
+      res.json(doughs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lamination", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const schema = z.object({ doughType: z.string().min(1) });
+      const parsed = schema.parse(req.body);
+      const today = new Date().toISOString().split("T")[0];
+      const dough = await storage.createLaminationDough({
+        date: today,
+        doughType: parsed.doughType,
+        status: "turning",
+        createdBy: user?.id || null,
+      });
+      res.json(dough);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/lamination/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const schema = z.object({
+        turn1Fold: z.string().optional(),
+        turn2Fold: z.string().optional(),
+        foldSequence: z.string().optional(),
+        status: z.enum(["turning", "resting", "completed"]).optional(),
+        restStartedAt: z.string().optional(),
+        pastryType: z.string().optional(),
+        totalPieces: z.number().int().positive().optional(),
+        completedAt: z.string().optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const updates: Record<string, any> = { ...parsed };
+      if (parsed.restStartedAt) updates.restStartedAt = new Date(parsed.restStartedAt);
+      if (parsed.completedAt) updates.completedAt = new Date(parsed.completedAt);
+      const dough = await storage.updateLaminationDough(id, updates);
+      res.json(dough);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/lamination/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteLaminationDough(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === PERSONALIZED HOME ===
   app.get("/api/home", isAuthenticated, async (req: any, res) => {
     try {
