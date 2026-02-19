@@ -2037,6 +2037,60 @@ ${sopsHtml}
     }
   });
 
+  // === PASTRY ITEMS (Master List) ===
+  app.get("/api/pastry-items", isAuthenticated, async (req: any, res) => {
+    try {
+      const doughType = req.query.doughType as string | undefined;
+      const items = await storage.getPastryItems(doughType);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/pastry-items", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(1),
+        doughType: z.string().min(1),
+        isActive: z.boolean().optional(),
+      });
+      const data = schema.parse(req.body);
+      const item = await storage.createPastryItem(data);
+      res.json(item);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/pastry-items/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const schema = z.object({
+        name: z.string().min(1).optional(),
+        doughType: z.string().min(1).optional(),
+        isActive: z.boolean().optional(),
+      });
+      const updates = schema.parse(req.body);
+      const item = await storage.updatePastryItem(id, updates);
+      res.json(item);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/pastry-items/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deletePastryItem(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === PERSONALIZED HOME ===
   app.get("/api/home", isAuthenticated, async (req: any, res) => {
     try {
