@@ -77,6 +77,7 @@ script/          → Build scripts
   - `direct_messages` — Direct messages sent by managers/owners (senderId, subject, body, priority, requiresAck, targetType, targetValue)
   - `message_recipients` — Per-user message delivery tracking (messageId, userId, read, readAt, acknowledged, acknowledgedAt)
   - `lamination_doughs` — Lamination Studio dough tracking (date, doughType, turn1Fold, turn2Fold, foldSequence, status [turning/resting/completed], restStartedAt, pastryType, totalPieces, createdBy, completedAt). 30-minute rest timer enforced client-side with red "Do Not Touch" state
+  - `pastry_items` — Master pastry list mapping each pastry to its dough type (name, doughType, isActive). Used as the single source of truth for pastry names throughout the system. Lamination Studio completion shows filtered dropdown by dough type (active items only). Managed by managers/owners at `/admin/pastry-items`
 
 ### Authentication & Roles
 - **Method**: PIN-based authentication (no sign-up; managers/owners add team members)
