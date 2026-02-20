@@ -70,6 +70,15 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
     const startAt = `${date}T00:00:00Z`;
     const endAt = `${date}T23:59:59Z`;
 
+    let locIds: string[] = [];
+    if (locationId) {
+      locIds = [locationId];
+    } else {
+      const locResponse = await client.locations.list();
+      const locs = locResponse.locations || [];
+      locIds = locs.map((l: any) => l.id).filter(Boolean) as string[];
+    }
+
     const catalogMappings = await db.select().from(squareCatalogMap).where(eq(squareCatalogMap.isActive, true));
     const variationToItem = new Map<string, string>();
     const itemIdToName = new Map<string, string>();
@@ -105,7 +114,7 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
           sortOrder: "ASC",
         },
       },
-      ...(locationId ? { locationIds: [locationId] } : {}),
+      locationIds: locIds.length > 0 ? locIds : undefined,
     };
 
     do {
@@ -386,6 +395,19 @@ export async function fetchSquareTips(date: string, locationId?: string): Promis
     const startAt = `${date}T00:00:00Z`;
     const endAt = `${date}T23:59:59Z`;
 
+    let locIds: string[] = [];
+    if (locationId) {
+      locIds = [locationId];
+    } else {
+      const locResponse = await client.locations.list();
+      const locs = locResponse.locations || [];
+      locIds = locs.map((l: any) => l.id).filter(Boolean) as string[];
+    }
+
+    if (locIds.length === 0) {
+      throw new Error("No Square locations found. Configure at least one location in Square.");
+    }
+
     const tips: TipEvent[] = [];
     let orderCount = 0;
     let cursor: string | undefined;
@@ -402,7 +424,7 @@ export async function fetchSquareTips(date: string, locationId?: string): Promis
         },
         sort: { sortField: "CREATED_AT", sortOrder: "ASC" },
       },
-      ...(locationId ? { locationIds: [locationId] } : {}),
+      locationIds: locIds,
     };
 
     do {
