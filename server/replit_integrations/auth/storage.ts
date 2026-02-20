@@ -34,12 +34,18 @@ class AuthStorage implements IAuthStorage {
 
   async getUserByPin(pin: string): Promise<User | undefined> {
     const allUsers = await db.select().from(users).where(isNotNull(users.pinHash));
+    const matches: User[] = [];
     for (const user of allUsers) {
       if (user.pinHash && await bcrypt.compare(pin, user.pinHash)) {
-        return user;
+        matches.push(user);
       }
     }
-    return undefined;
+    if (matches.length > 1) {
+      console.error(`Duplicate PIN detected for users: ${matches.map(u => u.username).join(", ")}. Returning owner/manager first.`);
+      const roleOrder = ["owner", "manager", "member"];
+      matches.sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role));
+    }
+    return matches[0];
   }
 
   async isPinTaken(pin: string, excludeUserId?: string): Promise<boolean> {
