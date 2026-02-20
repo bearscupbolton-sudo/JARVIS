@@ -616,7 +616,7 @@ FORMAT RULES for the content field:
         }
       }
 
-      const updated = await storage.updatePendingChangeStatus(changeId, "approved", userId, req.body.reviewNote);
+      const updated = await storage.updatePendingChangeStatus(changeId, "approved", userId, req.body?.reviewNote);
       res.json(updated);
     } catch (error: any) {
       console.error("Error approving change:", error?.message || error, error?.stack);
@@ -634,7 +634,7 @@ FORMAT RULES for the content field:
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const userId = user.id;
-      const updated = await storage.updatePendingChangeStatus(changeId, "rejected", userId, req.body.reviewNote);
+      const updated = await storage.updatePendingChangeStatus(changeId, "rejected", userId, req.body?.reviewNote);
       res.json(updated);
     } catch (error) {
       console.error("Error rejecting change:", error);

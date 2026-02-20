@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertRecipeSchema, type InsertRecipe } from "@shared/schema";
@@ -152,7 +153,9 @@ function CreateRecipeDialog() {
   const { toast } = useToast();
   const [scanning, setScanning] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [changeReason, setChangeReason] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isOwner = user?.role === "owner";
 
   const form = useForm<InsertRecipe>({
     resolver: zodResolver(insertRecipeSchema),
@@ -236,11 +239,12 @@ function CreateRecipeDialog() {
   }, [form, replaceIngredients, replaceInstructions, toast, previewUrl]);
 
   const onSubmit = (data: InsertRecipe) => {
-    mutate(data, {
+    mutate({ ...data, changeReason: changeReason.trim() || undefined }, {
       onSuccess: (result) => {
         setOpen(false);
         form.reset();
         setPreviewUrl(null);
+        setChangeReason("");
         if (result.pending) {
           toast({ title: "Submitted for approval", description: "Your recipe will be reviewed by the owner before it goes live." });
         } else {
@@ -549,6 +553,20 @@ function CreateRecipeDialog() {
                 </div>
               ))}
             </div>
+
+            {!isOwner && (
+              <div className="space-y-2">
+                <Label>Submission Comment (optional)</Label>
+                <Textarea
+                  value={changeReason}
+                  onChange={(e) => setChangeReason(e.target.value)}
+                  placeholder="Add context for the reviewer about this recipe..."
+                  className="resize-none"
+                  rows={2}
+                  data-testid="input-submission-comment"
+                />
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-6 border-t border-border">
               <Button type="button" variant="outline" onClick={() => setOpen(false)} data-testid="button-cancel-recipe">Cancel</Button>

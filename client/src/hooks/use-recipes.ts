@@ -30,11 +30,11 @@ export function useRecipe(id: number) {
 export function useCreateRecipe() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: InsertRecipe) => {
+    mutationFn: async ({ changeReason, ...data }: InsertRecipe & { changeReason?: string }) => {
       const res = await fetch(api.recipes.create.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, changeReason }),
         credentials: "include",
       });
       if (res.status === 202) {
