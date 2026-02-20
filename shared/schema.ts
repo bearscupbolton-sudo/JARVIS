@@ -508,6 +508,7 @@ export const directMessages = pgTable("direct_messages", {
   requiresAck: boolean("requires_ack").default(false).notNull(),
   targetType: text("target_type").notNull().default("individual"),
   targetValue: text("target_value"),
+  parentMessageId: integer("parent_message_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -523,11 +524,25 @@ export const messageRecipients = pgTable("message_recipients", {
   readAt: timestamp("read_at"),
   acknowledged: boolean("acknowledged").default(false).notNull(),
   acknowledgedAt: timestamp("acknowledged_at"),
+  pinned: boolean("pinned").default(false).notNull(),
+  archived: boolean("archived").default(false).notNull(),
 });
 
 export const insertMessageRecipientSchema = createInsertSchema(messageRecipients).omit({ id: true });
 export type MessageRecipient = typeof messageRecipients.$inferSelect;
 export type InsertMessageRecipient = z.infer<typeof insertMessageRecipientSchema>;
+
+export const messageReactions = pgTable("message_reactions", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => directMessages.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertMessageReactionSchema = createInsertSchema(messageReactions).omit({ id: true, createdAt: true });
+export type MessageReaction = typeof messageReactions.$inferSelect;
+export type InsertMessageReaction = z.infer<typeof insertMessageReactionSchema>;
 
 // === PUSH SUBSCRIPTIONS ===
 export const pushSubscriptions = pgTable("push_subscriptions", {
