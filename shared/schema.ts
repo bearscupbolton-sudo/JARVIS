@@ -667,3 +667,16 @@ export const squareSales = pgTable("square_sales", {
 export const insertSquareSalesSchema = createInsertSchema(squareSales).omit({ id: true, createdAt: true });
 export type SquareSales = typeof squareSales.$inferSelect;
 export type InsertSquareSales = z.infer<typeof insertSquareSalesSchema>;
+
+// === ACTIVITY LOGS ===
+export const activityLogs = pgTable("activity_logs", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  action: text("action").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
+export type ActivityLog = typeof activityLogs.$inferSelect;
+export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
