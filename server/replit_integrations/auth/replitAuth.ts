@@ -3,6 +3,7 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
 import { loginSchema, setupOwnerSchema } from "@shared/models/auth";
+import { storage } from "../../storage";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -47,6 +48,7 @@ export async function setupAuth(app: Express) {
         return res.status(403).json({ message: "Your account is locked. Contact a manager." });
       }
       req.session.userId = user.id;
+      storage.logActivity({ userId: user.id, action: "login", metadata: { method: "pin" } }).catch(() => {});
       res.json(user);
     } catch (error: any) {
       if (error.name === "ZodError") {

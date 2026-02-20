@@ -13,6 +13,7 @@ import {
   timeEntries,
   breakEntries,
   userLocations,
+  activityLogs,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -50,6 +51,7 @@ import {
   type TimeEntry, type InsertTimeEntry,
   type BreakEntry, type InsertBreakEntry,
   type UserLocation, type InsertUserLocation,
+  type ActivityLog, type InsertActivityLog,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -255,6 +257,12 @@ export interface IStorage {
   startBreak(timeEntryId: number): Promise<BreakEntry>;
   endBreak(breakId: number): Promise<BreakEntry>;
   getActiveBreak(timeEntryId: number): Promise<BreakEntry | undefined>;
+
+  // Activity Logs
+  logActivity(log: InsertActivityLog): Promise<ActivityLog>;
+  getAllMessages(): Promise<(DirectMessage & { sender: { id: string; firstName: string | null; lastName: string | null; username: string | null }; recipients: { id: string; firstName: string | null; lastName: string | null; username: string | null; read: boolean; acknowledged: boolean }[] })[]>;
+  getLoginActivity(days?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; lastLogin: Date | null; loginCount: number }[]>;
+  getFeatureUsage(days?: number): Promise<{ path: string; label: string; visitCount: number; uniqueUsers: number }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1292,6 +1300,131 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(breakEntries.timeEntryId, timeEntryId), sql`${breakEntries.endAt} IS NULL`))
       .limit(1);
     return entry;
+  }
+
+  // Activity Logs
+  async logActivity(log: InsertActivityLog): Promise<ActivityLog> {
+    const [entry] = await db.insert(activityLogs).values(log).returning();
+    return entry;
+  }
+
+  async getAllMessages() {
+    const allMessages = await db.select().from(directMessages).orderBy(desc(directMessages.createdAt)).limit(200);
+    if (allMessages.length === 0) return [];
+
+    const msgIds = allMessages.map(m => m.id);
+    const allRecipients = await db.select().from(messageRecipients).where(inArray(messageRecipients.messageId, msgIds));
+
+    const allUserIds = Array.from(new Set([
+      ...allMessages.map(m => m.senderId),
+      ...allRecipients.map(r => r.userId),
+    ]));
+    const allUsers = allUserIds.length > 0
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username }).from(users).where(inArray(users.id, allUserIds))
+      : [];
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+    const defaultUser = { id: "", firstName: null, lastName: null, username: null };
+
+    return allMessages.map(msg => ({
+      ...msg,
+      sender: userMap.get(msg.senderId) || { ...defaultUser, id: msg.senderId },
+      recipients: allRecipients
+        .filter(r => r.messageId === msg.id)
+        .map(r => {
+          const u = userMap.get(r.userId) || { ...defaultUser, id: r.userId };
+          return { ...u, read: r.read, acknowledged: r.acknowledged };
+        }),
+    }));
+  }
+
+  async getLoginActivity(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const logs = await db.select().from(activityLogs)
+      .where(and(eq(activityLogs.action, "login"), gte(activityLogs.createdAt, since)));
+
+    const allUsers = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username }).from(users);
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+    const grouped = new Map<string, { count: number; lastLogin: Date | null }>();
+    for (const log of logs) {
+      const existing = grouped.get(log.userId) || { count: 0, lastLogin: null };
+      existing.count++;
+      if (!existing.lastLogin || (log.createdAt && log.createdAt > existing.lastLogin)) {
+        existing.lastLogin = log.createdAt;
+      }
+      grouped.set(log.userId, existing);
+    }
+
+    return allUsers.map(u => {
+      const activity = grouped.get(u.id) || { count: 0, lastLogin: null };
+      return {
+        userId: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        username: u.username,
+        lastLogin: activity.lastLogin,
+        loginCount: activity.count,
+      };
+    });
+  }
+
+  async getFeatureUsage(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const logs = await db.select().from(activityLogs)
+      .where(and(eq(activityLogs.action, "page_view"), gte(activityLogs.createdAt, since)));
+
+    const pathMap = new Map<string, { visitCount: number; uniqueUsers: Set<string> }>();
+    for (const log of logs) {
+      const meta = log.metadata as { path?: string; label?: string } | null;
+      const path = meta?.path || "unknown";
+      const existing = pathMap.get(path) || { visitCount: 0, uniqueUsers: new Set<string>() };
+      existing.visitCount++;
+      existing.uniqueUsers.add(log.userId);
+      pathMap.set(path, existing);
+    }
+
+    const FEATURE_LABELS: Record<string, string> = {
+      "/": "Home",
+      "/dashboard": "Dashboard",
+      "/bakery": "Bakery",
+      "/coffee": "Coffee",
+      "/kitchen": "Kitchen",
+      "/recipes": "Recipes",
+      "/pastry-passports": "Pastry Passports",
+      "/lamination": "Lamination Studio",
+      "/production": "Production Logs",
+      "/sops": "SOPs",
+      "/inventory": "Inventory",
+      "/schedule": "Schedule",
+      "/calendar": "Calendar",
+      "/time-cards": "Time Cards",
+      "/tasks": "Task Manager",
+      "/assistant": "Jarvis",
+      "/kiosk": "Kiosk Mode",
+      "/admin/users": "Team",
+      "/time-review": "Time Review",
+      "/admin/pastry-items": "Master Pastry List",
+      "/pastry-goals": "Pastry Goals",
+      "/live-inventory": "Live Inventory",
+      "/admin/approvals": "Approvals",
+      "/admin/ttis": "TTIS",
+      "/admin/square": "Square Settings",
+      "/admin/insights": "Admin Insights",
+      "/profile": "Profile",
+    };
+
+    return Array.from(pathMap.entries())
+      .map(([path, data]) => ({
+        path,
+        label: FEATURE_LABELS[path] || path,
+        visitCount: data.visitCount,
+        uniqueUsers: data.uniqueUsers.size,
+      }))
+      .sort((a, b) => b.visitCount - a.visitCount);
   }
 }
 

@@ -2840,5 +2840,47 @@ ${sopsHtml}
     }
   });
 
+  // === ADMIN INSIGHTS (Owner Only) ===
+  app.post("/api/activity", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser;
+      const { action, metadata } = req.body;
+      if (!action) return res.status(400).json({ message: "Action required" });
+      await storage.logActivity({ userId: user.id, action, metadata: metadata || null });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/messages", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const messages = await storage.getAllMessages();
+      res.json(messages);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/login-activity", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const activity = await storage.getLoginActivity(days);
+      res.json(activity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/feature-usage", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const usage = await storage.getFeatureUsage(days);
+      res.json(usage);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

@@ -52,5 +52,12 @@ Phase 1 (Foundation) is implemented. Key components:
 - Backend queries for pastry totals and shifts accept optional `locationId` filter via query param
 - API endpoints: `GET /api/my-locations` (user's assigned locations with fallback to all), `PUT /api/user-locations/:userId` (manager+), `GET /api/locations/:id/users`
 
+### Admin Insights Dashboard
+Owner-only dashboard at `/admin/insights` with three tabs:
+- **Messages**: Monitor all P2P/direct messages across the team (sender, recipients, subject, body, read/ack status)
+- **Login Activity**: Track who is logging in, how often, and when they last logged in (data from `activity_logs` table)
+- **Feature Usage**: See most popular features ranked by page views with unique user counts
+Activity tracking: `activity_logs` table (userId, action, metadata JSONB, createdAt). Logins logged server-side on successful PIN auth. Page views logged client-side on route change via Layout component. API: `POST /api/activity` (auth required), `GET /api/admin/insights/messages|login-activity|feature-usage` (owner-only). Supports configurable time range (7/14/30/90 days).
+
 ### TTIS (Tip Transparency Informational Dashboard)
 Owner-only dashboard at `/admin/ttis` that pulls tip data from Square POS orders and allocates tips evenly among FOH (Front of House) staff who were on scheduled shifts when each tip was collected. Uses `America/New_York` timezone for tip-to-shift matching. Handles midnight-crossing shifts. Falls back to splitting among all FOH staff if no specific shift match is found. Supports AM/PM time formats (e.g., "6:00 AM") via `parseTimeToMinutes` helper. API endpoints: `GET /api/ttis?date=YYYY-MM-DD` (daily detail), `GET /api/ttis/week?startDate=YYYY-MM-DD` (weekly aggregation with per-staff totals and per-day summaries). Frontend defaults to week view with configurable work week start day (persisted in localStorage), week navigation, and click-to-drill-into-day detail view.

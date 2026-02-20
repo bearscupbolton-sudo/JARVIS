@@ -42,6 +42,7 @@ import SquareSettings from "@/pages/SquareSettings";
 import PastryGoals from "@/pages/PastryGoals";
 import LiveInventory from "@/pages/LiveInventory";
 import TTIS from "@/pages/TTIS";
+import AdminInsights from "@/pages/AdminInsights";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -192,6 +193,9 @@ function Router() {
       </Route>
       <Route path="/admin/ttis">
         {() => <ProtectedRoute component={TTIS} />}
+      </Route>
+      <Route path="/admin/insights">
+        {() => <ProtectedRoute component={AdminInsights} />}
       </Route>
 
       <Route component={NotFound} />

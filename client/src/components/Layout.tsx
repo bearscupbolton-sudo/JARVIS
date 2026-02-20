@@ -30,6 +30,7 @@ import {
   Settings2,
   DollarSign,
   MapPin,
+  Eye,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
@@ -73,6 +75,7 @@ const OWNER_NAV_ITEMS = [
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
+  { href: "/admin/insights", label: "Insights", icon: Eye },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -80,6 +83,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const isOwner = user?.role === "owner";
+
+  React.useEffect(() => {
+    if (user && location) {
+      const basePath = "/" + (location.split("/").filter(Boolean).slice(0, 2).join("/"));
+      apiRequest("POST", "/api/activity", { action: "page_view", metadata: { path: basePath } }).catch(() => {});
+    }
+  }, [location, user]);
 
   const { data: pendingCount } = useQuery<{ count: number }>({
     queryKey: ["/api/pending-changes/count"],
