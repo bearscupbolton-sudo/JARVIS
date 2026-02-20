@@ -1,7 +1,7 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
 import { squareCatalogMap, squareSales, pastryTotals, bakeoffLogs } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 function getSquareClient() {
   return new SquareClient({
@@ -173,13 +173,13 @@ export async function generateForecast(date: string): Promise<{ itemName: string
     pastDates.push(pastDate.toISOString().split("T")[0]);
   }
 
-  const allSalesData = await db.select().from(squareSales).where(
-    sql`${squareSales.date} = ANY(${pastDates})`
-  );
+  const allSalesData = pastDates.length > 0
+    ? await db.select().from(squareSales).where(inArray(squareSales.date, pastDates))
+    : [];
 
-  const pastryGoalsData = await db.select().from(pastryTotals).where(
-    sql`${pastryTotals.date} = ANY(${pastDates})`
-  );
+  const pastryGoalsData = pastDates.length > 0
+    ? await db.select().from(pastryTotals).where(inArray(pastryTotals.date, pastDates))
+    : [];
 
   const itemHistory = new Map<string, number[]>();
   for (const sale of allSalesData) {

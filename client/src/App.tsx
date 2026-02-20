@@ -37,6 +37,9 @@ import PastryItems from "@/pages/PastryItems";
 import KioskClock from "@/pages/KioskClock";
 import TimeCards from "@/pages/TimeCards";
 import TimeReview from "@/pages/TimeReview";
+import SquareSettings from "@/pages/SquareSettings";
+import PastryGoals from "@/pages/PastryGoals";
+import LiveInventory from "@/pages/LiveInventory";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -169,6 +172,15 @@ function Router() {
       </Route>
       <Route path="/time-review">
         {() => <ProtectedRoute component={TimeReview} />}
+      </Route>
+      <Route path="/admin/square">
+        {() => <ProtectedRoute component={SquareSettings} />}
+      </Route>
+      <Route path="/pastry-goals">
+        {() => <ProtectedRoute component={PastryGoals} />}
+      </Route>
+      <Route path="/live-inventory">
+        {() => <ProtectedRoute component={LiveInventory} />}
       </Route>
 
       <Route component={NotFound} />
