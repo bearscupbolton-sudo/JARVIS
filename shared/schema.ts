@@ -162,6 +162,9 @@ export const pastryTotals = pgTable("pastry_totals", {
   date: text("date").notNull(),
   itemName: text("item_name").notNull(),
   targetCount: integer("target_count").notNull(),
+  forecastedCount: integer("forecasted_count"),
+  isManualOverride: boolean("is_manual_override").default(false).notNull(),
+  source: text("source").default("manual"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -615,3 +618,34 @@ export type Instruction = {
   step: number;
   text: string;
 };
+
+// === SQUARE CATALOG MAP (links Square items to pastry items) ===
+export const squareCatalogMap = pgTable("square_catalog_map", {
+  id: serial("id").primaryKey(),
+  squareItemId: text("square_item_id").notNull(),
+  squareItemName: text("square_item_name").notNull(),
+  squareVariationId: text("square_variation_id"),
+  squareVariationName: text("square_variation_name"),
+  pastryItemName: text("pastry_item_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSquareCatalogMapSchema = createInsertSchema(squareCatalogMap).omit({ id: true, createdAt: true });
+export type SquareCatalogMap = typeof squareCatalogMap.$inferSelect;
+export type InsertSquareCatalogMap = z.infer<typeof insertSquareCatalogMapSchema>;
+
+// === SQUARE SALES (aggregated daily sales from Square) ===
+export const squareSales = pgTable("square_sales", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  itemName: text("item_name").notNull(),
+  quantitySold: integer("quantity_sold").notNull().default(0),
+  revenue: doublePrecision("revenue").default(0),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSquareSalesSchema = createInsertSchema(squareSales).omit({ id: true, createdAt: true });
+export type SquareSales = typeof squareSales.$inferSelect;
+export type InsertSquareSales = z.infer<typeof insertSquareSalesSchema>;

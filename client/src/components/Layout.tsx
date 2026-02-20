@@ -25,6 +25,9 @@ import {
   Cookie,
   Clock,
   Timer,
+  TrendingUp,
+  BarChart3,
+  Settings2,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -58,10 +61,13 @@ const MANAGER_NAV_ITEMS = [
   { href: "/admin/users", label: "Team", icon: Users },
   { href: "/time-review", label: "Time Review", icon: Timer },
   { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
+  { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
+  { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
 ];
 
 const OWNER_NAV_ITEMS = [
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
+  { href: "/admin/square", label: "Square Settings", icon: Settings2 },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

@@ -9,6 +9,13 @@ import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrati
 import { sendPushToUsers, sendPushToUser } from "./push";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
+import { eq } from "drizzle-orm";
+import { squareCatalogMap, squareSales } from "@shared/schema";
+import {
+  testSquareConnection, fetchSquareCatalog, syncSquareSales,
+  getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
+  getLiveInventoryDashboard,
+} from "./square";
 
 async function getUserFromReq(req: any) {
   return req.appUser || null;
@@ -639,6 +646,115 @@ FORMAT RULES for the content field:
     } catch (error) {
       console.error("Error rejecting change:", error);
       res.status(500).json({ message: "Failed to reject change" });
+    }
+  });
+
+  // === SQUARE INTEGRATION ===
+  app.get("/api/square/test", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const result = await testSquareConnection();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.get("/api/square/catalog", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const items = await fetchSquareCatalog();
+      res.json(items);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/square/catalog-map", isAuthenticated, async (req, res) => {
+    const mappings = await db.select().from(squareCatalogMap).orderBy(squareCatalogMap.squareItemName);
+    res.json(mappings);
+  });
+
+  app.post("/api/square/catalog-map", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { squareItemId, squareItemName, squareVariationId, squareVariationName, pastryItemName } = req.body;
+      const [mapping] = await db.insert(squareCatalogMap).values({
+        squareItemId,
+        squareItemName,
+        squareVariationId: squareVariationId || null,
+        squareVariationName: squareVariationName || null,
+        pastryItemName: pastryItemName || null,
+        isActive: true,
+      }).returning();
+      res.status(201).json(mapping);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/square/catalog-map/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { pastryItemName, isActive } = req.body;
+      const updates: any = {};
+      if (pastryItemName !== undefined) updates.pastryItemName = pastryItemName;
+      if (isActive !== undefined) updates.isActive = isActive;
+      const [updated] = await db.update(squareCatalogMap).set(updates).where(eq(squareCatalogMap.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/square/catalog-map/:id", isAuthenticated, isOwner, async (req, res) => {
+    await db.delete(squareCatalogMap).where(eq(squareCatalogMap.id, Number(req.params.id)));
+    res.status(204).send();
+  });
+
+  app.post("/api/square/sync", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const date = (req.body?.date as string) || new Date().toISOString().split("T")[0];
+      const locationId = req.body?.locationId;
+      const result = await syncSquareSales(date, locationId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/square/sales", isAuthenticated, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const sales = await getSquareSalesForDate(date);
+    res.json(sales);
+  });
+
+  // === FORECASTING & SMART GOALS ===
+  app.get("/api/forecast", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const forecasts = await generateForecast(date);
+      res.json(forecasts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/forecast/populate", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const date = (req.body?.date as string) || new Date().toISOString().split("T")[0];
+      const result = await autoPopulatePastryGoals(date);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // === LIVE INVENTORY DASHBOARD ===
+  app.get("/api/inventory-dashboard", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const dashboard = await getLiveInventoryDashboard(date);
+      res.json(dashboard);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 
