@@ -7,6 +7,8 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, is
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrations/audio/client";
 import { sendPushToUsers, sendPushToUser } from "./push";
+import { db } from "./db";
+import { users } from "@shared/models/auth";
 
 async function getUserFromReq(req: any) {
   return req.appUser || null;
@@ -2148,6 +2150,181 @@ ${sopsHtml}
         bakeoffSummary,
         pinnedAnnouncements,
         managerData,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === TIME CARD / CLOCK IN-OUT ===
+  app.get("/api/time/active", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const entry = await storage.getActiveTimeEntry(user.id);
+      res.json(entry || null);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/clock-in", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const entry = await storage.clockIn(user.id, "web");
+      res.status(201).json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/clock-out", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const active = await storage.getActiveTimeEntry(user.id);
+      if (!active) return res.status(400).json({ message: "Not clocked in" });
+      const entry = await storage.clockOut(active.id);
+      res.json(entry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/break/start", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const active = await storage.getActiveTimeEntry(user.id);
+      if (!active) return res.status(400).json({ message: "Not clocked in" });
+      const breakEntry = await storage.startBreak(active.id);
+      res.status(201).json(breakEntry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/break/end", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const active = await storage.getActiveTimeEntry(user.id);
+      if (!active) return res.status(400).json({ message: "Not clocked in" });
+      const activeBreak = await storage.getActiveBreak(active.id);
+      if (!activeBreak) return res.status(400).json({ message: "Not on break" });
+      const breakEntry = await storage.endBreak(activeBreak.id);
+      res.json(breakEntry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/time/mine", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { startDate, endDate } = req.query;
+      const entries = await storage.getTimeEntries(user.id, startDate as string, endDate as string);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/time/team", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const entries = await storage.getAllTimeEntries(startDate as string, endDate as string);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/:id/request-adjustment", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { clockIn, clockOut, note } = req.body;
+      if (!clockIn || !note) return res.status(400).json({ message: "Clock in time and note are required" });
+      const entry = await storage.requestTimeAdjustment(
+        Number(req.params.id),
+        new Date(clockIn),
+        clockOut ? new Date(clockOut) : null,
+        note
+      );
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/time/:id/review", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { approved, reviewNote } = req.body;
+      const entry = await storage.reviewTimeAdjustment(
+        Number(req.params.id),
+        user.id,
+        approved,
+        reviewNote
+      );
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/time/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const updates: any = {};
+      if (req.body.clockIn) updates.clockIn = new Date(req.body.clockIn);
+      if (req.body.clockOut) updates.clockOut = new Date(req.body.clockOut);
+      if (req.body.notes !== undefined) updates.notes = req.body.notes;
+      if (req.body.status) updates.status = req.body.status;
+      const entry = await storage.updateTimeEntry(Number(req.params.id), updates);
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === KIOSK CLOCK-IN (PIN-based, no session required) ===
+  app.post("/api/kiosk/clock-in", async (req: any, res) => {
+    try {
+      const { pin } = req.body;
+      if (!pin) return res.status(400).json({ message: "PIN is required" });
+      const bcrypt = await import("bcryptjs");
+      const allUsers = await db.select().from(users);
+      let matchedUser = null;
+      for (const u of allUsers) {
+        if (u.pinHash && await bcrypt.compare(pin, u.pinHash)) {
+          matchedUser = u;
+          break;
+        }
+      }
+      if (!matchedUser) return res.status(401).json({ message: "Invalid PIN" });
+      if (matchedUser.locked) return res.status(403).json({ message: "Account locked" });
+
+      const activeEntry = await storage.getActiveTimeEntry(matchedUser.id);
+      let action: string;
+      let entry;
+      if (activeEntry) {
+        entry = await storage.clockOut(activeEntry.id);
+        action = "clock-out";
+      } else {
+        entry = await storage.clockIn(matchedUser.id, "kiosk");
+        action = "clock-in";
+      }
+      res.json({
+        action,
+        entry,
+        user: {
+          id: matchedUser.id,
+          firstName: matchedUser.firstName,
+          lastName: matchedUser.lastName,
+          username: matchedUser.username,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

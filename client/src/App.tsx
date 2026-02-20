@@ -34,6 +34,9 @@ import Display from "@/pages/Display";
 import TaskManager from "@/pages/TaskManager";
 import LaminationStudio from "@/pages/LaminationStudio";
 import PastryItems from "@/pages/PastryItems";
+import KioskClock from "@/pages/KioskClock";
+import TimeCards from "@/pages/TimeCards";
+import TimeReview from "@/pages/TimeReview";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -157,6 +160,15 @@ function Router() {
       </Route>
       <Route path="/display">
         {() => <Display />}
+      </Route>
+      <Route path="/clock">
+        {() => <KioskClock />}
+      </Route>
+      <Route path="/time-cards">
+        {() => <ProtectedRoute component={TimeCards} />}
+      </Route>
+      <Route path="/time-review">
+        {() => <ProtectedRoute component={TimeReview} />}
       </Route>
 
       <Route component={NotFound} />

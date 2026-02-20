@@ -10,6 +10,8 @@ import {
   pushSubscriptions,
   laminationDoughs,
   pastryItems,
+  timeEntries,
+  breakEntries,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -44,6 +46,8 @@ import {
   type PushSubscription, type InsertPushSubscription,
   type LaminationDough, type InsertLaminationDough,
   type PastryItem, type InsertPastryItem,
+  type TimeEntry, type InsertTimeEntry,
+  type BreakEntry, type InsertBreakEntry,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -229,6 +233,21 @@ export interface IStorage {
   createPastryItem(item: InsertPastryItem): Promise<PastryItem>;
   updatePastryItem(id: number, updates: Partial<InsertPastryItem>): Promise<PastryItem>;
   deletePastryItem(id: number): Promise<void>;
+
+  // Time Entries
+  getActiveTimeEntry(userId: string): Promise<(TimeEntry & { breaks: BreakEntry[] }) | undefined>;
+  clockIn(userId: string, source?: string): Promise<TimeEntry>;
+  clockOut(timeEntryId: number): Promise<TimeEntry>;
+  getTimeEntries(userId: string, startDate?: string, endDate?: string): Promise<(TimeEntry & { breaks: BreakEntry[] })[]>;
+  getAllTimeEntries(startDate?: string, endDate?: string): Promise<(TimeEntry & { breaks: BreakEntry[] })[]>;
+  updateTimeEntry(id: number, updates: Partial<InsertTimeEntry>): Promise<TimeEntry>;
+  requestTimeAdjustment(id: number, clockIn: Date, clockOut: Date | null, note: string): Promise<TimeEntry>;
+  reviewTimeAdjustment(id: number, reviewedBy: string, approved: boolean, reviewNote?: string): Promise<TimeEntry>;
+
+  // Break Entries
+  startBreak(timeEntryId: number): Promise<BreakEntry>;
+  endBreak(breakId: number): Promise<BreakEntry>;
+  getActiveBreak(timeEntryId: number): Promise<BreakEntry | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1063,6 +1082,154 @@ export class DatabaseStorage implements IStorage {
 
   async deletePastryItem(id: number): Promise<void> {
     await db.delete(pastryItems).where(eq(pastryItems.id, id));
+  }
+
+  // Time Entries
+  async getActiveTimeEntry(userId: string): Promise<(TimeEntry & { breaks: BreakEntry[] }) | undefined> {
+    const [entry] = await db.select().from(timeEntries)
+      .where(and(eq(timeEntries.userId, userId), eq(timeEntries.status, "active")))
+      .orderBy(desc(timeEntries.clockIn))
+      .limit(1);
+    if (!entry) return undefined;
+    const breaks = await db.select().from(breakEntries)
+      .where(eq(breakEntries.timeEntryId, entry.id))
+      .orderBy(desc(breakEntries.startAt));
+    return { ...entry, breaks };
+  }
+
+  async clockIn(userId: string, source: string = "web"): Promise<TimeEntry> {
+    const existing = await db.select().from(timeEntries)
+      .where(and(eq(timeEntries.userId, userId), eq(timeEntries.status, "active")))
+      .limit(1);
+    if (existing.length > 0) throw new Error("Already clocked in");
+    const [entry] = await db.insert(timeEntries).values({
+      userId,
+      clockIn: new Date(),
+      status: "active",
+      source,
+    }).returning();
+    return entry;
+  }
+
+  async clockOut(timeEntryId: number): Promise<TimeEntry> {
+    const openBreaks = await db.select().from(breakEntries)
+      .where(and(eq(breakEntries.timeEntryId, timeEntryId), sql`${breakEntries.endAt} IS NULL`));
+    for (const b of openBreaks) {
+      await db.update(breakEntries).set({ endAt: new Date() }).where(eq(breakEntries.id, b.id));
+    }
+    const [entry] = await db.update(timeEntries)
+      .set({ clockOut: new Date(), status: "completed" })
+      .where(eq(timeEntries.id, timeEntryId))
+      .returning();
+    return entry;
+  }
+
+  async getTimeEntries(userId: string, startDate?: string, endDate?: string): Promise<(TimeEntry & { breaks: BreakEntry[] })[]> {
+    const conditions = [eq(timeEntries.userId, userId)];
+    if (startDate) conditions.push(gte(timeEntries.clockIn, new Date(startDate)));
+    if (endDate) conditions.push(lte(timeEntries.clockIn, new Date(endDate + "T23:59:59")));
+    const entries = await db.select().from(timeEntries)
+      .where(and(...conditions))
+      .orderBy(desc(timeEntries.clockIn));
+    const entryIds = entries.map(e => e.id);
+    const allBreaks = entryIds.length > 0
+      ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, entryIds))
+      : [];
+    return entries.map(e => ({
+      ...e,
+      breaks: allBreaks.filter(b => b.timeEntryId === e.id),
+    }));
+  }
+
+  async getAllTimeEntries(startDate?: string, endDate?: string): Promise<(TimeEntry & { breaks: BreakEntry[] })[]> {
+    const conditions: any[] = [];
+    if (startDate) conditions.push(gte(timeEntries.clockIn, new Date(startDate)));
+    if (endDate) conditions.push(lte(timeEntries.clockIn, new Date(endDate + "T23:59:59")));
+    const entries = await db.select().from(timeEntries)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(timeEntries.clockIn));
+    const entryIds = entries.map(e => e.id);
+    const allBreaks = entryIds.length > 0
+      ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, entryIds))
+      : [];
+    return entries.map(e => ({
+      ...e,
+      breaks: allBreaks.filter(b => b.timeEntryId === e.id),
+    }));
+  }
+
+  async updateTimeEntry(id: number, updates: Partial<InsertTimeEntry>): Promise<TimeEntry> {
+    const [updated] = await db.update(timeEntries).set(updates).where(eq(timeEntries.id, id)).returning();
+    return updated;
+  }
+
+  async requestTimeAdjustment(id: number, clockIn: Date, clockOut: Date | null, note: string): Promise<TimeEntry> {
+    const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id));
+    if (!entry) throw new Error("Time entry not found");
+    const [updated] = await db.update(timeEntries).set({
+      adjustmentRequested: true,
+      adjustmentNote: note,
+      originalClockIn: entry.clockIn,
+      originalClockOut: entry.clockOut,
+      clockIn,
+      clockOut,
+      reviewStatus: "pending",
+    }).where(eq(timeEntries.id, id)).returning();
+    return updated;
+  }
+
+  async reviewTimeAdjustment(id: number, reviewedBy: string, approved: boolean, reviewNote?: string): Promise<TimeEntry> {
+    const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id));
+    if (!entry) throw new Error("Time entry not found");
+    if (approved) {
+      const [updated] = await db.update(timeEntries).set({
+        reviewStatus: "approved",
+        reviewedBy,
+        reviewedAt: new Date(),
+        adjustmentRequested: false,
+      }).where(eq(timeEntries.id, id)).returning();
+      return updated;
+    } else {
+      const [updated] = await db.update(timeEntries).set({
+        reviewStatus: "rejected",
+        reviewedBy,
+        reviewedAt: new Date(),
+        adjustmentRequested: false,
+        clockIn: entry.originalClockIn || entry.clockIn,
+        clockOut: entry.originalClockOut,
+        originalClockIn: null,
+        originalClockOut: null,
+      }).where(eq(timeEntries.id, id)).returning();
+      return updated;
+    }
+  }
+
+  // Break Entries
+  async startBreak(timeEntryId: number): Promise<BreakEntry> {
+    const existing = await db.select().from(breakEntries)
+      .where(and(eq(breakEntries.timeEntryId, timeEntryId), sql`${breakEntries.endAt} IS NULL`))
+      .limit(1);
+    if (existing.length > 0) throw new Error("Already on break");
+    const [entry] = await db.insert(breakEntries).values({
+      timeEntryId,
+      startAt: new Date(),
+    }).returning();
+    return entry;
+  }
+
+  async endBreak(breakId: number): Promise<BreakEntry> {
+    const [entry] = await db.update(breakEntries)
+      .set({ endAt: new Date() })
+      .where(eq(breakEntries.id, breakId))
+      .returning();
+    return entry;
+  }
+
+  async getActiveBreak(timeEntryId: number): Promise<BreakEntry | undefined> {
+    const [entry] = await db.select().from(breakEntries)
+      .where(and(eq(breakEntries.timeEntryId, timeEntryId), sql`${breakEntries.endAt} IS NULL`))
+      .limit(1);
+    return entry;
   }
 }
 

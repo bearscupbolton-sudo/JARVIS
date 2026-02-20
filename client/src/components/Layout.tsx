@@ -23,6 +23,8 @@ import {
   Home,
   Layers,
   Cookie,
+  Clock,
+  Timer,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,6 +48,7 @@ const NAV_ITEMS = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/calendar", label: "Calendar", icon: Calendar },
+  { href: "/time-cards", label: "Time Cards", icon: Clock },
   { href: "/tasks", label: "Task Manager", icon: ListChecks },
   { href: "/assistant", label: "Jarvis", icon: Bot },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
@@ -53,6 +56,7 @@ const NAV_ITEMS = [
 
 const MANAGER_NAV_ITEMS = [
   { href: "/admin/users", label: "Team", icon: Users },
+  { href: "/time-review", label: "Time Review", icon: Timer },
   { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
 ];
 

@@ -561,6 +561,42 @@ export const insertPastryItemSchema = createInsertSchema(pastryItems).omit({ id:
 export type PastryItem = typeof pastryItems.$inferSelect;
 export type InsertPastryItem = z.infer<typeof insertPastryItemSchema>;
 
+// === TIME ENTRIES (Clock In / Clock Out) ===
+export const timeEntries = pgTable("time_entries", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  clockIn: timestamp("clock_in").notNull(),
+  clockOut: timestamp("clock_out"),
+  status: text("status").notNull().default("active"),
+  source: text("source").notNull().default("web"),
+  notes: text("notes"),
+  adjustmentRequested: boolean("adjustment_requested").default(false).notNull(),
+  adjustmentNote: text("adjustment_note"),
+  originalClockIn: timestamp("original_clock_in"),
+  originalClockOut: timestamp("original_clock_out"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewStatus: text("review_status"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
+
+// === BREAK ENTRIES ===
+export const breakEntries = pgTable("break_entries", {
+  id: serial("id").primaryKey(),
+  timeEntryId: integer("time_entry_id").notNull().references(() => timeEntries.id, { onDelete: "cascade" }),
+  startAt: timestamp("start_at").notNull(),
+  endAt: timestamp("end_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBreakEntrySchema = createInsertSchema(breakEntries).omit({ id: true, createdAt: true });
+export type BreakEntry = typeof breakEntries.$inferSelect;
+export type InsertBreakEntry = z.infer<typeof insertBreakEntrySchema>;
+
 export type Ingredient = {
   name: string;
   quantity: number;

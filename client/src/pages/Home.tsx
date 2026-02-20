@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,10 +19,11 @@ import {
   Send, Megaphone, ArrowRight, CheckCircle2, Inbox,
   AlertCircle, Pin, Plus, Eye, ChefHat, ClipboardList,
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
-  Trash2, Check, MessageSquare, SendHorizontal
+  Trash2, Check, MessageSquare, SendHorizontal,
+  LogIn, LogOut, Coffee, Timer
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
-import type { Shift, Announcement, DirectMessage, MessageRecipient } from "@shared/schema";
+import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
 
 type InboxMessage = DirectMessage & {
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
@@ -68,6 +69,179 @@ function formatShiftDate(dateStr: string): string {
 function senderName(sender: InboxMessage["sender"]): string {
   if (sender.firstName) return sender.firstName + (sender.lastName ? ` ${sender.lastName}` : "");
   return sender.username || "Unknown";
+}
+
+type ActiveTimeEntry = TimeEntry & { breaks: BreakEntry[] };
+
+function ClockBar() {
+  const { toast } = useToast();
+  const [, setTick] = useState(0);
+
+  const { data: activeEntry, isLoading } = useQuery<ActiveTimeEntry | null>({
+    queryKey: ["/api/time/active"],
+    refetchInterval: 15000,
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const clockInMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/time/clock-in");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
+      toast({ title: "Clocked In", description: "Your shift has started." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const clockOutMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/time/clock-out");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
+      toast({ title: "Clocked Out", description: "Great work today!" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const breakStartMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/time/break/start");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
+      toast({ title: "Break Started", description: "Enjoy your break!" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const breakEndMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/time/break/end");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
+      toast({ title: "Break Ended", description: "Welcome back!" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return null;
+
+  const isClockedIn = !!activeEntry;
+  const onBreak = activeEntry?.breaks?.some(b => !b.endAt) || false;
+
+  const getElapsed = () => {
+    if (!activeEntry) return "";
+    const start = new Date(activeEntry.clockIn).getTime();
+    const diff = Date.now() - start;
+    const hrs = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  };
+
+  const getBreakTime = () => {
+    if (!activeEntry) return "";
+    let total = 0;
+    for (const b of activeEntry.breaks) {
+      const end = b.endAt ? new Date(b.endAt).getTime() : Date.now();
+      total += end - new Date(b.startAt).getTime();
+    }
+    const mins = Math.floor(total / 60000);
+    return mins > 0 ? `${mins}m break` : "";
+  };
+
+  const clockInTime = activeEntry ? format(new Date(activeEntry.clockIn), "h:mm a") : "";
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 flex-wrap rounded-md px-4 py-2.5 ${
+        isClockedIn
+          ? onBreak
+            ? "bg-amber-500/10 border border-amber-500/20"
+            : "bg-emerald-500/10 border border-emerald-500/20"
+          : "bg-muted/50 border border-border"
+      }`}
+      data-testid="container-clock-bar"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+          isClockedIn ? onBreak ? "bg-amber-500 animate-pulse" : "bg-emerald-500" : "bg-muted-foreground/40"
+        }`} />
+        <div className="flex flex-col min-w-0">
+          <span className="text-sm font-medium truncate" data-testid="text-clock-status">
+            {isClockedIn
+              ? onBreak
+                ? "On Break"
+                : `Clocked in since ${clockInTime}`
+              : "Not clocked in"
+            }
+          </span>
+          {isClockedIn && (
+            <span className="text-xs text-muted-foreground font-mono" data-testid="text-clock-elapsed">
+              {getElapsed()} total{getBreakTime() ? ` \u00B7 ${getBreakTime()}` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {isClockedIn && (
+          <>
+            {onBreak ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => breakEndMutation.mutate()}
+                disabled={breakEndMutation.isPending}
+                data-testid="button-end-break"
+              >
+                <Coffee className="w-3.5 h-3.5 mr-1.5" />
+                End Break
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => breakStartMutation.mutate()}
+                disabled={breakStartMutation.isPending}
+                data-testid="button-start-break"
+              >
+                <Coffee className="w-3.5 h-3.5 mr-1.5" />
+                Break
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => clockOutMutation.mutate()}
+              disabled={clockOutMutation.isPending}
+              data-testid="button-clock-out"
+            >
+              <LogOut className="w-3.5 h-3.5 mr-1.5" />
+              Clock Out
+            </Button>
+          </>
+        )}
+        {!isClockedIn && (
+          <Button
+            size="sm"
+            variant="default"
+            onClick={() => clockInMutation.mutate()}
+            disabled={clockInMutation.isPending}
+            data-testid="button-clock-in"
+          >
+            <LogIn className="w-3.5 h-3.5 mr-1.5" />
+            Clock In
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -196,6 +370,8 @@ export default function Home() {
           {format(new Date(), "EEEE, MMMM do, yyyy")}
         </p>
       </div>
+
+      <ClockBar />
 
       {/* Quick Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">
