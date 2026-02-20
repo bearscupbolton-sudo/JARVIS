@@ -40,6 +40,7 @@ import TimeReview from "@/pages/TimeReview";
 import SquareSettings from "@/pages/SquareSettings";
 import PastryGoals from "@/pages/PastryGoals";
 import LiveInventory from "@/pages/LiveInventory";
+import TTIS from "@/pages/TTIS";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -181,6 +182,9 @@ function Router() {
       </Route>
       <Route path="/live-inventory">
         {() => <ProtectedRoute component={LiveInventory} />}
+      </Route>
+      <Route path="/admin/ttis">
+        {() => <ProtectedRoute component={TTIS} />}
       </Route>
 
       <Route component={NotFound} />

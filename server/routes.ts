@@ -9,12 +9,12 @@ import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrati
 import { sendPushToUsers, sendPushToUser } from "./push";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq } from "drizzle-orm";
-import { squareCatalogMap, squareSales } from "@shared/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
+import { squareCatalogMap, squareSales, shifts } from "@shared/schema";
 import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
-  getLiveInventoryDashboard,
+  getLiveInventoryDashboard, fetchSquareTips,
 } from "./square";
 
 async function getUserFromReq(req: any) {
@@ -755,6 +755,149 @@ FORMAT RULES for the content field:
       res.json(dashboard);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // === TTIS (Tip Transparency Informational Dashboard) ===
+  app.get("/api/ttis", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+
+      const fohShifts = await db.select().from(shifts)
+        .where(and(eq(shifts.shiftDate, date), eq(shifts.department, "foh")));
+
+      const fohUserIds = Array.from(new Set(fohShifts.map(s => s.userId)));
+      let fohStaff: any[] = [];
+      if (fohUserIds.length > 0) {
+        const { inArray } = await import("drizzle-orm");
+        fohStaff = await db.select({
+          id: users.id,
+          username: users.username,
+          firstName: users.firstName,
+          lastName: users.lastName,
+        }).from(users).where(inArray(users.id, fohUserIds));
+      }
+
+      const staffMap = new Map(fohStaff.map(s => [s.id, s]));
+      const shiftsWithNames = fohShifts.map(s => ({
+        ...s,
+        staffName: staffMap.get(s.userId)
+          ? `${staffMap.get(s.userId)!.firstName || ""} ${staffMap.get(s.userId)!.lastName || ""}`.trim() || staffMap.get(s.userId)!.username
+          : "Unknown",
+        username: staffMap.get(s.userId)?.username || "Unknown",
+      }));
+
+      let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
+      let squareError: string | null = null;
+      try {
+        tipData = await fetchSquareTips(date);
+      } catch (err: any) {
+        squareError = err.message || "Failed to fetch tips from Square";
+      }
+
+      const staffTotals = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
+      for (const shift of shiftsWithNames) {
+        if (!staffTotals.has(shift.userId)) {
+          staffTotals.set(shift.userId, {
+            name: shift.staffName,
+            username: shift.username,
+            totalMinutes: 0,
+            tipsCents: 0,
+            tipCount: 0,
+          });
+        }
+        const [sh, sm] = shift.startTime.split(":").map(Number);
+        const [eh, em] = shift.endTime.split(":").map(Number);
+        const mins = (eh * 60 + em) - (sh * 60 + sm);
+        staffTotals.get(shift.userId)!.totalMinutes += Math.max(0, mins);
+      }
+
+      const allocations: Array<{
+        orderId: string;
+        time: string;
+        tipAmount: number;
+        staffOnDuty: string[];
+        splitAmount: number;
+      }> = [];
+
+      for (const tip of tipData.tips) {
+        let tipTime: Date | null = null;
+        try {
+          tipTime = new Date(tip.createdAt);
+        } catch { continue; }
+
+        const tipLocalStr = tipTime.toLocaleString("en-US", { timeZone: "America/New_York" });
+        const tipLocal = new Date(tipLocalStr);
+        const tipMins = tipLocal.getHours() * 60 + tipLocal.getMinutes();
+
+        const onDutyStaff: string[] = [];
+        for (const shift of shiftsWithNames) {
+          const [sh, sm] = shift.startTime.split(":").map(Number);
+          const [eh, em] = shift.endTime.split(":").map(Number);
+          const shiftStartMins = sh * 60 + sm;
+          const shiftEndMins = eh * 60 + em;
+
+          if (shiftEndMins > shiftStartMins) {
+            if (tipMins >= shiftStartMins && tipMins < shiftEndMins) {
+              if (!onDutyStaff.includes(shift.userId)) {
+                onDutyStaff.push(shift.userId);
+              }
+            }
+          } else {
+            if (tipMins >= shiftStartMins || tipMins < shiftEndMins) {
+              if (!onDutyStaff.includes(shift.userId)) {
+                onDutyStaff.push(shift.userId);
+              }
+            }
+          }
+        }
+
+        if (onDutyStaff.length === 0) {
+          const allFohIds = Array.from(new Set(shiftsWithNames.map(s => s.userId)));
+          onDutyStaff.push(...allFohIds);
+        }
+
+        const splitAmount = onDutyStaff.length > 0 ? Math.round(tip.tipAmountCents / onDutyStaff.length) : 0;
+
+        for (const uid of onDutyStaff) {
+          const entry = staffTotals.get(uid);
+          if (entry) {
+            entry.tipsCents += splitAmount;
+            entry.tipCount += 1;
+          }
+        }
+
+        allocations.push({
+          orderId: tip.orderId,
+          time: tip.createdAt,
+          tipAmount: tip.tipAmountCents / 100,
+          staffOnDuty: onDutyStaff.map(uid => staffTotals.get(uid)?.name || "Unknown"),
+          splitAmount: splitAmount / 100,
+        });
+      }
+
+      const staffBreakdown = Array.from(staffTotals.entries()).map(([userId, data]) => ({
+        userId,
+        name: data.name,
+        username: data.username,
+        hoursWorked: Math.round(data.totalMinutes / 60 * 100) / 100,
+        totalTips: Math.round(data.tipsCents) / 100,
+        tipCount: data.tipCount,
+      })).sort((a, b) => b.totalTips - a.totalTips);
+
+      res.json({
+        date,
+        totalTips: tipData.totalTipsCents / 100,
+        totalOrders: tipData.orderCount,
+        tippedOrders: tipData.tips.length,
+        fohStaffCount: fohUserIds.length,
+        staffBreakdown,
+        allocations,
+        squareError,
+      });
+    } catch (error: any) {
+      console.error("TTIS error:", error);
+      res.status(500).json({ message: error.message || "Failed to generate tip report" });
     }
   });
 

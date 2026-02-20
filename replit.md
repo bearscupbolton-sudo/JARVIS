@@ -40,3 +40,6 @@ The architecture emphasizes shared Zod schemas for type-safe API contracts and v
 -   **Replit Auth (OIDC)**: Used for user authentication.
 -   **OpenAI-compatible API**: Powers AI features (Jarvis chat, voice, image generation, invoice scanning).
 -   **Twilio (Optional)**: Stubbed for SMS notifications, requiring environment variables for full functionality.
+
+### TTIS (Tip Transparency Informational Dashboard)
+Owner-only dashboard at `/admin/ttis` that pulls tip data from Square POS orders and allocates tips evenly among FOH (Front of House) staff who were on scheduled shifts when each tip was collected. Uses `America/New_York` timezone for tip-to-shift matching. Handles midnight-crossing shifts. Falls back to splitting among all FOH staff if no specific shift match is found. API endpoint: `GET /api/ttis?date=YYYY-MM-DD`.

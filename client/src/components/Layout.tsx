@@ -28,6 +28,7 @@ import {
   TrendingUp,
   BarChart3,
   Settings2,
+  DollarSign,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -67,6 +68,7 @@ const MANAGER_NAV_ITEMS = [
 
 const OWNER_NAV_ITEMS = [
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
+  { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
 ];
 

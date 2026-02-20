@@ -370,3 +370,71 @@ export async function getLiveInventoryDashboard(date: string) {
     items: inventory.sort((a, b) => a.itemName.localeCompare(b.itemName)),
   };
 }
+
+export interface TipEvent {
+  orderId: string;
+  tenderId: string;
+  createdAt: string;
+  tipAmountCents: number;
+  totalAmountCents: number;
+  tenderType: string;
+}
+
+export async function fetchSquareTips(date: string, locationId?: string): Promise<{ tips: TipEvent[]; totalTipsCents: number; orderCount: number }> {
+  try {
+    const client = getSquareClient();
+    const startAt = `${date}T00:00:00Z`;
+    const endAt = `${date}T23:59:59Z`;
+
+    const tips: TipEvent[] = [];
+    let orderCount = 0;
+    let cursor: string | undefined;
+
+    const body: any = {
+      query: {
+        filter: {
+          dateTimeFilter: {
+            createdAt: { startAt, endAt },
+          },
+          stateFilter: {
+            states: ["COMPLETED"],
+          },
+        },
+        sort: { sortField: "CREATED_AT", sortOrder: "ASC" },
+      },
+      ...(locationId ? { locationIds: [locationId] } : {}),
+    };
+
+    do {
+      if (cursor) body.cursor = cursor;
+      const response = await client.orders.search(body);
+      const orders = response.orders || [];
+
+      for (const order of orders) {
+        orderCount++;
+        const tenders = (order as any).tenders || [];
+        for (const tender of tenders) {
+          const tipAmount = tender.tipMoney?.amount ? Number(tender.tipMoney.amount) : 0;
+          if (tipAmount > 0) {
+            tips.push({
+              orderId: order.id || "",
+              tenderId: tender.id || "",
+              createdAt: (order as any).createdAt || "",
+              tipAmountCents: tipAmount,
+              totalAmountCents: tender.totalMoney?.amount ? Number(tender.totalMoney.amount) : 0,
+              tenderType: tender.type || "OTHER",
+            });
+          }
+        }
+      }
+
+      cursor = (response as any).cursor || undefined;
+    } while (cursor);
+
+    const totalTipsCents = tips.reduce((sum, t) => sum + t.tipAmountCents, 0);
+    return { tips, totalTipsCents, orderCount };
+  } catch (error: any) {
+    console.error("Error fetching Square tips:", error);
+    throw new Error(`Failed to fetch tips: ${error.message}`);
+  }
+}
