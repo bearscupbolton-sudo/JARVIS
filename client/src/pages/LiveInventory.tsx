@@ -20,6 +20,7 @@ import {
   Clock,
   DollarSign,
 } from "lucide-react";
+import { useLocationContext } from "@/hooks/use-location-context";
 
 type InventoryItem = {
   itemName: string;
@@ -69,6 +70,7 @@ function PaceBadge({ status }: { status: string }) {
 
 export default function LiveInventory() {
   const { toast } = useToast();
+  const { selectedLocationId } = useLocationContext();
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = useState(today);
 
@@ -78,16 +80,19 @@ export default function LiveInventory() {
     setDate(d.toISOString().split("T")[0]);
   }
 
+  const locParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+
   const { data: dashboard, isLoading } = useQuery<DashboardData>({
-    queryKey: [`/api/inventory-dashboard?date=${date}`],
+    queryKey: ["/api/inventory-dashboard", date, selectedLocationId],
+    queryFn: () => fetch(`/api/inventory-dashboard?date=${date}${locParam}`).then(r => r.json()),
     refetchInterval: date === today ? 30000 : false,
   });
 
   const syncMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/square/sync", { date }),
+    mutationFn: () => apiRequest("POST", "/api/square/sync", { date, locationId: selectedLocationId }),
     onSuccess: async (res) => {
       const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: [`/api/inventory-dashboard?date=${date}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory-dashboard", date, selectedLocationId] });
       queryClient.invalidateQueries({ queryKey: ["/api/square/sales"] });
       toast({ title: "Sales synced", description: `${data.ordersProcessed} orders processed` });
     },

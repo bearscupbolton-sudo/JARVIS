@@ -32,6 +32,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import type { PastryItem } from "@shared/schema";
+import { useLocationContext } from "@/hooks/use-location-context";
 
 type SquareLocation = { id: string; name: string; address?: string; status: string };
 type SquareCatalogItem = { id: string; name: string; description?: string; variations: { id: string; name: string }[] };
@@ -39,6 +40,7 @@ type CatalogMapping = { id: number; squareItemId: string; squareItemName: string
 
 export default function SquareSettings() {
   const { toast } = useToast();
+  const { selectedLocationId } = useLocationContext();
   const [showMapDialog, setShowMapDialog] = useState(false);
   const [selectedSquareItem, setSelectedSquareItem] = useState<SquareCatalogItem | null>(null);
   const [selectedVariation, setSelectedVariation] = useState("");
@@ -91,7 +93,7 @@ export default function SquareSettings() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: (date: string) => apiRequest("POST", "/api/square/sync", { date }),
+    mutationFn: (date: string) => apiRequest("POST", "/api/square/sync", { date, locationId: selectedLocationId }),
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/square/sales"] });

@@ -1072,9 +1072,10 @@ export default function Schedule() {
   );
 }
 
-const locationFormSchema = insertLocationSchema.pick({ name: true, address: true }).extend({
+const locationFormSchema = insertLocationSchema.pick({ name: true, address: true, squareLocationId: true }).extend({
   name: z.string().min(1, "Name is required"),
   address: z.string().optional(),
+  squareLocationId: z.string().optional(),
 });
 
 type LocationFormValues = z.infer<typeof locationFormSchema>;
@@ -1086,7 +1087,7 @@ function LocationsManager({ locations }: { locations: Location[] }) {
 
   const form = useForm<LocationFormValues>({
     resolver: zodResolver(locationFormSchema),
-    defaultValues: { name: "", address: "" },
+    defaultValues: { name: "", address: "", squareLocationId: "" },
   });
 
   const createMutation = useMutation({
@@ -1131,13 +1132,13 @@ function LocationsManager({ locations }: { locations: Location[] }) {
 
   function openCreate() {
     setEditingLocation(null);
-    form.reset({ name: "", address: "" });
+    form.reset({ name: "", address: "", squareLocationId: "" });
     setDialogOpen(true);
   }
 
   function openEdit(loc: Location) {
     setEditingLocation(loc);
-    form.reset({ name: loc.name, address: loc.address || "" });
+    form.reset({ name: loc.name, address: loc.address || "", squareLocationId: loc.squareLocationId || "" });
     setDialogOpen(true);
   }
 
@@ -1177,6 +1178,11 @@ function LocationsManager({ locations }: { locations: Location[] }) {
                       {loc.isDefault && <Badge variant="secondary" className="text-[10px]">Default</Badge>}
                     </div>
                     {loc.address && <p className="text-sm text-muted-foreground">{loc.address}</p>}
+                    {loc.squareLocationId && (
+                      <Badge variant="outline" className="text-[10px] mt-1" data-testid={`badge-square-linked-${loc.id}`}>
+                        Square Linked
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -1237,6 +1243,19 @@ function LocationsManager({ locations }: { locations: Location[] }) {
                     <FormLabel>Address (optional)</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="123 Main St" data-testid="input-location-address" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="squareLocationId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Square Location ID (optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. LXXXXXXXXXXXXXXX" data-testid="input-location-square-id" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

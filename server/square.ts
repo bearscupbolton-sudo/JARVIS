@@ -1,7 +1,7 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
-import { squareCatalogMap, squareSales, pastryTotals, bakeoffLogs } from "@shared/schema";
-import { eq, inArray } from "drizzle-orm";
+import { squareCatalogMap, squareSales, pastryTotals, bakeoffLogs, locations } from "@shared/schema";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 
 function getSquareClient() {
   return new SquareClient({
@@ -64,19 +64,31 @@ export async function fetchSquareCatalog(): Promise<any[]> {
   }
 }
 
-export async function syncSquareSales(date: string, locationId?: string): Promise<{ itemsSynced: number; ordersProcessed: number }> {
+export async function syncSquareSales(date: string, jarvisLocationId?: number): Promise<{ itemsSynced: number; ordersProcessed: number }> {
   try {
     const client = getSquareClient();
     const startAt = `${date}T00:00:00Z`;
     const endAt = `${date}T23:59:59Z`;
 
-    let locIds: string[] = [];
-    if (locationId) {
-      locIds = [locationId];
+    let squareLocIds: string[] = [];
+
+    if (jarvisLocationId) {
+      const [loc] = await db.select().from(locations).where(eq(locations.id, jarvisLocationId));
+      if (loc?.squareLocationId) {
+        squareLocIds = [loc.squareLocationId];
+      } else {
+        throw new Error("Selected location has no Square Location ID linked. Go to Schedule > Locations and add the Square Location ID.");
+      }
     } else {
-      const locResponse = await client.locations.list();
-      const locs = locResponse.locations || [];
-      locIds = locs.map((l: any) => l.id).filter(Boolean) as string[];
+      const allLocs = await db.select().from(locations);
+      const linked = allLocs.filter(l => l.squareLocationId);
+      if (linked.length > 0) {
+        squareLocIds = linked.map(l => l.squareLocationId!);
+      } else {
+        const locResponse = await client.locations.list();
+        const locs = locResponse.locations || [];
+        squareLocIds = locs.map((l: any) => l.id).filter(Boolean) as string[];
+      }
     }
 
     const catalogMappings = await db.select().from(squareCatalogMap).where(eq(squareCatalogMap.isActive, true));
@@ -114,7 +126,7 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
           sortOrder: "ASC",
         },
       },
-      locationIds: locIds.length > 0 ? locIds : undefined,
+      locationIds: squareLocIds.length > 0 ? squareLocIds : undefined,
     };
 
     do {
@@ -148,7 +160,11 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
       cursor = (response as any).cursor || undefined;
     } while (cursor);
 
-    await db.delete(squareSales).where(eq(squareSales.date, date));
+    if (jarvisLocationId) {
+      await db.delete(squareSales).where(and(eq(squareSales.date, date), eq(squareSales.locationId, jarvisLocationId)));
+    } else {
+      await db.delete(squareSales).where(eq(squareSales.date, date));
+    }
 
     const entries = Array.from(salesAgg.entries());
     for (const [itemName, data] of entries) {
@@ -157,6 +173,7 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
         itemName,
         quantitySold: data.qty,
         revenue: data.revenue,
+        locationId: jarvisLocationId || null,
         lastSyncedAt: new Date(),
       });
     }
@@ -168,11 +185,13 @@ export async function syncSquareSales(date: string, locationId?: string): Promis
   }
 }
 
-export async function getSquareSalesForDate(date: string) {
-  return await db.select().from(squareSales).where(eq(squareSales.date, date)).orderBy(squareSales.itemName);
+export async function getSquareSalesForDate(date: string, locationId?: number) {
+  const conditions = [eq(squareSales.date, date)];
+  if (locationId) conditions.push(eq(squareSales.locationId, locationId));
+  return await db.select().from(squareSales).where(and(...conditions)).orderBy(squareSales.itemName);
 }
 
-export async function generateForecast(date: string): Promise<{ itemName: string; forecast: number; method: string; confidence: number }[]> {
+export async function generateForecast(date: string, locationId?: number): Promise<{ itemName: string; forecast: number; method: string; confidence: number }[]> {
   const targetDate = new Date(date);
 
   const pastDates: string[] = [];
@@ -182,12 +201,16 @@ export async function generateForecast(date: string): Promise<{ itemName: string
     pastDates.push(pastDate.toISOString().split("T")[0]);
   }
 
+  const salesConditions = [inArray(squareSales.date, pastDates)];
+  if (locationId) salesConditions.push(eq(squareSales.locationId, locationId));
   const allSalesData = pastDates.length > 0
-    ? await db.select().from(squareSales).where(inArray(squareSales.date, pastDates))
+    ? await db.select().from(squareSales).where(and(...salesConditions))
     : [];
 
+  const goalsConditions = [inArray(pastryTotals.date, pastDates)];
+  if (locationId) goalsConditions.push(eq(pastryTotals.locationId, locationId));
   const pastryGoalsData = pastDates.length > 0
-    ? await db.select().from(pastryTotals).where(inArray(pastryTotals.date, pastDates))
+    ? await db.select().from(pastryTotals).where(and(...goalsConditions))
     : [];
 
   const itemHistory = new Map<string, number[]>();
@@ -235,9 +258,11 @@ export async function generateForecast(date: string): Promise<{ itemName: string
   return forecasts.sort((a, b) => a.itemName.localeCompare(b.itemName));
 }
 
-export async function autoPopulatePastryGoals(date: string): Promise<{ populated: number; skipped: number }> {
-  const forecasts = await generateForecast(date);
-  const existing = await db.select().from(pastryTotals).where(eq(pastryTotals.date, date));
+export async function autoPopulatePastryGoals(date: string, locationId?: number): Promise<{ populated: number; skipped: number }> {
+  const forecasts = await generateForecast(date, locationId);
+  const conditions = [eq(pastryTotals.date, date)];
+  if (locationId) conditions.push(eq(pastryTotals.locationId, locationId));
+  const existing = await db.select().from(pastryTotals).where(and(...conditions));
   const existingMap = new Map(existing.map(e => [e.itemName, e]));
 
   let populated = 0;
@@ -275,11 +300,17 @@ export async function autoPopulatePastryGoals(date: string): Promise<{ populated
   return { populated, skipped };
 }
 
-export async function getLiveInventoryDashboard(date: string) {
+export async function getLiveInventoryDashboard(date: string, locationId?: number) {
+  const goalsCond = [eq(pastryTotals.date, date)];
+  if (locationId) goalsCond.push(eq(pastryTotals.locationId, locationId));
+  const salesCond = [eq(squareSales.date, date)];
+  if (locationId) salesCond.push(eq(squareSales.locationId, locationId));
+  const bakedCond = [eq(bakeoffLogs.date, date)];
+  if (locationId) bakedCond.push(eq(bakeoffLogs.locationId, locationId));
   const [goals, baked, sales] = await Promise.all([
-    db.select().from(pastryTotals).where(eq(pastryTotals.date, date)),
-    db.select().from(bakeoffLogs).where(eq(bakeoffLogs.date, date)),
-    db.select().from(squareSales).where(eq(squareSales.date, date)),
+    db.select().from(pastryTotals).where(and(...goalsCond)),
+    db.select().from(bakeoffLogs).where(and(...bakedCond)),
+    db.select().from(squareSales).where(and(...salesCond)),
   ]);
 
   const bakedAgg = new Map<string, number>();

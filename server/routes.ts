@@ -712,7 +712,7 @@ FORMAT RULES for the content field:
   app.post("/api/square/sync", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const date = (req.body?.date as string) || new Date().toISOString().split("T")[0];
-      const locationId = req.body?.locationId;
+      const locationId = req.body?.locationId ? parseInt(req.body.locationId, 10) : undefined;
       const result = await syncSquareSales(date, locationId);
       res.json(result);
     } catch (error: any) {
@@ -722,7 +722,8 @@ FORMAT RULES for the content field:
 
   app.get("/api/square/sales", isAuthenticated, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-    const sales = await getSquareSalesForDate(date);
+    const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
+    const sales = await getSquareSalesForDate(date, locationId);
     res.json(sales);
   });
 
@@ -730,7 +731,8 @@ FORMAT RULES for the content field:
   app.get("/api/forecast", isAuthenticated, async (req, res) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-      const forecasts = await generateForecast(date);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
+      const forecasts = await generateForecast(date, locationId);
       res.json(forecasts);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -740,7 +742,8 @@ FORMAT RULES for the content field:
   app.post("/api/forecast/populate", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const date = (req.body?.date as string) || new Date().toISOString().split("T")[0];
-      const result = await autoPopulatePastryGoals(date);
+      const locationId = req.body?.locationId ? parseInt(req.body.locationId, 10) : undefined;
+      const result = await autoPopulatePastryGoals(date, locationId);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -751,7 +754,8 @@ FORMAT RULES for the content field:
   app.get("/api/inventory-dashboard", isAuthenticated, async (req, res) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-      const dashboard = await getLiveInventoryDashboard(date);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
+      const dashboard = await getLiveInventoryDashboard(date, locationId);
       res.json(dashboard);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
