@@ -29,13 +29,16 @@ import {
   BarChart3,
   Settings2,
   DollarSign,
+  MapPin,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocationContext } from "@/hooks/use-location-context";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -90,6 +93,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   });
 
 
+  const { locations: allLocations, selectedLocationId, setSelectedLocationId } = useLocationContext();
+
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
       <div className="p-6">
@@ -103,6 +108,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
+
+      {allLocations.length > 1 && (
+        <div className="px-4 pb-2">
+          <Select
+            value={selectedLocationId ? String(selectedLocationId) : ""}
+            onValueChange={(v) => setSelectedLocationId(Number(v))}
+          >
+            <SelectTrigger className="w-full h-9 text-sm" data-testid="select-location">
+              <MapPin className="h-3.5 w-3.5 mr-1.5 text-muted-foreground shrink-0" />
+              <SelectValue placeholder="Select location" />
+            </SelectTrigger>
+            <SelectContent>
+              {allLocations.map(loc => (
+                <SelectItem key={loc.id} value={String(loc.id)}>
+                  {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
         {NAV_ITEMS.map((item) => {

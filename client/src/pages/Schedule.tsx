@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLocationContext } from "@/hooks/use-location-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -89,6 +90,7 @@ type ForumFormValues = z.infer<typeof forumFormSchema>;
 export default function Schedule() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { selectedLocationId } = useLocationContext();
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -136,8 +138,8 @@ export default function Schedule() {
   const endStr = format(weekEnd, "yyyy-MM-dd");
 
   const { data: shiftsData, isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts", startStr, endStr],
-    queryFn: () => fetch(`/api/shifts?start=${startStr}&end=${endStr}`, { credentials: "include" }).then(r => r.json()),
+    queryKey: ["/api/shifts", startStr, endStr, selectedLocationId],
+    queryFn: () => fetch(`/api/shifts?start=${startStr}&end=${endStr}${selectedLocationId ? `&locationId=${selectedLocationId}` : ""}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: timeOffData, isLoading: timeOffLoading } = useQuery<TimeOffRequest[]>({
@@ -274,7 +276,7 @@ export default function Schedule() {
       position: values.position || null,
       notes: values.notes || null,
       createdBy: user!.id,
-      locationId: null,
+      locationId: selectedLocationId,
     };
     if (editingShift) {
       updateShiftMutation.mutate({ id: editingShift.id, ...payload });

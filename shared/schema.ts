@@ -165,6 +165,7 @@ export const pastryTotals = pgTable("pastry_totals", {
   forecastedCount: integer("forecasted_count"),
   isManualOverride: boolean("is_manual_override").default(false).notNull(),
   source: text("source").default("manual"),
+  locationId: integer("location_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -279,6 +280,7 @@ export const locations = pgTable("locations", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   address: text("address"),
+  squareLocationId: text("square_location_id"),
   isDefault: boolean("is_default").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -286,6 +288,19 @@ export const locations = pgTable("locations", {
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true, createdAt: true });
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
+
+// === USER LOCATIONS (many-to-many assignment) ===
+export const userLocations = pgTable("user_locations", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  locationId: integer("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertUserLocationSchema = createInsertSchema(userLocations).omit({ id: true, createdAt: true });
+export type UserLocation = typeof userLocations.$inferSelect;
+export type InsertUserLocation = z.infer<typeof insertUserLocationSchema>;
 
 // === SHIFTS (Schedule) ===
 export const shifts = pgTable("shifts", {
@@ -579,6 +594,7 @@ export const timeEntries = pgTable("time_entries", {
   status: text("status").notNull().default("active"),
   source: text("source").notNull().default("web"),
   notes: text("notes"),
+  locationId: integer("location_id"),
   adjustmentRequested: boolean("adjustment_requested").default(false).notNull(),
   adjustmentNote: text("adjustment_note"),
   originalClockIn: timestamp("original_clock_in"),
@@ -627,6 +643,7 @@ export const squareCatalogMap = pgTable("square_catalog_map", {
   squareVariationId: text("square_variation_id"),
   squareVariationName: text("square_variation_name"),
   pastryItemName: text("pastry_item_name"),
+  locationId: integer("location_id"),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -642,6 +659,7 @@ export const squareSales = pgTable("square_sales", {
   itemName: text("item_name").notNull(),
   quantitySold: integer("quantity_sold").notNull().default(0),
   revenue: doublePrecision("revenue").default(0),
+  locationId: integer("location_id"),
   lastSyncedAt: timestamp("last_synced_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });

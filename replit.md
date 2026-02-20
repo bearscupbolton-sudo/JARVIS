@@ -41,5 +41,16 @@ The architecture emphasizes shared Zod schemas for type-safe API contracts and v
 -   **OpenAI-compatible API**: Powers AI features (Jarvis chat, voice, image generation, invoice scanning).
 -   **Twilio (Optional)**: Stubbed for SMS notifications, requiring environment variables for full functionality.
 
+### Multi-Location Support
+Phase 1 (Foundation) is implemented. Key components:
+- `user_locations` join table links users to locations (with `isPrimary` flag)
+- `locations` table has `squareLocationId` for Square POS mapping
+- Operational tables (`pastryTotals`, `shifts`, `timeEntries`, `squareSales`, `squareCatalogMap`) have `locationId` column
+- `LocationProvider` context (in `client/src/hooks/use-location-context.tsx`) wraps authenticated routes, providing `selectedLocationId` to all pages
+- Location selector dropdown appears in sidebar when multiple locations exist
+- Selected location persisted in localStorage (`jarvis-location-id`)
+- Backend queries for pastry totals and shifts accept optional `locationId` filter via query param
+- API endpoints: `GET /api/my-locations` (user's assigned locations with fallback to all), `PUT /api/user-locations/:userId` (manager+), `GET /api/locations/:id/users`
+
 ### TTIS (Tip Transparency Informational Dashboard)
 Owner-only dashboard at `/admin/ttis` that pulls tip data from Square POS orders and allocates tips evenly among FOH (Front of House) staff who were on scheduled shifts when each tip was collected. Uses `America/New_York` timezone for tip-to-shift matching. Handles midnight-crossing shifts. Falls back to splitting among all FOH staff if no specific shift match is found. Supports AM/PM time formats (e.g., "6:00 AM") via `parseTimeToMinutes` helper. API endpoints: `GET /api/ttis?date=YYYY-MM-DD` (daily detail), `GET /api/ttis/week?startDate=YYYY-MM-DD` (weekly aggregation with per-staff totals and per-day summaries). Frontend defaults to week view with configurable work week start day (persisted in localStorage), week navigation, and click-to-drill-into-day detail view.

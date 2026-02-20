@@ -12,6 +12,7 @@ import {
   pastryItems,
   timeEntries,
   breakEntries,
+  userLocations,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -48,6 +49,7 @@ import {
   type PastryItem, type InsertPastryItem,
   type TimeEntry, type InsertTimeEntry,
   type BreakEntry, type InsertBreakEntry,
+  type UserLocation, type InsertUserLocation,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -103,7 +105,7 @@ export interface IStorage {
   updatePendingChangeStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<PendingChange>;
 
   // Pastry Totals
-  getPastryTotals(date: string): Promise<PastryTotal[]>;
+  getPastryTotals(date: string, locationId?: number): Promise<PastryTotal[]>;
   createPastryTotal(total: InsertPastryTotal): Promise<PastryTotal>;
   updatePastryTotal(id: number, updates: Partial<InsertPastryTotal>): Promise<PastryTotal>;
   deletePastryTotal(id: number): Promise<boolean>;
@@ -143,7 +145,7 @@ export interface IStorage {
   completeInventoryCount(id: number): Promise<InventoryCount>;
 
   // Shifts
-  getShifts(startDate: string, endDate: string): Promise<Shift[]>;
+  getShifts(startDate: string, endDate: string, locationId?: number): Promise<Shift[]>;
   createShift(shift: InsertShift): Promise<Shift>;
   updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
@@ -161,6 +163,11 @@ export interface IStorage {
   updateLocation(id: number, updates: Partial<InsertLocation>): Promise<Location>;
   deleteLocation(id: number): Promise<void>;
   getOrCreateDefaultLocation(): Promise<Location>;
+
+  // User Locations
+  getUserLocations(userId: string): Promise<(UserLocation & { location: Location })[]>;
+  setUserLocations(userId: string, locationIds: number[], primaryLocationId?: number): Promise<void>;
+  getLocationUsers(locationId: number): Promise<UserLocation[]>;
 
   // Schedule Messages
   getScheduleMessages(): Promise<ScheduleMessage[]>;
@@ -451,8 +458,10 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
   // Pastry Totals
-  async getPastryTotals(date: string): Promise<PastryTotal[]> {
-    return await db.select().from(pastryTotals).where(eq(pastryTotals.date, date)).orderBy(pastryTotals.itemName);
+  async getPastryTotals(date: string, locationId?: number): Promise<PastryTotal[]> {
+    const conditions: any[] = [eq(pastryTotals.date, date)];
+    if (locationId) conditions.push(eq(pastryTotals.locationId, locationId));
+    return await db.select().from(pastryTotals).where(and(...conditions)).orderBy(pastryTotals.itemName);
   }
 
   async createPastryTotal(insertTotal: InsertPastryTotal): Promise<PastryTotal> {
@@ -640,9 +649,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Shifts
-  async getShifts(startDate: string, endDate: string): Promise<Shift[]> {
+  async getShifts(startDate: string, endDate: string, locationId?: number): Promise<Shift[]> {
+    const conditions: any[] = [gte(shifts.shiftDate, startDate), lte(shifts.shiftDate, endDate)];
+    if (locationId) conditions.push(eq(shifts.locationId, locationId));
     return await db.select().from(shifts)
-      .where(and(gte(shifts.shiftDate, startDate), lte(shifts.shiftDate, endDate)))
+      .where(and(...conditions))
       .orderBy(shifts.shiftDate, shifts.startTime);
   }
 
@@ -716,6 +727,39 @@ export class DatabaseStorage implements IStorage {
     if (existing.length > 0) return existing[0];
     const [created] = await db.insert(locations).values({ name: "Bear's Cup Bakehouse", isDefault: true }).returning();
     return created;
+  }
+
+  // User Locations
+  async getUserLocations(userId: string): Promise<(UserLocation & { location: Location })[]> {
+    const results = await db
+      .select({
+        id: userLocations.id,
+        userId: userLocations.userId,
+        locationId: userLocations.locationId,
+        isPrimary: userLocations.isPrimary,
+        createdAt: userLocations.createdAt,
+        location: locations,
+      })
+      .from(userLocations)
+      .innerJoin(locations, eq(userLocations.locationId, locations.id))
+      .where(eq(userLocations.userId, userId));
+    return results.map(r => ({ ...r, location: r.location }));
+  }
+
+  async setUserLocations(userId: string, locationIds: number[], primaryLocationId?: number): Promise<void> {
+    await db.delete(userLocations).where(eq(userLocations.userId, userId));
+    if (locationIds.length > 0) {
+      const values = locationIds.map(locId => ({
+        userId,
+        locationId: locId,
+        isPrimary: primaryLocationId ? locId === primaryLocationId : locId === locationIds[0],
+      }));
+      await db.insert(userLocations).values(values);
+    }
+  }
+
+  async getLocationUsers(locationId: number): Promise<UserLocation[]> {
+    return await db.select().from(userLocations).where(eq(userLocations.locationId, locationId));
   }
 
   // Schedule Messages

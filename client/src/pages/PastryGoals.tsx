@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLocationContext } from "@/hooks/use-location-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +52,7 @@ function getConfidenceBadge(confidence: number) {
 
 export default function PastryGoals() {
   const { toast } = useToast();
+  const { selectedLocationId } = useLocationContext();
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = useState(today);
   const [editValues, setEditValues] = useState<Record<string, number>>({});
@@ -64,19 +66,23 @@ export default function PastryGoals() {
     setDirty(false);
   }
 
+  const locParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+
   const { data: forecasts, isLoading: loadingForecasts } = useQuery<ForecastItem[]>({
-    queryKey: [`/api/forecast?date=${date}`],
+    queryKey: ["/api/forecast", date, selectedLocationId],
+    queryFn: () => fetch(`/api/forecast?date=${date}${locParam}`).then(r => r.json()),
   });
 
   const { data: goals, isLoading: loadingGoals } = useQuery<PastryTotal[]>({
-    queryKey: [`/api/pastry-totals?date=${date}`],
+    queryKey: ["/api/pastry-totals", date, selectedLocationId],
+    queryFn: () => fetch(`/api/pastry-totals?date=${date}${locParam}`).then(r => r.json()),
   });
 
   const populateMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/forecast/populate", { date }),
+    mutationFn: () => apiRequest("POST", "/api/forecast/populate", { date, locationId: selectedLocationId }),
     onSuccess: async (res) => {
       const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: [`/api/pastry-totals?date=${date}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pastry-totals", date, selectedLocationId] });
       toast({ title: "Goals populated", description: `${data.populated} items set, ${data.skipped} manual overrides skipped` });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -86,7 +92,7 @@ export default function PastryGoals() {
     mutationFn: ({ id, targetCount, isManualOverride }: { id: number; targetCount: number; isManualOverride: boolean }) =>
       apiRequest("PUT", `/api/pastry-totals/${id}`, { targetCount, isManualOverride }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/pastry-totals?date=${date}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pastry-totals", date, selectedLocationId] });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });

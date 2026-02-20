@@ -1071,7 +1071,8 @@ FORMAT RULES for the content field:
   // === PASTRY TOTALS ===
   app.get(api.pastryTotals.list.path, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-    const totals = await storage.getPastryTotals(date);
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const totals = await storage.getPastryTotals(date, locationId);
     res.json(totals);
   });
 
@@ -1404,6 +1405,55 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     res.status(204).send();
   });
 
+  // === USER LOCATIONS ===
+  app.get("/api/user-locations/:userId", isAuthenticated, async (req: any, res) => {
+    try {
+      const result = await storage.getUserLocations(req.params.userId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/user-locations/:userId", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { locationIds, primaryLocationId } = req.body;
+      if (!Array.isArray(locationIds)) {
+        return res.status(400).json({ message: "locationIds must be an array" });
+      }
+      await storage.setUserLocations(req.params.userId, locationIds, primaryLocationId);
+      const result = await storage.getUserLocations(req.params.userId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/locations/:id/users", isAuthenticated, async (req: any, res) => {
+    try {
+      const result = await storage.getLocationUsers(Number(req.params.id));
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/my-locations", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const result = await storage.getUserLocations(user.id);
+      if (result.length === 0) {
+        const allLocs = await storage.getLocations();
+        res.json(allLocs.map(loc => ({ id: 0, userId: user.id, locationId: loc.id, isPrimary: loc.isDefault, createdAt: loc.createdAt, location: loc })));
+      } else {
+        res.json(result);
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // === SCHEDULE MESSAGES ===
   app.get(api.scheduleMessages.list.path, isAuthenticated, async (req, res) => {
     const messages = await storage.getScheduleMessages();
@@ -1476,7 +1526,8 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.get(api.shifts.list.path, isAuthenticated, async (req, res) => {
     const start = (req.query.start as string) || "";
     const end = (req.query.end as string) || "";
-    const result = await storage.getShifts(start, end);
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const result = await storage.getShifts(start, end, locationId);
     res.json(result);
   });
 
