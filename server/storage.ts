@@ -135,7 +135,7 @@ export interface IStorage {
   // Invoices
   getInvoices(): Promise<Invoice[]>;
   getInvoice(id: number): Promise<(Invoice & { lines: InvoiceLine[] }) | undefined>;
-  createInvoiceWithLines(invoice: InsertInvoice, lines: { itemDescription: string; quantity: number; unit?: string | null }[]): Promise<Invoice & { lines: InvoiceLine[] }>;
+  createInvoiceWithLines(invoice: InsertInvoice, lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean }[]): Promise<Invoice & { lines: InvoiceLine[] }>;
 
   // Inventory Counts
   getInventoryCounts(): Promise<InventoryCount[]>;
@@ -563,7 +563,7 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoiceWithLines(
     invoiceData: InsertInvoice,
-    lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null }[]
+    lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean }[]
   ): Promise<Invoice & { lines: InvoiceLine[] }> {
     const [invoice] = await db.insert(invoices).values(invoiceData).returning();
 
@@ -572,15 +572,20 @@ export class DatabaseStorage implements IStorage {
 
     for (const line of lines) {
       const descLower = line.itemDescription.toLowerCase().trim();
-      let matchedItem: InventoryItem | undefined;
-      for (const item of allItems) {
-        if (item.name.toLowerCase().trim() === descLower) {
-          matchedItem = item;
-          break;
-        }
-        if (item.aliases && item.aliases.some(a => a.toLowerCase().trim() === descLower)) {
-          matchedItem = item;
-          break;
+      let matchedItemId: number | null = null;
+
+      if (line.manualMatchId) {
+        matchedItemId = line.manualMatchId;
+      } else {
+        for (const item of allItems) {
+          if (item.name.toLowerCase().trim() === descLower) {
+            matchedItemId = item.id;
+            break;
+          }
+          if (item.aliases && item.aliases.some(a => a.toLowerCase().trim() === descLower)) {
+            matchedItemId = item.id;
+            break;
+          }
         }
       }
 
@@ -591,14 +596,27 @@ export class DatabaseStorage implements IStorage {
         unit: line.unit || null,
         unitPrice: line.unitPrice ?? null,
         lineTotal: line.lineTotal ?? null,
-        inventoryItemId: matchedItem?.id || null,
+        inventoryItemId: matchedItemId,
       }).returning();
       createdLines.push(createdLine);
 
-      if (matchedItem) {
+      if (matchedItemId) {
         await db.update(inventoryItems)
           .set({ onHand: sql`${inventoryItems.onHand} + ${line.quantity}` })
-          .where(eq(inventoryItems.id, matchedItem.id));
+          .where(eq(inventoryItems.id, matchedItemId));
+
+        if (line.manualMatchId && line.saveAsAlias) {
+          const matchedItem = allItems.find(i => i.id === matchedItemId);
+          if (matchedItem) {
+            const existingAliases = matchedItem.aliases || [];
+            const alreadyExists = existingAliases.some(a => a.toLowerCase().trim() === descLower);
+            if (!alreadyExists && matchedItem.name.toLowerCase().trim() !== descLower) {
+              await db.update(inventoryItems)
+                .set({ aliases: [...existingAliases, line.itemDescription.trim()] })
+                .where(eq(inventoryItems.id, matchedItemId));
+            }
+          }
+        }
       }
     }
 

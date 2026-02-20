@@ -13,8 +13,16 @@ import { z } from "zod";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   ArrowLeft, Plus, Trash2, FileText, CheckCircle2, AlertCircle,
-  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign
+  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2
 } from "lucide-react";
 import type { Invoice, InventoryItem } from "@shared/schema";
 
@@ -36,6 +44,8 @@ type LineEntry = {
   unit: string;
   unitPrice: number | null;
   lineTotal: number | null;
+  manualMatchId?: number | null;
+  saveAsAlias?: boolean;
 };
 
 type ScanMode = "idle" | "capturing" | "scanning" | "review";
@@ -74,9 +84,13 @@ export default function InvoiceCapture() {
         ...data,
         invoiceTotal: data.invoiceTotal ? Number(data.invoiceTotal) : null,
         lines: data.lines.map(l => ({
-          ...l,
+          itemDescription: l.itemDescription,
+          quantity: l.quantity,
+          unit: l.unit || null,
           unitPrice: l.unitPrice ?? null,
           lineTotal: l.lineTotal ?? null,
+          manualMatchId: l.manualMatchId || null,
+          saveAsAlias: l.saveAsAlias || false,
         })),
       });
       return res.json();
@@ -451,36 +465,91 @@ export default function InvoiceCapture() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
-                                      {match ? (
-                                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-                                      ) : (
-                                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                                      )}
-                                      <span className="truncate font-medium text-sm">{line.itemDescription}</span>
-                                      <span className="text-muted-foreground text-sm shrink-0">x{line.quantity} {line.unit}</span>
-                                      {line.unitPrice != null && (
-                                        <span className="text-sm text-muted-foreground shrink-0">@ ${line.unitPrice.toFixed(2)}</span>
-                                      )}
-                                      {line.lineTotal != null && (
-                                        <Badge variant="outline" className="shrink-0">
-                                          <DollarSign className="w-3 h-3 mr-0.5" />
-                                          {line.lineTotal.toFixed(2)}
-                                        </Badge>
-                                      )}
-                                      {match && (
-                                        <Badge variant="secondary" className="shrink-0">{match.name}</Badge>
-                                      )}
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+                                        {match || line.manualMatchId ? (
+                                          <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                                        ) : (
+                                          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                                        )}
+                                        <span className="truncate font-medium text-sm">{line.itemDescription}</span>
+                                        <span className="text-muted-foreground text-sm shrink-0">x{line.quantity} {line.unit}</span>
+                                        {line.unitPrice != null && (
+                                          <span className="text-sm text-muted-foreground shrink-0">@ ${line.unitPrice.toFixed(2)}</span>
+                                        )}
+                                        {line.lineTotal != null && (
+                                          <Badge variant="outline" className="shrink-0">
+                                            <DollarSign className="w-3 h-3 mr-0.5" />
+                                            {line.lineTotal.toFixed(2)}
+                                          </Badge>
+                                        )}
+                                        {match && (
+                                          <Badge variant="secondary" className="shrink-0">{match.name}</Badge>
+                                        )}
+                                        {!match && line.manualMatchId && (
+                                          <Badge variant="secondary" className="shrink-0">
+                                            <Link2 className="w-3 h-3 mr-1" />
+                                            {masterItems.find(i => i.id === line.manualMatchId)?.name || "Matched"}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => setEditingLine(idx)} data-testid={`button-edit-line-${idx}`}>
+                                          <Pencil className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
+                                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      <Button type="button" variant="ghost" size="icon" onClick={() => setEditingLine(idx)} data-testid={`button-edit-line-${idx}`}>
-                                        <Pencil className="w-3.5 h-3.5" />
-                                      </Button>
-                                      <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
-                                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                                      </Button>
-                                    </div>
+                                    {!match && !line.manualMatchId && (
+                                      <div className="flex items-center gap-2 ml-6 flex-wrap">
+                                        <Select
+                                          value=""
+                                          onValueChange={(val) => {
+                                            const id = parseInt(val, 10);
+                                            updateLine(idx, { manualMatchId: id, saveAsAlias: true });
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-8 text-xs w-48" data-testid={`select-match-${idx}`}>
+                                            <SelectValue placeholder="Match to inventory..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {masterItems.map(item => (
+                                              <SelectItem key={item.id} value={String(item.id)}>{item.name} ({item.category})</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <span className="text-xs text-muted-foreground">No auto-match found</span>
+                                      </div>
+                                    )}
+                                    {!match && line.manualMatchId && (
+                                      <div className="flex items-center gap-3 ml-6">
+                                        <div className="flex items-center gap-2">
+                                          <Checkbox
+                                            id={`alias-${idx}`}
+                                            checked={line.saveAsAlias !== false}
+                                            onCheckedChange={(checked) => updateLine(idx, { saveAsAlias: !!checked })}
+                                            data-testid={`checkbox-alias-${idx}`}
+                                          />
+                                          <label htmlFor={`alias-${idx}`} className="text-xs text-muted-foreground cursor-pointer">
+                                            Remember this match for next time
+                                          </label>
+                                        </div>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 text-xs px-2"
+                                          onClick={() => updateLine(idx, { manualMatchId: null, saveAsAlias: false })}
+                                          data-testid={`button-unmatch-${idx}`}
+                                        >
+                                          <X className="w-3 h-3 mr-1" />
+                                          Unmatch
+                                        </Button>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>

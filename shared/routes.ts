@@ -340,6 +340,8 @@ export const api = {
           unit: z.string().nullable().optional(),
           unitPrice: z.number().nullable().optional(),
           lineTotal: z.number().nullable().optional(),
+          manualMatchId: z.number().nullable().optional(),
+          saveAsAlias: z.boolean().optional(),
         })),
       }),
       responses: { 201: z.any(), 400: errorSchemas.validation },
