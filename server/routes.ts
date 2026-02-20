@@ -1975,6 +1975,25 @@ ${sopsHtml}
     }
   });
 
+  // === USER NAMES (lightweight, for display purposes) ===
+  app.get("/api/user-names", isAuthenticated, async (req: any, res) => {
+    try {
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        username: users.username,
+      }).from(users);
+      const nameMap: Record<string, string> = {};
+      for (const u of allUsers) {
+        nameMap[u.id] = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.username || "Unknown";
+      }
+      res.json(nameMap);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === LAMINATION DOUGHS ===
   app.get("/api/lamination/:date", isAuthenticated, async (req: any, res) => {
     try {
@@ -1996,6 +2015,7 @@ ${sopsHtml}
         doughType: parsed.doughType,
         status: "turning",
         createdBy: user?.id || null,
+        startedAt: new Date(),
       });
       res.json(dough);
     } catch (err: any) {
@@ -2016,11 +2036,19 @@ ${sopsHtml}
         pastryType: z.string().optional(),
         totalPieces: z.number().int().positive().optional(),
         completedAt: z.string().optional(),
+        finalRestAt: z.string().optional(),
+        openedBy: z.string().optional(),
+        openedAt: z.string().optional(),
+        shapedBy: z.string().optional(),
+        shapedAt: z.string().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };
       if (parsed.restStartedAt) updates.restStartedAt = new Date(parsed.restStartedAt);
       if (parsed.completedAt) updates.completedAt = new Date(parsed.completedAt);
+      if (parsed.finalRestAt) updates.finalRestAt = new Date(parsed.finalRestAt);
+      if (parsed.openedAt) updates.openedAt = new Date(parsed.openedAt);
+      if (parsed.shapedAt) updates.shapedAt = new Date(parsed.shapedAt);
       const dough = await storage.updateLaminationDough(id, updates);
       res.json(dough);
     } catch (err: any) {

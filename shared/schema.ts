@@ -541,6 +541,12 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   totalPieces: integer("total_pieces"),
   createdBy: text("created_by"),
   completedAt: timestamp("completed_at"),
+  startedAt: timestamp("started_at"),
+  finalRestAt: timestamp("final_rest_at"),
+  openedBy: text("opened_by"),
+  openedAt: timestamp("opened_at"),
+  shapedBy: text("shaped_by"),
+  shapedAt: timestamp("shaped_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

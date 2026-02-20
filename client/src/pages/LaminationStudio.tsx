@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,8 @@ import {
   Trash2,
   Croissant,
   Clock,
-  X,
+  User,
+  Scissors,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
@@ -60,8 +62,14 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+function formatTimestamp(ts: string | Date | null): string {
+  if (!ts) return "—";
+  return format(new Date(ts), "h:mm a");
+}
+
 export default function LaminationStudio() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const today = new Date().toISOString().split("T")[0];
 
   const [showNewDough, setShowNewDough] = useState(false);
@@ -87,6 +95,10 @@ export default function LaminationStudio() {
     refetchInterval: 10000,
   });
 
+  const { data: userNames = {} } = useQuery<Record<string, string>>({
+    queryKey: ["/api/user-names"],
+  });
+
   const completeDoughType = completeDough?.doughType;
   const { data: pastryItemsForType } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items", completeDoughType],
@@ -109,12 +121,14 @@ export default function LaminationStudio() {
     mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold: string; foldSequence: string }) => {
       const res = await apiRequest("POST", "/api/lamination", { doughType: data.doughType });
       const created = await res.json();
+      const now = new Date().toISOString();
       await apiRequest("PATCH", `/api/lamination/${created.id}`, {
         turn1Fold: data.turn1Fold,
         turn2Fold: data.turn2Fold,
         foldSequence: data.foldSequence,
         status: "resting",
-        restStartedAt: new Date().toISOString(),
+        restStartedAt: now,
+        finalRestAt: now,
       });
     },
     onSuccess: () => {
@@ -172,10 +186,45 @@ export default function LaminationStudio() {
     });
   };
 
+  const handleOpenDough = (dough: LaminationDough) => {
+    const now = new Date().toISOString();
+    updateMutation.mutate(
+      {
+        id: dough.id,
+        updates: {
+          openedBy: user?.id || null,
+          openedAt: now,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Dough opened", description: `${dough.doughType} marked as opened.` });
+        },
+      }
+    );
+  };
+
+  const handleStartShaping = (dough: LaminationDough) => {
+    setCompleteDough(dough);
+    setPastryType("");
+    setTotalPieces("");
+  };
+
   const handleCompleteDough = () => {
     if (!completeDough || !pastryType || !totalPieces) return;
+    const now = new Date().toISOString();
     updateMutation.mutate(
-      { id: completeDough.id, updates: { pastryType, totalPieces: parseInt(totalPieces), status: "completed", completedAt: new Date().toISOString() } },
+      {
+        id: completeDough.id,
+        updates: {
+          pastryType,
+          totalPieces: parseInt(totalPieces),
+          status: "completed",
+          completedAt: now,
+          shapedBy: user?.id || null,
+          shapedAt: now,
+        },
+      },
       {
         onSuccess: () => {
           setCompleteDough(null);
@@ -185,6 +234,11 @@ export default function LaminationStudio() {
         },
       }
     );
+  };
+
+  const getUserName = (userId: string | null) => {
+    if (!userId) return "Unknown";
+    return userNames[userId] || "Unknown";
   };
 
   const restingDoughs = doughs?.filter(d => d.status === "resting") || [];
@@ -211,7 +265,6 @@ export default function LaminationStudio() {
         </Button>
       </div>
 
-      {/* The Rack — Digital Display */}
       <div>
         <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
           <Layers className="w-5 h-5 text-primary" />
@@ -235,6 +288,7 @@ export default function LaminationStudio() {
             {restingDoughs.map(dough => {
               const progress = getRestProgress(dough.restStartedAt);
               const isLocked = progress.isResting;
+              const isOpened = !!dough.openedAt;
 
               return (
                 <Card
@@ -252,6 +306,11 @@ export default function LaminationStudio() {
                         <Badge variant="destructive" data-testid={`badge-resting-${dough.id}`}>
                           <Lock className="w-3 h-3 mr-1" />
                           Do Not Touch
+                        </Badge>
+                      ) : isOpened ? (
+                        <Badge className="bg-blue-600 text-white" data-testid={`badge-opened-${dough.id}`}>
+                          <Scissors className="w-3 h-3 mr-1" />
+                          Opened
                         </Badge>
                       ) : (
                         <Badge className="bg-green-600 text-white" data-testid={`badge-ready-${dough.id}`}>
@@ -277,6 +336,28 @@ export default function LaminationStudio() {
                       </div>
                     </div>
 
+                    <div className="text-xs space-y-1 border-t pt-2">
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <User className="w-3 h-3" />
+                        <span>Started by {getUserName(dough.createdBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
+                      </div>
+                      {dough.finalRestAt && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Timer className="w-3 h-3" />
+                          <span>Final rest set</span>
+                          <span className="ml-auto">{formatTimestamp(dough.finalRestAt)}</span>
+                        </div>
+                      )}
+                      {dough.openedAt && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Unlock className="w-3 h-3" />
+                          <span>Opened by {getUserName(dough.openedBy)}</span>
+                          <span className="ml-auto">{formatTimestamp(dough.openedAt)}</span>
+                        </div>
+                      )}
+                    </div>
+
                     {isLocked ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
@@ -295,14 +376,14 @@ export default function LaminationStudio() {
                           />
                         </div>
                       </div>
-                    ) : (
+                    ) : !isOpened ? (
                       <div className="flex items-center gap-2 pt-1">
                         <Button
                           className="flex-1 gap-2"
-                          onClick={() => { setCompleteDough(dough); setPastryType(""); setTotalPieces(""); }}
+                          onClick={() => handleOpenDough(dough)}
                           data-testid={`button-open-dough-${dough.id}`}
                         >
-                          <CheckCircle2 className="w-4 h-4" />
+                          <Unlock className="w-4 h-4" />
                           Open Dough
                         </Button>
                         <Button
@@ -314,11 +395,26 @@ export default function LaminationStudio() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button
+                          className="flex-1 gap-2"
+                          onClick={() => handleStartShaping(dough)}
+                          data-testid={`button-shape-dough-${dough.id}`}
+                        >
+                          <Scissors className="w-4 h-4" />
+                          Shape & Complete
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteMutation.mutate(dough.id)}
+                          data-testid={`button-delete-dough-${dough.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     )}
-
-                    <p className="text-xs text-muted-foreground">
-                      Started {dough.restStartedAt ? format(new Date(dough.restStartedAt), "h:mm a") : "—"}
-                    </p>
                   </CardContent>
                 </Card>
               );
@@ -327,7 +423,6 @@ export default function LaminationStudio() {
         )}
       </div>
 
-      {/* Completed Today */}
       {completedDoughs.length > 0 && (
         <div>
           <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
@@ -338,8 +433,8 @@ export default function LaminationStudio() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {completedDoughs.map(dough => (
               <Card key={dough.id} className="opacity-80" data-testid={`completed-dough-${dough.id}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between gap-2 mb-2">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-green-600" />
                       <span className="font-display font-semibold">{dough.doughType}</span>
@@ -356,11 +451,35 @@ export default function LaminationStudio() {
                       <p className="font-mono font-semibold">{dough.totalPieces ?? "—"}</p>
                     </div>
                   </div>
-                  {dough.completedAt && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Completed {format(new Date(dough.completedAt), "h:mm a")}
-                    </p>
-                  )}
+
+                  <div className="text-xs space-y-1 border-t pt-2">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <User className="w-3 h-3" />
+                      <span>Started by {getUserName(dough.createdBy)}</span>
+                      <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
+                    </div>
+                    {dough.finalRestAt && (
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Timer className="w-3 h-3" />
+                        <span>Final rest</span>
+                        <span className="ml-auto">{formatTimestamp(dough.finalRestAt)}</span>
+                      </div>
+                    )}
+                    {dough.openedAt && (
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Unlock className="w-3 h-3" />
+                        <span>Opened by {getUserName(dough.openedBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(dough.openedAt)}</span>
+                      </div>
+                    )}
+                    {dough.shapedAt && (
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Scissors className="w-3 h-3" />
+                        <span>Shaped by {getUserName(dough.shapedBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -368,7 +487,6 @@ export default function LaminationStudio() {
         </div>
       )}
 
-      {/* Start New Dough Dialog — Stepped Flow */}
       <Dialog open={showNewDough} onOpenChange={(open) => { if (!open) resetNewDoughDialog(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -472,11 +590,10 @@ export default function LaminationStudio() {
         </DialogContent>
       </Dialog>
 
-      {/* Complete Dough Dialog */}
       <Dialog open={!!completeDough} onOpenChange={(open) => { if (!open) setCompleteDough(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display text-xl">Complete Dough</DialogTitle>
+            <DialogTitle className="font-display text-xl">Shape & Complete</DialogTitle>
             <DialogDescription>
               Assign the pastry type and total pieces for this {completeDough?.doughType} dough ({completeDough?.foldSequence}).
             </DialogDescription>
