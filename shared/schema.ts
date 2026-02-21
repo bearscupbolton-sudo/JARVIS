@@ -581,6 +581,11 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   openedAt: timestamp("opened_at"),
   shapedBy: text("shaped_by"),
   shapedAt: timestamp("shaped_at"),
+  destination: text("destination"),
+  proofStartedAt: timestamp("proof_started_at"),
+  proofPieces: integer("proof_pieces"),
+  bakedAt: timestamp("baked_at"),
+  bakedBy: text("baked_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

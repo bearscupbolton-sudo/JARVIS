@@ -2642,7 +2642,7 @@ ${sopsHtml}
         turn1Fold: z.string().optional(),
         turn2Fold: z.string().optional(),
         foldSequence: z.string().optional(),
-        status: z.enum(["turning", "resting", "completed"]).optional(),
+        status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked"]).optional(),
         restStartedAt: z.string().optional(),
         pastryType: z.string().optional(),
         totalPieces: z.number().int().positive().optional(),
@@ -2652,6 +2652,11 @@ ${sopsHtml}
         openedAt: z.string().optional(),
         shapedBy: z.string().optional(),
         shapedAt: z.string().optional(),
+        destination: z.enum(["proof", "freezer"]).optional(),
+        proofStartedAt: z.string().optional(),
+        proofPieces: z.number().int().positive().optional(),
+        bakedAt: z.string().optional(),
+        bakedBy: z.string().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };
@@ -2660,10 +2665,48 @@ ${sopsHtml}
       if (parsed.finalRestAt) updates.finalRestAt = new Date(parsed.finalRestAt);
       if (parsed.openedAt) updates.openedAt = new Date(parsed.openedAt);
       if (parsed.shapedAt) updates.shapedAt = new Date(parsed.shapedAt);
+      if (parsed.proofStartedAt) updates.proofStartedAt = new Date(parsed.proofStartedAt);
+      if (parsed.bakedAt) updates.bakedAt = new Date(parsed.bakedAt);
       const dough = await storage.updateLaminationDough(id, updates);
       res.json(dough);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lamination/:id/bake", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const id = parseInt(req.params.id);
+      const dough = await storage.getLaminationDoughById(id);
+      if (!dough) return res.status(404).json({ message: "Dough not found" });
+      if (dough.status !== "proofing") return res.status(400).json({ message: "Dough is not in the proof box" });
+
+      const now = new Date();
+      const today = now.toISOString().split("T")[0];
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const h = hours % 12 || 12;
+      const bakedAtTime = `${h}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+
+      await storage.createBakeoffLog({
+        date: today,
+        itemName: dough.pastryType || dough.doughType,
+        quantity: dough.proofPieces || dough.totalPieces || 1,
+        bakedAt: bakedAtTime,
+        locationId: null,
+      });
+
+      const updated = await storage.updateLaminationDough(id, {
+        status: "baked",
+        bakedAt: now,
+        bakedBy: user?.id || null,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

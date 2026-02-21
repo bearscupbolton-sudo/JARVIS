@@ -242,6 +242,7 @@ export interface IStorage {
 
   // Lamination Doughs
   getLaminationDoughs(date: string): Promise<LaminationDough[]>;
+  getLaminationDoughById(id: number): Promise<LaminationDough | null>;
   createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough>;
   updateLaminationDough(id: number, updates: Partial<InsertLaminationDough>): Promise<LaminationDough>;
   deleteLaminationDough(id: number): Promise<void>;
@@ -1220,6 +1221,12 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(laminationDoughs)
       .where(eq(laminationDoughs.date, date))
       .orderBy(desc(laminationDoughs.createdAt));
+  }
+
+  async getLaminationDoughById(id: number): Promise<LaminationDough | null> {
+    const [dough] = await db.select().from(laminationDoughs)
+      .where(eq(laminationDoughs.id, id));
+    return dough || null;
   }
 
   async createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough> {

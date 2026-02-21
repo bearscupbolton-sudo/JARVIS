@@ -35,6 +35,9 @@ import {
   Clock,
   User,
   Scissors,
+  Snowflake,
+  Thermometer,
+  Flame,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
@@ -43,6 +46,10 @@ const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
 
 const REST_DURATION_MS = 30 * 60 * 1000;
+
+const PROOF_RED_MS = 2 * 60 * 60 * 1000;
+const PROOF_YELLOW_MS = 3 * 60 * 60 * 1000;
+const PROOF_GREEN_MS = 4 * 60 * 60 * 1000;
 
 function getRestProgress(restStartedAt: string | Date | null): { elapsed: number; remaining: number; percent: number; isResting: boolean } {
   if (!restStartedAt) return { elapsed: 0, remaining: REST_DURATION_MS, percent: 0, isResting: false };
@@ -54,10 +61,24 @@ function getRestProgress(restStartedAt: string | Date | null): { elapsed: number
   return { elapsed, remaining, percent, isResting: remaining > 0 };
 }
 
+function getProofState(proofStartedAt: string | Date | null): { elapsed: number; phase: "red" | "yellow" | "green" | "overproofing" } {
+  if (!proofStartedAt) return { elapsed: 0, phase: "red" };
+  const start = new Date(proofStartedAt).getTime();
+  const elapsed = Date.now() - start;
+  if (elapsed < PROOF_RED_MS) return { elapsed, phase: "red" };
+  if (elapsed < PROOF_YELLOW_MS) return { elapsed, phase: "yellow" };
+  if (elapsed < PROOF_GREEN_MS) return { elapsed, phase: "green" };
+  return { elapsed, phase: "overproofing" };
+}
+
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
@@ -78,8 +99,13 @@ export default function LaminationStudio() {
   const [turn2, setTurn2] = useState("");
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
+  const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
   const [pastryType, setPastryType] = useState("");
   const [totalPieces, setTotalPieces] = useState("");
+  const [selectedDestination, setSelectedDestination] = useState<"proof" | "freezer" | "">("");
+  const [destinationPieces, setDestinationPieces] = useState("");
+
+  const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
 
   const [, setTick] = useState(0);
 
@@ -110,7 +136,8 @@ export default function LaminationStudio() {
 
   useEffect(() => {
     const restingDoughs = doughs?.filter(d => d.status === "resting") || [];
-    if (restingDoughs.length === 0) return;
+    const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
+    if (restingDoughs.length === 0 && proofingDoughs.length === 0) return;
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [doughs]);
@@ -145,6 +172,20 @@ export default function LaminationStudio() {
     },
   });
 
+  const bakeMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/lamination/${id}/bake`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+      setBakeConfirmDough(null);
+      toast({ title: "Bake off complete", description: "Dough has been sent to the oven." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Bake off failed", description: err.message || "Something went wrong", variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/lamination/${id}`);
@@ -160,6 +201,15 @@ export default function LaminationStudio() {
     setSelectedType("");
     setTurn1("");
     setTurn2("");
+  }, []);
+
+  const resetCompleteDoughDialog = useCallback(() => {
+    setCompleteDough(null);
+    setCompleteDoughStep("pastry");
+    setPastryType("");
+    setTotalPieces("");
+    setSelectedDestination("");
+    setDestinationPieces("");
   }, []);
 
   const handleTypeSelect = (type: string) => {
@@ -205,31 +255,89 @@ export default function LaminationStudio() {
 
   const handleStartShaping = (dough: LaminationDough) => {
     setCompleteDough(dough);
+    setCompleteDoughStep("pastry");
     setPastryType("");
     setTotalPieces("");
+    setSelectedDestination("");
+    setDestinationPieces("");
+  };
+
+  const handlePastryStepNext = () => {
+    if (!pastryType || !totalPieces) return;
+    setCompleteDoughStep("destination");
+    setDestinationPieces(totalPieces);
+  };
+
+  const handleDestinationSelect = (dest: "proof" | "freezer") => {
+    setSelectedDestination(dest);
   };
 
   const handleCompleteDough = () => {
-    if (!completeDough || !pastryType || !totalPieces) return;
+    if (!completeDough || !pastryType || !totalPieces || !selectedDestination || !destinationPieces) return;
+    const pieces = parseInt(destinationPieces);
+    if (isNaN(pieces) || pieces <= 0) return;
+    const now = new Date().toISOString();
+
+    if (selectedDestination === "proof") {
+      updateMutation.mutate(
+        {
+          id: completeDough.id,
+          updates: {
+            pastryType,
+            totalPieces: parseInt(totalPieces),
+            status: "proofing",
+            destination: "proof",
+            proofPieces: pieces,
+            proofStartedAt: now,
+            shapedBy: user?.id || null,
+            shapedAt: now,
+          },
+        },
+        {
+          onSuccess: () => {
+            resetCompleteDoughDialog();
+            toast({ title: "Moved to Proof Box", description: `${pastryType} — ${pieces} pieces proofing` });
+          },
+        }
+      );
+    } else {
+      updateMutation.mutate(
+        {
+          id: completeDough.id,
+          updates: {
+            pastryType,
+            totalPieces: parseInt(totalPieces),
+            status: "frozen",
+            destination: "freezer",
+            proofPieces: pieces,
+            shapedBy: user?.id || null,
+            shapedAt: now,
+          },
+        },
+        {
+          onSuccess: () => {
+            resetCompleteDoughDialog();
+            toast({ title: "Moved to Freezer", description: `${pastryType} — ${pieces} pieces frozen` });
+          },
+        }
+      );
+    }
+  };
+
+  const handleMoveToProofBox = (dough: LaminationDough) => {
     const now = new Date().toISOString();
     updateMutation.mutate(
       {
-        id: completeDough.id,
+        id: dough.id,
         updates: {
-          pastryType,
-          totalPieces: parseInt(totalPieces),
-          status: "completed",
-          completedAt: now,
-          shapedBy: user?.id || null,
-          shapedAt: now,
+          status: "proofing",
+          destination: "proof",
+          proofStartedAt: now,
         },
       },
       {
         onSuccess: () => {
-          setCompleteDough(null);
-          setPastryType("");
-          setTotalPieces("");
-          toast({ title: "Dough completed", description: `${pastryType} — ${totalPieces} pieces` });
+          toast({ title: "Moved to Proof Box", description: `${dough.pastryType || dough.doughType} is now proofing.` });
         },
       }
     );
@@ -241,7 +349,9 @@ export default function LaminationStudio() {
   };
 
   const restingDoughs = doughs?.filter(d => d.status === "resting") || [];
-  const completedDoughs = doughs?.filter(d => d.status === "completed") || [];
+  const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
+  const frozenDoughs = doughs?.filter(d => d.status === "frozen") || [];
+  const bakedDoughs = doughs?.filter(d => d.status === "baked") || [];
 
   return (
     <div className="space-y-8" data-testid="container-lamination-studio">
@@ -424,21 +534,200 @@ export default function LaminationStudio() {
         )}
       </div>
 
-      {completedDoughs.length > 0 && (
+      {proofingDoughs.length > 0 && (
         <div>
           <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-green-600" />
-            Completed Today
-            <Badge variant="secondary" className="ml-1">{completedDoughs.length}</Badge>
+            <Thermometer className="w-5 h-5 text-amber-600" />
+            Proof Box
+            <Badge variant="secondary" className="ml-1">{proofingDoughs.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {proofingDoughs.map(dough => {
+              const proof = getProofState(dough.proofStartedAt);
+              const isRedPhase = proof.phase === "red";
+
+              const phaseStyles = {
+                red: { border: "border-destructive/50 bg-destructive/5", timerColor: "text-destructive" },
+                yellow: { border: "border-amber-500/50 bg-amber-500/5", timerColor: "text-amber-600" },
+                green: { border: "border-green-500/50 bg-green-500/5", timerColor: "text-green-600" },
+                overproofing: { border: "border-blue-500/50 bg-blue-500/5 animate-pulse", timerColor: "text-blue-600" },
+              };
+              const style = phaseStyles[proof.phase];
+
+              return (
+                <Card
+                  key={dough.id}
+                  className={style.border}
+                  data-testid={`proof-dough-${dough.id}`}
+                >
+                  <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold font-mono text-primary" data-testid={`proof-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                        <p className="text-xs text-muted-foreground">{dough.pastryType}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {proof.phase === "red" && (
+                        <Badge variant="destructive" data-testid={`badge-proof-red-${dough.id}`}>
+                          <Lock className="w-3 h-3 mr-1" />
+                          DO NOT TOUCH
+                        </Badge>
+                      )}
+                      {proof.phase === "yellow" && (
+                        <Badge className="bg-amber-500 text-white" data-testid={`badge-proof-yellow-${dough.id}`}>
+                          <Clock className="w-3 h-3 mr-1" />
+                          Ready Soon
+                        </Badge>
+                      )}
+                      {proof.phase === "green" && (
+                        <Badge className="bg-green-600 text-white" data-testid={`badge-proof-green-${dough.id}`}>
+                          <Flame className="w-3 h-3 mr-1" />
+                          Ready to Bake
+                        </Badge>
+                      )}
+                      {proof.phase === "overproofing" && (
+                        <Badge variant="destructive" className="animate-pulse" data-testid={`badge-proof-over-${dough.id}`}>
+                          <Flame className="w-3 h-3 mr-1" />
+                          OVERPROOFING
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Pieces</p>
+                        <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Proof Time</p>
+                        <p className={`font-mono font-bold ${style.timerColor}`} data-testid={`proof-timer-${dough.id}`}>
+                          {formatTime(proof.elapsed)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-xs space-y-1 border-t pt-2">
+                      {dough.shapedAt && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Scissors className="w-3 h-3" />
+                          <span>Shaped by {getUserName(dough.shapedBy)}</span>
+                          <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
+                        </div>
+                      )}
+                      {dough.proofStartedAt && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Thermometer className="w-3 h-3" />
+                          <span>Proofing since</span>
+                          <span className="ml-auto">{formatTimestamp(dough.proofStartedAt)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-1">
+                      <Button
+                        className="w-full gap-2"
+                        disabled={isRedPhase || bakeMutation.isPending}
+                        onClick={() => setBakeConfirmDough(dough)}
+                        data-testid={`button-bake-off-${dough.id}`}
+                      >
+                        <Flame className="w-4 h-4" />
+                        Bake Off
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {frozenDoughs.length > 0 && (
+        <div>
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+            <Snowflake className="w-5 h-5 text-blue-500" />
+            Freezer
+            <Badge variant="secondary" className="ml-1">{frozenDoughs.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {frozenDoughs.map(dough => (
+              <Card key={dough.id} className="border-blue-500/30 bg-blue-500/5" data-testid={`freezer-dough-${dough.id}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold font-mono text-blue-600" data-testid={`freezer-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                    </div>
+                    <div>
+                      <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                      <p className="text-xs text-muted-foreground">{dough.pastryType}</p>
+                    </div>
+                  </div>
+                  <Badge className="bg-blue-500 text-white" data-testid={`badge-frozen-${dough.id}`}>
+                    <Snowflake className="w-3 h-3 mr-1" />
+                    Frozen
+                  </Badge>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Pieces</p>
+                      <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Fold</p>
+                      <p className="font-mono font-semibold">{dough.foldSequence}</p>
+                    </div>
+                  </div>
+
+                  <div className="text-xs space-y-1 border-t pt-2">
+                    {dough.shapedAt && (
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Scissors className="w-3 h-3" />
+                        <span>Shaped by {getUserName(dough.shapedBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-1">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      disabled={updateMutation.isPending}
+                      onClick={() => handleMoveToProofBox(dough)}
+                      data-testid={`button-move-to-proof-${dough.id}`}
+                    >
+                      <Thermometer className="w-4 h-4" />
+                      Move to Proof Box
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {bakedDoughs.length > 0 && (
+        <div>
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+            <Flame className="w-5 h-5 text-orange-600" />
+            Baked Today
+            <Badge variant="secondary" className="ml-1">{bakedDoughs.length}</Badge>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {completedDoughs.map(dough => (
-              <Card key={dough.id} className="opacity-80" data-testid={`completed-dough-${dough.id}`}>
+            {bakedDoughs.map(dough => (
+              <Card key={dough.id} className="opacity-80" data-testid={`baked-dough-${dough.id}`}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-md bg-green-500/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-bold font-mono text-green-600" data-testid={`completed-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                      <div className="w-7 h-7 rounded-md bg-orange-500/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold font-mono text-orange-600" data-testid={`baked-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
                       </div>
                       <span className="font-display font-semibold">{dough.doughType}</span>
                     </div>
@@ -451,7 +740,7 @@ export default function LaminationStudio() {
                     </div>
                     <div>
                       <p className="text-muted-foreground text-xs">Pieces</p>
-                      <p className="font-mono font-semibold">{dough.totalPieces ?? "—"}</p>
+                      <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
                     </div>
                   </div>
 
@@ -461,25 +750,18 @@ export default function LaminationStudio() {
                       <span>Started by {getUserName(dough.createdBy)}</span>
                       <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
                     </div>
-                    {dough.finalRestAt && (
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Timer className="w-3 h-3" />
-                        <span>Final rest</span>
-                        <span className="ml-auto">{formatTimestamp(dough.finalRestAt)}</span>
-                      </div>
-                    )}
-                    {dough.openedAt && (
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Unlock className="w-3 h-3" />
-                        <span>Opened by {getUserName(dough.openedBy)}</span>
-                        <span className="ml-auto">{formatTimestamp(dough.openedAt)}</span>
-                      </div>
-                    )}
                     {dough.shapedAt && (
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <Scissors className="w-3 h-3" />
                         <span>Shaped by {getUserName(dough.shapedBy)}</span>
                         <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
+                      </div>
+                    )}
+                    {dough.bakedAt && (
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Flame className="w-3 h-3" />
+                        <span>Baked by {getUserName(dough.bakedBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(dough.bakedAt)}</span>
                       </div>
                     )}
                   </div>
@@ -567,59 +849,147 @@ export default function LaminationStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!completeDough} onOpenChange={(open) => { if (!open) setCompleteDough(null); }}>
+      <Dialog open={!!completeDough} onOpenChange={(open) => { if (!open) resetCompleteDoughDialog(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display text-xl">Shape & Complete</DialogTitle>
+            <DialogTitle className="font-display text-xl">
+              {completeDoughStep === "pastry" ? "Shape & Complete" : "Choose Destination"}
+            </DialogTitle>
             <DialogDescription>
-              Assign the pastry type and total pieces for this {completeDough?.doughType} dough ({completeDough?.foldSequence}).
+              {completeDoughStep === "pastry"
+                ? `Assign the pastry type and total pieces for this ${completeDough?.doughType} dough (${completeDough?.foldSequence}).`
+                : `Where is ${pastryType} going?`
+              }
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Pastry Type</label>
-              {pastryItemsForType && pastryItemsForType.length > 0 ? (
-                <Select value={pastryType} onValueChange={setPastryType} data-testid="select-pastry-type">
-                  <SelectTrigger data-testid="input-pastry-type">
-                    <SelectValue placeholder="Select pastry type..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pastryItemsForType.map((item) => (
-                      <SelectItem key={item.id} value={item.name} data-testid={`option-pastry-${item.id}`}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="text-sm text-muted-foreground p-3 border rounded-md">
-                  No pastries configured for {completeDough?.doughType} dough yet. Add them in Settings.
-                </div>
-              )}
+
+          {completeDoughStep === "pastry" && (
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Pastry Type</label>
+                {pastryItemsForType && pastryItemsForType.length > 0 ? (
+                  <Select value={pastryType} onValueChange={setPastryType} data-testid="select-pastry-type">
+                    <SelectTrigger data-testid="input-pastry-type">
+                      <SelectValue placeholder="Select pastry type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pastryItemsForType.map((item) => (
+                        <SelectItem key={item.id} value={item.name} data-testid={`option-pastry-${item.id}`}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                    No pastries configured for {completeDough?.doughType} dough yet. Add them in Settings.
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Total Pieces</label>
+                <Input
+                  type="number"
+                  placeholder="Number of pieces"
+                  value={totalPieces}
+                  onChange={(e) => setTotalPieces(e.target.value)}
+                  min={1}
+                  data-testid="input-total-pieces"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => resetCompleteDoughDialog()} data-testid="button-complete-cancel">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handlePastryStepNext}
+                  disabled={!pastryType || !totalPieces}
+                  data-testid="button-complete-next"
+                >
+                  Next
+                </Button>
+              </DialogFooter>
             </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Total Pieces</label>
-              <Input
-                type="number"
-                placeholder="Number of pieces"
-                value={totalPieces}
-                onChange={(e) => setTotalPieces(e.target.value)}
-                min={1}
-                data-testid="input-total-pieces"
-              />
+          )}
+
+          {completeDoughStep === "destination" && (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant={selectedDestination === "proof" ? "default" : "outline"}
+                  className="h-20 flex-col gap-2"
+                  onClick={() => handleDestinationSelect("proof")}
+                  data-testid="button-destination-proof"
+                >
+                  <Thermometer className="w-6 h-6" />
+                  <span className="font-display">Proof Box</span>
+                </Button>
+                <Button
+                  variant={selectedDestination === "freezer" ? "default" : "outline"}
+                  className="h-20 flex-col gap-2"
+                  onClick={() => handleDestinationSelect("freezer")}
+                  data-testid="button-destination-freezer"
+                >
+                  <Snowflake className="w-6 h-6" />
+                  <span className="font-display">Freezer</span>
+                </Button>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Number of Pastries</label>
+                <Input
+                  type="number"
+                  placeholder="Number of pastries"
+                  value={destinationPieces}
+                  onChange={(e) => setDestinationPieces(e.target.value)}
+                  min={1}
+                  data-testid="input-destination-pieces"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setCompleteDoughStep("pastry")} data-testid="button-destination-back">
+                  Back
+                </Button>
+                <Button
+                  onClick={handleCompleteDough}
+                  disabled={!selectedDestination || !destinationPieces || parseInt(destinationPieces) <= 0 || isNaN(parseInt(destinationPieces)) || updateMutation.isPending}
+                  data-testid="button-complete-submit"
+                >
+                  {updateMutation.isPending ? "Saving..." : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      {selectedDestination === "proof" ? "Send to Proof Box" : selectedDestination === "freezer" ? "Send to Freezer" : "Confirm"}
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
             </div>
-          </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bakeConfirmDough} onOpenChange={(open) => { if (!open) setBakeConfirmDough(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Confirm Bake Off</DialogTitle>
+            <DialogDescription>
+              Confirm bake off Dough #{bakeConfirmDough?.doughNumber} — {bakeConfirmDough?.proofPieces ?? bakeConfirmDough?.totalPieces} pieces of {bakeConfirmDough?.pastryType || bakeConfirmDough?.doughType}?
+            </DialogDescription>
+          </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCompleteDough(null)} data-testid="button-complete-cancel">
+            <Button variant="ghost" onClick={() => setBakeConfirmDough(null)} data-testid="button-bake-cancel">
               Cancel
             </Button>
             <Button
-              onClick={handleCompleteDough}
-              disabled={!pastryType || !totalPieces || updateMutation.isPending}
-              data-testid="button-complete-submit"
+              onClick={() => bakeConfirmDough && bakeMutation.mutate(bakeConfirmDough.id)}
+              disabled={bakeMutation.isPending}
+              data-testid="button-bake-confirm"
             >
-              <CheckCircle2 className="w-4 h-4 mr-2" />
-              Complete
+              {bakeMutation.isPending ? "Baking..." : (
+                <>
+                  <Flame className="w-4 h-4 mr-2" />
+                  Bake Off
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
