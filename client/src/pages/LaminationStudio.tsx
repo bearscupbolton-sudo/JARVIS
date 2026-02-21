@@ -130,6 +130,7 @@ export default function LaminationStudio() {
   const [destinationPieces, setDestinationPieces] = useState("");
 
   const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
+  const [labelReminderDough, setLabelReminderDough] = useState<{number: number; type: string} | null>(null);
 
   const [, setTick] = useState(0);
 
@@ -202,10 +203,18 @@ export default function LaminationStudio() {
           finalRestAt: now,
         });
       }
+      return created;
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (created, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
       resetNewDoughDialog();
+
+      const count = parseInt(localStorage.getItem("jarvis-dough-label-count") || "0");
+      if (count < 10) {
+        localStorage.setItem("jarvis-dough-label-count", String(count + 1));
+        setLabelReminderDough({ number: created.doughNumber, type: created.doughType });
+      }
+
       if (variables.chill) {
         toast({ title: "Dough chilling", description: "20-minute freezer chill started. Come back for Turn 2." });
       } else {
@@ -220,6 +229,9 @@ export default function LaminationStudio() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message || "Something went wrong", variant: "destructive" });
     },
   });
 
@@ -362,7 +374,7 @@ export default function LaminationStudio() {
   const handleStartShaping = (dough: LaminationDough) => {
     setCompleteDough(dough);
     setCompleteDoughStep("pastry");
-    setPastryType("");
+    setPastryType(dough.intendedPastry || "");
     setTotalPieces("");
     setSelectedDestination("");
     setDestinationPieces("");
@@ -430,6 +442,23 @@ export default function LaminationStudio() {
     }
   };
 
+  const handleMoveToFridge = (dough: LaminationDough) => {
+    updateMutation.mutate(
+      {
+        id: dough.id,
+        updates: {
+          status: "fridge",
+          destination: "fridge",
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Moved to Fridge", description: `${dough.pastryType || dough.doughType} is in the fridge. No timer needed.` });
+        },
+      }
+    );
+  };
+
   const handleMoveToProofBox = (dough: LaminationDough) => {
     const now = new Date().toISOString();
     updateMutation.mutate(
@@ -458,6 +487,7 @@ export default function LaminationStudio() {
   const chillingDoughs = doughs?.filter(d => d.status === "chilling") || [];
   const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
   const frozenDoughs = doughs?.filter(d => d.status === "frozen") || [];
+  const fridgeDoughs = doughs?.filter(d => d.status === "fridge") || [];
   const bakedDoughs = doughs?.filter(d => d.status === "baked") || [];
 
   const rackDoughs = [...restingDoughs, ...chillingDoughs];
@@ -913,13 +943,81 @@ export default function LaminationStudio() {
                     )}
                   </div>
 
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      disabled={updateMutation.isPending}
+                      onClick={() => handleMoveToFridge(dough)}
+                      data-testid={`button-move-to-fridge-${dough.id}`}
+                    >
+                      <Layers className="w-4 h-4" />
+                      Move to Fridge
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      disabled={updateMutation.isPending}
+                      onClick={() => handleMoveToProofBox(dough)}
+                      data-testid={`button-move-to-proof-${dough.id}`}
+                    >
+                      <Thermometer className="w-4 h-4" />
+                      Move to Proof
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {fridgeDoughs.length > 0 && (
+        <div>
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+            <Layers className="w-5 h-5 text-slate-500" />
+            Fridge
+            <Badge variant="secondary" className="ml-1">{fridgeDoughs.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {fridgeDoughs.map(dough => (
+              <Card key={dough.id} className="border-slate-400/30 bg-slate-100/50 dark:bg-slate-800/30" data-testid={`fridge-dough-${dough.id}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-slate-500/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold font-mono text-slate-600" data-testid={`fridge-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                    </div>
+                    <div>
+                      <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                      <p className="text-xs font-medium">{dough.pastryType}</p>
+                      {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                        <p className="text-xs text-muted-foreground line-through">Intended: {dough.intendedPastry}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Badge variant="secondary" data-testid={`badge-fridge-${dough.id}`}>
+                    <Layers className="w-3 h-3 mr-1" />
+                    In Fridge
+                  </Badge>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Pieces</p>
+                      <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Fold</p>
+                      <p className="font-mono font-semibold">{dough.foldSequence}</p>
+                    </div>
+                  </div>
                   <div className="pt-1">
                     <Button
                       variant="outline"
                       className="w-full gap-2"
                       disabled={updateMutation.isPending}
                       onClick={() => handleMoveToProofBox(dough)}
-                      data-testid={`button-move-to-proof-${dough.id}`}
+                      data-testid={`button-fridge-to-proof-${dough.id}`}
                     >
                       <Thermometer className="w-4 h-4" />
                       Move to Proof Box
@@ -1315,6 +1413,28 @@ export default function LaminationStudio() {
                   Bake Off
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!labelReminderDough} onOpenChange={(open) => { if (!open) setLabelReminderDough(null); }}>
+        <DialogContent className="sm:max-w-xs text-center">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Label Your Parchment!</DialogTitle>
+            <DialogDescription>
+              Write this number on your parchment paper so the team can identify this dough on the rack.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6">
+            <div className="w-24 h-24 mx-auto rounded-xl bg-primary/10 border-2 border-primary flex items-center justify-center" data-testid="label-dough-number">
+              <span className="text-4xl font-bold font-mono text-primary">#{labelReminderDough?.number}</span>
+            </div>
+            <p className="mt-3 text-sm font-medium">{labelReminderDough?.type}</p>
+          </div>
+          <DialogFooter className="justify-center">
+            <Button onClick={() => setLabelReminderDough(null)} data-testid="button-label-dismiss">
+              Got It
             </Button>
           </DialogFooter>
         </DialogContent>
