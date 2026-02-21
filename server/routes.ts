@@ -2618,9 +2618,12 @@ ${sopsHtml}
       const schema = z.object({ doughType: z.string().min(1) });
       const parsed = schema.parse(req.body);
       const today = new Date().toISOString().split("T")[0];
+      const existingDoughs = await storage.getLaminationDoughs(today);
+      const maxNumber = existingDoughs.reduce((max, d) => Math.max(max, d.doughNumber || 0), 0);
       const dough = await storage.createLaminationDough({
         date: today,
         doughType: parsed.doughType,
+        doughNumber: maxNumber + 1,
         status: "turning",
         createdBy: user?.id || null,
         startedAt: new Date(),

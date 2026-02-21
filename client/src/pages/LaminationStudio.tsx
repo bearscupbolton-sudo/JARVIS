@@ -41,7 +41,6 @@ import type { LaminationDough, PastryItem } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
-const SEQUENCE_OPTIONS = ["4x3", "4x4"];
 
 const REST_DURATION_MS = 30 * 60 * 1000;
 
@@ -73,11 +72,10 @@ export default function LaminationStudio() {
   const today = new Date().toISOString().split("T")[0];
 
   const [showNewDough, setShowNewDough] = useState(false);
-  const [newDoughStep, setNewDoughStep] = useState<"type" | "turns" | "sequence">("type");
+  const [newDoughStep, setNewDoughStep] = useState<"type" | "turns">("type");
   const [selectedType, setSelectedType] = useState("");
   const [turn1, setTurn1] = useState("");
   const [turn2, setTurn2] = useState("");
-  const [selectedSequence, setSelectedSequence] = useState("");
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
   const [pastryType, setPastryType] = useState("");
@@ -162,7 +160,6 @@ export default function LaminationStudio() {
     setSelectedType("");
     setTurn1("");
     setTurn2("");
-    setSelectedSequence("");
   }, []);
 
   const handleTypeSelect = (type: string) => {
@@ -170,20 +167,22 @@ export default function LaminationStudio() {
     setNewDoughStep("turns");
   };
 
+  function deriveFoldSequence(t1: string, t2: string): string {
+    const n1 = t1.replace("-fold", "");
+    const n2 = t2.replace("-fold", "");
+    return `${n1}x${n2}`;
+  }
+
   const handleTurnsComplete = () => {
     if (turn1 && turn2) {
-      setNewDoughStep("sequence");
+      const seq = deriveFoldSequence(turn1, turn2);
+      createMutation.mutate({
+        doughType: selectedType,
+        turn1Fold: turn1,
+        turn2Fold: turn2,
+        foldSequence: seq,
+      });
     }
-  };
-
-  const handleSequenceSelect = (seq: string) => {
-    setSelectedSequence(seq);
-    createMutation.mutate({
-      doughType: selectedType,
-      turn1Fold: turn1,
-      turn2Fold: turn2,
-      foldSequence: seq,
-    });
   };
 
   const handleOpenDough = (dough: LaminationDough) => {
@@ -298,7 +297,9 @@ export default function LaminationStudio() {
                 >
                   <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
                     <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded-full ${isLocked ? "bg-destructive animate-pulse" : "bg-green-500"}`} />
+                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold font-mono text-primary" data-testid={`dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                      </div>
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                     </div>
                     <div className="flex items-center gap-1">
@@ -436,7 +437,9 @@ export default function LaminationStudio() {
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      <div className="w-7 h-7 rounded-md bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold font-mono text-green-600" data-testid={`completed-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                      </div>
                       <span className="font-display font-semibold">{dough.doughType}</span>
                     </div>
                     <Badge variant="outline">{dough.foldSequence}</Badge>
@@ -493,12 +496,10 @@ export default function LaminationStudio() {
             <DialogTitle className="font-display text-xl">
               {newDoughStep === "type" && "Select Dough Type"}
               {newDoughStep === "turns" && `${selectedType} — Set Turns`}
-              {newDoughStep === "sequence" && `${selectedType} — Fold Sequence`}
             </DialogTitle>
             <DialogDescription>
               {newDoughStep === "type" && "What dough are you pulling from the fridge?"}
               {newDoughStep === "turns" && "Each turn gets a fold. Select the fold for each turn."}
-              {newDoughStep === "sequence" && "Choose the fold sequence for this dough."}
             </DialogDescription>
           </DialogHeader>
 
@@ -557,32 +558,8 @@ export default function LaminationStudio() {
                 <Button variant="ghost" onClick={() => setNewDoughStep("type")} data-testid="button-turns-back">
                   Back
                 </Button>
-                <Button onClick={handleTurnsComplete} disabled={!turn1 || !turn2} data-testid="button-turns-next">
-                  Next
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-
-          {newDoughStep === "sequence" && (
-            <div className="space-y-4 py-2">
-              <div className="grid grid-cols-1 gap-3">
-                {SEQUENCE_OPTIONS.map(seq => (
-                  <Button
-                    key={seq}
-                    variant="outline"
-                    className="h-14 text-xl font-mono justify-center"
-                    onClick={() => handleSequenceSelect(seq)}
-                    disabled={createMutation.isPending}
-                    data-testid={`button-sequence-${seq}`}
-                  >
-                    {seq}
-                  </Button>
-                ))}
-              </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setNewDoughStep("turns")} data-testid="button-sequence-back">
-                  Back
+                <Button onClick={handleTurnsComplete} disabled={!turn1 || !turn2 || createMutation.isPending} data-testid="button-turns-start">
+                  {createMutation.isPending ? "Starting..." : "Start Rest"}
                 </Button>
               </DialogFooter>
             </div>

@@ -563,6 +563,7 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 // === LAMINATION DOUGHS ===
 export const laminationDoughs = pgTable("lamination_doughs", {
   id: serial("id").primaryKey(),
+  doughNumber: integer("dough_number"),
   date: text("date").notNull(),
   doughType: text("dough_type").notNull(),
   turn1Fold: text("turn1_fold"),
