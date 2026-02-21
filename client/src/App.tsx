@@ -43,6 +43,7 @@ import PastryGoals from "@/pages/PastryGoals";
 import LiveInventory from "@/pages/LiveInventory";
 import TTIS from "@/pages/TTIS";
 import AdminInsights from "@/pages/AdminInsights";
+import Messages from "@/pages/Messages";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -196,6 +197,9 @@ function Router() {
       </Route>
       <Route path="/admin/insights">
         {() => <ProtectedRoute component={AdminInsights} />}
+      </Route>
+      <Route path="/messages">
+        {() => <ProtectedRoute component={Messages} />}
       </Route>
 
       <Route component={NotFound} />

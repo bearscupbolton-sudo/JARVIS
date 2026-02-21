@@ -7,20 +7,14 @@ import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Mail, MailOpen, Calendar, Clock, Users, Flame,
-  Send, Megaphone, ArrowRight, CheckCircle2, Inbox,
-  AlertCircle, Pin, Plus, Eye, ChefHat, ClipboardList,
+  Megaphone, ArrowRight,
+  AlertCircle, Pin, ChefHat, ClipboardList,
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
-  Trash2, Check, MessageSquare, SendHorizontal,
-  LogIn, LogOut, Coffee, Timer
+  MessageSquare,
+  LogIn, LogOut, Coffee
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
@@ -28,14 +22,6 @@ import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, B
 type InboxMessage = DirectMessage & {
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
   recipient: MessageRecipient;
-};
-
-type SentRecipient = MessageRecipient & {
-  user: { id: string; firstName: string | null; lastName: string | null; username: string | null };
-};
-
-type SentMessage = DirectMessage & {
-  recipients: SentRecipient[];
 };
 
 type HomeData = {
@@ -49,14 +35,6 @@ type HomeData = {
     todayStaffCount: number;
     todayShiftCount: number;
   } | null;
-};
-
-type TeamMember = {
-  id: string;
-  username: string;
-  firstName: string | null;
-  lastName: string | null;
-  role: string;
 };
 
 function formatShiftDate(dateStr: string): string {
@@ -246,7 +224,6 @@ function ClockBar() {
 
 export default function Home() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const isManager = user?.role === "manager" || user?.role === "owner";
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({
@@ -258,92 +235,7 @@ export default function Home() {
     queryKey: ["/api/messages/inbox"],
   });
 
-  const { data: teamMembers = [] } = useQuery<TeamMember[]>({
-    queryKey: ["/api/team-members"],
-    enabled: isManager,
-  });
-
-  const { data: sentMessages = [], isLoading: loadingSent } = useQuery<SentMessage[]>({
-    queryKey: ["/api/messages/sent"],
-    enabled: isManager,
-  });
-
-  const [messageTab, setMessageTab] = useState<"inbox" | "sent">("inbox");
-  const [selectedMessage, setSelectedMessage] = useState<InboxMessage | null>(null);
-  const [selectedSentMessage, setSelectedSentMessage] = useState<SentMessage | null>(null);
-  const [showCompose, setShowCompose] = useState(false);
-  const [composeForm, setComposeForm] = useState({
-    subject: "",
-    body: "",
-    priority: "normal",
-    requiresAck: false,
-    targetType: "individual",
-    targetValue: "",
-    recipientIds: [] as string[],
-  });
-
-  const markReadMutation = useMutation({
-    mutationFn: async (messageId: number) => {
-      await apiRequest("POST", `/api/messages/${messageId}/read`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
-    },
-  });
-
-  const acknowledgeMutation = useMutation({
-    mutationFn: async (messageId: number) => {
-      await apiRequest("POST", `/api/messages/${messageId}/acknowledge`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
-      toast({ title: "Acknowledged", description: "Message acknowledged successfully." });
-    },
-  });
-
-  const deleteMessageMutation = useMutation({
-    mutationFn: async (messageId: number) => {
-      await apiRequest("DELETE", `/api/messages/${messageId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
-      setSelectedMessage(null);
-    },
-  });
-
-  const sendMessageMutation = useMutation({
-    mutationFn: async (data: typeof composeForm) => {
-      const res = await apiRequest("POST", "/api/messages", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/sent"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
-      setShowCompose(false);
-      setComposeForm({
-        subject: "", body: "", priority: "normal", requiresAck: false,
-        targetType: "individual", targetValue: "", recipientIds: [],
-      });
-      toast({ title: "Message sent", description: "Your message has been delivered." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to send", description: err.message, variant: "destructive" });
-    },
-  });
-
-  function openMessage(msg: InboxMessage) {
-    setSelectedMessage(msg);
-    if (!msg.recipient.read) {
-      markReadMutation.mutate(msg.id);
-    }
-  }
+  const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -352,9 +244,6 @@ export default function Home() {
     if (hour < 17) return "Good afternoon";
     return "Good evening";
   }, []);
-
-  const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
-  const readMessages = inboxMessages.filter(m => m.recipient.read);
 
   const bakeoffEntries = homeData?.bakeoffSummary
     ? Object.entries(homeData.bakeoffSummary).sort((a, b) => a[0].localeCompare(b[0]))
@@ -442,346 +331,69 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Messages Card */}
-        <Card className="lg:col-span-2" id="inbox-section" data-testid="container-inbox">
+        {/* Messages Summary Card */}
+        <Link href="/messages">
+        <Card className="lg:col-span-2 cursor-pointer hover-elevate" id="inbox-section" data-testid="container-inbox">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <div className="flex items-center gap-1">
-              <Button
-                variant={messageTab === "inbox" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setMessageTab("inbox")}
-                className="gap-1.5"
-                data-testid="button-tab-inbox"
-              >
-                <Inbox className="w-4 h-4" />
-                Inbox
-                {unreadMessages.length > 0 && (
-                  <Badge variant="destructive" data-testid="badge-unread-count">{unreadMessages.length}</Badge>
-                )}
-              </Button>
-              {isManager && (
-                <Button
-                  variant={messageTab === "sent" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setMessageTab("sent")}
-                  className="gap-1.5"
-                  data-testid="button-tab-sent"
-                >
-                  <SendHorizontal className="w-4 h-4" />
-                  Sent
-                  {sentMessages.length > 0 && (
-                    <Badge variant="secondary">{sentMessages.length}</Badge>
-                  )}
-                </Button>
+            <CardTitle className="text-lg font-display flex items-center gap-2">
+              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                <MessageSquare className="w-4 h-4 text-primary" />
+              </div>
+              Messages
+              {unreadMessages.length > 0 && (
+                <Badge variant="destructive" data-testid="badge-unread-count">{unreadMessages.length}</Badge>
               )}
-            </div>
-            {isManager && (
-              <Dialog open={showCompose} onOpenChange={setShowCompose}>
-                <DialogTrigger asChild>
-                  <Button size="sm" data-testid="button-compose-message">
-                    <Send className="w-4 h-4 mr-1" /> New Message
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Send Message</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Send To</Label>
-                      <Select
-                        value={composeForm.targetType}
-                        onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetType: v, targetValue: "", recipientIds: [] }))}
-                      >
-                        <SelectTrigger data-testid="select-target-type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="individual">Individual</SelectItem>
-                          <SelectItem value="role">By Role</SelectItem>
-                          <SelectItem value="department">By Department</SelectItem>
-                          <SelectItem value="everyone">Everyone</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {composeForm.targetType === "individual" && (
-                      <div className="space-y-2">
-                        <Label>Recipient</Label>
-                        <Select
-                          value={composeForm.recipientIds[0] || ""}
-                          onValueChange={(v) => setComposeForm(prev => ({ ...prev, recipientIds: [v] }))}
-                        >
-                          <SelectTrigger data-testid="select-recipient">
-                            <SelectValue placeholder="Choose team member" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {teamMembers.filter(m => m.id !== user?.id).map(m => (
-                              <SelectItem key={m.id} value={m.id}>
-                                {m.firstName || m.username} {m.lastName || ""} ({m.role})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {composeForm.targetType === "role" && (
-                      <div className="space-y-2">
-                        <Label>Role</Label>
-                        <Select
-                          value={composeForm.targetValue}
-                          onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetValue: v }))}
-                        >
-                          <SelectTrigger data-testid="select-role-target">
-                            <SelectValue placeholder="Choose role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="owner">Owners</SelectItem>
-                            <SelectItem value="manager">Managers</SelectItem>
-                            <SelectItem value="member">Members</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {composeForm.targetType === "department" && (
-                      <div className="space-y-2">
-                        <Label>Department</Label>
-                        <Select
-                          value={composeForm.targetValue}
-                          onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetValue: v }))}
-                        >
-                          <SelectTrigger data-testid="select-dept-target">
-                            <SelectValue placeholder="Choose department" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="kitchen">Kitchen</SelectItem>
-                            <SelectItem value="bakery">Bakery</SelectItem>
-                            <SelectItem value="foh">Front of House</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label>Subject</Label>
-                      <Input
-                        value={composeForm.subject}
-                        onChange={(e) => setComposeForm(prev => ({ ...prev, subject: e.target.value }))}
-                        placeholder="Message subject"
-                        data-testid="input-message-subject"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Message</Label>
-                      <Textarea
-                        value={composeForm.body}
-                        onChange={(e) => setComposeForm(prev => ({ ...prev, body: e.target.value }))}
-                        placeholder="Write your message..."
-                        rows={4}
-                        data-testid="input-message-body"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div className="space-y-1">
-                        <Label>Priority</Label>
-                        <Select
-                          value={composeForm.priority}
-                          onValueChange={(v) => setComposeForm(prev => ({ ...prev, priority: v }))}
-                        >
-                          <SelectTrigger className="w-32" data-testid="select-priority">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="normal">Normal</SelectItem>
-                            <SelectItem value="urgent">Urgent</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex items-center gap-2 pt-5">
-                        <Switch
-                          checked={composeForm.requiresAck}
-                          onCheckedChange={(v) => setComposeForm(prev => ({ ...prev, requiresAck: v }))}
-                          data-testid="switch-requires-ack"
-                        />
-                        <Label className="text-sm">Require acknowledgment</Label>
-                      </div>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      onClick={() => sendMessageMutation.mutate(composeForm)}
-                      disabled={!composeForm.subject.trim() || !composeForm.body.trim() || sendMessageMutation.isPending}
-                      data-testid="button-send-message"
-                    >
-                      {sendMessageMutation.isPending ? "Sending..." : "Send Message"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            )}
+            </CardTitle>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              View All <ArrowRight className="w-3 h-3" />
+            </span>
           </CardHeader>
           <CardContent className="pt-0">
-            {messageTab === "inbox" ? (
-              loadingInbox ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-14 rounded-md" />
-                  <Skeleton className="h-14 rounded-md" />
-                  <Skeleton className="h-14 rounded-md" />
-                </div>
-              ) : inboxMessages.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <MailOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">No messages yet</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {unreadMessages.length > 0 && (
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Unread</p>
-                  )}
-                  {unreadMessages.map(msg => (
-                    <div
-                      key={msg.id}
-                      className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate bg-primary/5"
-                      onClick={() => openMessage(msg)}
-                      data-testid={`inbox-message-${msg.id}`}
-                    >
-                      <Mail className="w-4 h-4 text-primary flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm truncate">{msg.subject}</span>
-                          {msg.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
-                          {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {readMessages.length > 0 && unreadMessages.length > 0 && (
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mt-4 mb-2">Read</p>
-                  )}
-                  {readMessages.slice(0, 10).map(msg => (
-                    <div
-                      key={msg.id}
-                      className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate"
-                      onClick={() => openMessage(msg)}
-                      data-testid={`inbox-message-${msg.id}`}
-                    >
-                      <MailOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm truncate">{msg.subject}</span>
-                          {msg.requiresAck && msg.recipient.acknowledged && (
-                            <Badge variant="secondary">
-                              <Check className="w-3 h-3 mr-1" /> Acknowledged
-                            </Badge>
-                          )}
-                          {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline">Ack Required</Badge>}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          From: {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  {readMessages.length > 10 && (
-                    <p className="text-xs text-muted-foreground text-center pt-2">
-                      + {readMessages.length - 10} older messages
-                    </p>
-                  )}
-                </div>
-              )
+            {loadingInbox ? (
+              <div className="space-y-2">
+                <Skeleton className="h-12 rounded-md" />
+                <Skeleton className="h-12 rounded-md" />
+              </div>
+            ) : inboxMessages.length === 0 ? (
+              <div className="text-center py-4 text-muted-foreground">
+                <MailOpen className="w-8 h-8 mx-auto mb-1.5 opacity-40" />
+                <p className="text-sm">No messages yet</p>
+              </div>
             ) : (
-              loadingSent ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-14 rounded-md" />
-                  <Skeleton className="h-14 rounded-md" />
-                </div>
-              ) : sentMessages.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <SendHorizontal className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">No sent messages</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {sentMessages.map(msg => {
-                    const totalRecipients = msg.recipients.length;
-                    const readCount = msg.recipients.filter(r => r.read).length;
-                    const ackCount = msg.recipients.filter(r => r.acknowledged).length;
-                    const allRead = readCount === totalRecipients;
-                    return (
-                      <div
-                        key={msg.id}
-                        className="flex items-center gap-3 p-3 rounded-md border border-border cursor-pointer hover-elevate"
-                        onClick={() => setSelectedSentMessage(selectedSentMessage?.id === msg.id ? null : msg)}
-                        data-testid={`sent-message-${msg.id}`}
-                      >
-                        <SendHorizontal className={`w-4 h-4 flex-shrink-0 ${allRead ? "text-muted-foreground" : "text-primary"}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-sm truncate ${allRead ? "" : "font-semibold"}`}>{msg.subject}</span>
-                            {msg.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
-                            {msg.requiresAck && (
-                              <Badge variant={ackCount === totalRecipients ? "secondary" : "outline"}>
-                                {ackCount}/{totalRecipients} Ack
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            To: {totalRecipients} {totalRecipients === 1 ? "person" : "people"}
-                            {" \u00B7 "}{readCount}/{totalRecipients} read
-                            {msg.createdAt && ` \u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                          </p>
-                          {selectedSentMessage?.id === msg.id && (
-                            <div className="mt-3 pt-3 border-t border-border space-y-2">
-                              <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground mb-1">Recipients</p>
-                              {msg.recipients.map(r => (
-                                <div key={r.id} className="flex items-center gap-2 text-xs" data-testid={`sent-recipient-${r.id}`}>
-                                  <UserCircle className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  <span className="flex-1">
-                                    {r.user.firstName || r.user.username || "Unknown"}
-                                    {r.user.lastName ? ` ${r.user.lastName}` : ""}
-                                  </span>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {r.read ? (
-                                      <Badge variant="secondary" className="text-[10px]">
-                                        <Eye className="w-3 h-3 mr-0.5" /> Read
-                                        {r.readAt && ` ${format(new Date(r.readAt), "M/d h:mm a")}`}
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-[10px]">Unread</Badge>
-                                    )}
-                                    {msg.requiresAck && (
-                                      r.acknowledged ? (
-                                        <Badge variant="secondary" className="text-[10px]">
-                                          <Check className="w-3 h-3 mr-0.5" /> Ack
-                                          {r.acknowledgedAt && ` ${format(new Date(r.acknowledgedAt), "M/d h:mm a")}`}
-                                        </Badge>
-                                      ) : (
-                                        <Badge variant="outline" className="text-[10px]">Not Ack</Badge>
-                                      )
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                              <div className="pt-2 text-xs text-muted-foreground whitespace-pre-wrap">{msg.body}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
+              <div className="space-y-1">
+                {unreadMessages.slice(0, 3).map(msg => (
+                  <div key={msg.id} className="flex items-center gap-3 p-2.5 rounded-md bg-primary/5 border border-border" data-testid={`home-message-${msg.id}`}>
+                    <Mail className="w-4 h-4 text-primary flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-semibold text-sm truncate block">{msg.subject}</span>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {senderName(msg.sender)} {msg.createdAt && `· ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                      </p>
+                    </div>
+                    {msg.priority === "urgent" && <Badge variant="destructive" className="text-[10px]">Urgent</Badge>}
+                  </div>
+                ))}
+                {unreadMessages.length === 0 && inboxMessages.slice(0, 2).map(msg => (
+                  <div key={msg.id} className="flex items-center gap-3 p-2.5 rounded-md border border-border" data-testid={`home-message-${msg.id}`}>
+                    <MailOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm truncate block">{msg.subject}</span>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {senderName(msg.sender)} {msg.createdAt && `· ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {inboxMessages.length > 3 && (
+                  <p className="text-xs text-muted-foreground text-center pt-1">
+                    {inboxMessages.length - (unreadMessages.length > 0 ? Math.min(unreadMessages.length, 3) : 2)} more messages
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
+        </Link>
 
         {/* My Schedule Card */}
         <Link href="/schedule">
@@ -962,62 +574,6 @@ export default function Home() {
         </Card>
       </div>
 
-      {/* Message Detail Dialog */}
-      <Dialog open={!!selectedMessage} onOpenChange={(open) => { if (!open) setSelectedMessage(null); }}>
-        <DialogContent className="max-w-lg">
-          {selectedMessage && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 flex-wrap">
-                  {selectedMessage.subject}
-                  {selectedMessage.priority === "urgent" && <Badge variant="destructive">Urgent</Badge>}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                  <span>From: <strong className="text-foreground">{senderName(selectedMessage.sender)}</strong></span>
-                  {selectedMessage.createdAt && (
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {format(new Date(selectedMessage.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                    </span>
-                  )}
-                </div>
-                <div className="p-4 rounded-md bg-muted/50 text-sm whitespace-pre-wrap" data-testid="text-message-body">
-                  {selectedMessage.body}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {selectedMessage.requiresAck && !selectedMessage.recipient.acknowledged && (
-                    <Button
-                      onClick={() => acknowledgeMutation.mutate(selectedMessage.id)}
-                      disabled={acknowledgeMutation.isPending}
-                      data-testid="button-acknowledge-message"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      {acknowledgeMutation.isPending ? "Acknowledging..." : "Acknowledge"}
-                    </Button>
-                  )}
-                  {selectedMessage.requiresAck && selectedMessage.recipient.acknowledged && (
-                    <Badge variant="secondary">
-                      <Check className="w-3 h-3 mr-1" />
-                      Acknowledged {selectedMessage.recipient.acknowledgedAt && format(new Date(selectedMessage.recipient.acknowledgedAt), "MMM d, h:mm a")}
-                    </Badge>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMessageMutation.mutate(selectedMessage.id)}
-                    disabled={deleteMessageMutation.isPending}
-                    data-testid="button-delete-message"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

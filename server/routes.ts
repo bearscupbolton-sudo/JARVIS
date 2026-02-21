@@ -10,7 +10,7 @@ import { sendPushToUsers, sendPushToUser } from "./push";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages } from "@shared/schema";
 import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
@@ -2388,6 +2388,133 @@ ${sopsHtml}
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       await storage.deleteMessageForUser(Number(req.params.id), user.id);
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/pin", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const pinned = await storage.togglePinMessage(Number(req.params.id), user.id);
+      res.json({ pinned });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/archive", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.archiveMessage(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/unarchive", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.unarchiveMessage(Number(req.params.id), user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/:id/replies", isAuthenticated, async (req: any, res) => {
+    try {
+      const replies = await storage.getMessageReplies(Number(req.params.id));
+      res.json(replies);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/reply", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { body } = req.body;
+      if (!body) return res.status(400).json({ message: "Reply body is required" });
+      const parentId = Number(req.params.id);
+      const parent = await db.select().from(directMessages).where(eq(directMessages.id, parentId));
+      if (parent.length === 0) return res.status(404).json({ message: "Parent message not found" });
+      const reply = await storage.sendMessage({
+        senderId: user.id,
+        subject: `Re: ${parent[0].subject}`,
+        body,
+        priority: "normal",
+        requiresAck: false,
+        targetType: parent[0].targetType,
+        targetValue: parent[0].targetValue,
+        parentMessageId: parentId,
+      }, [parent[0].senderId]);
+      res.json(reply);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/:id/reactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const reactions = await storage.getReactionsForMessages([Number(req.params.id)]);
+      res.json(reactions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/messages/:id/reactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { emoji } = req.body;
+      if (!emoji) return res.status(400).json({ message: "Emoji is required" });
+      const reaction = await storage.addReaction(Number(req.params.id), user.id, emoji);
+      res.json(reaction);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/messages/:id/reactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { emoji } = req.body;
+      if (!emoji) return res.status(400).json({ message: "Emoji is required" });
+      await storage.removeReaction(Number(req.params.id), user.id, emoji);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const q = (req.query.q as string) || "";
+      if (!q.trim()) return res.json([]);
+      const results = await storage.searchMessages(user.id, q.trim());
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/messages/archived", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const messages = await storage.getInboxMessages(user.id, true);
+      const archived = messages.filter(m => m.recipient.archived);
+      res.json(archived);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

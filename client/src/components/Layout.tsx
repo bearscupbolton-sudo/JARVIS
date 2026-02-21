@@ -31,6 +31,7 @@ import {
   DollarSign,
   MapPin,
   Eye,
+  MessageSquare,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -45,6 +46,7 @@ import { apiRequest } from "@/lib/queryClient";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
+  { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
@@ -156,7 +158,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                 <span className="font-medium">{item.label}</span>
-                {item.label === "Home" && unreadCount && unreadCount.count > 0 && (
+                {item.label === "Messages" && unreadCount && unreadCount.count > 0 && (
                   <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-unread-messages">
                     {unreadCount.count}
                   </Badge>

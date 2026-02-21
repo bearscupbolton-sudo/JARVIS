@@ -6,7 +6,7 @@ import {
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
-  directMessages, messageRecipients,
+  directMessages, messageRecipients, messageReactions,
   pushSubscriptions,
   laminationDoughs,
   pastryItems,
@@ -44,6 +44,7 @@ import {
   type TaskListItem, type InsertTaskListItem,
   type DirectMessage, type InsertDirectMessage,
   type MessageRecipient, type InsertMessageRecipient,
+  type MessageReaction, type InsertMessageReaction,
   type RecipeVersion, type InsertRecipeVersion,
   type PushSubscription, type InsertPushSubscription,
   type LaminationDough, type InsertLaminationDough,
@@ -223,6 +224,14 @@ export interface IStorage {
   acknowledgeMessage(messageId: number, userId: string): Promise<void>;
   deleteMessageForUser(messageId: number, userId: string): Promise<void>;
   getSentMessages(userId: string): Promise<DirectMessage[]>;
+  togglePinMessage(messageId: number, userId: string): Promise<boolean>;
+  archiveMessage(messageId: number, userId: string): Promise<void>;
+  unarchiveMessage(messageId: number, userId: string): Promise<void>;
+  getMessageReplies(parentMessageId: number): Promise<(DirectMessage & { sender: { id: string; firstName: string | null; lastName: string | null; username: string | null } })[]>;
+  addReaction(messageId: number, userId: string, emoji: string): Promise<MessageReaction>;
+  removeReaction(messageId: number, userId: string, emoji: string): Promise<void>;
+  getReactionsForMessages(messageIds: number[]): Promise<(MessageReaction & { user: { id: string; firstName: string | null; lastName: string | null; username: string | null } })[]>;
+  searchMessages(userId: string, query: string): Promise<(DirectMessage & { sender: { id: string; firstName: string | null; lastName: string | null; username: string | null }; recipient: MessageRecipient })[]>;
 
   // Push Subscriptions
   createPushSubscription(sub: InsertPushSubscription): Promise<PushSubscription>;
@@ -993,16 +1002,18 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getInboxMessages(userId: string) {
+  async getInboxMessages(userId: string, includeArchived = false) {
+    const conditions = [eq(messageRecipients.userId, userId)];
+    if (!includeArchived) conditions.push(eq(messageRecipients.archived, false));
     const recipientRows = await db.select().from(messageRecipients)
-      .where(eq(messageRecipients.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(messageRecipients.id));
 
     if (recipientRows.length === 0) return [];
 
     const messageIds = recipientRows.map(r => r.messageId);
     const msgs = await db.select().from(directMessages)
-      .where(inArray(directMessages.id, messageIds))
+      .where(and(inArray(directMessages.id, messageIds), sql`${directMessages.parentMessageId} IS NULL`))
       .orderBy(desc(directMessages.createdAt));
 
     const senderIds = Array.from(new Set(msgs.map(m => m.senderId)));
@@ -1023,7 +1034,7 @@ export class DatabaseStorage implements IStorage {
   async getUnreadCount(userId: string): Promise<number> {
     const result = await db.select({ count: sql<number>`count(*)::int` })
       .from(messageRecipients)
-      .where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false)));
+      .where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false), eq(messageRecipients.archived, false)));
     return result[0]?.count || 0;
   }
 
@@ -1074,6 +1085,100 @@ export class DatabaseStorage implements IStorage {
         })),
     }));
   }
+
+  async togglePinMessage(messageId: number, userId: string): Promise<boolean> {
+    const [rec] = await db.select().from(messageRecipients)
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+    if (!rec) return false;
+    const newPinned = !rec.pinned;
+    await db.update(messageRecipients)
+      .set({ pinned: newPinned })
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+    return newPinned;
+  }
+
+  async archiveMessage(messageId: number, userId: string): Promise<void> {
+    await db.update(messageRecipients)
+      .set({ archived: true })
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+  }
+
+  async unarchiveMessage(messageId: number, userId: string): Promise<void> {
+    await db.update(messageRecipients)
+      .set({ archived: false })
+      .where(and(eq(messageRecipients.messageId, messageId), eq(messageRecipients.userId, userId)));
+  }
+
+  async getMessageReplies(parentMessageId: number) {
+    const replies = await db.select().from(directMessages)
+      .where(eq(directMessages.parentMessageId, parentMessageId))
+      .orderBy(directMessages.createdAt);
+    if (replies.length === 0) return [];
+    const senderIds = Array.from(new Set(replies.map(r => r.senderId)));
+    const senderRows = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username })
+      .from(users).where(inArray(users.id, senderIds));
+    const senderMap = new Map(senderRows.map(s => [s.id, s]));
+    return replies.map(r => ({
+      ...r,
+      sender: senderMap.get(r.senderId) || { id: r.senderId, firstName: null, lastName: null, username: null },
+    }));
+  }
+
+  async addReaction(messageId: number, userId: string, emoji: string): Promise<MessageReaction> {
+    const existing = await db.select().from(messageReactions)
+      .where(and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, userId), eq(messageReactions.emoji, emoji)));
+    if (existing.length > 0) return existing[0];
+    const [created] = await db.insert(messageReactions).values({ messageId, userId, emoji }).returning();
+    return created;
+  }
+
+  async removeReaction(messageId: number, userId: string, emoji: string): Promise<void> {
+    await db.delete(messageReactions)
+      .where(and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, userId), eq(messageReactions.emoji, emoji)));
+  }
+
+  async getReactionsForMessages(messageIds: number[]) {
+    if (messageIds.length === 0) return [];
+    const reactions = await db.select().from(messageReactions)
+      .where(inArray(messageReactions.messageId, messageIds));
+    if (reactions.length === 0) return [];
+    const userIds = Array.from(new Set(reactions.map(r => r.userId)));
+    const userRows = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username })
+      .from(users).where(inArray(users.id, userIds));
+    const userMap = new Map(userRows.map(u => [u.id, u]));
+    return reactions.map(r => ({
+      ...r,
+      user: userMap.get(r.userId) || { id: r.userId, firstName: null, lastName: null, username: null },
+    }));
+  }
+
+  async searchMessages(userId: string, query: string) {
+    const recipientRows = await db.select().from(messageRecipients)
+      .where(eq(messageRecipients.userId, userId));
+    if (recipientRows.length === 0) return [];
+    const messageIds = recipientRows.map(r => r.messageId);
+    const lowerQ = `%${query.toLowerCase()}%`;
+    const msgs = await db.select().from(directMessages)
+      .where(and(
+        inArray(directMessages.id, messageIds),
+        sql`(LOWER(${directMessages.subject}) LIKE ${lowerQ} OR LOWER(${directMessages.body}) LIKE ${lowerQ})`
+      ))
+      .orderBy(desc(directMessages.createdAt))
+      .limit(50);
+    const senderIds = Array.from(new Set(msgs.map(m => m.senderId)));
+    const senders = senderIds.length > 0
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username })
+          .from(users).where(inArray(users.id, senderIds))
+      : [];
+    const senderMap = new Map(senders.map(s => [s.id, s]));
+    const recipientMap = new Map(recipientRows.map(r => [r.messageId, r]));
+    return msgs.map(msg => ({
+      ...msg,
+      sender: senderMap.get(msg.senderId) || { id: msg.senderId, firstName: null, lastName: null, username: null },
+      recipient: recipientMap.get(msg.id)!,
+    }));
+  }
+
   // Push Subscriptions
   async createPushSubscription(sub: InsertPushSubscription): Promise<PushSubscription> {
     const existing = await db.select().from(pushSubscriptions)
