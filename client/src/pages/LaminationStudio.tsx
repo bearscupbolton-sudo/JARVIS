@@ -38,6 +38,7 @@ import {
   Snowflake,
   Thermometer,
   Flame,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
@@ -46,6 +47,7 @@ const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
 
 const REST_DURATION_MS = 30 * 60 * 1000;
+const CHILL_DURATION_MS = 20 * 60 * 1000;
 
 const PROOF_RED_MS = 2 * 60 * 60 * 1000;
 const PROOF_YELLOW_MS = 3 * 60 * 60 * 1000;
@@ -59,6 +61,17 @@ function getRestProgress(restStartedAt: string | Date | null): { elapsed: number
   const remaining = Math.max(0, REST_DURATION_MS - elapsed);
   const percent = Math.min(100, (elapsed / REST_DURATION_MS) * 100);
   return { elapsed, remaining, percent, isResting: remaining > 0 };
+}
+
+function getChillProgress(chillingUntil: string | Date | null): { elapsed: number; remaining: number; percent: number; isChilling: boolean } {
+  if (!chillingUntil) return { elapsed: 0, remaining: CHILL_DURATION_MS, percent: 0, isChilling: false };
+  const end = new Date(chillingUntil).getTime();
+  const now = Date.now();
+  const start = end - CHILL_DURATION_MS;
+  const elapsed = now - start;
+  const remaining = Math.max(0, end - now);
+  const percent = Math.min(100, (elapsed / CHILL_DURATION_MS) * 100);
+  return { elapsed, remaining, percent, isChilling: remaining > 0 };
 }
 
 function getProofState(proofStartedAt: string | Date | null): { elapsed: number; phase: "red" | "yellow" | "green" | "overproofing" } {
@@ -87,16 +100,27 @@ function formatTimestamp(ts: string | Date | null): string {
   return format(new Date(ts), "h:mm a");
 }
 
+function IntendedPastryText({ intendedPastry, className }: { intendedPastry: string | null; className?: string }) {
+  if (!intendedPastry || intendedPastry === "None" || intendedPastry === "") {
+    return <p className={`text-xs text-muted-foreground italic ${className || ""}`} data-testid="text-intended-open">Open — No specific plan</p>;
+  }
+  return <p className={`text-xs text-muted-foreground ${className || ""}`} data-testid="text-intended-pastry">Intended: {intendedPastry}</p>;
+}
+
 export default function LaminationStudio() {
   const { toast } = useToast();
   const { user } = useAuth();
   const today = new Date().toISOString().split("T")[0];
 
   const [showNewDough, setShowNewDough] = useState(false);
-  const [newDoughStep, setNewDoughStep] = useState<"type" | "turns">("type");
+  const [newDoughStep, setNewDoughStep] = useState<"type" | "intended" | "turn1" | "turn2">("type");
   const [selectedType, setSelectedType] = useState("");
+  const [intendedPastry, setIntendedPastry] = useState("");
   const [turn1, setTurn1] = useState("");
   const [turn2, setTurn2] = useState("");
+
+  const [continueTurn2Dough, setContinueTurn2Dough] = useState<LaminationDough | null>(null);
+  const [continueTurn2Fold, setContinueTurn2Fold] = useState("");
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
   const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
@@ -134,32 +158,59 @@ export default function LaminationStudio() {
     enabled: !!completeDoughType,
   });
 
+  const { data: intendedPastryItems } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items", selectedType],
+    queryFn: async () => {
+      const res = await fetch(`/api/pastry-items?doughType=${encodeURIComponent(selectedType)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pastry items");
+      return res.json();
+    },
+    enabled: !!selectedType && showNewDough,
+  });
+
   useEffect(() => {
     const restingDoughs = doughs?.filter(d => d.status === "resting") || [];
     const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
-    if (restingDoughs.length === 0 && proofingDoughs.length === 0) return;
+    const chillingDoughs = doughs?.filter(d => d.status === "chilling") || [];
+    if (restingDoughs.length === 0 && proofingDoughs.length === 0 && chillingDoughs.length === 0) return;
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [doughs]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold: string; foldSequence: string }) => {
+    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; foldSequence?: string; intendedPastry?: string; chill?: boolean }) => {
       const res = await apiRequest("POST", "/api/lamination", { doughType: data.doughType });
       const created = await res.json();
       const now = new Date().toISOString();
-      await apiRequest("PATCH", `/api/lamination/${created.id}`, {
-        turn1Fold: data.turn1Fold,
-        turn2Fold: data.turn2Fold,
-        foldSequence: data.foldSequence,
-        status: "resting",
-        restStartedAt: now,
-        finalRestAt: now,
-      });
+
+      if (data.chill) {
+        const chillingUntil = new Date(Date.now() + CHILL_DURATION_MS).toISOString();
+        await apiRequest("PATCH", `/api/lamination/${created.id}`, {
+          turn1Fold: data.turn1Fold,
+          intendedPastry: (data.intendedPastry && data.intendedPastry !== "None") ? data.intendedPastry : null,
+          status: "chilling",
+          chillingUntil,
+        });
+      } else {
+        await apiRequest("PATCH", `/api/lamination/${created.id}`, {
+          turn1Fold: data.turn1Fold,
+          turn2Fold: data.turn2Fold,
+          foldSequence: data.foldSequence,
+          intendedPastry: (data.intendedPastry && data.intendedPastry !== "None") ? data.intendedPastry : null,
+          status: "resting",
+          restStartedAt: now,
+          finalRestAt: now,
+        });
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
       resetNewDoughDialog();
-      toast({ title: "Dough on the rack", description: "Final rest has begun. 30-minute timer started." });
+      if (variables.chill) {
+        toast({ title: "Dough chilling", description: "20-minute freezer chill started. Come back for Turn 2." });
+      } else {
+        toast({ title: "Dough on the rack", description: "Final rest has begun. 30-minute timer started." });
+      }
     },
   });
 
@@ -199,6 +250,7 @@ export default function LaminationStudio() {
     setShowNewDough(false);
     setNewDoughStep("type");
     setSelectedType("");
+    setIntendedPastry("");
     setTurn1("");
     setTurn2("");
   }, []);
@@ -214,7 +266,11 @@ export default function LaminationStudio() {
 
   const handleTypeSelect = (type: string) => {
     setSelectedType(type);
-    setNewDoughStep("turns");
+    setNewDoughStep("intended");
+  };
+
+  const handleIntendedNext = () => {
+    setNewDoughStep("turn1");
   };
 
   function deriveFoldSequence(t1: string, t2: string): string {
@@ -223,7 +279,24 @@ export default function LaminationStudio() {
     return `${n1}x${n2}`;
   }
 
-  const handleTurnsComplete = () => {
+  const handleTurn1Continue = () => {
+    if (turn1) {
+      setNewDoughStep("turn2");
+    }
+  };
+
+  const handleTurn1Chill = () => {
+    if (turn1) {
+      createMutation.mutate({
+        doughType: selectedType,
+        turn1Fold: turn1,
+        intendedPastry: intendedPastry || undefined,
+        chill: true,
+      });
+    }
+  };
+
+  const handleTurn2Complete = () => {
     if (turn1 && turn2) {
       const seq = deriveFoldSequence(turn1, turn2);
       createMutation.mutate({
@@ -231,8 +304,41 @@ export default function LaminationStudio() {
         turn1Fold: turn1,
         turn2Fold: turn2,
         foldSequence: seq,
+        intendedPastry: intendedPastry || undefined,
       });
     }
+  };
+
+  const handleContinueTurn2 = (dough: LaminationDough) => {
+    setContinueTurn2Dough(dough);
+    setContinueTurn2Fold("");
+  };
+
+  const handleContinueTurn2Submit = () => {
+    if (!continueTurn2Dough || !continueTurn2Fold) return;
+    const t1 = continueTurn2Dough.turn1Fold || "3-fold";
+    const seq = deriveFoldSequence(t1, continueTurn2Fold);
+    const now = new Date().toISOString();
+    updateMutation.mutate(
+      {
+        id: continueTurn2Dough.id,
+        updates: {
+          turn2Fold: continueTurn2Fold,
+          foldSequence: seq,
+          status: "resting",
+          restStartedAt: now,
+          finalRestAt: now,
+          chillingUntil: null,
+        },
+      },
+      {
+        onSuccess: () => {
+          setContinueTurn2Dough(null);
+          setContinueTurn2Fold("");
+          toast({ title: "Turn 2 complete", description: "Final rest has begun. 30-minute timer started." });
+        },
+      }
+    );
   };
 
   const handleOpenDough = (dough: LaminationDough) => {
@@ -349,9 +455,12 @@ export default function LaminationStudio() {
   };
 
   const restingDoughs = doughs?.filter(d => d.status === "resting") || [];
+  const chillingDoughs = doughs?.filter(d => d.status === "chilling") || [];
   const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
   const frozenDoughs = doughs?.filter(d => d.status === "frozen") || [];
   const bakedDoughs = doughs?.filter(d => d.status === "baked") || [];
+
+  const rackDoughs = [...restingDoughs, ...chillingDoughs];
 
   return (
     <div className="space-y-8" data-testid="container-lamination-studio">
@@ -384,7 +493,7 @@ export default function LaminationStudio() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-48 rounded-md" />)}
           </div>
-        ) : restingDoughs.length === 0 ? (
+        ) : rackDoughs.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Layers className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
@@ -394,7 +503,104 @@ export default function LaminationStudio() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {restingDoughs.map(dough => {
+            {rackDoughs.map(dough => {
+              if (dough.status === "chilling") {
+                const chillProgress = getChillProgress(dough.chillingUntil);
+                const isDoneChilling = !chillProgress.isChilling;
+
+                return (
+                  <Card
+                    key={dough.id}
+                    className="border-blue-400/50 bg-blue-50/50 dark:bg-blue-950/20"
+                    data-testid={`rack-dough-${dough.id}`}
+                  >
+                    <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold font-mono text-blue-600" data-testid={`dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                        </div>
+                        <div>
+                          <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                          <IntendedPastryText intendedPastry={dough.intendedPastry} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {isDoneChilling ? (
+                          <Badge className="bg-green-600 text-white" data-testid={`badge-chill-ready-${dough.id}`}>
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            Ready
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-blue-500 text-white" data-testid={`badge-chilling-${dough.id}`}>
+                            <Snowflake className="w-3 h-3 mr-1" />
+                            Chilling
+                          </Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="text-muted-foreground text-xs">Turn 1</p>
+                          <p className="font-mono font-semibold">{dough.turn1Fold || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground text-xs">Turn 2</p>
+                          <p className="font-mono font-semibold text-muted-foreground">Pending</p>
+                        </div>
+                      </div>
+
+                      <div className="text-xs space-y-1 border-t pt-2">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <User className="w-3 h-3" />
+                          <span>Started by {getUserName(dough.createdBy)}</span>
+                          <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
+                        </div>
+                      </div>
+
+                      {isDoneChilling ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button
+                            className="flex-1 gap-2"
+                            onClick={() => handleContinueTurn2(dough)}
+                            data-testid={`button-continue-turn2-${dough.id}`}
+                          >
+                            <Layers className="w-4 h-4" />
+                            Continue Turn 2
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteMutation.mutate(dough.id)}
+                            data-testid={`button-delete-dough-${dough.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="flex items-center gap-1 text-blue-600 font-medium">
+                              <Snowflake className="w-4 h-4" />
+                              Freezer Chill
+                            </span>
+                            <span className="font-mono text-blue-600 font-bold" data-testid={`chill-timer-${dough.id}`}>
+                              {formatTime(chillProgress.remaining)}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-blue-200/50 dark:bg-blue-900/30 overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                              style={{ width: `${chillProgress.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              }
+
               const progress = getRestProgress(dough.restStartedAt);
               const isLocked = progress.isResting;
               const isOpened = !!dough.openedAt;
@@ -410,7 +616,10 @@ export default function LaminationStudio() {
                       <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                         <span className="text-sm font-bold font-mono text-primary" data-testid={`dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
                       </div>
-                      <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                      <div>
+                        <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
+                        <IntendedPastryText intendedPastry={dough.intendedPastry} />
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
                       {isLocked ? (
@@ -567,7 +776,12 @@ export default function LaminationStudio() {
                       </div>
                       <div>
                         <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                        <p className="text-xs text-muted-foreground">{dough.pastryType}</p>
+                        <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                        {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                          <p className="text-xs text-muted-foreground line-through" data-testid={`proof-intended-pastry-${dough.id}`}>
+                            Intended: {dough.intendedPastry}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
@@ -664,7 +878,12 @@ export default function LaminationStudio() {
                     </div>
                     <div>
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                      <p className="text-xs text-muted-foreground">{dough.pastryType}</p>
+                      <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                      {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                        <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
+                          Intended: {dough.intendedPastry}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <Badge className="bg-blue-500 text-white" data-testid={`badge-frozen-${dough.id}`}>
@@ -777,11 +996,15 @@ export default function LaminationStudio() {
           <DialogHeader>
             <DialogTitle className="font-display text-xl">
               {newDoughStep === "type" && "Select Dough Type"}
-              {newDoughStep === "turns" && `${selectedType} — Set Turns`}
+              {newDoughStep === "intended" && `${selectedType} — Intended Pastry`}
+              {newDoughStep === "turn1" && `${selectedType} — Turn 1`}
+              {newDoughStep === "turn2" && `${selectedType} — Turn 2`}
             </DialogTitle>
             <DialogDescription>
               {newDoughStep === "type" && "What dough are you pulling from the fridge?"}
-              {newDoughStep === "turns" && "Each turn gets a fold. Select the fold for each turn."}
+              {newDoughStep === "intended" && "What pastry is this dough planned for?"}
+              {newDoughStep === "turn1" && "Select the fold for Turn 1."}
+              {newDoughStep === "turn2" && "Select the fold for Turn 2."}
             </DialogDescription>
           </DialogHeader>
 
@@ -802,10 +1025,41 @@ export default function LaminationStudio() {
             </div>
           )}
 
-          {newDoughStep === "turns" && (
+          {newDoughStep === "intended" && (
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Intended Pastry</label>
+                <Select value={intendedPastry} onValueChange={setIntendedPastry} data-testid="select-intended-pastry">
+                  <SelectTrigger data-testid="input-intended-pastry">
+                    <SelectValue placeholder="Select intended pastry..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="None" data-testid="option-intended-none">
+                      Open / No Specific Plan
+                    </SelectItem>
+                    {intendedPastryItems?.map((item) => (
+                      <SelectItem key={item.id} value={item.name} data-testid={`option-intended-${item.id}`}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setNewDoughStep("type")} data-testid="button-intended-back">
+                  Back
+                </Button>
+                <Button onClick={handleIntendedNext} data-testid="button-intended-next">
+                  Next
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {newDoughStep === "turn1" && (
             <div className="space-y-5 py-2">
               <div>
-                <label className="text-sm font-medium mb-2 block">Turn 1</label>
+                <label className="text-sm font-medium mb-2 block">Turn 1 Fold</label>
                 <div className="grid grid-cols-2 gap-3">
                   {FOLD_OPTIONS.map(fold => (
                     <Button
@@ -820,8 +1074,38 @@ export default function LaminationStudio() {
                   ))}
                 </div>
               </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-col">
+                <div className="flex items-center gap-2 w-full">
+                  <Button variant="ghost" onClick={() => setNewDoughStep("intended")} data-testid="button-turn1-back">
+                    Back
+                  </Button>
+                  <Button
+                    className="flex-1 gap-2"
+                    onClick={handleTurn1Continue}
+                    disabled={!turn1}
+                    data-testid="button-turn1-continue"
+                  >
+                    Continue to Turn 2
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 border-blue-400 text-blue-600"
+                  onClick={handleTurn1Chill}
+                  disabled={!turn1 || createMutation.isPending}
+                  data-testid="button-turn1-chill"
+                >
+                  <Snowflake className="w-4 h-4" />
+                  {createMutation.isPending ? "Starting chill..." : "Too Warm — Chill 20min"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {newDoughStep === "turn2" && (
+            <div className="space-y-5 py-2">
               <div>
-                <label className="text-sm font-medium mb-2 block">Turn 2</label>
+                <label className="text-sm font-medium mb-2 block">Turn 2 Fold</label>
                 <div className="grid grid-cols-2 gap-3">
                   {FOLD_OPTIONS.map(fold => (
                     <Button
@@ -837,15 +1121,56 @@ export default function LaminationStudio() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="ghost" onClick={() => setNewDoughStep("type")} data-testid="button-turns-back">
+                <Button variant="ghost" onClick={() => setNewDoughStep("turn1")} data-testid="button-turn2-back">
                   Back
                 </Button>
-                <Button onClick={handleTurnsComplete} disabled={!turn1 || !turn2 || createMutation.isPending} data-testid="button-turns-start">
+                <Button onClick={handleTurn2Complete} disabled={!turn1 || !turn2 || createMutation.isPending} data-testid="button-turns-start">
                   {createMutation.isPending ? "Starting..." : "Start Rest"}
                 </Button>
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!continueTurn2Dough} onOpenChange={(open) => { if (!open) { setContinueTurn2Dough(null); setContinueTurn2Fold(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Continue Turn 2</DialogTitle>
+            <DialogDescription>
+              Dough #{continueTurn2Dough?.doughNumber} — {continueTurn2Dough?.doughType} (Turn 1: {continueTurn2Dough?.turn1Fold}). Select the fold for Turn 2.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Turn 2 Fold</label>
+              <div className="grid grid-cols-2 gap-3">
+                {FOLD_OPTIONS.map(fold => (
+                  <Button
+                    key={fold}
+                    variant={continueTurn2Fold === fold ? "default" : "outline"}
+                    className="h-12 font-mono text-base"
+                    onClick={() => setContinueTurn2Fold(fold)}
+                    data-testid={`button-continue-turn2-fold-${fold}`}
+                  >
+                    {fold}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setContinueTurn2Dough(null); setContinueTurn2Fold(""); }} data-testid="button-continue-turn2-cancel">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleContinueTurn2Submit}
+                disabled={!continueTurn2Fold || updateMutation.isPending}
+                data-testid="button-continue-turn2-submit"
+              >
+                {updateMutation.isPending ? "Starting..." : "Start Rest"}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
