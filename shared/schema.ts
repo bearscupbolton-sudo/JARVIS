@@ -586,6 +586,8 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   proofPieces: integer("proof_pieces"),
   bakedAt: timestamp("baked_at"),
   bakedBy: text("baked_by"),
+  intendedPastry: text("intended_pastry"),
+  chillingUntil: timestamp("chilling_until"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
