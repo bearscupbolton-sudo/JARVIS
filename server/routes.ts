@@ -2691,6 +2691,7 @@ ${sopsHtml}
     try {
       const id = parseInt(req.params.id);
       const schema = z.object({
+        doughType: z.string().optional(),
         turn1Fold: z.string().optional(),
         turn2Fold: z.string().optional(),
         foldSequence: z.string().optional(),
@@ -2711,6 +2712,7 @@ ${sopsHtml}
         bakedBy: z.string().nullable().optional(),
         intendedPastry: z.string().nullable().optional(),
         chillingUntil: z.string().nullable().optional(),
+        shapings: z.array(z.object({ pastryType: z.string(), pieces: z.number().int().positive() })).nullable().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };

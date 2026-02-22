@@ -39,6 +39,9 @@ import {
   Thermometer,
   Flame,
   AlertTriangle,
+  Pencil,
+  PlusCircle,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
@@ -128,6 +131,16 @@ export default function LaminationStudio() {
   const [totalPieces, setTotalPieces] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<"proof" | "freezer" | "">("");
   const [destinationPieces, setDestinationPieces] = useState("");
+  const [shapingEntries, setShapingEntries] = useState<Array<{ pastryType: string; pieces: number }>>([]);
+
+  const [editDough, setEditDough] = useState<LaminationDough | null>(null);
+  const [editDoughType, setEditDoughType] = useState("");
+  const [editIntendedPastry, setEditIntendedPastry] = useState("");
+  const [editTurn1, setEditTurn1] = useState("");
+  const [editTurn2, setEditTurn2] = useState("");
+  const [editPastryType, setEditPastryType] = useState("");
+  const [editPieces, setEditPieces] = useState("");
+  const [editShapings, setEditShapings] = useState<Array<{ pastryType: string; pieces: number }>>([]);
 
   const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
   const [labelReminderDough, setLabelReminderDough] = useState<{number: number; type: string} | null>(null);
@@ -157,6 +170,17 @@ export default function LaminationStudio() {
       return res.json();
     },
     enabled: !!completeDoughType,
+  });
+
+  const editDoughTypeForQuery = editDough?.doughType || editDoughType;
+  const { data: editPastryItems } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items", editDoughTypeForQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/pastry-items?doughType=${encodeURIComponent(editDoughTypeForQuery!)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pastry items");
+      return res.json();
+    },
+    enabled: !!editDoughTypeForQuery && !!editDough,
   });
 
   const { data: intendedPastryItems } = useQuery<PastryItem[]>({
@@ -274,6 +298,7 @@ export default function LaminationStudio() {
     setTotalPieces("");
     setSelectedDestination("");
     setDestinationPieces("");
+    setShapingEntries([]);
   }, []);
 
   const handleTypeSelect = (type: string) => {
@@ -378,12 +403,37 @@ export default function LaminationStudio() {
     setTotalPieces("");
     setSelectedDestination("");
     setDestinationPieces("");
+    setShapingEntries([]);
+  };
+
+  const handleAddShapingEntry = () => {
+    if (!pastryType || !totalPieces) return;
+    const pieces = parseInt(totalPieces);
+    if (isNaN(pieces) || pieces <= 0) return;
+    setShapingEntries(prev => [...prev, { pastryType, pieces }]);
+    setPastryType("");
+    setTotalPieces("");
+  };
+
+  const handleRemoveShapingEntry = (idx: number) => {
+    setShapingEntries(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handlePastryStepNext = () => {
-    if (!pastryType || !totalPieces) return;
+    let entries = [...shapingEntries];
+    if (pastryType && totalPieces) {
+      const pieces = parseInt(totalPieces);
+      if (!isNaN(pieces) && pieces > 0) {
+        entries = [...entries, { pastryType, pieces }];
+      }
+    }
+    if (entries.length === 0) return;
+    setShapingEntries(entries);
+    setPastryType("");
+    setTotalPieces("");
     setCompleteDoughStep("destination");
-    setDestinationPieces(totalPieces);
+    const totalAllPieces = entries.reduce((sum, e) => sum + e.pieces, 0);
+    setDestinationPieces(String(totalAllPieces));
   };
 
   const handleDestinationSelect = (dest: "proof" | "freezer") => {
@@ -391,30 +441,38 @@ export default function LaminationStudio() {
   };
 
   const handleCompleteDough = () => {
-    if (!completeDough || !pastryType || !totalPieces || !selectedDestination || !destinationPieces) return;
+    if (!completeDough || shapingEntries.length === 0 || !selectedDestination || !destinationPieces) return;
     const pieces = parseInt(destinationPieces);
     if (isNaN(pieces) || pieces <= 0) return;
     const now = new Date().toISOString();
+    const allPastryNames = shapingEntries.map(e => e.pastryType).join(", ");
+    const totalAllPieces = shapingEntries.reduce((sum, e) => sum + e.pieces, 0);
+    const primaryPastry = shapingEntries[0].pastryType;
+
+    const baseUpdates: Record<string, any> = {
+      pastryType: primaryPastry,
+      totalPieces: totalAllPieces,
+      proofPieces: pieces,
+      shapedBy: user?.id || null,
+      shapedAt: now,
+      shapings: shapingEntries,
+    };
 
     if (selectedDestination === "proof") {
       updateMutation.mutate(
         {
           id: completeDough.id,
           updates: {
-            pastryType,
-            totalPieces: parseInt(totalPieces),
+            ...baseUpdates,
             status: "proofing",
             destination: "proof",
-            proofPieces: pieces,
             proofStartedAt: now,
-            shapedBy: user?.id || null,
-            shapedAt: now,
           },
         },
         {
           onSuccess: () => {
             resetCompleteDoughDialog();
-            toast({ title: "Moved to Proof Box", description: `${pastryType} — ${pieces} pieces proofing` });
+            toast({ title: "Moved to Proof Box", description: `${allPastryNames} — ${pieces} pieces proofing` });
           },
         }
       );
@@ -423,23 +481,83 @@ export default function LaminationStudio() {
         {
           id: completeDough.id,
           updates: {
-            pastryType,
-            totalPieces: parseInt(totalPieces),
+            ...baseUpdates,
             status: "frozen",
             destination: "freezer",
-            proofPieces: pieces,
-            shapedBy: user?.id || null,
-            shapedAt: now,
           },
         },
         {
           onSuccess: () => {
             resetCompleteDoughDialog();
-            toast({ title: "Moved to Freezer", description: `${pastryType} — ${pieces} pieces frozen` });
+            toast({ title: "Moved to Freezer", description: `${allPastryNames} — ${pieces} pieces frozen` });
           },
         }
       );
     }
+  };
+
+  const handleOpenEditDough = (dough: LaminationDough) => {
+    setEditDough(dough);
+    setEditDoughType(dough.doughType);
+    setEditIntendedPastry(dough.intendedPastry || "");
+    setEditTurn1(dough.turn1Fold || "");
+    setEditTurn2(dough.turn2Fold || "");
+    setEditPastryType(dough.pastryType || "");
+    setEditPieces(String(dough.proofPieces ?? dough.totalPieces ?? ""));
+    setEditShapings(dough.shapings || (dough.pastryType ? [{ pastryType: dough.pastryType, pieces: dough.proofPieces ?? dough.totalPieces ?? 0 }] : []));
+  };
+
+  const handleEditAddShaping = () => {
+    if (!editPastryType || !editPieces) return;
+    const pieces = parseInt(editPieces);
+    if (isNaN(pieces) || pieces <= 0) return;
+    setEditShapings(prev => [...prev, { pastryType: editPastryType, pieces }]);
+    setEditPastryType("");
+    setEditPieces("");
+  };
+
+  const handleEditRemoveShaping = (idx: number) => {
+    setEditShapings(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSaveEditDough = () => {
+    if (!editDough) return;
+    const updates: Record<string, any> = {};
+    const isOnRack = editDough.status === "resting" || editDough.status === "chilling";
+
+    if (isOnRack) {
+      if (editDoughType !== editDough.doughType) updates.doughType = editDoughType;
+      if (editIntendedPastry !== (editDough.intendedPastry || "")) updates.intendedPastry = editIntendedPastry || null;
+      if (editTurn1 !== (editDough.turn1Fold || "")) updates.turn1Fold = editTurn1;
+      if (editTurn2 !== (editDough.turn2Fold || "")) {
+        updates.turn2Fold = editTurn2;
+        if (editTurn1 && editTurn2) {
+          updates.foldSequence = deriveFoldSequence(editTurn1, editTurn2);
+        }
+      }
+    } else {
+      if (editShapings.length > 0) {
+        updates.shapings = editShapings;
+        updates.pastryType = editShapings[0].pastryType;
+        updates.totalPieces = editShapings.reduce((sum, e) => sum + e.pieces, 0);
+        updates.proofPieces = updates.totalPieces;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      setEditDough(null);
+      return;
+    }
+
+    updateMutation.mutate(
+      { id: editDough.id, updates },
+      {
+        onSuccess: () => {
+          setEditDough(null);
+          toast({ title: "Dough updated", description: "Changes saved successfully." });
+        },
+      }
+    );
   };
 
   const handleMoveToFridge = (dough: LaminationDough) => {
@@ -739,6 +857,14 @@ export default function LaminationStudio() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => handleOpenEditDough(dough)}
+                          data-testid={`button-edit-dough-${dough.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => deleteMutation.mutate(dough.id)}
                           data-testid={`button-delete-dough-${dough.id}`}
                         >
@@ -754,6 +880,14 @@ export default function LaminationStudio() {
                         >
                           <Scissors className="w-4 h-4" />
                           Shape & Complete
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditDough(dough)}
+                          data-testid={`button-edit-dough-${dough.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -806,7 +940,15 @@ export default function LaminationStudio() {
                       </div>
                       <div>
                         <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                        <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                        {dough.shapings && dough.shapings.length > 1 ? (
+                          <div data-testid={`proof-pastry-type-${dough.id}`}>
+                            {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
+                              <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                        )}
                         {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                           <p className="text-xs text-muted-foreground line-through" data-testid={`proof-intended-pastry-${dough.id}`}>
                             Intended: {dough.intendedPastry}
@@ -872,15 +1014,23 @@ export default function LaminationStudio() {
                       )}
                     </div>
 
-                    <div className="pt-1">
+                    <div className="flex items-center gap-2 pt-1">
                       <Button
-                        className="w-full gap-2"
+                        className="flex-1 gap-2"
                         disabled={isRedPhase || bakeMutation.isPending}
                         onClick={() => setBakeConfirmDough(dough)}
                         data-testid={`button-bake-off-${dough.id}`}
                       >
                         <Flame className="w-4 h-4" />
                         Bake Off
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEditDough(dough)}
+                        data-testid={`button-edit-proof-${dough.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
                       </Button>
                     </div>
                   </CardContent>
@@ -908,7 +1058,15 @@ export default function LaminationStudio() {
                     </div>
                     <div>
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                      <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                      {dough.shapings && dough.shapings.length > 1 ? (
+                        <div data-testid={`freezer-pastry-type-${dough.id}`}>
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
+                            <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                      )}
                       {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                         <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
                           Intended: {dough.intendedPastry}
@@ -943,26 +1101,34 @@ export default function LaminationStudio() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="grid grid-cols-3 gap-2 pt-1">
                     <Button
                       variant="outline"
-                      className="gap-2"
+                      className="gap-1 text-xs"
                       disabled={updateMutation.isPending}
                       onClick={() => handleMoveToFridge(dough)}
                       data-testid={`button-move-to-fridge-${dough.id}`}
                     >
-                      <Layers className="w-4 h-4" />
-                      Move to Fridge
+                      <Layers className="w-3 h-3" />
+                      Fridge
                     </Button>
                     <Button
                       variant="outline"
-                      className="gap-2"
+                      className="gap-1 text-xs"
                       disabled={updateMutation.isPending}
                       onClick={() => handleMoveToProofBox(dough)}
                       data-testid={`button-move-to-proof-${dough.id}`}
                     >
-                      <Thermometer className="w-4 h-4" />
-                      Move to Proof
+                      <Thermometer className="w-3 h-3" />
+                      Proof
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenEditDough(dough)}
+                      data-testid={`button-edit-freezer-${dough.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
                     </Button>
                   </div>
                 </CardContent>
@@ -989,7 +1155,15 @@ export default function LaminationStudio() {
                     </div>
                     <div>
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                      <p className="text-xs font-medium">{dough.pastryType}</p>
+                      {dough.shapings && dough.shapings.length > 1 ? (
+                        <div>
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
+                            <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-medium">{dough.pastryType}</p>
+                      )}
                       {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                         <p className="text-xs text-muted-foreground line-through">Intended: {dough.intendedPastry}</p>
                       )}
@@ -1011,16 +1185,24 @@ export default function LaminationStudio() {
                       <p className="font-mono font-semibold">{dough.foldSequence}</p>
                     </div>
                   </div>
-                  <div className="pt-1">
+                  <div className="flex items-center gap-2 pt-1">
                     <Button
                       variant="outline"
-                      className="w-full gap-2"
+                      className="flex-1 gap-2"
                       disabled={updateMutation.isPending}
                       onClick={() => handleMoveToProofBox(dough)}
                       data-testid={`button-fridge-to-proof-${dough.id}`}
                     >
                       <Thermometer className="w-4 h-4" />
                       Move to Proof Box
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenEditDough(dough)}
+                      data-testid={`button-edit-fridge-${dough.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
                     </Button>
                   </div>
                 </CardContent>
@@ -1053,7 +1235,15 @@ export default function LaminationStudio() {
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <p className="text-muted-foreground text-xs">Pastry</p>
-                      <p className="font-medium">{dough.pastryType || "—"}</p>
+                      {dough.shapings && dough.shapings.length > 1 ? (
+                        <div>
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
+                            <p key={i} className="font-medium text-xs">{s.pastryType} ({s.pieces})</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="font-medium">{dough.pastryType || "—"}</p>
+                      )}
                     </div>
                     <div>
                       <p className="text-muted-foreground text-xs">Pieces</p>
@@ -1288,8 +1478,29 @@ export default function LaminationStudio() {
 
           {completeDoughStep === "pastry" && (
             <div className="space-y-4 py-2">
+              {shapingEntries.length > 0 && (
+                <div className="space-y-2" data-testid="shaping-entries-list">
+                  <label className="text-sm font-medium block">Added Pastries</label>
+                  {shapingEntries.map((entry, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded-md border bg-muted/30" data-testid={`shaping-entry-${idx}`}>
+                      <span className="text-sm font-medium">{entry.pastryType} — {entry.pieces} pcs</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => handleRemoveShapingEntry(idx)}
+                        data-testid={`button-remove-shaping-${idx}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div>
-                <label className="text-sm font-medium mb-2 block">Pastry Type</label>
+                <label className="text-sm font-medium mb-2 block">
+                  {shapingEntries.length > 0 ? "Add Another Pastry" : "Pastry Type"}
+                </label>
                 {pastryItemsForType && pastryItemsForType.length > 0 ? (
                   <Select value={pastryType} onValueChange={setPastryType} data-testid="select-pastry-type">
                     <SelectTrigger data-testid="input-pastry-type">
@@ -1310,7 +1521,7 @@ export default function LaminationStudio() {
                 )}
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">Total Pieces</label>
+                <label className="text-sm font-medium mb-2 block">Pieces</label>
                 <Input
                   type="number"
                   placeholder="Number of pieces"
@@ -1320,16 +1531,27 @@ export default function LaminationStudio() {
                   data-testid="input-total-pieces"
                 />
               </div>
+              {pastryType && totalPieces && (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleAddShapingEntry}
+                  data-testid="button-add-more-pastry"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Add & Shape Another Pastry Type
+                </Button>
+              )}
               <DialogFooter>
                 <Button variant="ghost" onClick={() => resetCompleteDoughDialog()} data-testid="button-complete-cancel">
                   Cancel
                 </Button>
                 <Button
                   onClick={handlePastryStepNext}
-                  disabled={!pastryType || !totalPieces}
+                  disabled={shapingEntries.length === 0 && (!pastryType || !totalPieces)}
                   data-testid="button-complete-next"
                 >
-                  Next
+                  {shapingEntries.length > 0 ? `Next (${shapingEntries.length + (pastryType && totalPieces ? 1 : 0)} types)` : "Next"}
                 </Button>
               </DialogFooter>
             </div>
@@ -1435,6 +1657,159 @@ export default function LaminationStudio() {
           <DialogFooter className="justify-center">
             <Button onClick={() => setLabelReminderDough(null)} data-testid="button-label-dismiss">
               Got It
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editDough} onOpenChange={(open) => { if (!open) setEditDough(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              Edit Dough #{editDough?.doughNumber || "—"}
+            </DialogTitle>
+            <DialogDescription>
+              {(editDough?.status === "resting" || editDough?.status === "chilling" || editDough?.status === "turning")
+                ? "Update dough type, intended pastry, or folds."
+                : "Update pastry type and pieces."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {(editDough?.status === "resting" || editDough?.status === "chilling" || editDough?.status === "turning") ? (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Dough Type</label>
+                  <Select value={editDoughType} onValueChange={setEditDoughType}>
+                    <SelectTrigger data-testid="edit-input-dough-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DOUGH_TYPES.map(type => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Intended Pastry</label>
+                  <Select value={editIntendedPastry} onValueChange={setEditIntendedPastry}>
+                    <SelectTrigger data-testid="edit-input-intended-pastry">
+                      <SelectValue placeholder="Select intended pastry..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="None">Open / No Specific Plan</SelectItem>
+                      {editPastryItems?.map((item) => (
+                        <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Turn 1</label>
+                    <Select value={editTurn1} onValueChange={setEditTurn1}>
+                      <SelectTrigger data-testid="edit-input-turn1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FOLD_OPTIONS.map(fold => (
+                          <SelectItem key={fold} value={fold}>{fold}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Turn 2</label>
+                    <Select value={editTurn2} onValueChange={setEditTurn2}>
+                      <SelectTrigger data-testid="edit-input-turn2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FOLD_OPTIONS.map(fold => (
+                          <SelectItem key={fold} value={fold}>{fold}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {editShapings.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium block">Pastries</label>
+                    {editShapings.map((entry, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-2 rounded-md border bg-muted/30" data-testid={`edit-shaping-entry-${idx}`}>
+                        <span className="text-sm font-medium">{entry.pastryType} — {entry.pieces} pcs</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => handleEditRemoveShaping(idx)}
+                          data-testid={`button-edit-remove-shaping-${idx}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    {editShapings.length > 0 ? "Add Another Pastry" : "Pastry Type"}
+                  </label>
+                  {editPastryItems && editPastryItems.length > 0 ? (
+                    <Select value={editPastryType} onValueChange={setEditPastryType}>
+                      <SelectTrigger data-testid="edit-input-pastry-type">
+                        <SelectValue placeholder="Select pastry type..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {editPastryItems.map((item) => (
+                          <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                      No pastries configured for {editDough?.doughType} dough yet.
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Pieces</label>
+                  <Input
+                    type="number"
+                    placeholder="Number of pieces"
+                    value={editPieces}
+                    onChange={(e) => setEditPieces(e.target.value)}
+                    min={1}
+                    data-testid="edit-input-pieces"
+                  />
+                </div>
+                {editPastryType && editPieces && (
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={handleEditAddShaping}
+                    data-testid="button-edit-add-pastry"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Add Pastry
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditDough(null)} data-testid="button-edit-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEditDough}
+              disabled={updateMutation.isPending}
+              data-testid="button-edit-save"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

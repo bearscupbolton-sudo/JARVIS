@@ -588,6 +588,7 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   bakedBy: text("baked_by"),
   intendedPastry: text("intended_pastry"),
   chillingUntil: timestamp("chilling_until"),
+  shapings: jsonb("shapings").$type<Array<{ pastryType: string; pieces: number }>>(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
