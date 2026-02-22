@@ -4,65 +4,167 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock } from "lucide-react";
+import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { format } from "date-fns";
+import {
+  LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
+
+type SummaryData = {
+  activeUsers: number; totalLogins: number; totalPageViews: number;
+  messagesSent: number; readRate: number; ackRate: number;
+  sessionsStarted: number; sessionsCompleted: number;
+  productionLogs: number; totalYield: number;
+  doughsCreated: number; doughsBaked: number; bakeoffCount: number;
+};
+
+type TrendEntry = {
+  date: string; logins: number; pageViews: number; messages: number;
+  sessions: number; production: number; bakeoffs: number;
+};
+
+type UserActivity = {
+  userId: string; firstName: string | null; lastName: string | null;
+  username: string | null; role: string | null;
+  logins: number; pageViews: number; messagesSent: number;
+  sessions: number; lastActive: string | null;
+};
+
+type ProductionData = {
+  topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[];
+  dailyProduction: { date: string; quantity: number; sessions: number }[];
+};
+
+type LaminationData = {
+  statusCounts: Record<string, number>;
+  doughsByType: { doughType: string; count: number }[];
+  dailyDoughs: { date: string; created: number; baked: number }[];
+  topCreators: { userId: string; firstName: string | null; lastName: string | null; count: number }[];
+};
 
 type MessageData = {
-  id: number;
-  senderId: string;
-  subject: string;
-  body: string;
-  priority: string;
-  requiresAck: boolean;
-  targetType: string;
-  createdAt: string;
+  id: number; senderId: string; subject: string; body: string;
+  priority: string; requiresAck: boolean; targetType: string; createdAt: string;
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
   recipients: { id: string; firstName: string | null; lastName: string | null; username: string | null; read: boolean; acknowledged: boolean }[];
 };
 
-type LoginEntry = {
-  userId: string;
-  firstName: string | null;
-  lastName: string | null;
-  username: string | null;
-  lastLogin: string | null;
-  loginCount: number;
-};
-
 type FeatureEntry = {
-  path: string;
-  label: string;
-  visitCount: number;
-  uniqueUsers: number;
+  path: string; label: string; visitCount: number; uniqueUsers: number;
 };
 
-function userName(u: { firstName: string | null; lastName: string | null; username: string | null }) {
+function userName(u: { firstName: string | null; lastName: string | null; username?: string | null }) {
   const name = [u.firstName, u.lastName].filter(Boolean).join(" ");
   return name || u.username || "Unknown";
 }
 
+const COLORS = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
+const PIE_COLORS = ["#f59e0b", "#3b82f6", "#10b981", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
+
+const STATUS_LABELS: Record<string, string> = {
+  turning: "Turning", chilling: "Chilling", resting: "Resting",
+  proofing: "Proofing", frozen: "Frozen", fridge: "Fridge", baked: "Baked",
+};
+
+function KpiCard({ title, value, subtitle, icon: Icon, trend }: {
+  title: string; value: string | number; subtitle?: string;
+  icon: any; trend?: "up" | "down" | "neutral";
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
+          <Icon className="w-4 h-4 text-muted-foreground" />
+        </div>
+        <div className="flex items-end gap-2">
+          <span className="text-2xl font-bold tracking-tight">{value}</span>
+          {trend === "up" && <ArrowUpRight className="w-4 h-4 text-green-500 mb-1" />}
+          {trend === "down" && <ArrowDownRight className="w-4 h-4 text-red-500 mb-1" />}
+        </div>
+        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatShortDate(dateStr: string) {
+  const d = new Date(dateStr + "T12:00:00");
+  return format(d, "MMM d");
+}
+
+function LoadingState() {
+  return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, text }: { icon: any; text: string }) {
+  return (
+    <Card>
+      <CardContent className="py-12 text-center text-muted-foreground">
+        <Icon className="w-10 h-10 mx-auto mb-3 opacity-40" />
+        <p>{text}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminInsights() {
-  const [tab, setTab] = useState("messages");
+  const [tab, setTab] = useState("overview");
   const [days, setDays] = useState("30");
+
+  const { data: summary, isLoading: loadingSummary } = useQuery<SummaryData>({
+    queryKey: ["/api/admin/insights/summary", { days }],
+    queryFn: () => fetch(`/api/admin/insights/summary?days=${days}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: trends, isLoading: loadingTrends } = useQuery<TrendEntry[]>({
+    queryKey: ["/api/admin/insights/activity-trends", { days }],
+    queryFn: () => fetch(`/api/admin/insights/activity-trends?days=${days}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: userActivity, isLoading: loadingUsers } = useQuery<UserActivity[]>({
+    queryKey: ["/api/admin/insights/user-activity", { days }],
+    queryFn: () => fetch(`/api/admin/insights/user-activity?days=${days}`, { credentials: "include" }).then(r => r.json()),
+    enabled: tab === "team" || tab === "overview",
+  });
+
+  const { data: production, isLoading: loadingProduction } = useQuery<ProductionData>({
+    queryKey: ["/api/admin/insights/production", { days }],
+    queryFn: () => fetch(`/api/admin/insights/production?days=${days}`, { credentials: "include" }).then(r => r.json()),
+    enabled: tab === "production" || tab === "overview",
+  });
+
+  const { data: lamination, isLoading: loadingLamination } = useQuery<LaminationData>({
+    queryKey: ["/api/admin/insights/lamination", { days }],
+    queryFn: () => fetch(`/api/admin/insights/lamination?days=${days}`, { credentials: "include" }).then(r => r.json()),
+    enabled: tab === "lamination" || tab === "overview",
+  });
 
   const { data: messages, isLoading: loadingMessages } = useQuery<MessageData[]>({
     queryKey: ["/api/admin/insights/messages"],
+    enabled: tab === "messages",
   });
 
-  const { data: loginActivity, isLoading: loadingLogins, error: loginError } = useQuery<LoginEntry[]>({
-    queryKey: [`/api/admin/insights/login-activity?days=${days}`],
+  const { data: featureUsage, isLoading: loadingFeatures } = useQuery<FeatureEntry[]>({
+    queryKey: ["/api/admin/insights/feature-usage", { days }],
+    queryFn: () => fetch(`/api/admin/insights/feature-usage?days=${days}`, { credentials: "include" }).then(r => r.json()),
+    enabled: tab === "features" || tab === "overview",
   });
 
-  const { data: featureUsage, isLoading: loadingFeatures, error: featureError } = useQuery<FeatureEntry[]>({
-    queryKey: [`/api/admin/insights/feature-usage?days=${days}`],
-  });
+  const completionRate = summary && summary.sessionsStarted > 0
+    ? Math.round((summary.sessionsCompleted / summary.sessionsStarted) * 100) : 0;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight" data-testid="text-insights-title">ADMIN INSIGHTS</h1>
-          <p className="text-sm text-muted-foreground mt-1">Monitor team activity and feature usage</p>
+          <p className="text-sm text-muted-foreground mt-1">Deep analytics across your bakery operations</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Time range:</span>
@@ -81,33 +183,357 @@ export default function AdminInsights() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="messages" data-testid="tab-messages">
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Messages
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="overview" data-testid="tab-overview">
+            <Activity className="w-4 h-4 mr-1.5" />Overview
           </TabsTrigger>
-          <TabsTrigger value="logins" data-testid="tab-logins">
-            <Users className="w-4 h-4 mr-2" />
-            Login Activity
+          <TabsTrigger value="team" data-testid="tab-team">
+            <Users className="w-4 h-4 mr-1.5" />Team
+          </TabsTrigger>
+          <TabsTrigger value="production" data-testid="tab-production">
+            <ChefHat className="w-4 h-4 mr-1.5" />Production
+          </TabsTrigger>
+          <TabsTrigger value="lamination" data-testid="tab-lamination">
+            <Layers className="w-4 h-4 mr-1.5" />Lamination
+          </TabsTrigger>
+          <TabsTrigger value="messages" data-testid="tab-messages">
+            <MessageSquare className="w-4 h-4 mr-1.5" />Messages
           </TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Feature Usage
+            <BarChart3 className="w-4 h-4 mr-1.5" />Features
           </TabsTrigger>
         </TabsList>
 
+        {/* ===== OVERVIEW TAB ===== */}
+        <TabsContent value="overview" className="mt-4 space-y-6">
+          {loadingSummary ? <LoadingState /> : summary && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="kpi-grid">
+                <KpiCard title="Active Users" value={summary.activeUsers} icon={UserCheck} subtitle={`${summary.totalLogins} total logins`} />
+                <KpiCard title="Page Views" value={summary.totalPageViews.toLocaleString()} icon={Eye} />
+                <KpiCard title="Messages" value={summary.messagesSent} icon={MessageSquare} subtitle={`${summary.readRate}% read rate`} />
+                <KpiCard title="Recipe Sessions" value={summary.sessionsStarted} icon={ChefHat} subtitle={`${completionRate}% completed`} />
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiCard title="Production Logs" value={summary.productionLogs} icon={CookingPot} subtitle={`${Math.round(summary.totalYield)} total yield`} />
+                <KpiCard title="Doughs Created" value={summary.doughsCreated} icon={Layers} subtitle={`${summary.doughsBaked} baked`} />
+                <KpiCard title="Bake-offs" value={summary.bakeoffCount} icon={TrendingUp} />
+                <KpiCard title="Msg Ack Rate" value={`${summary.ackRate}%`} icon={CheckCircle2} />
+              </div>
+
+              {/* Activity Trend Chart */}
+              {!loadingTrends && trends && trends.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Activity Trends</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64" data-testid="chart-activity-trends">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={trends}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                          <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                          <Tooltip labelFormatter={(v) => formatShortDate(v as string)} />
+                          <Legend />
+                          <Area type="monotone" dataKey="logins" name="Logins" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                          <Area type="monotone" dataKey="pageViews" name="Page Views" stackId="2" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
+                          <Area type="monotone" dataKey="sessions" name="Sessions" stackId="3" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Top 5 Features mini */}
+              {!loadingFeatures && featureUsage && featureUsage.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Top Features</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {featureUsage.slice(0, 5).map((f, idx) => {
+                        const maxV = featureUsage[0]?.visitCount || 1;
+                        return (
+                          <div key={f.path} className="flex items-center gap-3" data-testid={`overview-feature-${idx}`}>
+                            <span className="text-xs font-bold text-muted-foreground w-5 text-right">#{idx + 1}</span>
+                            <div className="flex-1">
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="font-medium">{f.label}</span>
+                                <span className="text-muted-foreground">{f.visitCount} views · {f.uniqueUsers} users</span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-1.5">
+                                <div className="bg-primary rounded-full h-1.5 transition-all" style={{ width: `${(f.visitCount / maxV) * 100}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* ===== TEAM TAB ===== */}
+        <TabsContent value="team" className="mt-4 space-y-6">
+          {loadingUsers ? <LoadingState /> : !userActivity?.length ? (
+            <EmptyState icon={Users} text="No team activity data yet." />
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-3" data-testid="team-activity-list">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Team Activity Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-3 font-medium text-muted-foreground">Team Member</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Role</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Logins</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Page Views</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Messages</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Sessions</th>
+                            <th className="text-right p-3 font-medium text-muted-foreground">Last Active</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userActivity.map((u) => {
+                            const total = u.logins + u.pageViews + u.messagesSent + u.sessions;
+                            const isInactive = total === 0;
+                            return (
+                              <tr key={u.userId} className={`border-b last:border-0 ${isInactive ? "opacity-50" : ""}`} data-testid={`team-row-${u.userId}`}>
+                                <td className="p-3">
+                                  <span className="font-medium">{userName(u)}</span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <Badge variant={u.role === "owner" ? "default" : u.role === "manager" ? "secondary" : "outline"} className="text-[10px]">
+                                    {u.role || "member"}
+                                  </Badge>
+                                </td>
+                                <td className="p-3 text-center font-mono">{u.logins}</td>
+                                <td className="p-3 text-center font-mono">{u.pageViews}</td>
+                                <td className="p-3 text-center font-mono">{u.messagesSent}</td>
+                                <td className="p-3 text-center font-mono">{u.sessions}</td>
+                                <td className="p-3 text-right text-xs text-muted-foreground">
+                                  {u.lastActive ? format(new Date(u.lastActive), "MMM d, h:mm a") : "Never"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Login trend per user bar chart */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Login Frequency by User</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64" data-testid="chart-user-logins">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={userActivity.filter(u => u.logins > 0)} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="firstName" type="category" tick={{ fontSize: 11 }} width={80} tickFormatter={(v) => v || "Unknown"} />
+                        <Tooltip formatter={(v: number) => [v, "Logins"]} />
+                        <Bar dataKey="logins" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        {/* ===== PRODUCTION TAB ===== */}
+        <TabsContent value="production" className="mt-4 space-y-6">
+          {loadingProduction ? <LoadingState /> : !production ? (
+            <EmptyState icon={ChefHat} text="No production data yet." />
+          ) : (
+            <>
+              {production.topRecipes.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Top Recipes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72" data-testid="chart-top-recipes">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={production.topRecipes.slice(0, 10)} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="title" type="category" tick={{ fontSize: 11 }} width={120} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="quantity" name="Yield" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                          <Bar dataKey="sessionCount" name="Sessions" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {production.dailyProduction.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Daily Production Volume</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64" data-testid="chart-daily-production">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={production.dailyProduction}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip labelFormatter={(v) => formatShortDate(v as string)} />
+                          <Legend />
+                          <Area type="monotone" dataKey="quantity" name="Total Yield" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
+                          <Area type="monotone" dataKey="sessions" name="Sessions" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {production.topRecipes.length === 0 && production.dailyProduction.length === 0 && (
+                <EmptyState icon={ChefHat} text="No production data in this time range." />
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* ===== LAMINATION TAB ===== */}
+        <TabsContent value="lamination" className="mt-4 space-y-6">
+          {loadingLamination ? <LoadingState /> : !lamination ? (
+            <EmptyState icon={Layers} text="No lamination data yet." />
+          ) : (
+            <>
+              {/* Status Distribution + Dough Types side by side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.keys(lamination.statusCounts).length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Dough Status Distribution</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-56" data-testid="chart-lamination-status">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={Object.entries(lamination.statusCounts).map(([name, value]) => ({
+                                name: STATUS_LABELS[name] || name, value,
+                              }))}
+                              cx="50%" cy="50%" outerRadius={80} innerRadius={40}
+                              dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                              labelLine={false}
+                            >
+                              {Object.keys(lamination.statusCounts).map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {lamination.doughsByType.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Doughs by Type</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-56" data-testid="chart-dough-types">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={lamination.doughsByType}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="doughType" tick={{ fontSize: 11 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="count" name="Doughs" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* Daily dough creation vs bake-off */}
+              {lamination.dailyDoughs.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Daily Dough Pipeline</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-56" data-testid="chart-daily-doughs">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={lamination.dailyDoughs}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip labelFormatter={(v) => formatShortDate(v as string)} />
+                          <Legend />
+                          <Bar dataKey="created" name="Created" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="baked" name="Baked" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Top creators */}
+              {lamination.topCreators.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Top Dough Creators</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2" data-testid="lamination-creators">
+                      {lamination.topCreators.map((c, idx) => (
+                        <div key={c.userId} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-muted-foreground w-5 text-right">#{idx + 1}</span>
+                            <span className="font-medium text-sm">{userName(c)}</span>
+                          </div>
+                          <Badge variant="outline" className="font-mono">{c.count} doughs</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {Object.keys(lamination.statusCounts).length === 0 && lamination.doughsByType.length === 0 && (
+                <EmptyState icon={Layers} text="No lamination data in this time range." />
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* ===== MESSAGES TAB ===== */}
         <TabsContent value="messages" className="mt-4">
-          {loadingMessages ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : !messages?.length ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p>No messages found</p>
-              </CardContent>
-            </Card>
+          {loadingMessages ? <LoadingState /> : !messages?.length ? (
+            <EmptyState icon={MessageSquare} text="No messages found." />
           ) : (
             <div className="space-y-3" data-testid="messages-list">
               {messages.map((msg) => (
@@ -160,106 +586,69 @@ export default function AdminInsights() {
           )}
         </TabsContent>
 
-        <TabsContent value="logins" className="mt-4">
-          {loadingLogins ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : !loginActivity?.length ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p>No login data yet. Data will appear as team members log in.</p>
-              </CardContent>
-            </Card>
+        {/* ===== FEATURES TAB ===== */}
+        <TabsContent value="features" className="mt-4 space-y-6">
+          {loadingFeatures ? <LoadingState /> : !featureUsage?.length ? (
+            <EmptyState icon={BarChart3} text="No feature usage data yet." />
           ) : (
-            <div className="space-y-3" data-testid="login-activity-list">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {loginActivity
-                  .sort((a, b) => b.loginCount - a.loginCount)
-                  .map((entry) => (
-                    <Card key={entry.userId} data-testid={`login-card-${entry.userId}`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-semibold text-sm" data-testid={`login-user-${entry.userId}`}>
-                              {userName(entry)}
-                            </p>
-                            <div className="flex items-center gap-1 mt-1">
-                              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground" data-testid={`login-last-${entry.userId}`}>
-                                {entry.lastLogin
-                                  ? format(new Date(entry.lastLogin), "MMM d, h:mm a")
-                                  : "Never logged in"}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-primary" data-testid={`login-count-${entry.userId}`}>
-                              {entry.loginCount}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground uppercase">logins</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </div>
-            </div>
-          )}
-        </TabsContent>
+            <>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Feature Popularity</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72" data-testid="chart-feature-usage">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={featureUsage.slice(0, 12)} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="label" type="category" tick={{ fontSize: 11 }} width={120} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="visitCount" name="Views" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                        <Bar dataKey="uniqueUsers" name="Unique Users" fill="#10b981" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
 
-        <TabsContent value="features" className="mt-4">
-          {loadingFeatures ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : !featureUsage?.length ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p>No feature usage data yet. Data will appear as the team uses the app.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3" data-testid="feature-usage-list">
-              {(() => {
-                const maxVisits = Math.max(...featureUsage.map(f => f.visitCount));
-                return featureUsage.map((feature, idx) => (
-                  <Card key={feature.path} data-testid={`feature-card-${idx}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <span className="text-lg font-bold text-muted-foreground w-8 text-right">
-                            #{idx + 1}
-                          </span>
-                          <div>
-                            <p className="font-semibold text-sm" data-testid={`feature-label-${idx}`}>{feature.label}</p>
-                            <p className="text-xs text-muted-foreground">{feature.path}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4 text-right">
-                          <div>
-                            <p className="text-lg font-bold text-primary" data-testid={`feature-visits-${idx}`}>{feature.visitCount}</p>
-                            <p className="text-[10px] text-muted-foreground uppercase">views</p>
-                          </div>
-                          <div>
-                            <p className="text-lg font-bold text-muted-foreground" data-testid={`feature-users-${idx}`}>{feature.uniqueUsers}</p>
-                            <p className="text-[10px] text-muted-foreground uppercase">users</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className="bg-primary rounded-full h-2 transition-all"
-                          style={{ width: `${(feature.visitCount / maxVisits) * 100}%` }}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ));
-              })()}
-            </div>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Detailed Feature Rankings</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-3 font-medium text-muted-foreground">Rank</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Feature</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Path</th>
+                          <th className="text-center p-3 font-medium text-muted-foreground">Views</th>
+                          <th className="text-center p-3 font-medium text-muted-foreground">Unique Users</th>
+                          <th className="text-right p-3 font-medium text-muted-foreground">Avg/User</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {featureUsage.map((f, idx) => (
+                          <tr key={f.path} className="border-b last:border-0" data-testid={`feature-row-${idx}`}>
+                            <td className="p-3 font-bold text-muted-foreground">#{idx + 1}</td>
+                            <td className="p-3 font-medium">{f.label}</td>
+                            <td className="p-3 text-muted-foreground font-mono text-xs">{f.path}</td>
+                            <td className="p-3 text-center font-mono">{f.visitCount}</td>
+                            <td className="p-3 text-center font-mono">{f.uniqueUsers}</td>
+                            <td className="p-3 text-right font-mono">
+                              {f.uniqueUsers > 0 ? (f.visitCount / f.uniqueUsers).toFixed(1) : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           )}
         </TabsContent>
       </Tabs>

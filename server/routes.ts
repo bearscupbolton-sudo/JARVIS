@@ -3112,5 +3112,55 @@ ${sopsHtml}
     }
   });
 
+  app.get("/api/admin/insights/summary", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const summary = await storage.getInsightsSummary(days);
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/activity-trends", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const trends = await storage.getActivityTrends(days);
+      res.json(trends);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/user-activity", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const stats = await storage.getUserActivityStats(days);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/production", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const production = await storage.getProductionInsights(days);
+      res.json(production);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/lamination", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const lamination = await storage.getLaminationInsights(days);
+      res.json(lamination);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

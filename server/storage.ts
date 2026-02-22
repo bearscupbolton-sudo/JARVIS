@@ -280,6 +280,17 @@ export interface IStorage {
   getAllMessages(): Promise<(DirectMessage & { sender: { id: string; firstName: string | null; lastName: string | null; username: string | null }; recipients: { id: string; firstName: string | null; lastName: string | null; username: string | null; read: boolean; acknowledged: boolean }[] })[]>;
   getLoginActivity(days?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; lastLogin: Date | null; loginCount: number }[]>;
   getFeatureUsage(days?: number): Promise<{ path: string; label: string; visitCount: number; uniqueUsers: number }[]>;
+  getInsightsSummary(days?: number): Promise<{
+    activeUsers: number; totalLogins: number; totalPageViews: number;
+    messagesSent: number; readRate: number; ackRate: number;
+    sessionsStarted: number; sessionsCompleted: number;
+    productionLogs: number; totalYield: number;
+    doughsCreated: number; doughsBaked: number; bakeoffCount: number;
+  }>;
+  getActivityTrends(days?: number): Promise<{ date: string; logins: number; pageViews: number; messages: number; sessions: number; production: number; bakeoffs: number }[]>;
+  getUserActivityStats(days?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; role: string | null; logins: number; pageViews: number; messagesSent: number; sessions: number; lastActive: Date | null }[]>;
+  getProductionInsights(days?: number): Promise<{ topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[]; dailyProduction: { date: string; quantity: number; sessions: number }[] }>;
+  getLaminationInsights(days?: number): Promise<{ statusCounts: Record<string, number>; doughsByType: { doughType: string; count: number }[]; dailyDoughs: { date: string; created: number; baked: number }[]; topCreators: { userId: string; firstName: string | null; lastName: string | null; count: number }[] }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1561,6 +1572,252 @@ export class DatabaseStorage implements IStorage {
         uniqueUsers: data.uniqueUsers.size,
       }))
       .sort((a, b) => b.visitCount - a.visitCount);
+  }
+
+  async getInsightsSummary(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [loginLogs, pvLogs] = await Promise.all([
+      db.select().from(activityLogs).where(and(eq(activityLogs.action, "login"), gte(activityLogs.createdAt, since))),
+      db.select().from(activityLogs).where(and(eq(activityLogs.action, "page_view"), gte(activityLogs.createdAt, since))),
+    ]);
+
+    const activeUserIds = new Set([...loginLogs.map(l => l.userId), ...pvLogs.map(l => l.userId)]);
+
+    const [allMsgs, allRecips] = await Promise.all([
+      db.select().from(directMessages).where(gte(directMessages.createdAt, since)),
+      db.select().from(messageRecipients),
+    ]);
+    const msgIds = new Set(allMsgs.map(m => m.id));
+    const relevantRecips = allRecips.filter(r => msgIds.has(r.messageId));
+    const readCount = relevantRecips.filter(r => r.read).length;
+    const ackCount = relevantRecips.filter(r => r.acknowledged).length;
+
+    const [sessions, prodLogs, doughs, bakes] = await Promise.all([
+      db.select().from(recipeSessions).where(gte(recipeSessions.startedAt, since)),
+      db.select().from(productionLogs).where(gte(productionLogs.date, since)),
+      db.select().from(laminationDoughs).where(gte(laminationDoughs.createdAt, since)),
+      db.select().from(bakeoffLogs).where(gte(bakeoffLogs.createdAt, since)),
+    ]);
+
+    return {
+      activeUsers: activeUserIds.size,
+      totalLogins: loginLogs.length,
+      totalPageViews: pvLogs.length,
+      messagesSent: allMsgs.length,
+      readRate: relevantRecips.length > 0 ? Math.round((readCount / relevantRecips.length) * 100) : 0,
+      ackRate: relevantRecips.length > 0 ? Math.round((ackCount / relevantRecips.length) * 100) : 0,
+      sessionsStarted: sessions.length,
+      sessionsCompleted: sessions.filter(s => s.completedAt).length,
+      productionLogs: prodLogs.length,
+      totalYield: prodLogs.reduce((sum, p) => sum + (p.yieldProduced || 0), 0),
+      doughsCreated: doughs.length,
+      doughsBaked: doughs.filter(d => d.bakedAt).length,
+      bakeoffCount: bakes.length,
+    };
+  }
+
+  async getActivityTrends(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [logs, msgs, sessions, prodLogs, bakes] = await Promise.all([
+      db.select().from(activityLogs).where(gte(activityLogs.createdAt, since)),
+      db.select().from(directMessages).where(gte(directMessages.createdAt, since)),
+      db.select().from(recipeSessions).where(gte(recipeSessions.startedAt, since)),
+      db.select().from(productionLogs).where(gte(productionLogs.date, since)),
+      db.select().from(bakeoffLogs).where(gte(bakeoffLogs.createdAt, since)),
+    ]);
+
+    const dateMap = new Map<string, { logins: number; pageViews: number; messages: number; sessions: number; production: number; bakeoffs: number }>();
+    const initDay = () => ({ logins: 0, pageViews: 0, messages: 0, sessions: 0, production: 0, bakeoffs: 0 });
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dateMap.set(d.toISOString().split("T")[0], initDay());
+    }
+
+    for (const log of logs) {
+      const d = log.createdAt?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || initDay();
+      if (log.action === "login") entry.logins++;
+      else if (log.action === "page_view") entry.pageViews++;
+      dateMap.set(d, entry);
+    }
+    for (const msg of msgs) {
+      const d = msg.createdAt?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || initDay();
+      entry.messages++;
+      dateMap.set(d, entry);
+    }
+    for (const s of sessions) {
+      const d = s.startedAt?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || initDay();
+      entry.sessions++;
+      dateMap.set(d, entry);
+    }
+    for (const p of prodLogs) {
+      const d = p.date?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || initDay();
+      entry.production++;
+      dateMap.set(d, entry);
+    }
+    for (const b of bakes) {
+      const d = b.createdAt?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || initDay();
+      entry.bakeoffs++;
+      dateMap.set(d, entry);
+    }
+
+    return Array.from(dateMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async getUserActivityStats(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [allUsers, logs, msgs, sessions] = await Promise.all([
+      db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username, role: users.role }).from(users),
+      db.select().from(activityLogs).where(gte(activityLogs.createdAt, since)),
+      db.select().from(directMessages).where(gte(directMessages.createdAt, since)),
+      db.select().from(recipeSessions).where(gte(recipeSessions.startedAt, since)),
+    ]);
+
+    return allUsers.map(u => {
+      const userLogs = logs.filter(l => l.userId === u.id);
+      const userMsgs = msgs.filter(m => m.senderId === u.id);
+      const userSessions = sessions.filter(s => s.userId === u.id);
+      const allDates = userLogs.map(l => l.createdAt).filter(Boolean) as Date[];
+      const lastActive = allDates.length > 0 ? allDates.reduce((a, b) => a > b ? a : b) : null;
+
+      return {
+        userId: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        username: u.username,
+        role: u.role,
+        logins: userLogs.filter(l => l.action === "login").length,
+        pageViews: userLogs.filter(l => l.action === "page_view").length,
+        messagesSent: userMsgs.length,
+        sessions: userSessions.length,
+        lastActive,
+      };
+    }).sort((a, b) => (b.logins + b.pageViews + b.messagesSent + b.sessions) - (a.logins + a.pageViews + a.messagesSent + a.sessions));
+  }
+
+  async getProductionInsights(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [prodLogs, allRecipes, sessions] = await Promise.all([
+      db.select().from(productionLogs).where(gte(productionLogs.date, since)),
+      db.select({ id: recipes.id, title: recipes.title }).from(recipes),
+      db.select().from(recipeSessions).where(gte(recipeSessions.startedAt, since)),
+    ]);
+
+    const recipeMap = new Map(allRecipes.map(r => [r.id, r.title]));
+
+    const byRecipe = new Map<number, { quantity: number; sessionCount: number }>();
+    for (const p of prodLogs) {
+      const existing = byRecipe.get(p.recipeId) || { quantity: 0, sessionCount: 0 };
+      existing.quantity += p.yieldProduced || 0;
+      byRecipe.set(p.recipeId, existing);
+    }
+    for (const s of sessions) {
+      const existing = byRecipe.get(s.recipeId) || { quantity: 0, sessionCount: 0 };
+      existing.sessionCount++;
+      byRecipe.set(s.recipeId, existing);
+    }
+
+    const topRecipes = Array.from(byRecipe.entries())
+      .map(([recipeId, data]) => ({ recipeId, title: recipeMap.get(recipeId) || `Recipe #${recipeId}`, ...data }))
+      .sort((a, b) => (b.quantity + b.sessionCount) - (a.quantity + a.sessionCount))
+      .slice(0, 15);
+
+    const dailyMap = new Map<string, { quantity: number; sessions: number }>();
+    for (const p of prodLogs) {
+      const d = p.date?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0 };
+      entry.quantity += p.yieldProduced || 0;
+      dailyMap.set(d, entry);
+    }
+    for (const s of sessions) {
+      const d = s.startedAt?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0 };
+      entry.sessions++;
+      dailyMap.set(d, entry);
+    }
+
+    const dailyProduction = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return { topRecipes, dailyProduction };
+  }
+
+  async getLaminationInsights(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [doughs, allUsers] = await Promise.all([
+      db.select().from(laminationDoughs).where(gte(laminationDoughs.createdAt, since)),
+      db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users),
+    ]);
+
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+    const statusCounts: Record<string, number> = {};
+    const typeMap = new Map<string, number>();
+    const creatorMap = new Map<string, number>();
+    const dailyMap = new Map<string, { created: number; baked: number }>();
+
+    for (const d of doughs) {
+      statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
+      typeMap.set(d.doughType, (typeMap.get(d.doughType) || 0) + 1);
+      if (d.createdBy) creatorMap.set(d.createdBy, (creatorMap.get(d.createdBy) || 0) + 1);
+
+      const dayStr = d.createdAt?.toISOString().split("T")[0];
+      if (dayStr) {
+        const entry = dailyMap.get(dayStr) || { created: 0, baked: 0 };
+        entry.created++;
+        dailyMap.set(dayStr, entry);
+      }
+      if (d.bakedAt) {
+        const bakeDay = d.bakedAt.toISOString().split("T")[0];
+        const entry = dailyMap.get(bakeDay) || { created: 0, baked: 0 };
+        entry.baked++;
+        dailyMap.set(bakeDay, entry);
+      }
+    }
+
+    const doughsByType = Array.from(typeMap.entries())
+      .map(([doughType, count]) => ({ doughType, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const dailyDoughs = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const topCreators = Array.from(creatorMap.entries())
+      .map(([userId, count]) => {
+        const u = userMap.get(userId);
+        return { userId, firstName: u?.firstName || null, lastName: u?.lastName || null, count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    return { statusCounts, doughsByType, dailyDoughs, topCreators };
   }
 }
 
