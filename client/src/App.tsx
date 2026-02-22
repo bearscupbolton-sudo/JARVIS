@@ -16,6 +16,7 @@ import Coffee from "@/pages/Coffee";
 import Kitchen from "@/pages/Kitchen";
 import Recipes from "@/pages/Recipes";
 import RecipeDetail from "@/pages/RecipeDetail";
+import BeginRecipe from "@/pages/BeginRecipe";
 import Production from "@/pages/Production";
 import SOPs from "@/pages/SOPs";
 import Assistant from "@/pages/Assistant";
@@ -113,6 +114,9 @@ function Router() {
       </Route>
       <Route path="/recipes">
         {() => <ProtectedRoute component={Recipes} />}
+      </Route>
+      <Route path="/recipes/:id/begin">
+        {() => <ProtectedRoute component={BeginRecipe} />}
       </Route>
       <Route path="/recipes/:id">
         {() => <ProtectedRoute component={RecipeDetail} />}

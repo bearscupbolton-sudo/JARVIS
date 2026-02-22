@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRoute, Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { RecipeScaler } from "@/components/RecipeScaler";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers, PlayCircle, RotateCcw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Ingredient, type Instruction, type RecipeVersion } from "@shared/schema";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -128,6 +127,10 @@ export default function RecipeDetail() {
   const [showVersions, setShowVersions] = useState(false);
   const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
 
+  const [scaleFactor, setScaleFactor] = useState(1);
+  const [unitWeight, setUnitWeight] = useState("");
+  const [unitQty, setUnitQty] = useState("");
+
   const { data: versions = [] } = useQuery<RecipeVersion[]>({
     queryKey: ["/api/recipes", id, "versions"],
     queryFn: async () => {
@@ -141,11 +144,64 @@ export default function RecipeDetail() {
   if (isLoading) return <RecipeDetailSkeleton />;
   if (!recipe) return <div className="p-8 text-center">Recipe not found</div>;
 
+  if (user?.recipeAssistMode === "locked") {
+    return (
+      <div className="max-w-lg mx-auto p-8 text-center space-y-4">
+        <h1 className="text-2xl font-display font-bold">Recipe Access Restricted</h1>
+        <p className="text-muted-foreground">Your recipe access has been restricted by management. Please speak with your manager.</p>
+        <Link href="/recipes">
+          <Button variant="outline" data-testid="button-back-locked">
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Recipes
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
   const baseIngredients = (recipe.ingredients as Ingredient[]) || [];
   const instructions = (recipe.instructions as Instruction[]) || [];
   const ingredientsWithBP = computeBakersPercentages(baseIngredients);
   const isOwner = user?.role === "owner";
   const canEdit = !user?.locked;
+
+  const scaledIngredients = baseIngredients.map(ing => ({
+    ...ing,
+    quantity: ing.quantity * scaleFactor,
+  }));
+  const scaledIngredientsWithBP = computeBakersPercentages(scaledIngredients);
+
+  const handleUnitScaleChange = (weight: string, qty: string) => {
+    setUnitWeight(weight);
+    setUnitQty(qty);
+    const w = parseFloat(weight);
+    const q = parseInt(qty);
+    if (w > 0 && q > 0) {
+      const totalNeeded = w * q;
+      const baseTotal = baseIngredients.reduce((sum, ing) => sum + ing.quantity, 0);
+      if (baseTotal > 0) {
+        setScaleFactor(totalNeeded / baseTotal);
+      }
+    } else if (!weight && !qty) {
+      setScaleFactor(1);
+    }
+  };
+
+  const handleIngredientScale = (idx: number, newValue: string) => {
+    const newQty = parseFloat(newValue);
+    const baseQty = baseIngredients[idx].quantity;
+    if (newQty > 0 && baseQty > 0) {
+      const newFactor = newQty / baseQty;
+      setScaleFactor(newFactor);
+      setUnitWeight("");
+      setUnitQty("");
+    }
+  };
+
+  const handleResetScale = () => {
+    setScaleFactor(1);
+    setUnitWeight("");
+    setUnitQty("");
+  };
 
   const handleDelete = () => {
     deleteRecipe(id, {
@@ -168,6 +224,8 @@ export default function RecipeDetail() {
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
+
+    const scaleLabel = scaleFactor !== 1 ? ` (Scaled ${scaleFactor.toFixed(2)}x)` : "";
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -205,12 +263,12 @@ export default function RecipeDetail() {
       <body>
         <div class="header">
           <div class="subtitle">Bear's Cup Bakehouse</div>
-          <h1>${recipe.title}</h1>
-          <div class="meta">${recipe.category} &bull; Yield: ${recipe.yieldAmount} ${recipe.yieldUnit}</div>
+          <h1>${recipe.title}${scaleLabel}</h1>
+          <div class="meta">${recipe.category} &bull; Yield: ${(recipe.yieldAmount * scaleFactor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${recipe.yieldUnit}</div>
         </div>
 
         <div class="section">
-          <div class="section-title">Ingredients</div>
+          <div class="section-title">Ingredients${scaleLabel}</div>
           <table>
             <thead>
               <tr>
@@ -222,7 +280,7 @@ export default function RecipeDetail() {
               </tr>
             </thead>
             <tbody>
-              ${groupIngredients(ingredientsWithBP).map(grp => `
+              ${groupIngredients(scaledIngredientsWithBP).map(grp => `
                 ${grp.group ? `<tr style="background:#e8e8e8;border-top:2px solid #999"><td colspan="5" style="padding:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:12px">${grp.group}</td></tr>` : ''}
                 ${grp.items.map(ing => `
                   <tr class="${ing.isFlour ? 'flour-row' : ''}">
@@ -275,6 +333,9 @@ export default function RecipeDetail() {
           </Button>
         </Link>
         <div className="flex gap-2 flex-wrap">
+          <Button className="gap-2" onClick={() => setLocation(`/recipes/${recipe.id}/begin?scale=${scaleFactor}${unitWeight ? `&unitWeight=${unitWeight}` : ''}${unitQty ? `&unitQty=${unitQty}` : ''}`)} data-testid="button-begin-recipe">
+            <PlayCircle className="w-4 h-4" /> Begin Recipe
+          </Button>
           <Button variant="default" className="gap-2" onClick={handlePrint} data-testid="button-print-recipe">
             <Printer className="w-4 h-4" /> Print / Export
           </Button>
@@ -419,138 +480,189 @@ export default function RecipeDetail() {
           <h1 className="text-4xl font-display font-bold text-foreground mb-2" data-testid="text-recipe-title">{recipe.title}</h1>
           <p className="text-lg text-muted-foreground">{recipe.description}</p>
           <div className="mt-2 text-sm font-mono text-muted-foreground">
-            Yield: <span className="font-bold text-foreground">{recipe.yieldAmount}</span> {recipe.yieldUnit}
+            Yield: <span className="font-bold text-foreground">{(recipe.yieldAmount * scaleFactor).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> {recipe.yieldUnit}
+            {scaleFactor !== 1 && (
+              <span className="ml-2 text-xs text-muted-foreground">(base: {recipe.yieldAmount} {recipe.yieldUnit})</span>
+            )}
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-            <Card>
-              <CardHeader className="pb-3 border-b border-border">
-                <CardTitle className="text-lg uppercase tracking-wider">Ingredients</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="table-ingredients">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/30">
-                        <th className="w-10 px-4 py-3"></th>
-                        <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Ingredient</th>
-                        <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Quantity</th>
-                        <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Unit</th>
-                        <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Baker's %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {groupIngredients(ingredientsWithBP).map((grp, gIdx) => (
-                        <>
-                          {grp.group && (
-                            <tr key={`group-${gIdx}`} className="bg-muted/50 border-t-2 border-border" data-testid={`group-header-${gIdx}`}>
-                              <td colSpan={5} className="px-4 py-2">
-                                <div className="flex items-center gap-2">
-                                  <Layers className="w-4 h-4 text-primary" />
-                                  <span className="font-semibold text-sm uppercase tracking-wider">{grp.group}</span>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          {grp.items.map((ing) => (
-                            <tr
-                              key={ing.globalIdx}
-                              className={`transition-colors hover:bg-muted/50 ${checkedIngredients.has(ing.globalIdx) ? "bg-muted/30 line-through text-muted-foreground" : ""} ${ing.isFlour ? "bg-primary/5" : ""}`}
-                              data-testid={`row-ingredient-${ing.globalIdx}`}
-                            >
-                              <td className="px-4 py-3 text-center">
-                                <Checkbox
-                                  checked={checkedIngredients.has(ing.globalIdx)}
-                                  onCheckedChange={() => toggleIngredient(ing.globalIdx)}
-                                  data-testid={`checkbox-ingredient-${ing.globalIdx}`}
-                                />
-                              </td>
-                              <td className="px-4 py-3 font-medium text-foreground">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {ing.name}
-                                  {ing.isFlour && (
-                                    <Badge variant="secondary" className="text-[10px]">
-                                      <Wheat className="w-3 h-3 mr-0.5" /> Flour
-                                    </Badge>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-right font-mono font-bold text-primary tabular-nums">
-                                {ing.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                              </td>
-                              <td className="px-4 py-3 text-right text-muted-foreground">{ing.unit}</td>
-                              <td className="px-4 py-3 text-right font-mono text-muted-foreground tabular-nums">
-                                {ing.computedBP !== null ? `${ing.computedBP}%` : "\u2014"}
-                              </td>
-                            </tr>
-                          ))}
-                          {(() => {
-                            const flourItems = grp.items.filter(i => i.isFlour);
-                            if (flourItems.length > 1) {
-                              const totalFlour = flourItems.reduce((sum, i) => sum + i.quantity, 0);
-                              return (
-                                <tr key={`flour-total-${gIdx}`} className="border-t-2 border-border bg-primary/5 font-semibold" data-testid={`row-total-flour-${gIdx}`}>
-                                  <td className="px-4 py-2"></td>
-                                  <td className="px-4 py-2 text-sm text-muted-foreground">
-                                    Total Flour{grp.group ? ` (${grp.group})` : ""}
-                                  </td>
-                                  <td className="px-4 py-2 text-right font-mono font-bold text-primary tabular-nums">
-                                    {totalFlour.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                  </td>
-                                  <td className="px-4 py-2 text-right text-muted-foreground">{flourItems[0]?.unit}</td>
-                                  <td className="px-4 py-2 text-right font-mono text-muted-foreground">100%</td>
-                                </tr>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3 border-b border-border">
-                <CardTitle className="text-lg uppercase tracking-wider">Method</CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                {instructions.length === 0 ? (
-                  <p className="text-muted-foreground italic">No instructions provided.</p>
-                ) : (
-                  <div className="space-y-6">
-                    {instructions.sort((a, b) => a.step - b.step).map((inst) => (
-                      <div key={inst.step} className="flex gap-4 group">
-                        <div className="flex flex-col items-center">
-                          <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-background">
-                            {inst.step}
-                          </div>
-                          <div className="w-px h-full bg-border group-last:hidden mt-2" />
-                        </div>
-                        <div className="pb-8 pt-1">
-                          <p className="text-foreground leading-relaxed">{inst.text}</p>
-                        </div>
-                      </div>
-                    ))}
+        <div className="space-y-8">
+          <Card data-testid="container-scale-recipe">
+            <CardHeader className="pb-3 border-b border-border">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-lg uppercase tracking-wider">Scale Recipe</CardTitle>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="text-sm text-muted-foreground">
+                    Scale Factor: <span className="font-mono font-bold text-foreground" data-testid="text-scale-factor">{scaleFactor.toFixed(2)}x</span>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  {scaleFactor !== 1 && (
+                    <Button variant="outline" size="sm" className="gap-1" onClick={handleResetScale} data-testid="button-reset-scale">
+                      <RotateCcw className="w-3 h-3" /> Reset
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-xs">Unit Weight (g)</Label>
+                  <Input
+                    type="number"
+                    value={unitWeight}
+                    onChange={(e) => handleUnitScaleChange(e.target.value, unitQty)}
+                    placeholder="e.g. 350"
+                    data-testid="input-unit-weight"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">How Many Units</Label>
+                  <Input
+                    type="number"
+                    value={unitQty}
+                    onChange={(e) => handleUnitScaleChange(unitWeight, e.target.value)}
+                    placeholder="e.g. 12"
+                    data-testid="input-unit-qty"
+                  />
+                </div>
+                <div className="col-span-2 flex items-end">
+                  {unitWeight && unitQty && parseFloat(unitWeight) > 0 && parseInt(unitQty) > 0 && (
+                    <p className="text-sm font-mono font-medium" data-testid="text-total-needed">
+                      Total: {(parseFloat(unitWeight) * parseInt(unitQty)).toLocaleString()}g needed
+                    </p>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Or change any ingredient amount below to scale the whole recipe.</p>
+            </CardContent>
+          </Card>
 
-          <div className="lg:col-span-1">
-            <div className="sticky top-24">
-              <RecipeScaler recipe={recipe} />
-            </div>
-          </div>
+          <Card>
+            <CardHeader className="pb-3 border-b border-border">
+              <CardTitle className="text-lg uppercase tracking-wider">Ingredients</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" data-testid="table-ingredients">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="w-10 px-4 py-3"></th>
+                      <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Ingredient</th>
+                      <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Quantity</th>
+                      <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Unit</th>
+                      <th className="text-right px-4 py-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Baker's %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {groupIngredients(scaledIngredientsWithBP).map((grp, gIdx) => (
+                      <>
+                        {grp.group && (
+                          <tr key={`group-${gIdx}`} className="bg-muted/50 border-t-2 border-border" data-testid={`group-header-${gIdx}`}>
+                            <td colSpan={5} className="px-4 py-2">
+                              <div className="flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-primary" />
+                                <span className="font-semibold text-sm uppercase tracking-wider">{grp.group}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {grp.items.map((ing) => (
+                          <tr
+                            key={ing.globalIdx}
+                            className={`transition-colors hover:bg-muted/50 ${checkedIngredients.has(ing.globalIdx) ? "bg-muted/30 line-through text-muted-foreground" : ""} ${ing.isFlour ? "bg-primary/5" : ""}`}
+                            data-testid={`row-ingredient-${ing.globalIdx}`}
+                          >
+                            <td className="px-4 py-3 text-center">
+                              <Checkbox
+                                checked={checkedIngredients.has(ing.globalIdx)}
+                                onCheckedChange={() => toggleIngredient(ing.globalIdx)}
+                                data-testid={`checkbox-ingredient-${ing.globalIdx}`}
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-medium text-foreground">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {ing.name}
+                                {ing.isFlour && (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    <Wheat className="w-3 h-3 mr-0.5" /> Flour
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-1 text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={parseFloat(ing.quantity.toFixed(2))}
+                                onChange={(e) => handleIngredientScale(ing.globalIdx, e.target.value)}
+                                className="w-24 ml-auto text-right font-mono font-bold text-primary tabular-nums"
+                                data-testid={`input-ingredient-qty-${ing.globalIdx}`}
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-right text-muted-foreground">{ing.unit}</td>
+                            <td className="px-4 py-3 text-right font-mono text-muted-foreground tabular-nums">
+                              {ing.computedBP !== null ? `${ing.computedBP}%` : "\u2014"}
+                            </td>
+                          </tr>
+                        ))}
+                        {(() => {
+                          const flourItems = grp.items.filter(i => i.isFlour);
+                          if (flourItems.length > 1) {
+                            const totalFlour = flourItems.reduce((sum, i) => sum + i.quantity, 0);
+                            return (
+                              <tr key={`flour-total-${gIdx}`} className="border-t-2 border-border bg-primary/5 font-semibold" data-testid={`row-total-flour-${gIdx}`}>
+                                <td className="px-4 py-2"></td>
+                                <td className="px-4 py-2 text-sm text-muted-foreground">
+                                  Total Flour{grp.group ? ` (${grp.group})` : ""}
+                                </td>
+                                <td className="px-4 py-2 text-right font-mono font-bold text-primary tabular-nums">
+                                  {totalFlour.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-4 py-2 text-right text-muted-foreground">{flourItems[0]?.unit}</td>
+                                <td className="px-4 py-2 text-right font-mono text-muted-foreground">100%</td>
+                              </tr>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 border-b border-border">
+              <CardTitle className="text-lg uppercase tracking-wider">Method</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              {instructions.length === 0 ? (
+                <p className="text-muted-foreground italic">No instructions provided.</p>
+              ) : (
+                <div className="space-y-6">
+                  {instructions.sort((a, b) => a.step - b.step).map((inst) => (
+                    <div key={inst.step} className="flex gap-4 group">
+                      <div className="flex flex-col items-center">
+                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-background">
+                          {inst.step}
+                        </div>
+                        <div className="w-px h-full bg-border group-last:hidden mt-2" />
+                      </div>
+                      <div className="pb-8 pt-1">
+                        <p className="text-foreground leading-relaxed">{inst.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* Edit Recipe Dialog */}
       <EditRecipeDialog
         recipe={recipe}
         open={showEdit}
@@ -741,7 +853,7 @@ function EditRecipeDialog({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    const name = prompt("Enter group name (e.g. Beurre Manié, Détrempe):");
+                    const name = prompt("Enter group name (e.g. Beurre Mani\u00e9, D\u00e9trempe):");
                     if (name?.trim()) addIngredient(name.trim());
                   }}
                   data-testid="button-edit-add-group"
@@ -875,16 +987,10 @@ function RecipeDetailSkeleton() {
   return (
     <div className="space-y-8">
       <Skeleton className="w-32 h-10" />
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          <Skeleton className="h-16 w-3/4" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-96 w-full" />
-        </div>
-        <div className="lg:col-span-1">
-          <Skeleton className="h-96 w-full" />
-        </div>
-      </div>
+      <Skeleton className="h-16 w-3/4" />
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-96 w-full" />
+      <Skeleton className="h-64 w-full" />
     </div>
   );
 }

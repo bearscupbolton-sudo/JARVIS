@@ -275,7 +275,7 @@ Guidelines:
       const parsed = schema.parse(req.body);
       const session = await storage.createRecipeSession({
         ...parsed,
-        userId: req.user.id,
+        userId: req.appUser.id,
         startedAt: parsed.startedAt ? new Date(parsed.startedAt) : new Date(),
         completedAt: parsed.completedAt ? new Date(parsed.completedAt) : new Date(),
       });
@@ -297,7 +297,7 @@ Guidelines:
 
   app.put("/api/users/:userId/recipe-assist", isAuthenticated, async (req: any, res) => {
     try {
-      const requestingUser = req.user;
+      const requestingUser = req.appUser;
       if (requestingUser.role !== "owner" && requestingUser.role !== "manager") {
         return res.status(403).json({ message: "Only owners and managers can change recipe assist settings" });
       }
