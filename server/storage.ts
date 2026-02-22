@@ -3,6 +3,7 @@ import {
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
+  squareSales,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
@@ -291,6 +292,18 @@ export interface IStorage {
   getUserActivityStats(days?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; role: string | null; logins: number; pageViews: number; messagesSent: number; sessions: number; lastActive: Date | null }[]>;
   getProductionInsights(days?: number): Promise<{ topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[]; dailyProduction: { date: string; quantity: number; sessions: number }[] }>;
   getLaminationInsights(days?: number): Promise<{ statusCounts: Record<string, number>; doughsByType: { doughType: string; count: number }[]; dailyDoughs: { date: string; created: number; baked: number }[]; topCreators: { userId: string; firstName: string | null; lastName: string | null; count: number }[] }>;
+  getHourlyHeatmap(days?: number): Promise<{ hour: number; day: number; count: number }[]>;
+  getUserDrilldown(userId: string, days?: number): Promise<{
+    topFeatures: { path: string; label: string; count: number }[];
+    dailyActivity: { date: string; pageViews: number; logins: number; sessions: number; messages: number }[];
+    recentRecipeSessions: { recipeTitle: string; startedAt: string; completedAt: string | null }[];
+    recentDoughs: { doughType: string; status: string; createdAt: string }[];
+  }>;
+  getInsightsSummaryWithComparison(days?: number): Promise<{
+    current: { activeUsers: number; totalLogins: number; totalPageViews: number; messagesSent: number; readRate: number; ackRate: number; sessionsStarted: number; sessionsCompleted: number; productionLogs: number; totalYield: number; doughsCreated: number; doughsBaked: number; bakeoffCount: number };
+    previous: { activeUsers: number; totalLogins: number; totalPageViews: number; messagesSent: number; readRate: number; ackRate: number; sessionsStarted: number; sessionsCompleted: number; productionLogs: number; totalYield: number; doughsCreated: number; doughsBaked: number; bakeoffCount: number };
+  }>;
+  getSalesVsProduction(days?: number): Promise<{ date: string; salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1818,6 +1831,221 @@ export class DatabaseStorage implements IStorage {
       .slice(0, 10);
 
     return { statusCounts, doughsByType, dailyDoughs, topCreators };
+  }
+
+  async getHourlyHeatmap(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const logs = await db.select().from(activityLogs)
+      .where(and(eq(activityLogs.action, "page_view"), gte(activityLogs.createdAt, since)));
+
+    const heatmap = new Map<string, number>();
+    for (const log of logs) {
+      if (!log.createdAt) continue;
+      const hour = log.createdAt.getHours();
+      const day = log.createdAt.getDay();
+      const key = `${hour}-${day}`;
+      heatmap.set(key, (heatmap.get(key) || 0) + 1);
+    }
+
+    const result: { hour: number; day: number; count: number }[] = [];
+    for (let day = 0; day < 7; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        result.push({ hour, day, count: heatmap.get(`${hour}-${day}`) || 0 });
+      }
+    }
+    return result;
+  }
+
+  async getUserDrilldown(userId: string, days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const FEATURE_LABELS: Record<string, string> = {
+      "/": "Home", "/dashboard": "Dashboard", "/bakery": "Bakery",
+      "/recipes": "Recipes", "/lamination": "Lamination Studio",
+      "/production": "Production Logs", "/sops": "SOPs",
+      "/schedule": "Schedule", "/tasks": "Task Manager",
+      "/assistant": "Jarvis", "/kiosk": "Kiosk Mode",
+      "/time-cards": "Time Cards", "/pastry-passports": "Pastry Passports",
+      "/admin/users": "Team", "/admin/insights": "Admin Insights",
+      "/pastry-goals": "Pastry Goals", "/live-inventory": "Live Inventory",
+      "/admin/ttis": "TTIS", "/profile": "Profile",
+      "/calendar": "Calendar", "/inventory": "Inventory",
+    };
+
+    const [logs, sessions, doughs, msgs] = await Promise.all([
+      db.select().from(activityLogs).where(and(eq(activityLogs.userId, userId), gte(activityLogs.createdAt, since))),
+      db.select().from(recipeSessions).where(and(eq(recipeSessions.userId, userId), gte(recipeSessions.startedAt, since))),
+      db.select().from(laminationDoughs).where(and(eq(laminationDoughs.createdBy, userId), gte(laminationDoughs.createdAt, since))),
+      db.select().from(directMessages).where(and(eq(directMessages.senderId, userId), gte(directMessages.createdAt, since))),
+    ]);
+
+    const featureMap = new Map<string, number>();
+    const dailyMap = new Map<string, { pageViews: number; logins: number; sessions: number; messages: number }>();
+    const initDay = () => ({ pageViews: 0, logins: 0, sessions: 0, messages: 0 });
+
+    for (const log of logs) {
+      if (log.action === "page_view") {
+        const meta = log.metadata as { path?: string } | null;
+        const path = meta?.path || "unknown";
+        featureMap.set(path, (featureMap.get(path) || 0) + 1);
+      }
+      const d = log.createdAt?.toISOString().split("T")[0];
+      if (d) {
+        const entry = dailyMap.get(d) || initDay();
+        if (log.action === "page_view") entry.pageViews++;
+        else if (log.action === "login") entry.logins++;
+        dailyMap.set(d, entry);
+      }
+    }
+    for (const s of sessions) {
+      const d = s.startedAt?.toISOString().split("T")[0];
+      if (d) {
+        const entry = dailyMap.get(d) || initDay();
+        entry.sessions++;
+        dailyMap.set(d, entry);
+      }
+    }
+    for (const m of msgs) {
+      const d = m.createdAt?.toISOString().split("T")[0];
+      if (d) {
+        const entry = dailyMap.get(d) || initDay();
+        entry.messages++;
+        dailyMap.set(d, entry);
+      }
+    }
+
+    const topFeatures = Array.from(featureMap.entries())
+      .map(([path, count]) => ({ path, label: FEATURE_LABELS[path] || path, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    const dailyActivity = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const recentRecipeSessions = sessions
+      .sort((a, b) => (b.startedAt?.getTime() || 0) - (a.startedAt?.getTime() || 0))
+      .slice(0, 10)
+      .map(s => ({
+        recipeTitle: s.recipeTitle,
+        startedAt: s.startedAt?.toISOString() || "",
+        completedAt: s.completedAt?.toISOString() || null,
+      }));
+
+    const recentDoughs = doughs
+      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
+      .slice(0, 10)
+      .map(d => ({
+        doughType: d.doughType,
+        status: d.status,
+        createdAt: d.createdAt?.toISOString() || "",
+      }));
+
+    return { topFeatures, dailyActivity, recentRecipeSessions, recentDoughs };
+  }
+
+  private async _computeSummary(since: Date, until: Date) {
+    const [loginLogs, pvLogs] = await Promise.all([
+      db.select().from(activityLogs).where(and(eq(activityLogs.action, "login"), gte(activityLogs.createdAt, since), lte(activityLogs.createdAt, until))),
+      db.select().from(activityLogs).where(and(eq(activityLogs.action, "page_view"), gte(activityLogs.createdAt, since), lte(activityLogs.createdAt, until))),
+    ]);
+    const activeUserIds = new Set([...loginLogs.map(l => l.userId), ...pvLogs.map(l => l.userId)]);
+
+    const [allMsgs, allRecips] = await Promise.all([
+      db.select().from(directMessages).where(and(gte(directMessages.createdAt, since), lte(directMessages.createdAt, until))),
+      db.select().from(messageRecipients),
+    ]);
+    const msgIds = new Set(allMsgs.map(m => m.id));
+    const relevantRecips = allRecips.filter(r => msgIds.has(r.messageId));
+    const readCount = relevantRecips.filter(r => r.read).length;
+    const ackCount = relevantRecips.filter(r => r.acknowledged).length;
+
+    const [sessions, prodLogs, doughs, bakes] = await Promise.all([
+      db.select().from(recipeSessions).where(and(gte(recipeSessions.startedAt, since), lte(recipeSessions.startedAt, until))),
+      db.select().from(productionLogs).where(and(gte(productionLogs.date, since), lte(productionLogs.date, until))),
+      db.select().from(laminationDoughs).where(and(gte(laminationDoughs.createdAt, since), lte(laminationDoughs.createdAt, until))),
+      db.select().from(bakeoffLogs).where(and(gte(bakeoffLogs.createdAt, since), lte(bakeoffLogs.createdAt, until))),
+    ]);
+
+    return {
+      activeUsers: activeUserIds.size,
+      totalLogins: loginLogs.length,
+      totalPageViews: pvLogs.length,
+      messagesSent: allMsgs.length,
+      readRate: relevantRecips.length > 0 ? Math.round((readCount / relevantRecips.length) * 100) : 0,
+      ackRate: relevantRecips.length > 0 ? Math.round((ackCount / relevantRecips.length) * 100) : 0,
+      sessionsStarted: sessions.length,
+      sessionsCompleted: sessions.filter(s => s.completedAt).length,
+      productionLogs: prodLogs.length,
+      totalYield: prodLogs.reduce((sum, p) => sum + (p.yieldProduced || 0), 0),
+      doughsCreated: doughs.length,
+      doughsBaked: doughs.filter(d => d.bakedAt).length,
+      bakeoffCount: bakes.length,
+    };
+  }
+
+  async getInsightsSummaryWithComparison(days: number = 30) {
+    const now = new Date();
+    const currentStart = new Date();
+    currentStart.setDate(now.getDate() - days);
+
+    const previousStart = new Date();
+    previousStart.setDate(currentStart.getDate() - days);
+
+    const [current, previous] = await Promise.all([
+      this._computeSummary(currentStart, now),
+      this._computeSummary(previousStart, currentStart),
+    ]);
+
+    return { current, previous };
+  }
+
+  async getSalesVsProduction(days: number = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const sinceStr = since.toISOString().split("T")[0];
+
+    const [sales, prodLogs, doughs] = await Promise.all([
+      db.select().from(squareSales).where(gte(squareSales.date, sinceStr)),
+      db.select().from(productionLogs).where(gte(productionLogs.date, since)),
+      db.select().from(laminationDoughs).where(gte(laminationDoughs.createdAt, since)),
+    ]);
+
+    const dateMap = new Map<string, { salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number }>();
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dateMap.set(d.toISOString().split("T")[0], { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 });
+    }
+
+    for (const s of sales) {
+      const entry = dateMap.get(s.date) || { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 };
+      entry.salesQty += s.quantitySold || 0;
+      entry.salesRevenue += s.revenue || 0;
+      dateMap.set(s.date, entry);
+    }
+    for (const p of prodLogs) {
+      const d = p.date?.toISOString().split("T")[0];
+      if (!d) continue;
+      const entry = dateMap.get(d) || { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 };
+      entry.productionQty += p.yieldProduced || 0;
+      dateMap.set(d, entry);
+    }
+    for (const d of doughs) {
+      const dayStr = d.createdAt?.toISOString().split("T")[0];
+      if (!dayStr) continue;
+      const entry = dateMap.get(dayStr) || { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 };
+      entry.doughsCreated++;
+      dateMap.set(dayStr, entry);
+    }
+
+    return Array.from(dateMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 }
 

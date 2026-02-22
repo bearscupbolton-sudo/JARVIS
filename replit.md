@@ -63,11 +63,14 @@ Phase 1 (Foundation) is implemented. Key components:
 - API endpoints: `GET /api/my-locations` (user's assigned locations with fallback to all), `PUT /api/user-locations/:userId` (manager+), `GET /api/locations/:id/users`
 
 ### Admin Insights Dashboard
-Owner-only dashboard at `/admin/insights` with three tabs:
-- **Messages**: Monitor all P2P/direct messages across the team (sender, recipients, subject, body, read/ack status)
-- **Login Activity**: Track who is logging in, how often, and when they last logged in (data from `activity_logs` table)
-- **Feature Usage**: See most popular features ranked by page views with unique user counts
-Activity tracking: `activity_logs` table (userId, action, metadata JSONB, createdAt). Logins logged server-side on successful PIN auth. Page views logged client-side on route change via Layout component. API: `POST /api/activity` (auth required), `GET /api/admin/insights/messages|login-activity|feature-usage` (owner-only). Supports configurable time range (7/14/30/90 days).
+Owner-only analytics dashboard at `/admin/insights` with six tabs:
+- **Overview**: 8 KPI cards with period-over-period comparison (green/red arrows showing % change vs prior period), activity trend area chart, hourly activity heatmap (7×24 grid showing when team is most active), and top 5 features mini-list.
+- **Team**: Activity breakdown table (name, role, logins, page views, messages, sessions, last active). Click any row for **per-user drill-down dialog** showing: summary stats, daily activity chart, top features used, recent recipe sessions, recent doughs created. Login frequency bar chart.
+- **Production**: Top recipes by yield/sessions horizontal bar chart, daily production volume area chart, **Square Sales vs Production correlation** (overlays items sold, production yield, and revenue to spot over/under production).
+- **Lamination**: Status distribution pie chart, doughs by type bar chart, daily created-vs-baked pipeline, top dough creators.
+- **Messages**: Monitor all P2P/direct messages (sender, recipients, subject, body, read/ack status).
+- **Features**: Feature popularity horizontal bar chart + detailed table (rank, path, views, unique users, avg views/user).
+Activity tracking: `activity_logs` table (userId, action, metadata JSONB, createdAt). Logins logged server-side on successful PIN auth. Page views logged client-side on route change via Layout component. API: `POST /api/activity` (auth required), `GET /api/admin/insights/*` endpoints (owner-only). Supports configurable time range (7/14/30/90 days). New endpoints: `/summary-comparison` (period vs prior), `/heatmap` (hourly grid), `/user-drilldown/:userId` (per-user detail), `/sales-vs-production` (Square correlation).
 
 ### TTIS (Tip Transparency Informational Dashboard)
 Owner-only dashboard at `/admin/ttis` that pulls tip data from Square POS orders and allocates tips evenly among FOH (Front of House) staff who were on scheduled shifts when each tip was collected. Uses `America/New_York` timezone for tip-to-shift matching. Handles midnight-crossing shifts. Falls back to splitting among all FOH staff if no specific shift match is found. Supports AM/PM time formats (e.g., "6:00 AM") via `parseTimeToMinutes` helper. API endpoints: `GET /api/ttis?date=YYYY-MM-DD` (daily detail), `GET /api/ttis/week?startDate=YYYY-MM-DD` (weekly aggregation with per-staff totals and per-day summaries). Frontend defaults to week view with configurable work week start day (persisted in localStorage), week navigation, and click-to-drill-into-day detail view.

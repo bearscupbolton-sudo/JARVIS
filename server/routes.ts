@@ -3162,5 +3162,45 @@ ${sopsHtml}
     }
   });
 
+  app.get("/api/admin/insights/heatmap", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const heatmap = await storage.getHourlyHeatmap(days);
+      res.json(heatmap);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/user-drilldown/:userId", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const drilldown = await storage.getUserDrilldown(req.params.userId, days);
+      res.json(drilldown);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/summary-comparison", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const comparison = await storage.getInsightsSummaryWithComparison(days);
+      res.json(comparison);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/sales-vs-production", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const data = await storage.getSalesVsProduction(days);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }
