@@ -691,6 +691,27 @@ export const insertSquareSalesSchema = createInsertSchema(squareSales).omit({ id
 export type SquareSales = typeof squareSales.$inferSelect;
 export type InsertSquareSales = z.infer<typeof insertSquareSalesSchema>;
 
+// === RECIPE SESSIONS (production completions) ===
+export const recipeSessions = pgTable("recipe_sessions", {
+  id: serial("id").primaryKey(),
+  recipeId: integer("recipe_id").notNull().references(() => recipes.id),
+  userId: text("user_id").notNull(),
+  recipeTitle: text("recipe_title").notNull(),
+  scaleFactor: doublePrecision("scale_factor").notNull().default(1),
+  unitWeight: doublePrecision("unit_weight"),
+  unitQty: integer("unit_qty"),
+  scaledIngredients: jsonb("scaled_ingredients").notNull(),
+  notes: text("notes"),
+  assistMode: text("assist_mode").default("off"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRecipeSessionSchema = createInsertSchema(recipeSessions).omit({ id: true, createdAt: true });
+export type RecipeSession = typeof recipeSessions.$inferSelect;
+export type InsertRecipeSession = z.infer<typeof insertRecipeSessionSchema>;
+
 // === ACTIVITY LOGS ===
 export const activityLogs = pgTable("activity_logs", {
   id: serial("id").primaryKey(),

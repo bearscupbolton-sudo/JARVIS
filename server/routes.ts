@@ -257,6 +257,58 @@ Guidelines:
     }
   });
 
+  // Recipe Sessions
+  app.post("/api/recipe-sessions", isAuthenticated, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        recipeId: z.number().int(),
+        recipeTitle: z.string(),
+        scaleFactor: z.number().default(1),
+        unitWeight: z.number().nullable().optional(),
+        unitQty: z.number().int().nullable().optional(),
+        scaledIngredients: z.any(),
+        notes: z.string().nullable().optional(),
+        assistMode: z.string().default("off"),
+        startedAt: z.string().optional(),
+        completedAt: z.string().optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const session = await storage.createRecipeSession({
+        ...parsed,
+        userId: req.user.id,
+        startedAt: parsed.startedAt ? new Date(parsed.startedAt) : new Date(),
+        completedAt: parsed.completedAt ? new Date(parsed.completedAt) : new Date(),
+      });
+      res.status(201).json(session);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/recipe-sessions", isAuthenticated, async (req: any, res) => {
+    try {
+      const recipeId = req.query.recipeId ? parseInt(req.query.recipeId) : undefined;
+      const sessions = await storage.getRecipeSessions(recipeId);
+      res.json(sessions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:userId/recipe-assist", isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUser = req.user;
+      if (requestingUser.role !== "owner" && requestingUser.role !== "manager") {
+        return res.status(403).json({ message: "Only owners and managers can change recipe assist settings" });
+      }
+      const { mode } = z.object({ mode: z.enum(["off", "optional", "mandatory", "photo_required", "locked"]) }).parse(req.body);
+      await storage.updateUserRecipeAssistMode(req.params.userId, mode);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // === SOPs ===
   app.get(api.sops.list.path, async (req, res) => {
     const sops = await storage.getSOPs();

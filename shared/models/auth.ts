@@ -29,6 +29,7 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   smsOptIn: boolean("sms_opt_in").default(false).notNull(),
   birthday: date("birthday"),
+  recipeAssistMode: varchar("recipe_assist_mode").default("off").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

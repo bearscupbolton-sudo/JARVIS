@@ -14,6 +14,7 @@ import {
   breakEntries,
   userLocations,
   activityLogs,
+  recipeSessions,
   type Recipe, type InsertRecipe,
   type ProductionLog, type InsertProductionLog,
   type SOP, type InsertSOP,
@@ -53,6 +54,7 @@ import {
   type BreakEntry, type InsertBreakEntry,
   type UserLocation, type InsertUserLocation,
   type ActivityLog, type InsertActivityLog,
+  type RecipeSession, type InsertRecipeSession,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -73,6 +75,11 @@ export interface IStorage {
   // Production Logs
   getProductionLogs(): Promise<(ProductionLog & { recipe: Recipe | null })[]>;
   createProductionLog(log: InsertProductionLog): Promise<ProductionLog>;
+
+  // Recipe Sessions
+  createRecipeSession(session: InsertRecipeSession): Promise<RecipeSession>;
+  getRecipeSessions(recipeId?: number): Promise<RecipeSession[]>;
+  updateUserRecipeAssistMode(userId: string, mode: string): Promise<void>;
 
   // SOPs
   getSOPs(): Promise<SOP[]>;
@@ -347,6 +354,23 @@ export class DatabaseStorage implements IStorage {
   async createProductionLog(insertLog: InsertProductionLog): Promise<ProductionLog> {
     const [log] = await db.insert(productionLogs).values(insertLog).returning();
     return log;
+  }
+
+  // Recipe Sessions
+  async createRecipeSession(session: InsertRecipeSession): Promise<RecipeSession> {
+    const [created] = await db.insert(recipeSessions).values(session).returning();
+    return created;
+  }
+
+  async getRecipeSessions(recipeId?: number): Promise<RecipeSession[]> {
+    if (recipeId) {
+      return db.select().from(recipeSessions).where(eq(recipeSessions.recipeId, recipeId)).orderBy(desc(recipeSessions.createdAt));
+    }
+    return db.select().from(recipeSessions).orderBy(desc(recipeSessions.createdAt));
+  }
+
+  async updateUserRecipeAssistMode(userId: string, mode: string): Promise<void> {
+    await db.update(users).set({ recipeAssistMode: mode }).where(eq(users.id, userId));
   }
 
   // SOPs
