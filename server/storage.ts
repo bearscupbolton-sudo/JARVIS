@@ -305,8 +305,26 @@ export interface IStorage {
   }>;
   getSalesVsProduction(days?: number): Promise<{ date: string; salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number }[]>;
 
-  // Smart Nudges
-  getSmartNudges(userId: string): Promise<{ type: string; message: string; icon: string }[]>;
+  // Jarvis Briefing
+  getJarvisBriefingContext(userId: string): Promise<{
+    user: { firstName: string; role: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
+    bakeryState: {
+      proofingDoughs: number;
+      restingDoughs: number;
+      chillingDoughs: number;
+      frozenDoughs: number;
+      fridgeDoughs: number;
+      todayProductionLogs: number;
+      todayRecipeSessions: number;
+      unreadMessages: number;
+      pendingTimeOffRequests: number;
+      activeDoughDetails: { doughNumber: number; doughType: string; status: string; intendedPastry: string | null }[];
+    };
+  }>;
+  updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void>;
+  markJarvisBriefingSeen(userId: string): Promise<void>;
+  updateShowJarvisBriefing(userId: string, show: boolean): Promise<void>;
+  setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2051,63 +2069,98 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  // === SMART NUDGES ===
+  // === JARVIS BRIEFING ===
 
-  async getSmartNudges(userId: string): Promise<{ type: string; message: string; icon: string }[]> {
-    const nudges: { type: string; message: string; icon: string }[] = [];
+  async getJarvisBriefingContext(userId: string): Promise<{
+    user: { firstName: string; role: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
+    bakeryState: {
+      proofingDoughs: number;
+      restingDoughs: number;
+      chillingDoughs: number;
+      frozenDoughs: number;
+      fridgeDoughs: number;
+      todayProductionLogs: number;
+      todayRecipeSessions: number;
+      unreadMessages: number;
+      pendingTimeOffRequests: number;
+      activeDoughDetails: { doughNumber: number; doughType: string; status: string; intendedPastry: string | null }[];
+    };
+  }> {
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) throw new Error("User not found");
+
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const proofingDoughs = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(eq(laminationDoughs.status, "proofing"));
-    if ((proofingDoughs[0]?.count || 0) > 0) {
-      nudges.push({ type: "info", message: `${proofingDoughs[0].count} dough${proofingDoughs[0].count > 1 ? "s" : ""} proofing right now`, icon: "clock" });
+    const [proofing] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "proofing"));
+    const [restingResult] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "resting"));
+    const [chillingResult] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "chilling"));
+    const [frozenResult] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "frozen"));
+    const [fridgeResult] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "fridge"));
+
+    const [todayProd] = await db.select({ count: sql<number>`count(*)::int` }).from(productionLogs).where(and(eq(productionLogs.userId, userId), gte(productionLogs.date, todayStart)));
+    const [todaySessions] = await db.select({ count: sql<number>`count(*)::int` }).from(recipeSessions).where(and(eq(recipeSessions.userId, userId), gte(recipeSessions.startedAt, todayStart)));
+    const [unread] = await db.select({ count: sql<number>`count(*)::int` }).from(messageRecipients).where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false)));
+
+    let pendingTimeOff = 0;
+    if (user.role === "owner" || user.role === "manager") {
+      const [pending] = await db.select({ count: sql<number>`count(*)::int` }).from(timeOffRequests).where(eq(timeOffRequests.status, "pending"));
+      pendingTimeOff = pending?.count || 0;
     }
 
-    const restingDoughs = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(eq(laminationDoughs.status, "resting"));
-    if ((restingDoughs[0]?.count || 0) > 0) {
-      nudges.push({ type: "alert", message: `${restingDoughs[0].count} dough${restingDoughs[0].count > 1 ? "s" : ""} resting on the rack`, icon: "layers" });
-    }
+    const activeDoughs = await db.select({
+      doughNumber: laminationDoughs.doughNumber,
+      doughType: laminationDoughs.doughType,
+      status: laminationDoughs.status,
+      intendedPastry: laminationDoughs.intendedPastry,
+    }).from(laminationDoughs).where(
+      sql`${laminationDoughs.status} IN ('turning', 'chilling', 'resting', 'proofing', 'frozen', 'fridge')`
+    ).orderBy(desc(laminationDoughs.createdAt)).limit(10);
 
-    const chillingDoughs = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(eq(laminationDoughs.status, "chilling"));
-    if ((chillingDoughs[0]?.count || 0) > 0) {
-      nudges.push({ type: "alert", message: `${chillingDoughs[0].count} dough${chillingDoughs[0].count > 1 ? "s" : ""} chilling in the freezer between turns`, icon: "clock" });
-    }
+    return {
+      user: {
+        firstName: user.firstName || "Team Member",
+        role: user.role,
+        showJarvisBriefing: user.showJarvisBriefing,
+        jarvisWelcomeMessage: user.jarvisWelcomeMessage,
+        jarvisBriefingSeenAt: user.jarvisBriefingSeenAt,
+        lastBriefingText: user.lastBriefingText,
+        lastBriefingAt: user.lastBriefingAt,
+      },
+      bakeryState: {
+        proofingDoughs: proofing?.count || 0,
+        restingDoughs: restingResult?.count || 0,
+        chillingDoughs: chillingResult?.count || 0,
+        frozenDoughs: frozenResult?.count || 0,
+        fridgeDoughs: fridgeResult?.count || 0,
+        todayProductionLogs: todayProd?.count || 0,
+        todayRecipeSessions: todaySessions?.count || 0,
+        unreadMessages: unread?.count || 0,
+        pendingTimeOffRequests: pendingTimeOff,
+        activeDoughDetails: activeDoughs.map(d => ({
+          doughNumber: d.doughNumber || 0,
+          doughType: d.doughType,
+          status: d.status,
+          intendedPastry: d.intendedPastry,
+        })),
+      },
+    };
+  }
 
-    const frozenDoughs = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(eq(laminationDoughs.status, "frozen"));
-    if ((frozenDoughs[0]?.count || 0) > 0) {
-      nudges.push({ type: "info", message: `${frozenDoughs[0].count} shaped dough${frozenDoughs[0].count > 1 ? "s" : ""} in the freezer`, icon: "layers" });
-    }
+  async updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void> {
+    await db.update(users).set({ lastBriefingText: briefingText, lastBriefingAt: new Date() }).where(eq(users.id, userId));
+  }
 
-    const [todayProd] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(productionLogs).where(and(eq(productionLogs.userId, userId), gte(productionLogs.date, todayStart)));
-    if (todayProd?.count === 0) {
-      nudges.push({ type: "suggestion", message: "No production logged today \u2014 ready to start?", icon: "clipboard" });
-    }
+  async markJarvisBriefingSeen(userId: string): Promise<void> {
+    await db.update(users).set({ jarvisBriefingSeenAt: new Date() }).where(eq(users.id, userId));
+  }
 
-    const unreadMsgs = await db.select({ count: sql<number>`count(*)::int` })
-      .from(messageRecipients).where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false)));
-    if ((unreadMsgs[0]?.count || 0) > 0) {
-      nudges.push({ type: "info", message: `${unreadMsgs[0].count} unread message${unreadMsgs[0].count > 1 ? "s" : ""}`, icon: "mail" });
-    }
+  async updateShowJarvisBriefing(userId: string, show: boolean): Promise<void> {
+    await db.update(users).set({ showJarvisBriefing: show }).where(eq(users.id, userId));
+  }
 
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
-    if (user) {
-      const [userSessions] = await db.select({ count: sql<number>`count(*)::int` })
-        .from(recipeSessions).where(and(eq(recipeSessions.userId, userId), gte(recipeSessions.startedAt, todayStart)));
-      if (userSessions?.count === 0) {
-        const totalSessions = await db.select({ count: sql<number>`count(*)::int` })
-          .from(recipeSessions).where(eq(recipeSessions.userId, userId));
-        if ((totalSessions[0]?.count || 0) > 0) {
-          nudges.push({ type: "suggestion", message: "You haven't started a recipe session today", icon: "clipboard" });
-        }
-      }
-    }
-
-    return nudges;
+  async setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void> {
+    await db.update(users).set({ jarvisWelcomeMessage: message }).where(eq(users.id, userId));
   }
 }
 

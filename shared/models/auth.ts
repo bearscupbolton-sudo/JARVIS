@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, date, index, integer, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -33,6 +33,11 @@ export const users = pgTable("users", {
   streakCount: integer("streak_count").default(0).notNull(),
   longestStreak: integer("longest_streak").default(0).notNull(),
   lastActiveDate: date("last_active_date"),
+  showJarvisBriefing: boolean("show_jarvis_briefing").default(true).notNull(),
+  jarvisWelcomeMessage: text("jarvis_welcome_message"),
+  jarvisBriefingSeenAt: timestamp("jarvis_briefing_seen_at"),
+  lastBriefingText: text("last_briefing_text"),
+  lastBriefingAt: timestamp("last_briefing_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -48,6 +53,11 @@ export const insertUserSchema = createInsertSchema(users).omit({
   streakCount: true,
   longestStreak: true,
   lastActiveDate: true,
+  showJarvisBriefing: true,
+  jarvisWelcomeMessage: true,
+  jarvisBriefingSeenAt: true,
+  lastBriefingText: true,
+  lastBriefingAt: true,
 });
 
 export const createTeamMemberSchema = z.object({

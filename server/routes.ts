@@ -3202,11 +3202,126 @@ ${sopsHtml}
     }
   });
 
-  // === SMART NUDGES ===
-  app.get("/api/home/personalized", isAuthenticated, async (req: any, res) => {
+  // === JARVIS BRIEFING ===
+  app.get("/api/home/jarvis-briefing", isAuthenticated, async (req: any, res) => {
     try {
-      const nudges = await storage.getSmartNudges(req.appUser.id);
-      res.json({ nudges });
+      const context = await storage.getJarvisBriefingContext(req.appUser.id);
+
+      if (!context.user.showJarvisBriefing && req.query.force !== "true") {
+        return res.json({ briefingText: null, showWelcome: false, welcomeMessage: null, disabled: true });
+      }
+
+      const now = new Date();
+      const cacheAge = context.user.lastBriefingAt ? (now.getTime() - new Date(context.user.lastBriefingAt).getTime()) / 1000 / 60 : Infinity;
+
+      if (cacheAge < 30 && context.user.lastBriefingText && req.query.refresh !== "true") {
+        const showWelcome = !context.user.jarvisBriefingSeenAt;
+        return res.json({
+          briefingText: context.user.lastBriefingText,
+          showWelcome,
+          welcomeMessage: showWelcome ? context.user.jarvisWelcomeMessage : null,
+          disabled: false,
+        });
+      }
+
+      const hour = now.getHours();
+      let timeOfDay = "morning";
+      if (hour >= 12 && hour < 17) timeOfDay = "afternoon";
+      else if (hour >= 17) timeOfDay = "evening";
+
+      const { bakeryState } = context;
+      const stateLines: string[] = [];
+      if (bakeryState.proofingDoughs > 0) stateLines.push(`${bakeryState.proofingDoughs} dough(s) proofing`);
+      if (bakeryState.restingDoughs > 0) stateLines.push(`${bakeryState.restingDoughs} dough(s) resting on the rack`);
+      if (bakeryState.chillingDoughs > 0) stateLines.push(`${bakeryState.chillingDoughs} dough(s) chilling between turns`);
+      if (bakeryState.frozenDoughs > 0) stateLines.push(`${bakeryState.frozenDoughs} shaped dough(s) in the freezer`);
+      if (bakeryState.fridgeDoughs > 0) stateLines.push(`${bakeryState.fridgeDoughs} dough(s) in the fridge`);
+      stateLines.push(`${bakeryState.todayProductionLogs} production log(s) today`);
+      stateLines.push(`${bakeryState.todayRecipeSessions} recipe session(s) today`);
+      if (bakeryState.unreadMessages > 0) stateLines.push(`${bakeryState.unreadMessages} unread message(s)`);
+      if (bakeryState.pendingTimeOffRequests > 0 && (context.user.role === "owner" || context.user.role === "manager")) {
+        stateLines.push(`${bakeryState.pendingTimeOffRequests} pending time-off request(s) to review`);
+      }
+
+      if (bakeryState.activeDoughDetails.length > 0) {
+        stateLines.push("Active doughs: " + bakeryState.activeDoughDetails
+          .map(d => `#${d.doughNumber} ${d.doughType} (${d.status}${d.intendedPastry ? `, for ${d.intendedPastry}` : ""})`)
+          .join(", "));
+      }
+
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing for a team member who just opened the app. Keep it concise (2-4 sentences max). Be natural and conversational — like a helpful colleague giving a quick heads-up. Don't use bullet points or lists. Don't say "here's your briefing" — just speak naturally. Mention the most important/actionable items first. If nothing notable is happening, keep it very short and encouraging.`;
+
+      const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role})
+Time: Good ${timeOfDay}
+Current bakery state:
+${stateLines.join("\n")}
+
+Generate a personalized briefing for ${context.user.firstName}.`;
+
+      const OpenAI = (await import("openai")).default;
+      const briefingAI = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const completion = await briefingAI.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 200,
+        temperature: 0.7,
+      });
+
+      const briefingText = completion.choices[0]?.message?.content || "Welcome back! Everything looks good at the bakehouse.";
+
+      await storage.updateJarvisBriefingCache(req.appUser.id, briefingText);
+
+      const showWelcome = !context.user.jarvisBriefingSeenAt;
+      res.json({
+        briefingText,
+        showWelcome,
+        welcomeMessage: showWelcome ? context.user.jarvisWelcomeMessage : null,
+        disabled: false,
+      });
+    } catch (err: any) {
+      console.error("Jarvis briefing error:", err);
+      res.json({
+        briefingText: "Welcome back! I'm having trouble getting your briefing right now, but everything should be running smoothly.",
+        showWelcome: false,
+        welcomeMessage: null,
+        disabled: false,
+      });
+    }
+  });
+
+  app.post("/api/home/jarvis-briefing/seen", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.markJarvisBriefingSeen(req.appUser.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:userId/jarvis-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const { showJarvisBriefing } = req.body;
+      if (typeof showJarvisBriefing === "boolean") {
+        await storage.updateShowJarvisBriefing(req.appUser.id, showJarvisBriefing);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:userId/welcome-message", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { message } = req.body;
+      await storage.setJarvisWelcomeMessage(req.params.userId, message || null);
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

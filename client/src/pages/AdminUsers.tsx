@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -341,10 +342,26 @@ function UserDetailDialog({
   onDelete: (id: string, name: string) => void;
   onResetPin: (u: User) => void;
 }) {
+  const { toast } = useToast();
   const displayName = u.username || u.firstName || "Unknown";
   const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ") || displayName;
   const isCurrentUser = u.id === currentUser?.id;
   const isOwner = currentUser?.role === "owner";
+  const isManagerOrAbove = currentUser?.role === "owner" || currentUser?.role === "manager";
+  const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
+
+  const welcomeMutation = useMutation({
+    mutationFn: async (message: string) => {
+      await apiRequest("PUT", `/api/users/${u.id}/welcome-message`, { message: message || null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Welcome message saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save", description: err.message, variant: "destructive" });
+    },
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -393,6 +410,35 @@ function UserDetailDialog({
               </div>
             )}
           </div>
+
+          {!isCurrentUser && isManagerOrAbove && (
+            <div className="border-t pt-4 space-y-3">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
+                  Jarvis Welcome Message
+                </Label>
+                <Textarea
+                  placeholder={`Write a personalized welcome for ${u.firstName || displayName}...`}
+                  value={welcomeMsg}
+                  onChange={(e) => setWelcomeMsg(e.target.value)}
+                  className="min-h-[80px] text-sm"
+                  data-testid={`textarea-welcome-${u.id}`}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => welcomeMutation.mutate(welcomeMsg)}
+                  disabled={welcomeMutation.isPending}
+                  data-testid={`button-save-welcome-${u.id}`}
+                >
+                  <Save className="w-3.5 h-3.5 mr-1.5" />
+                  {welcomeMutation.isPending ? "Saving..." : "Save Welcome"}
+                </Button>
+                <p className="text-[11px] text-muted-foreground">This message appears the first time they see their Jarvis briefing.</p>
+              </div>
+            </div>
+          )}
 
           {!isCurrentUser && isOwner && (
             <div className="border-t pt-4 space-y-3">

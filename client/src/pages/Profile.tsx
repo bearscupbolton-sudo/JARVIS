@@ -53,6 +53,7 @@ export default function Profile() {
   const [phone, setPhone] = useState(user?.phone || "");
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
   const [birthday, setBirthday] = useState(user?.birthday || "");
+  const [showJarvisBriefing, setShowJarvisBriefing] = useState((user as any)?.showJarvisBriefing ?? true);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [subscribing, setSubscribing] = useState(false);
 
@@ -125,6 +126,22 @@ export default function Profile() {
     },
     onError: (error: Error) => {
       toast({ title: error.message, variant: "destructive" });
+    },
+  });
+
+  const jarvisToggleMutation = useMutation({
+    mutationFn: async (show: boolean) => {
+      const res = await apiRequest("PUT", `/api/users/${user?.id}/jarvis-settings`, { showJarvisBriefing: show });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/home/jarvis-briefing"] });
+      toast({ title: showJarvisBriefing ? "Jarvis briefing enabled" : "Jarvis briefing disabled" });
+    },
+    onError: (error: Error) => {
+      toast({ title: error.message, variant: "destructive" });
+      setShowJarvisBriefing(!showJarvisBriefing);
     },
   });
 
@@ -336,6 +353,29 @@ export default function Profile() {
               data-testid="button-toggle-sms"
             >
               {smsOptIn ? "On" : "Off"}
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+            <div className="flex items-center gap-2">
+              <img src="/bear-logo.png" alt="Jarvis" className="w-4 h-4 rounded-full" />
+              <div>
+                <p className="text-sm font-medium">Jarvis Briefing</p>
+                <p className="text-xs text-muted-foreground">Show personalized AI briefing on home page</p>
+              </div>
+            </div>
+            <Button
+              variant={showJarvisBriefing ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                const newVal = !showJarvisBriefing;
+                setShowJarvisBriefing(newVal);
+                jarvisToggleMutation.mutate(newVal);
+              }}
+              disabled={jarvisToggleMutation.isPending}
+              data-testid="button-toggle-jarvis"
+            >
+              {showJarvisBriefing ? "On" : "Off"}
             </Button>
           </div>
 

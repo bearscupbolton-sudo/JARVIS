@@ -41,6 +41,14 @@ Authentication is PIN-based, with server-side sessions stored in PostgreSQL. The
 ### AI Integration
 The system integrates with OpenAI-compatible APIs for an AI assistant named Jarvis. Features include text chat with streaming responses, audio/voice capabilities (speech-to-text, text-to-speech), image generation, and invoice scanning using a vision model. Jarvis is dynamically contextualized with bakery-specific data (recipes, SOPs) from the database. Kiosk voice commands allow logging bake-offs, shaping, and setting timers.
 
+### Jarvis Briefing
+Personalized AI-generated briefing on the Home page, replacing the old smart nudges system. Uses OpenAI (gpt-4o-mini) to generate a natural-language, 2-4 sentence briefing tailored to each user's role, current bakery state (dough statuses, production logs, unread messages, pending time-off requests), and time of day. The bear logo (`/bear-logo.png`) serves as the Jarvis avatar. Key features:
+- **Caching**: Briefings cached for 30 minutes per user (fields `lastBriefingText`, `lastBriefingAt` on users table) to control API costs. Refresh button forces a new generation.
+- **User Preference**: `showJarvisBriefing` boolean on users table (default true). Toggle in Profile settings. When off, briefing is hidden.
+- **Custom Welcome Message**: Owner/manager can set `jarvisWelcomeMessage` per user via Team Management detail dialog. Shown once on the user's first briefing view (tracked by `jarvisBriefingSeenAt` timestamp).
+- **Dismiss/Refresh**: Users can dismiss the briefing for the current session or refresh to get an updated one.
+- API endpoints: `GET /api/home/jarvis-briefing` (supports `?refresh=true` and `?force=true`), `POST /api/home/jarvis-briefing/seen`, `PUT /api/users/:userId/jarvis-settings`, `PUT /api/users/:userId/welcome-message` (manager+).
+
 ### Key Design Patterns
 The architecture emphasizes shared Zod schemas for type-safe API contracts and validation across the frontend and backend. JSONB fields are used for flexible data structures like recipe ingredients.
 

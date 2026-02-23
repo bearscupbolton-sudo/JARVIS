@@ -15,7 +15,7 @@ import {
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
   MessageSquare,
   LogIn, LogOut, Coffee,
-  Layers, Zap
+  RefreshCw, X
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
@@ -38,8 +38,11 @@ type HomeData = {
   } | null;
 };
 
-type NudgeData = {
-  nudges: { type: string; message: string; icon: string }[];
+type JarvisBriefingData = {
+  briefingText: string | null;
+  showWelcome: boolean;
+  welcomeMessage: string | null;
+  disabled: boolean;
 };
 
 function formatShiftDate(dateStr: string): string {
@@ -56,12 +59,6 @@ function senderName(sender: InboxMessage["sender"]): string {
 
 type ActiveTimeEntry = TimeEntry & { breaks: BreakEntry[] };
 
-const NUDGE_ICONS: Record<string, any> = {
-  "clock": Clock,
-  "layers": Layers,
-  "clipboard": ClipboardList,
-  "mail": Mail,
-};
 
 function ClockBar() {
   const { toast } = useToast();
@@ -234,30 +231,70 @@ function ClockBar() {
   );
 }
 
-function SmartNudges({ nudges }: { nudges: NudgeData["nudges"] }) {
-  if (nudges.length === 0) return null;
+function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
+  data: JarvisBriefingData;
+  onDismiss: () => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  const seenMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/home/jarvis-briefing/seen");
+    },
+  });
+
+  useEffect(() => {
+    if (data.showWelcome) {
+      seenMutation.mutate();
+    }
+  }, [data.showWelcome]);
+
+  if (data.disabled || !data.briefingText) return null;
 
   return (
-    <div className="space-y-1.5" data-testid="container-nudges">
-      {nudges.map((nudge, idx) => {
-        const Icon = NUDGE_ICONS[nudge.icon] || Zap;
-        const bgColor = nudge.type === "alert" ? "bg-amber-500/10 border-amber-500/20" :
-                        nudge.type === "suggestion" ? "bg-blue-500/10 border-blue-500/20" :
-                        "bg-muted/50 border-border";
-        const iconColor = nudge.type === "alert" ? "text-amber-500" :
-                         nudge.type === "suggestion" ? "text-blue-500" :
-                         "text-muted-foreground";
-        return (
-          <div
-            key={idx}
-            className={`flex items-center gap-2.5 rounded-md px-3 py-2 border ${bgColor}`}
-            data-testid={`nudge-${idx}`}
-          >
-            <Icon className={`w-4 h-4 ${iconColor} flex-shrink-0`} />
-            <span className="text-sm">{nudge.message}</span>
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4" data-testid="container-jarvis-briefing">
+      <div className="flex items-start gap-3">
+        <img
+          src="/bear-logo.png"
+          alt="Jarvis"
+          className="w-10 h-10 rounded-full flex-shrink-0 border-2 border-primary/30"
+          data-testid="img-jarvis-avatar"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-sm font-semibold text-primary" data-testid="text-jarvis-label">Jarvis</span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                data-testid="button-refresh-briefing"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onDismiss}
+                data-testid="button-dismiss-briefing"
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </div>
-        );
-      })}
+          {data.showWelcome && data.welcomeMessage && (
+            <p className="text-sm font-medium mb-2 text-foreground" data-testid="text-welcome-message">
+              {data.welcomeMessage}
+            </p>
+          )}
+          <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-briefing-content">
+            {data.briefingText}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -265,6 +302,7 @@ function SmartNudges({ nudges }: { nudges: NudgeData["nudges"] }) {
 export default function Home() {
   const { user } = useAuth();
   const isManager = user?.role === "manager" || user?.role === "owner";
+  const [briefingDismissed, setBriefingDismissed] = useState(false);
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({
     queryKey: ["/api/home"],
@@ -275,9 +313,10 @@ export default function Home() {
     queryKey: ["/api/messages/inbox"],
   });
 
-  const { data: nudgeData } = useQuery<NudgeData>({
-    queryKey: ["/api/home/personalized"],
-    refetchInterval: 60000,
+  const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
+    queryKey: ["/api/home/jarvis-briefing"],
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
@@ -307,8 +346,25 @@ export default function Home() {
 
       <ClockBar />
 
-      {nudgeData && nudgeData.nudges.length > 0 && (
-        <SmartNudges nudges={nudgeData.nudges} />
+      {!briefingDismissed && briefingData && (
+        <JarvisBriefingCard
+          data={briefingData}
+          onDismiss={() => setBriefingDismissed(true)}
+          onRefresh={() => refetchBriefing()}
+          isRefreshing={refreshingBriefing}
+        />
+      )}
+      {loadingBriefing && !briefingData && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-start gap-3">
+            <Skeleton className="w-10 h-10 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Quick Stats Row */}
