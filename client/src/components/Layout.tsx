@@ -31,6 +31,7 @@ import {
   MapPin,
   Eye,
   MessageSquare,
+  Gamepad2,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -65,6 +66,7 @@ const NAV_ITEMS = [
   { href: "/time-cards", label: "Time Cards", icon: Clock },
   { href: "/tasks", label: "Task Manager", icon: ListChecks },
   { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
+  { href: "/starkade", label: "Starkade", icon: Gamepad2 },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
 ];
 

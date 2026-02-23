@@ -3327,5 +3327,173 @@ Generate a personalized briefing for ${context.user.firstName}.`;
     }
   });
 
+  // === STARKADE ===
+  app.get("/api/starkade/access", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const activeEntry = await storage.getActiveTimeEntry(req.appUser.id);
+      if (activeEntry) {
+        return res.json({ locked: true, message: "Starkade's closed — but Bear's Cup is open. Suit up and get back to work!" });
+      }
+      res.json({ locked: false, message: null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/starkade/games", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const games = await storage.getStarkadeGames();
+      res.json(games);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/starkade/games/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const game = await storage.getStarkadeGameById(Number(req.params.id));
+      if (!game) return res.status(404).json({ message: "Game not found" });
+      res.json(game);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/starkade/games/:id/play", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const gameId = Number(req.params.id);
+      const { score, points, metadata } = req.body;
+      const session = await storage.createGameSession({
+        gameId,
+        userId: req.appUser.id,
+        score: score || 0,
+        points: points || 0,
+        metadata: metadata || null,
+      });
+      await storage.incrementGamePlayCount(gameId);
+      res.json(session);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/starkade/leaderboard/global", isAuthenticated, async (req: any, res) => {
+    try {
+      const limit = Number(req.query.limit) || 10;
+      const leaderboard = await storage.getGlobalLeaderboard(limit);
+      res.json(leaderboard);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/starkade/leaderboard/game/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const gameId = Number(req.params.id);
+      const limit = Number(req.query.limit) || 10;
+      const leaderboard = await storage.getGameLeaderboard(gameId, limit);
+      res.json(leaderboard);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/starkade/recent", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const userId = req.query.userId as string | undefined;
+      const sessions = await storage.getRecentGameSessions(userId);
+      res.json(sessions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/starkade/games/generate", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ message: "Game idea is required" });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const ai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await ai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a game designer for "Starkade" — an arcade in a bakery app. Generate a playable game config from the user's idea.
+
+You MUST respond with valid JSON only (no markdown, no code blocks). The JSON must match one of these types:
+
+TYPE "quiz": { "type": "quiz", "name": "Game Name", "description": "Short description", "questions": [{ "question": "text", "options": ["A", "B", "C", "D"], "correctIndex": 0, "timeLimit": 15 }] } — Generate 8-12 questions. timeLimit is seconds per question.
+
+TYPE "word": { "type": "word", "name": "Game Name", "description": "Short description", "words": [{ "word": "CROISSANT", "hint": "Flaky French pastry" }] } — Generate 8-12 words. Words should be single words, ALL CAPS.
+
+TYPE "memory": { "type": "memory", "name": "Game Name", "description": "Short description", "pairs": [{ "id": "1", "content": "🥐", "match": "Croissant" }] } — Generate 8 pairs (16 cards). Use emoji + text pairs.
+
+TYPE "reaction": { "type": "reaction", "name": "Game Name", "description": "Short description", "rounds": 10, "minDelay": 1000, "maxDelay": 4000, "targetEmoji": "🥐", "decoyEmojis": ["🍕", "🌮", "🍔"] } — Reaction speed game.
+
+Make games bakery/food themed when possible but adapt to the user's idea. Be creative with names (fun, catchy). Keep it simple and playable.`
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 2000,
+      });
+
+      const content = response.choices[0]?.message?.content || "";
+      let gameConfig: any;
+      try {
+        const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        gameConfig = JSON.parse(cleaned);
+      } catch {
+        return res.status(400).json({ message: "Jarvis couldn't generate a valid game from that idea. Try rephrasing it!" });
+      }
+
+      if (!gameConfig.type || !gameConfig.name) {
+        return res.status(400).json({ message: "Generated game is missing required fields. Try again!" });
+      }
+
+      res.json(gameConfig);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/starkade/games/save", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { name, type, description, config } = req.body;
+      if (!name || !type || !config) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      const game = await storage.createStarkadeGame({
+        name,
+        type,
+        source: "ai",
+        status: "active",
+        config,
+        description: description || null,
+        createdBy: req.appUser.id,
+      });
+      res.json(game);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/starkade/games/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      await storage.deleteStarkadeGame(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

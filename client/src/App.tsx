@@ -45,6 +45,7 @@ import LiveInventory from "@/pages/LiveInventory";
 import TTIS from "@/pages/TTIS";
 import AdminInsights from "@/pages/AdminInsights";
 import Messages from "@/pages/Messages";
+import Starkade from "@/pages/Starkade";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -204,6 +205,9 @@ function Router() {
       </Route>
       <Route path="/messages">
         {() => <ProtectedRoute component={Messages} />}
+      </Route>
+      <Route path="/starkade">
+        {() => <ProtectedRoute component={Starkade} />}
       </Route>
 
       <Route component={NotFound} />

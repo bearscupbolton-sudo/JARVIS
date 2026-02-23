@@ -726,3 +726,36 @@ export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ i
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
+// === STARKADE GAMES ===
+export const starkadeGames = pgTable("starkade_games", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // quiz, word, memory, reaction
+  source: text("source").notNull().default("built_in"), // built_in, ai
+  status: text("status").notNull().default("active"), // active, disabled, pending
+  config: jsonb("config").notNull(), // game-specific config (questions, words, etc.)
+  description: text("description"),
+  createdBy: text("created_by"),
+  playCount: integer("play_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertStarkadeGameSchema = createInsertSchema(starkadeGames).omit({ id: true, createdAt: true, playCount: true });
+export type StarkadeGame = typeof starkadeGames.$inferSelect;
+export type InsertStarkadeGame = z.infer<typeof insertStarkadeGameSchema>;
+
+// === STARKADE GAME SESSIONS ===
+export const starkadeGameSessions = pgTable("starkade_game_sessions", {
+  id: serial("id").primaryKey(),
+  gameId: integer("game_id").notNull().references(() => starkadeGames.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  score: integer("score").notNull().default(0),
+  points: integer("points").notNull().default(0),
+  metadata: jsonb("metadata"), // duration, accuracy, attempts, etc.
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertStarkadeGameSessionSchema = createInsertSchema(starkadeGameSessions).omit({ id: true, createdAt: true });
+export type StarkadeGameSession = typeof starkadeGameSessions.$inferSelect;
+export type InsertStarkadeGameSession = z.infer<typeof insertStarkadeGameSessionSchema>;
+
