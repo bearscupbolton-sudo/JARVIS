@@ -56,8 +56,6 @@ import {
   type UserLocation, type InsertUserLocation,
   type ActivityLog, type InsertActivityLog,
   type RecipeSession, type InsertRecipeSession,
-  userAchievements,
-  type UserAchievement, type InsertUserAchievement,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -307,18 +305,8 @@ export interface IStorage {
   }>;
   getSalesVsProduction(days?: number): Promise<{ date: string; salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number }[]>;
 
-  // Achievements & Streaks
-  getUserAchievements(userId: string): Promise<UserAchievement[]>;
-  awardAchievement(data: InsertUserAchievement): Promise<UserAchievement | null>;
-  updateStreak(userId: string): Promise<{ streakCount: number; longestStreak: number; newAchievements: UserAchievement[] }>;
-  checkAndAwardAchievements(userId: string): Promise<UserAchievement[]>;
-  getPersonalizedHomeData(userId: string): Promise<{
-    streakCount: number;
-    longestStreak: number;
-    todayStats: { recipeSessions: number; productionLogs: number; doughsCreated: number; bakeoffs: number; messagesRead: number };
-    nudges: { type: string; message: string; icon: string }[];
-    recentAchievements: UserAchievement[];
-  }>;
+  // Smart Nudges
+  getSmartNudges(userId: string): Promise<{ type: string; message: string; icon: string }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2063,144 +2051,12 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  // === ACHIEVEMENTS & STREAKS ===
+  // === SMART NUDGES ===
 
-  async getUserAchievements(userId: string): Promise<UserAchievement[]> {
-    return await db.select().from(userAchievements)
-      .where(eq(userAchievements.userId, userId))
-      .orderBy(desc(userAchievements.earnedAt));
-  }
-
-  async awardAchievement(data: InsertUserAchievement): Promise<UserAchievement | null> {
-    const existing = await db.select().from(userAchievements)
-      .where(and(eq(userAchievements.userId, data.userId), eq(userAchievements.key, data.key)));
-    if (existing.length > 0) return null;
-    const [achievement] = await db.insert(userAchievements).values(data).returning();
-    return achievement;
-  }
-
-  async updateStreak(userId: string): Promise<{ streakCount: number; longestStreak: number; newAchievements: UserAchievement[] }> {
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
-    if (!user) return { streakCount: 0, longestStreak: 0, newAchievements: [] };
-
-    const today = new Date().toISOString().split("T")[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-
-    let newStreak = user.streakCount;
-    let newLongest = user.longestStreak;
-
-    if (user.lastActiveDate === today) {
-      return { streakCount: newStreak, longestStreak: newLongest, newAchievements: [] };
-    }
-
-    if (user.lastActiveDate === yesterday) {
-      newStreak = user.streakCount + 1;
-    } else {
-      newStreak = 1;
-    }
-
-    if (newStreak > newLongest) newLongest = newStreak;
-
-    await db.update(users).set({
-      streakCount: newStreak,
-      longestStreak: newLongest,
-      lastActiveDate: today,
-    }).where(eq(users.id, userId));
-
-    const newAchievements: UserAchievement[] = [];
-    const streakMilestones: [number, string, string, string][] = [
-      [3, "streak_3", "3-Day Streak", "flame"],
-      [7, "streak_7", "Week Warrior", "flame"],
-      [14, "streak_14", "Two-Week Titan", "flame"],
-      [30, "streak_30", "Monthly Master", "crown"],
-      [60, "streak_60", "Unstoppable", "crown"],
-      [100, "streak_100", "Century Baker", "trophy"],
-    ];
-    for (const [threshold, key, title, icon] of streakMilestones) {
-      if (newStreak >= threshold) {
-        const a = await this.awardAchievement({
-          userId, key, title,
-          description: `Maintained a ${threshold}-day activity streak`,
-          icon,
-        });
-        if (a) newAchievements.push(a);
-      }
-    }
-
-    return { streakCount: newStreak, longestStreak: newLongest, newAchievements };
-  }
-
-  async checkAndAwardAchievements(userId: string): Promise<UserAchievement[]> {
-    const newAchievements: UserAchievement[] = [];
-    const since = new Date(0);
-
-    const sessionCount = await db.select({ count: sql<number>`count(*)::int` })
-      .from(recipeSessions).where(eq(recipeSessions.userId, userId));
-    const totalSessions = sessionCount[0]?.count || 0;
-
-    const completedCount = await db.select({ count: sql<number>`count(*)::int` })
-      .from(recipeSessions).where(and(eq(recipeSessions.userId, userId), sql`${recipeSessions.completedAt} IS NOT NULL`));
-    const totalCompleted = completedCount[0]?.count || 0;
-
-    const doughCount = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(eq(laminationDoughs.createdBy, userId));
-    const totalDoughs = doughCount[0]?.count || 0;
-
-    const prodCount = await db.select({ count: sql<number>`count(*)::int` })
-      .from(productionLogs).where(eq(productionLogs.userId, userId));
-    const totalProd = prodCount[0]?.count || 0;
-
-    const bakeCount = await db.select({ count: sql<number>`count(*)::int` })
-      .from(bakeoffLogs);
-    const totalBakes = bakeCount[0]?.count || 0;
-
-    const milestones: [boolean, string, string, string, string][] = [
-      [totalSessions >= 1, "first_recipe", "First Recipe", "Started your first recipe session", "chef-hat"],
-      [totalCompleted >= 1, "first_complete", "Recipe Complete", "Completed your first recipe from start to finish", "check"],
-      [totalCompleted >= 10, "recipe_pro", "Recipe Pro", "Completed 10 recipe sessions", "star"],
-      [totalCompleted >= 50, "recipe_master", "Recipe Master", "Completed 50 recipe sessions", "trophy"],
-      [totalDoughs >= 1, "first_dough", "First Dough", "Created your first lamination dough", "layers"],
-      [totalDoughs >= 10, "dough_expert", "Dough Expert", "Created 10 lamination doughs", "star"],
-      [totalDoughs >= 50, "lamination_legend", "Lamination Legend", "Created 50 lamination doughs", "trophy"],
-      [totalProd >= 1, "first_production", "First Production Log", "Logged your first production entry", "clipboard"],
-      [totalProd >= 25, "production_pro", "Production Pro", "Logged 25 production entries", "star"],
-      [totalBakes >= 1, "first_bakeoff", "First Bake-Off", "Logged your first bake-off", "flame"],
-      [totalBakes >= 25, "bakeoff_champion", "Bake-Off Champion", "Logged 25 bake-offs", "trophy"],
-    ];
-
-    for (const [condition, key, title, description, icon] of milestones) {
-      if (condition) {
-        const a = await this.awardAchievement({ userId, key, title, description, icon });
-        if (a) newAchievements.push(a);
-      }
-    }
-
-    return newAchievements;
-  }
-
-  async getPersonalizedHomeData(userId: string): Promise<{
-    streakCount: number;
-    longestStreak: number;
-    todayStats: { recipeSessions: number; productionLogs: number; doughsCreated: number; bakeoffs: number; messagesRead: number };
-    nudges: { type: string; message: string; icon: string }[];
-    recentAchievements: UserAchievement[];
-  }> {
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
+  async getSmartNudges(userId: string): Promise<{ type: string; message: string; icon: string }[]> {
+    const nudges: { type: string; message: string; icon: string }[] = [];
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
-    const [todaySessions] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(recipeSessions).where(and(eq(recipeSessions.userId, userId), gte(recipeSessions.startedAt, todayStart)));
-    const [todayProd] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(productionLogs).where(and(eq(productionLogs.userId, userId), gte(productionLogs.date, todayStart)));
-    const [todayDoughs] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(laminationDoughs).where(and(eq(laminationDoughs.createdBy, userId), gte(laminationDoughs.createdAt, todayStart)));
-    const [todayBakes] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(bakeoffLogs).where(gte(bakeoffLogs.createdAt, todayStart));
-    const [todayMsgs] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(messageRecipients).where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, true), gte(messageRecipients.readAt, todayStart)));
-
-    const nudges: { type: string; message: string; icon: string }[] = [];
 
     const proofingDoughs = await db.select({ count: sql<number>`count(*)::int` })
       .from(laminationDoughs).where(eq(laminationDoughs.status, "proofing"));
@@ -2214,8 +2070,22 @@ export class DatabaseStorage implements IStorage {
       nudges.push({ type: "alert", message: `${restingDoughs[0].count} dough${restingDoughs[0].count > 1 ? "s" : ""} resting on the rack`, icon: "layers" });
     }
 
+    const chillingDoughs = await db.select({ count: sql<number>`count(*)::int` })
+      .from(laminationDoughs).where(eq(laminationDoughs.status, "chilling"));
+    if ((chillingDoughs[0]?.count || 0) > 0) {
+      nudges.push({ type: "alert", message: `${chillingDoughs[0].count} dough${chillingDoughs[0].count > 1 ? "s" : ""} chilling in the freezer between turns`, icon: "clock" });
+    }
+
+    const frozenDoughs = await db.select({ count: sql<number>`count(*)::int` })
+      .from(laminationDoughs).where(eq(laminationDoughs.status, "frozen"));
+    if ((frozenDoughs[0]?.count || 0) > 0) {
+      nudges.push({ type: "info", message: `${frozenDoughs[0].count} shaped dough${frozenDoughs[0].count > 1 ? "s" : ""} in the freezer`, icon: "layers" });
+    }
+
+    const [todayProd] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(productionLogs).where(and(eq(productionLogs.userId, userId), gte(productionLogs.date, todayStart)));
     if (todayProd?.count === 0) {
-      nudges.push({ type: "suggestion", message: "No production logged today — ready to start?", icon: "clipboard" });
+      nudges.push({ type: "suggestion", message: "No production logged today \u2014 ready to start?", icon: "clipboard" });
     }
 
     const unreadMsgs = await db.select({ count: sql<number>`count(*)::int` })
@@ -2224,24 +2094,20 @@ export class DatabaseStorage implements IStorage {
       nudges.push({ type: "info", message: `${unreadMsgs[0].count} unread message${unreadMsgs[0].count > 1 ? "s" : ""}`, icon: "mail" });
     }
 
-    const recentAchievements = await db.select().from(userAchievements)
-      .where(eq(userAchievements.userId, userId))
-      .orderBy(desc(userAchievements.earnedAt))
-      .limit(5);
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (user) {
+      const [userSessions] = await db.select({ count: sql<number>`count(*)::int` })
+        .from(recipeSessions).where(and(eq(recipeSessions.userId, userId), gte(recipeSessions.startedAt, todayStart)));
+      if (userSessions?.count === 0) {
+        const totalSessions = await db.select({ count: sql<number>`count(*)::int` })
+          .from(recipeSessions).where(eq(recipeSessions.userId, userId));
+        if ((totalSessions[0]?.count || 0) > 0) {
+          nudges.push({ type: "suggestion", message: "You haven't started a recipe session today", icon: "clipboard" });
+        }
+      }
+    }
 
-    return {
-      streakCount: user?.streakCount || 0,
-      longestStreak: user?.longestStreak || 0,
-      todayStats: {
-        recipeSessions: todaySessions?.count || 0,
-        productionLogs: todayProd?.count || 0,
-        doughsCreated: todayDoughs?.count || 0,
-        bakeoffs: todayBakes?.count || 0,
-        messagesRead: todayMsgs?.count || 0,
-      },
-      nudges,
-      recentAchievements,
-    };
+    return nudges;
   }
 }
 

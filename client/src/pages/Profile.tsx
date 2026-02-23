@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, Flame, Trophy, Star, Award, Sparkles, ChefHat, Layers, ClipboardList } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -461,91 +461,6 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      <ProfileAchievements />
     </div>
-  );
-}
-
-const ACHIEVEMENT_ICONS: Record<string, any> = {
-  "flame": Flame,
-  "crown": Award,
-  "trophy": Trophy,
-  "star": Star,
-  "check": Sparkles,
-  "chef-hat": ChefHat,
-  "layers": Layers,
-  "clipboard": ClipboardList,
-};
-
-function ProfileAchievements() {
-  const { data, isLoading } = useQuery<{ achievements: any[]; streakCount: number; longestStreak: number }>({
-    queryKey: ["/api/achievements/me"],
-  });
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Trophy className="w-5 h-5" />Achievements</CardTitle></CardHeader>
-        <CardContent><Skeleton className="h-20" /></CardContent>
-      </Card>
-    );
-  }
-
-  if (!data) return null;
-
-  return (
-    <Card data-testid="container-profile-achievements">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Trophy className="w-5 h-5" />
-          Achievements
-          {data.achievements.length > 0 && (
-            <Badge variant="secondary">{data.achievements.length}</Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {data.streakCount > 0 && (
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20" data-testid="profile-streak">
-            <Flame className="w-6 h-6 text-amber-500" />
-            <div>
-              <p className="font-bold text-amber-600 dark:text-amber-400">{data.streakCount} Day Streak</p>
-              <p className="text-xs text-muted-foreground">Longest: {data.longestStreak} days</p>
-            </div>
-          </div>
-        )}
-
-        {data.achievements.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">
-            <Star className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No achievements yet. Keep baking!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {data.achievements.map((a: any) => {
-              const Icon = ACHIEVEMENT_ICONS[a.icon] || Star;
-              return (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/15"
-                  data-testid={`profile-achievement-${a.key}`}
-                >
-                  <Icon className="w-5 h-5 text-primary flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold truncate">{a.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{a.description}</p>
-                    {a.earnedAt && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {new Date(a.earnedAt).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
