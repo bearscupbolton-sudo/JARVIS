@@ -279,6 +279,8 @@ Guidelines:
         startedAt: parsed.startedAt ? new Date(parsed.startedAt) : new Date(),
         completedAt: parsed.completedAt ? new Date(parsed.completedAt) : new Date(),
       });
+      storage.updateStreak(req.appUser.id).catch(() => {});
+      storage.checkAndAwardAchievements(req.appUser.id).catch(() => {});
       res.status(201).json(session);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -3196,6 +3198,44 @@ ${sopsHtml}
     try {
       const days = req.query.days ? Number(req.query.days) : 30;
       const data = await storage.getSalesVsProduction(days);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ACHIEVEMENTS & STREAKS ===
+  app.get("/api/achievements/me", isAuthenticated, async (req: any, res) => {
+    try {
+      const achievements = await storage.getUserAchievements(req.appUser.id);
+      res.json({
+        achievements,
+        streakCount: req.appUser.streakCount || 0,
+        longestStreak: req.appUser.longestStreak || 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/achievements/check", isAuthenticated, async (req: any, res) => {
+    try {
+      const streakResult = await storage.updateStreak(req.appUser.id);
+      const newBadges = await storage.checkAndAwardAchievements(req.appUser.id);
+      const allNew = [...streakResult.newAchievements, ...newBadges];
+      res.json({
+        newAchievements: allNew,
+        streakCount: streakResult.streakCount,
+        longestStreak: streakResult.longestStreak,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/home/personalized", isAuthenticated, async (req: any, res) => {
+    try {
+      const data = await storage.getPersonalizedHomeData(req.appUser.id);
       res.json(data);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

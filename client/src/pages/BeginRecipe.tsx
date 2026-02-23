@@ -3,7 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { useRecipe } from "@/hooks/use-recipes";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, CheckCircle2, ChefHat, Eye, EyeOff, Camera, AlertTriangle } from "lucide-react";
 import { type Ingredient, type Instruction } from "@shared/schema";
+import { useAchievementCelebration } from "@/components/Confetti";
 
 const FLOUR_KEYWORDS = [
   "flour", "galahad", "gallahad", "sir galahad", "lancelot", "sir lancelot",
@@ -55,6 +56,7 @@ export default function BeginRecipe() {
   const [assistActive, setAssistActive] = useState(isAssistMandatory);
   const [assistStep, setAssistStep] = useState(0);
   const [assistPhotoTaken, setAssistPhotoTaken] = useState(false);
+  const { celebrate, elements: celebrationElements } = useAchievementCelebration();
 
   useEffect(() => {
     if (recipe) {
@@ -73,8 +75,19 @@ export default function BeginRecipe() {
       const res = await apiRequest("POST", "/api/recipe-sessions", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({ title: "Recipe completed!", description: "Session logged successfully." });
+      try {
+        const checkRes = await apiRequest("POST", "/api/achievements/check");
+        const checkData = await checkRes.json();
+        if (checkData.newAchievements?.length > 0) {
+          celebrate(checkData.newAchievements[0]);
+          queryClient.invalidateQueries({ queryKey: ["/api/achievements/me"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/home/personalized"] });
+          setTimeout(() => setLocation(`/recipes/${id}`), 3000);
+          return;
+        }
+      } catch {}
       setLocation(`/recipes/${id}`);
     },
     onError: (err: any) => {
@@ -165,6 +178,7 @@ export default function BeginRecipe() {
 
   return (
     <div className="max-w-2xl mx-auto animate-in fade-in duration-500">
+      {celebrationElements}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <Button

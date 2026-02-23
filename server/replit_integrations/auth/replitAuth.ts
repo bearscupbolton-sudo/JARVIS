@@ -49,6 +49,8 @@ export async function setupAuth(app: Express) {
       }
       req.session.userId = user.id;
       storage.logActivity({ userId: user.id, action: "login", metadata: { method: "pin" } }).catch(() => {});
+      storage.updateStreak(user.id).catch(() => {});
+      storage.checkAndAwardAchievements(user.id).catch(() => {});
       res.json(user);
     } catch (error: any) {
       if (error.name === "ZodError") {

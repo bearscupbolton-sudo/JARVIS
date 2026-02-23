@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, date, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -30,6 +30,9 @@ export const users = pgTable("users", {
   smsOptIn: boolean("sms_opt_in").default(false).notNull(),
   birthday: date("birthday"),
   recipeAssistMode: varchar("recipe_assist_mode").default("off").notNull(),
+  streakCount: integer("streak_count").default(0).notNull(),
+  longestStreak: integer("longest_streak").default(0).notNull(),
+  lastActiveDate: date("last_active_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -42,6 +45,9 @@ export const insertUserSchema = createInsertSchema(users).omit({
   locked: true,
   smsOptIn: true,
   profileImageUrl: true,
+  streakCount: true,
+  longestStreak: true,
+  lastActiveDate: true,
 });
 
 export const createTeamMemberSchema = z.object({

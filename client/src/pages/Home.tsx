@@ -14,10 +14,12 @@ import {
   AlertCircle, Pin, ChefHat, ClipboardList,
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
   MessageSquare,
-  LogIn, LogOut, Coffee
+  LogIn, LogOut, Coffee,
+  Layers, Trophy, Star, Zap, Sparkles, Award
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
-import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
+import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, UserAchievement } from "@shared/schema";
+import { useAchievementCelebration } from "@/components/Confetti";
 
 type InboxMessage = DirectMessage & {
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
@@ -37,6 +39,20 @@ type HomeData = {
   } | null;
 };
 
+type PersonalizedData = {
+  streakCount: number;
+  longestStreak: number;
+  todayStats: {
+    recipeSessions: number;
+    productionLogs: number;
+    doughsCreated: number;
+    bakeoffs: number;
+    messagesRead: number;
+  };
+  nudges: { type: string; message: string; icon: string }[];
+  recentAchievements: UserAchievement[];
+};
+
 function formatShiftDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   if (isToday(d)) return "Today";
@@ -50,6 +66,24 @@ function senderName(sender: InboxMessage["sender"]): string {
 }
 
 type ActiveTimeEntry = TimeEntry & { breaks: BreakEntry[] };
+
+const ACHIEVEMENT_ICONS: Record<string, any> = {
+  "flame": Flame,
+  "crown": Award,
+  "trophy": Trophy,
+  "star": Star,
+  "check": Sparkles,
+  "chef-hat": ChefHat,
+  "layers": Layers,
+  "clipboard": ClipboardList,
+};
+
+const NUDGE_ICONS: Record<string, any> = {
+  "clock": Clock,
+  "layers": Layers,
+  "clipboard": ClipboardList,
+  "mail": Mail,
+};
 
 function ClockBar() {
   const { toast } = useToast();
@@ -222,9 +256,120 @@ function ClockBar() {
   );
 }
 
+function StreakBadge({ count, longest }: { count: number; longest: number }) {
+  if (count === 0) return null;
+  return (
+    <div className="flex items-center gap-2" data-testid="container-streak">
+      <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-full px-3 py-1.5">
+        <Flame className="w-4 h-4 text-amber-500" />
+        <span className="text-sm font-bold text-amber-600 dark:text-amber-400" data-testid="text-streak-count">
+          {count} day streak
+        </span>
+      </div>
+      {longest > count && (
+        <span className="text-xs text-muted-foreground" data-testid="text-longest-streak">
+          Best: {longest} days
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TodayStatsRow({ stats }: { stats: PersonalizedData["todayStats"] }) {
+  const items = [
+    { label: "Sessions", value: stats.recipeSessions, icon: ChefHat },
+    { label: "Production", value: stats.productionLogs, icon: ClipboardList },
+    { label: "Doughs", value: stats.doughsCreated, icon: Layers },
+    { label: "Bake-offs", value: stats.bakeoffs, icon: Flame },
+  ].filter(i => i.value > 0);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="container-today-stats">
+      <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider self-center mr-1">Today:</span>
+      {items.map(({ label, value, icon: Icon }) => (
+        <div key={label} className="flex items-center gap-1.5 bg-muted/50 rounded-full px-2.5 py-1">
+          <Icon className="w-3 h-3 text-muted-foreground" />
+          <span className="text-xs font-mono font-bold">{value}</span>
+          <span className="text-xs text-muted-foreground">{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SmartNudges({ nudges }: { nudges: PersonalizedData["nudges"] }) {
+  if (nudges.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5" data-testid="container-nudges">
+      {nudges.map((nudge, idx) => {
+        const Icon = NUDGE_ICONS[nudge.icon] || Zap;
+        const bgColor = nudge.type === "alert" ? "bg-amber-500/10 border-amber-500/20" :
+                        nudge.type === "suggestion" ? "bg-blue-500/10 border-blue-500/20" :
+                        "bg-muted/50 border-border";
+        const iconColor = nudge.type === "alert" ? "text-amber-500" :
+                         nudge.type === "suggestion" ? "text-blue-500" :
+                         "text-muted-foreground";
+        return (
+          <div
+            key={idx}
+            className={`flex items-center gap-2.5 rounded-md px-3 py-2 border ${bgColor}`}
+            data-testid={`nudge-${idx}`}
+          >
+            <Icon className={`w-4 h-4 ${iconColor} flex-shrink-0`} />
+            <span className="text-sm">{nudge.message}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AchievementGrid({ achievements }: { achievements: UserAchievement[] }) {
+  if (achievements.length === 0) return null;
+
+  return (
+    <Card data-testid="container-achievements">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg font-display flex items-center gap-2">
+          <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+            <Trophy className="w-4 h-4 text-primary" />
+          </div>
+          Achievements
+          <Badge variant="secondary" className="ml-1 text-[10px]">{achievements.length}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="flex flex-wrap gap-2">
+          {achievements.map(a => {
+            const Icon = ACHIEVEMENT_ICONS[a.icon] || Star;
+            return (
+              <div
+                key={a.id}
+                className="flex items-center gap-2 bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/15 rounded-lg px-3 py-2"
+                title={a.description}
+                data-testid={`achievement-${a.key}`}
+              >
+                <Icon className="w-4 h-4 text-primary" />
+                <div>
+                  <p className="text-xs font-bold">{a.title}</p>
+                  <p className="text-[10px] text-muted-foreground">{a.description}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Home() {
   const { user } = useAuth();
   const isManager = user?.role === "manager" || user?.role === "owner";
+  const { celebrate, elements: celebrationElements } = useAchievementCelebration();
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({
     queryKey: ["/api/home"],
@@ -234,6 +379,29 @@ export default function Home() {
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({
     queryKey: ["/api/messages/inbox"],
   });
+
+  const { data: personalData } = useQuery<PersonalizedData>({
+    queryKey: ["/api/home/personalized"],
+    refetchInterval: 60000,
+  });
+
+  const checkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/achievements/check");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.newAchievements?.length > 0) {
+        celebrate(data.newAchievements[0]);
+        queryClient.invalidateQueries({ queryKey: ["/api/home/personalized"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/achievements/me"] });
+      }
+    },
+  });
+
+  useEffect(() => {
+    checkMutation.mutate();
+  }, []);
 
   const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
 
@@ -251,16 +419,29 @@ export default function Home() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-home">
-      <div className="flex flex-col gap-1" data-testid="container-welcome-home">
-        <h1 className="text-3xl font-display font-bold" data-testid="text-home-greeting">
-          {greeting}, {user?.firstName || user?.username || "Baker"}
-        </h1>
-        <p className="text-muted-foreground font-mono text-sm" data-testid="text-home-date">
-          {format(new Date(), "EEEE, MMMM do, yyyy")}
-        </p>
+      {celebrationElements}
+
+      <div className="flex flex-col gap-2" data-testid="container-welcome-home">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl font-display font-bold" data-testid="text-home-greeting">
+              {greeting}, {user?.firstName || user?.username || "Baker"}
+            </h1>
+            <p className="text-muted-foreground font-mono text-sm" data-testid="text-home-date">
+              {format(new Date(), "EEEE, MMMM do, yyyy")}
+            </p>
+          </div>
+          {personalData && <StreakBadge count={personalData.streakCount} longest={personalData.longestStreak} />}
+        </div>
+
+        {personalData && <TodayStatsRow stats={personalData.todayStats} />}
       </div>
 
       <ClockBar />
+
+      {personalData && personalData.nudges.length > 0 && (
+        <SmartNudges nudges={personalData.nudges} />
+      )}
 
       {/* Quick Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">
@@ -330,6 +511,11 @@ export default function Home() {
         )}
       </div>
 
+      {/* Achievements */}
+      {personalData && personalData.recentAchievements.length > 0 && (
+        <AchievementGrid achievements={personalData.recentAchievements} />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Messages Summary Card */}
         <Link href="/messages">
@@ -367,7 +553,7 @@ export default function Home() {
                     <div className="flex-1 min-w-0">
                       <span className="font-semibold text-sm truncate block">{msg.subject}</span>
                       <p className="text-xs text-muted-foreground truncate">
-                        {senderName(msg.sender)} {msg.createdAt && `· ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                        {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
                       </p>
                     </div>
                     {msg.priority === "urgent" && <Badge variant="destructive" className="text-[10px]">Urgent</Badge>}
@@ -379,7 +565,7 @@ export default function Home() {
                     <div className="flex-1 min-w-0">
                       <span className="text-sm truncate block">{msg.subject}</span>
                       <p className="text-xs text-muted-foreground truncate">
-                        {senderName(msg.sender)} {msg.createdAt && `· ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
+                        {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
                       </p>
                     </div>
                   </div>
