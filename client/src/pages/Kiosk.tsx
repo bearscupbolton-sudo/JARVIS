@@ -11,7 +11,7 @@ import { format } from "date-fns";
 import {
   Mic, MicOff, Undo2, CheckCircle2,
   Flame, Clock, Loader2, ArrowLeft, Timer,
-  Wind, X, Volume2, MessageSquare, AlertCircle, Bot
+  Wind, X, Volume2, MessageSquare, AlertCircle
 } from "lucide-react";
 import type { BakeoffLog, ShapingLog, KioskTimer } from "@shared/schema";
 
@@ -327,8 +327,8 @@ export default function Kiosk() {
               <ArrowLeft />
             </Button>
           </Link>
-          <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
-            <Bot className="w-5 h-5 text-primary" />
+          <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center overflow-hidden">
+            <img src="/bear-logo.png" alt="Jarvis" className="w-7 h-7 object-contain" />
           </div>
           <div>
             <h1 className="text-xl font-display font-bold tracking-tight" data-testid="text-kiosk-title">Jarvis</h1>
@@ -357,7 +357,7 @@ export default function Kiosk() {
           <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="chat-messages">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-                <Bot className="w-16 h-16 opacity-20" />
+                <img src="/bear-logo.png" alt="Jarvis" className="w-16 h-16 opacity-20 object-contain" />
                 <p className="text-lg font-medium" data-testid="text-chat-empty">Jarvis is ready</p>
                 <p className="text-sm text-center max-w-md">
                   Say "Jarvis" followed by a command, or tap the microphone below.

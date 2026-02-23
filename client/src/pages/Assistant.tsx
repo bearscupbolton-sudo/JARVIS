@@ -4,7 +4,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send, Bot, User, Plus, MessageSquare, Loader2 } from "lucide-react";
+import { Send, User, Plus, MessageSquare, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -177,8 +177,8 @@ export default function Assistant() {
         <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-6" data-testid="container-messages">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50" data-testid="text-empty-state">
-              <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-6">
-                <Bot className="w-10 h-10 text-primary-foreground" />
+              <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-6 overflow-hidden">
+                <img src="/bear-logo.png" alt="Jarvis" className="w-14 h-14 object-contain brightness-200" />
               </div>
               <h2 className="text-2xl font-display font-bold mb-2">Jarvis Assistant</h2>
               <p>Ask about recipes, conversions, or baking science.</p>
@@ -197,7 +197,7 @@ export default function Assistant() {
                   "w-8 h-8 rounded-md flex items-center justify-center shrink-0",
                   msg.role === "user" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground"
                 )}>
-                  {msg.role === "user" ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+                  {msg.role === "user" ? <User className="w-5 h-5" /> : <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 object-contain brightness-200" />}
                 </div>
                 <div className={cn(
                   "p-4 rounded-md text-sm leading-relaxed shadow-sm min-w-[40px]",

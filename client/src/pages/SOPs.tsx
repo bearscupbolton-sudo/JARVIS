@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, BookOpen, Trash2, ChevronDown, ChevronUp, Camera, Loader2, Printer, Bot, X } from "lucide-react";
+import { Plus, BookOpen, Trash2, ChevronDown, ChevronUp, Camera, Loader2, Printer, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -274,7 +274,7 @@ function CreateSOPDialog() {
 
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
           <div className="flex items-center gap-3 mb-3">
-            <Bot className="w-5 h-5 text-primary" />
+            <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 rounded-sm object-contain" />
             <div>
               <p className="font-semibold text-sm">Scan with Jarvis</p>
               <p className="text-xs text-muted-foreground">Upload a screenshot or photo and Jarvis will convert it into a clean SOP</p>

@@ -13,7 +13,6 @@ import {
   ChefHat,
   ArrowRight,
   Camera,
-  Bot,
   Loader2,
   ImageIcon,
   X,
@@ -273,7 +272,7 @@ function CreateRecipeDialog() {
 
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
           <div className="flex items-center gap-3 mb-3">
-            <Bot className="w-5 h-5 text-primary" />
+            <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 rounded-sm object-contain" />
             <div>
               <p className="font-semibold text-sm">Scan with Jarvis</p>
               <p className="text-xs text-muted-foreground">Upload a photo of a recipe and Jarvis will parse it for you</p>

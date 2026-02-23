@@ -5,7 +5,6 @@ import {
   ChefHat, 
   ClipboardList, 
   BookOpen, 
-  Bot, 
   LogOut, 
   Menu,
   Users,
@@ -44,6 +43,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 
+const BearLogoIcon = ({ className }: { className?: string }) => (
+  <img src="/bear-logo.png" alt="Jarvis" className={cn("rounded-sm object-contain", className)} />
+);
+
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/messages", label: "Messages", icon: MessageSquare },
@@ -61,7 +64,7 @@ const NAV_ITEMS = [
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/time-cards", label: "Time Cards", icon: Clock },
   { href: "/tasks", label: "Task Manager", icon: ListChecks },
-  { href: "/assistant", label: "Jarvis", icon: Bot },
+  { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
 ];
 
