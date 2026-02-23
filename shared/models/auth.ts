@@ -38,6 +38,7 @@ export const users = pgTable("users", {
   jarvisBriefingSeenAt: timestamp("jarvis_briefing_seen_at"),
   lastBriefingText: text("last_briefing_text"),
   lastBriefingAt: timestamp("last_briefing_at"),
+  jarvisBriefingFocus: varchar("jarvis_briefing_focus").default("all").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -58,6 +59,7 @@ export const insertUserSchema = createInsertSchema(users).omit({
   jarvisBriefingSeenAt: true,
   lastBriefingText: true,
   lastBriefingAt: true,
+  jarvisBriefingFocus: true,
 });
 
 export const createTeamMemberSchema = z.object({

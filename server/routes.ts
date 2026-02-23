@@ -3230,31 +3230,67 @@ ${sopsHtml}
       else if (hour >= 17) timeOfDay = "evening";
 
       const { bakeryState } = context;
+      const focus = context.user.briefingFocus || "all";
       const stateLines: string[] = [];
-      if (bakeryState.proofingDoughs > 0) stateLines.push(`${bakeryState.proofingDoughs} dough(s) proofing`);
-      if (bakeryState.restingDoughs > 0) stateLines.push(`${bakeryState.restingDoughs} dough(s) resting on the rack`);
-      if (bakeryState.chillingDoughs > 0) stateLines.push(`${bakeryState.chillingDoughs} dough(s) chilling between turns`);
-      if (bakeryState.frozenDoughs > 0) stateLines.push(`${bakeryState.frozenDoughs} shaped dough(s) in the freezer`);
-      if (bakeryState.fridgeDoughs > 0) stateLines.push(`${bakeryState.fridgeDoughs} dough(s) in the fridge`);
-      stateLines.push(`${bakeryState.todayProductionLogs} production log(s) today`);
-      stateLines.push(`${bakeryState.todayRecipeSessions} recipe session(s) today`);
+
+      const includeBOH = focus === "all" || focus === "boh" || focus === "management";
+      const includeFOH = focus === "all" || focus === "foh" || focus === "management";
+      const includeManagement = focus === "management" || context.user.role === "owner" || context.user.role === "manager";
+
+      if (includeBOH) {
+        if (bakeryState.proofingDoughs > 0) stateLines.push(`${bakeryState.proofingDoughs} dough(s) proofing`);
+        if (bakeryState.restingDoughs > 0) stateLines.push(`${bakeryState.restingDoughs} dough(s) resting on the rack`);
+        if (bakeryState.chillingDoughs > 0) stateLines.push(`${bakeryState.chillingDoughs} dough(s) chilling between turns`);
+        if (bakeryState.frozenDoughs > 0) stateLines.push(`${bakeryState.frozenDoughs} shaped dough(s) in the freezer`);
+        if (bakeryState.fridgeDoughs > 0) stateLines.push(`${bakeryState.fridgeDoughs} dough(s) in the fridge`);
+        stateLines.push(`${bakeryState.todayProductionLogs} production log(s) today`);
+        stateLines.push(`${bakeryState.todayRecipeSessions} recipe session(s) today`);
+
+        if (bakeryState.activeDoughDetails.length > 0) {
+          stateLines.push("Active doughs: " + bakeryState.activeDoughDetails
+            .map(d => `#${d.doughNumber} ${d.doughType} (${d.status}${d.intendedPastry ? `, for ${d.intendedPastry}` : ""})`)
+            .join(", "));
+        }
+      }
+
+      if (includeFOH || includeBOH) {
+        if (bakeryState.pastryGoals.length > 0) {
+          stateLines.push("Today's pastry goals: " + bakeryState.pastryGoals
+            .map(g => `${g.itemName}: ${g.targetCount} target${g.forecastedCount ? ` (forecast: ${g.forecastedCount})` : ""}`)
+            .join(", "));
+        }
+      }
+
       if (bakeryState.unreadMessages > 0) stateLines.push(`${bakeryState.unreadMessages} unread message(s)`);
-      if (bakeryState.pendingTimeOffRequests > 0 && (context.user.role === "owner" || context.user.role === "manager")) {
-        stateLines.push(`${bakeryState.pendingTimeOffRequests} pending time-off request(s) to review`);
+
+      if (includeManagement) {
+        if (bakeryState.pendingTimeOffRequests > 0) {
+          stateLines.push(`${bakeryState.pendingTimeOffRequests} pending time-off request(s) to review`);
+        }
       }
 
-      if (bakeryState.activeDoughDetails.length > 0) {
-        stateLines.push("Active doughs: " + bakeryState.activeDoughDetails
-          .map(d => `#${d.doughNumber} ${d.doughType} (${d.status}${d.intendedPastry ? `, for ${d.intendedPastry}` : ""})`)
-          .join(", "));
+      if (bakeryState.todaySchedule.length > 0) {
+        stateLines.push("Your shift(s) today: " + bakeryState.todaySchedule
+          .map(s => `${s.startTime}-${s.endTime} (${s.department}${s.position ? `, ${s.position}` : ""})`)
+          .join("; "));
       }
 
-      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing for a team member who just opened the app. Keep it concise (2-4 sentences max). Be natural and conversational — like a helpful colleague giving a quick heads-up. Don't use bullet points or lists. Don't say "here's your briefing" — just speak naturally. Mention the most important/actionable items first. If nothing notable is happening, keep it very short and encouraging.`;
+      const focusLabels: Record<string, string> = {
+        all: "all bakery operations",
+        foh: "front-of-house (customer service, display cases, pastry availability, sales)",
+        boh: "back-of-house (production, dough work, baking, recipes)",
+        management: "management (team, scheduling, production AND sales metrics, time-off requests)",
+      };
+      const focusDescription = focusLabels[focus] || focusLabels.all;
 
-      const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role})
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing for a team member who just opened the app. Keep it concise (2-4 sentences max). Be natural and conversational — like a helpful colleague giving a quick heads-up. Don't use bullet points or lists. Don't say "here's your briefing" — just speak naturally.
+
+IMPORTANT: This person's briefing focus is set to "${focus}" — they care most about ${focusDescription}. Prioritize information relevant to their focus area. Don't mention things outside their focus unless truly critical. If they are FOH, focus on what's available, pastry counts, and customer-facing concerns. If BOH, focus on dough status, production, and recipes. If management, give a high-level operational overview. Mention the most important/actionable items first. If nothing notable is happening, keep it very short and encouraging.`;
+
+      const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
 Time: Good ${timeOfDay}
 Current bakery state:
-${stateLines.join("\n")}
+${stateLines.length > 0 ? stateLines.join("\n") : "No notable activity right now."}
 
 Generate a personalized briefing for ${context.user.firstName}.`;
 
@@ -3321,6 +3357,20 @@ Generate a personalized briefing for ${context.user.firstName}.`;
     try {
       const { message } = req.body;
       await storage.setJarvisWelcomeMessage(req.params.userId, message || null);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:userId/briefing-focus", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { focus } = req.body;
+      const validFocuses = ["all", "foh", "boh", "management"];
+      if (!focus || !validFocuses.includes(focus)) {
+        return res.status(400).json({ message: "Invalid focus. Must be one of: all, foh, boh, management" });
+      }
+      await storage.updateJarvisBriefingFocus(req.params.userId, focus);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

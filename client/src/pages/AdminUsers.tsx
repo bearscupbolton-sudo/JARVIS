@@ -349,6 +349,7 @@ function UserDetailDialog({
   const isOwner = currentUser?.role === "owner";
   const isManagerOrAbove = currentUser?.role === "owner" || currentUser?.role === "manager";
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
+  const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
 
   const welcomeMutation = useMutation({
     mutationFn: async (message: string) => {
@@ -360,6 +361,19 @@ function UserDetailDialog({
     },
     onError: (err: Error) => {
       toast({ title: "Failed to save", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const focusMutation = useMutation({
+    mutationFn: async (focus: string) => {
+      await apiRequest("PUT", `/api/users/${u.id}/briefing-focus`, { focus });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Briefing focus updated", description: "Next briefing will reflect this change." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
     },
   });
 
@@ -436,6 +450,31 @@ function UserDetailDialog({
                   {welcomeMutation.isPending ? "Saving..." : "Save Welcome"}
                 </Button>
                 <p className="text-[11px] text-muted-foreground">This message appears the first time they see their Jarvis briefing.</p>
+              </div>
+              <div className="space-y-2 border-t pt-3">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
+                  Jarvis Briefing Focus
+                </Label>
+                <Select
+                  value={briefingFocus}
+                  onValueChange={(val) => {
+                    setBriefingFocus(val);
+                    focusMutation.mutate(val);
+                  }}
+                  data-testid={`select-briefing-focus-${u.id}`}
+                >
+                  <SelectTrigger data-testid={`select-briefing-focus-trigger-${u.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All (Everything)</SelectItem>
+                    <SelectItem value="foh">FOH (Front of House)</SelectItem>
+                    <SelectItem value="boh">BOH (Back of House)</SelectItem>
+                    <SelectItem value="management">Management</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Controls what Jarvis highlights in their daily briefing. FOH sees pastry availability and customer-facing info. BOH sees dough status, production, and recipes.</p>
               </div>
             </div>
           )}

@@ -310,7 +310,7 @@ export interface IStorage {
 
   // Jarvis Briefing
   getJarvisBriefingContext(userId: string): Promise<{
-    user: { firstName: string; role: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
+    user: { firstName: string; role: string; briefingFocus: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
     bakeryState: {
       proofingDoughs: number;
       restingDoughs: number;
@@ -322,12 +322,15 @@ export interface IStorage {
       unreadMessages: number;
       pendingTimeOffRequests: number;
       activeDoughDetails: { doughNumber: number; doughType: string; status: string; intendedPastry: string | null }[];
+      todaySchedule: { startTime: string; endTime: string; department: string; position: string | null }[];
+      pastryGoals: { itemName: string; targetCount: number; forecastedCount: number | null }[];
     };
   }>;
   updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void>;
   markJarvisBriefingSeen(userId: string): Promise<void>;
   updateShowJarvisBriefing(userId: string, show: boolean): Promise<void>;
   setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void>;
+  updateJarvisBriefingFocus(userId: string, focus: string): Promise<void>;
 
   // Starkade
   getStarkadeGames(): Promise<StarkadeGame[]>;
@@ -2087,7 +2090,7 @@ export class DatabaseStorage implements IStorage {
   // === JARVIS BRIEFING ===
 
   async getJarvisBriefingContext(userId: string): Promise<{
-    user: { firstName: string; role: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
+    user: { firstName: string; role: string; briefingFocus: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
     bakeryState: {
       proofingDoughs: number;
       restingDoughs: number;
@@ -2099,6 +2102,8 @@ export class DatabaseStorage implements IStorage {
       unreadMessages: number;
       pendingTimeOffRequests: number;
       activeDoughDetails: { doughNumber: number; doughType: string; status: string; intendedPastry: string | null }[];
+      todaySchedule: { startTime: string; endTime: string; department: string; position: string | null }[];
+      pastryGoals: { itemName: string; targetCount: number; forecastedCount: number | null }[];
     };
   }> {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
@@ -2106,6 +2111,7 @@ export class DatabaseStorage implements IStorage {
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const todayStr = todayStart.toISOString().split("T")[0];
 
     const [proofing] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "proofing"));
     const [restingResult] = await db.select({ count: sql<number>`count(*)::int` }).from(laminationDoughs).where(eq(laminationDoughs.status, "resting"));
@@ -2132,10 +2138,24 @@ export class DatabaseStorage implements IStorage {
       sql`${laminationDoughs.status} IN ('turning', 'chilling', 'resting', 'proofing', 'frozen', 'fridge')`
     ).orderBy(desc(laminationDoughs.createdAt)).limit(10);
 
+    const todaySchedule = await db.select({
+      startTime: shifts.startTime,
+      endTime: shifts.endTime,
+      department: shifts.department,
+      position: shifts.position,
+    }).from(shifts).where(and(eq(shifts.userId, userId), eq(shifts.shiftDate, todayStr)));
+
+    const pastryGoals = await db.select({
+      itemName: pastryTotals.itemName,
+      targetCount: pastryTotals.targetCount,
+      forecastedCount: pastryTotals.forecastedCount,
+    }).from(pastryTotals).where(eq(pastryTotals.date, todayStr));
+
     return {
       user: {
         firstName: user.firstName || "Team Member",
         role: user.role,
+        briefingFocus: user.jarvisBriefingFocus || "all",
         showJarvisBriefing: user.showJarvisBriefing,
         jarvisWelcomeMessage: user.jarvisWelcomeMessage,
         jarvisBriefingSeenAt: user.jarvisBriefingSeenAt,
@@ -2158,6 +2178,17 @@ export class DatabaseStorage implements IStorage {
           status: d.status,
           intendedPastry: d.intendedPastry,
         })),
+        todaySchedule: todaySchedule.map(s => ({
+          startTime: s.startTime,
+          endTime: s.endTime,
+          department: s.department,
+          position: s.position,
+        })),
+        pastryGoals: pastryGoals.map(g => ({
+          itemName: g.itemName,
+          targetCount: g.targetCount,
+          forecastedCount: g.forecastedCount,
+        })),
       },
     };
   }
@@ -2176,6 +2207,10 @@ export class DatabaseStorage implements IStorage {
 
   async setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void> {
     await db.update(users).set({ jarvisWelcomeMessage: message }).where(eq(users.id, userId));
+  }
+
+  async updateJarvisBriefingFocus(userId: string, focus: string): Promise<void> {
+    await db.update(users).set({ jarvisBriefingFocus: focus, lastBriefingText: null, lastBriefingAt: null }).where(eq(users.id, userId));
   }
 
   // Starkade
