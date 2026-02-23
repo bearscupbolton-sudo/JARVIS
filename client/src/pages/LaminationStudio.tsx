@@ -843,6 +843,28 @@ export default function LaminationStudio() {
                             style={{ width: `${progress.percent}%` }}
                           />
                         </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5"
+                            onClick={() => handleOpenEditDough(dough)}
+                            data-testid={`button-edit-resting-${dough.id}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-destructive hover:text-destructive"
+                            onClick={() => deleteMutation.mutate(dough.id)}
+                            data-testid={`button-cancel-resting-${dough.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Cancel Dough
+                          </Button>
+                        </div>
                       </div>
                     ) : !isOpened ? (
                       <div className="flex items-center gap-2 pt-1">
