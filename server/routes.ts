@@ -2705,6 +2705,7 @@ ${sopsHtml}
         turn1Fold: z.string().optional(),
         turn2Fold: z.string().optional(),
         foldSequence: z.string().optional(),
+        foldSubtype: z.string().nullable().optional(),
         status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge"]).optional(),
         restStartedAt: z.string().nullable().optional(),
         pastryType: z.string().optional(),

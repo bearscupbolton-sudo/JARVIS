@@ -118,14 +118,17 @@ export default function LaminationStudio() {
   const today = new Date().toISOString().split("T")[0];
 
   const [showNewDough, setShowNewDough] = useState(false);
-  const [newDoughStep, setNewDoughStep] = useState<"type" | "intended" | "turn1" | "turn2">("type");
+  const [newDoughStep, setNewDoughStep] = useState<"type" | "intended" | "turn1" | "turn2" | "subtype">("type");
   const [selectedType, setSelectedType] = useState("");
   const [intendedPastry, setIntendedPastry] = useState("");
   const [turn1, setTurn1] = useState("");
   const [turn2, setTurn2] = useState("");
+  const [foldSubtype, setFoldSubtype] = useState("");
 
   const [continueTurn2Dough, setContinueTurn2Dough] = useState<LaminationDough | null>(null);
   const [continueTurn2Fold, setContinueTurn2Fold] = useState("");
+  const [continueTurn2Subtype, setContinueTurn2Subtype] = useState("");
+  const [showContinueSubtype, setShowContinueSubtype] = useState(false);
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
   const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
@@ -140,6 +143,7 @@ export default function LaminationStudio() {
   const [editIntendedPastry, setEditIntendedPastry] = useState("");
   const [editTurn1, setEditTurn1] = useState("");
   const [editTurn2, setEditTurn2] = useState("");
+  const [editFoldSubtype, setEditFoldSubtype] = useState("");
   const [editPastryType, setEditPastryType] = useState("");
   const [editPieces, setEditPieces] = useState("");
   const [editShapings, setEditShapings] = useState<Array<{ pastryType: string; pieces: number }>>([]);
@@ -224,7 +228,7 @@ export default function LaminationStudio() {
   }, [today]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; foldSequence?: string; intendedPastry?: string; chill?: boolean }) => {
+    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; foldSequence?: string; foldSubtype?: string; intendedPastry?: string; chill?: boolean }) => {
       const res = await apiRequest("POST", "/api/lamination", { doughType: data.doughType });
       const created = await res.json();
       const now = new Date().toISOString();
@@ -242,6 +246,7 @@ export default function LaminationStudio() {
           turn1Fold: data.turn1Fold,
           turn2Fold: data.turn2Fold,
           foldSequence: data.foldSequence,
+          foldSubtype: data.foldSubtype || null,
           intendedPastry: (data.intendedPastry && data.intendedPastry !== "None") ? data.intendedPastry : null,
           status: "resting",
           restStartedAt: now,
@@ -310,6 +315,7 @@ export default function LaminationStudio() {
     setIntendedPastry("");
     setTurn1("");
     setTurn2("");
+    setFoldSubtype("");
   }, []);
 
   const resetCompleteDoughDialog = useCallback(() => {
@@ -356,6 +362,10 @@ export default function LaminationStudio() {
 
   const handleTurn2Complete = () => {
     if (turn1 && turn2) {
+      if (turn1 === "4-fold" && turn2 === "4-fold") {
+        setNewDoughStep("subtype");
+        return;
+      }
       const seq = deriveFoldSequence(turn1, turn2);
       createMutation.mutate({
         doughType: selectedType,
@@ -367,9 +377,35 @@ export default function LaminationStudio() {
     }
   };
 
+  const handleSubtypeComplete = () => {
+    if (turn1 && turn2 && foldSubtype) {
+      const seq = deriveFoldSequence(turn1, turn2);
+      createMutation.mutate({
+        doughType: selectedType,
+        turn1Fold: turn1,
+        turn2Fold: turn2,
+        foldSequence: seq,
+        foldSubtype,
+        intendedPastry: intendedPastry || undefined,
+      });
+    }
+  };
+
   const handleContinueTurn2 = (dough: LaminationDough) => {
     setContinueTurn2Dough(dough);
     setContinueTurn2Fold("");
+    setContinueTurn2Subtype("");
+    setShowContinueSubtype(false);
+  };
+
+  const handleContinueTurn2Next = () => {
+    if (!continueTurn2Dough || !continueTurn2Fold) return;
+    const t1 = continueTurn2Dough.turn1Fold || "3-fold";
+    if (t1 === "4-fold" && continueTurn2Fold === "4-fold") {
+      setShowContinueSubtype(true);
+      return;
+    }
+    handleContinueTurn2Submit();
   };
 
   const handleContinueTurn2Submit = () => {
@@ -377,12 +413,14 @@ export default function LaminationStudio() {
     const t1 = continueTurn2Dough.turn1Fold || "3-fold";
     const seq = deriveFoldSequence(t1, continueTurn2Fold);
     const now = new Date().toISOString();
+    const subtypeValue = (t1 === "4-fold" && continueTurn2Fold === "4-fold" && continueTurn2Subtype) ? continueTurn2Subtype : null;
     updateMutation.mutate(
       {
         id: continueTurn2Dough.id,
         updates: {
           turn2Fold: continueTurn2Fold,
           foldSequence: seq,
+          foldSubtype: subtypeValue,
           status: "resting",
           restStartedAt: now,
           finalRestAt: now,
@@ -393,6 +431,8 @@ export default function LaminationStudio() {
         onSuccess: () => {
           setContinueTurn2Dough(null);
           setContinueTurn2Fold("");
+          setContinueTurn2Subtype("");
+          setShowContinueSubtype(false);
           toast({ title: "Turn 2 complete", description: "Final rest has begun. 30-minute timer started." });
         },
       }
@@ -523,6 +563,7 @@ export default function LaminationStudio() {
     setEditIntendedPastry(dough.intendedPastry || "");
     setEditTurn1(dough.turn1Fold || "");
     setEditTurn2(dough.turn2Fold || "");
+    setEditFoldSubtype(dough.foldSubtype || "");
     setEditPastryType(dough.pastryType || "");
     setEditPieces(String(dough.proofPieces ?? dough.totalPieces ?? ""));
     setEditShapings(dough.shapings || (dough.pastryType ? [{ pastryType: dough.pastryType, pieces: dough.proofPieces ?? dough.totalPieces ?? 0 }] : []));
@@ -555,6 +596,11 @@ export default function LaminationStudio() {
         if (editTurn1 && editTurn2) {
           updates.foldSequence = deriveFoldSequence(editTurn1, editTurn2);
         }
+      }
+      const currentSubtype = editDough.foldSubtype || "";
+      const newSubtype = editFoldSubtype === "none" ? "" : editFoldSubtype;
+      if (newSubtype !== currentSubtype) {
+        updates.foldSubtype = newSubtype || null;
       }
     } else {
       if (editShapings.length > 0) {
@@ -769,6 +815,9 @@ export default function LaminationStudio() {
                       <div>
                         <p className="text-muted-foreground text-xs">Sequence</p>
                         <p className="font-mono font-semibold">{d.foldSequence || "—"}</p>
+                        {d.foldSubtype && (
+                          <Badge variant="secondary" className="mt-1 text-xs capitalize">{d.foldSubtype}</Badge>
+                        )}
                       </div>
                     </div>
 
@@ -969,6 +1018,9 @@ export default function LaminationStudio() {
                                 <div>
                                   <p className="text-muted-foreground text-xs">Sequence</p>
                                   <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
+                                  {dough.foldSubtype && (
+                                    <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                                  )}
                                 </div>
                               </div>
 
@@ -1287,6 +1339,9 @@ export default function LaminationStudio() {
                     <div>
                       <p className="text-muted-foreground text-xs">Fold</p>
                       <p className="font-mono font-semibold">{dough.foldSequence}</p>
+                      {dough.foldSubtype && (
+                        <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                      )}
                     </div>
                   </div>
 
@@ -1382,6 +1437,9 @@ export default function LaminationStudio() {
                     <div>
                       <p className="text-muted-foreground text-xs">Fold</p>
                       <p className="font-mono font-semibold">{dough.foldSequence}</p>
+                      {dough.foldSubtype && (
+                        <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 pt-1">
@@ -1429,7 +1487,12 @@ export default function LaminationStudio() {
                       </div>
                       <span className="font-display font-semibold">{dough.doughType}</span>
                     </div>
-                    <Badge variant="outline">{dough.foldSequence}</Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline">{dough.foldSequence}</Badge>
+                      {dough.foldSubtype && (
+                        <Badge variant="secondary" className="text-xs capitalize">{dough.foldSubtype}</Badge>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
@@ -1486,12 +1549,14 @@ export default function LaminationStudio() {
               {newDoughStep === "intended" && `${selectedType} — Intended Pastry`}
               {newDoughStep === "turn1" && `${selectedType} — Turn 1`}
               {newDoughStep === "turn2" && `${selectedType} — Turn 2`}
+              {newDoughStep === "subtype" && `${selectedType} — 4x4 Technique`}
             </DialogTitle>
             <DialogDescription>
               {newDoughStep === "type" && "What dough are you pulling from the fridge?"}
               {newDoughStep === "intended" && "What pastry is this dough planned for?"}
               {newDoughStep === "turn1" && "Select the fold for Turn 1."}
               {newDoughStep === "turn2" && "Select the fold for Turn 2."}
+              {newDoughStep === "subtype" && "Both folds are 4-fold. What technique is this?"}
             </DialogDescription>
           </DialogHeader>
 
@@ -1617,17 +1682,59 @@ export default function LaminationStudio() {
               </DialogFooter>
             </div>
           )}
+
+          {newDoughStep === "subtype" && (
+            <div className="space-y-5 py-2">
+              <div>
+                <label className="text-sm font-medium mb-2 block">4×4 Technique</label>
+                <div className="grid grid-cols-1 gap-3">
+                  <Button
+                    variant={foldSubtype === "cross laminated" ? "default" : "outline"}
+                    className="h-14 text-base justify-start gap-3"
+                    onClick={() => setFoldSubtype("cross laminated")}
+                    data-testid="button-subtype-cross"
+                  >
+                    <Layers className="w-5 h-5" />
+                    Cross Laminated
+                  </Button>
+                  <Button
+                    variant={foldSubtype === "bi color" ? "default" : "outline"}
+                    className="h-14 text-base justify-start gap-3"
+                    onClick={() => setFoldSubtype("bi color")}
+                    data-testid="button-subtype-bicolor"
+                  >
+                    <Layers className="w-5 h-5" />
+                    Bi Color
+                  </Button>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setNewDoughStep("turn2")} data-testid="button-subtype-back">
+                  Back
+                </Button>
+                <Button onClick={handleSubtypeComplete} disabled={!foldSubtype || createMutation.isPending} data-testid="button-subtype-start">
+                  {createMutation.isPending ? "Starting..." : "Start Rest"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!continueTurn2Dough} onOpenChange={(open) => { if (!open) { setContinueTurn2Dough(null); setContinueTurn2Fold(""); } }}>
+      <Dialog open={!!continueTurn2Dough} onOpenChange={(open) => { if (!open) { setContinueTurn2Dough(null); setContinueTurn2Fold(""); setContinueTurn2Subtype(""); setShowContinueSubtype(false); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="font-display text-xl">Continue Turn 2</DialogTitle>
+            <DialogTitle className="font-display text-xl">
+              {showContinueSubtype ? "4×4 Technique" : "Continue Turn 2"}
+            </DialogTitle>
             <DialogDescription>
-              Dough #{continueTurn2Dough?.doughNumber} — {continueTurn2Dough?.doughType} (Turn 1: {continueTurn2Dough?.turn1Fold}). Select the fold for Turn 2.
+              {showContinueSubtype
+                ? "Both folds are 4-fold. What technique is this?"
+                : `Dough #${continueTurn2Dough?.doughNumber} — ${continueTurn2Dough?.doughType} (Turn 1: ${continueTurn2Dough?.turn1Fold}). Select the fold for Turn 2.`
+              }
             </DialogDescription>
           </DialogHeader>
+          {!showContinueSubtype && (
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-2 block">Turn 2 Fold</label>
@@ -1650,7 +1757,7 @@ export default function LaminationStudio() {
                 Cancel
               </Button>
               <Button
-                onClick={handleContinueTurn2Submit}
+                onClick={handleContinueTurn2Next}
                 disabled={!continueTurn2Fold || updateMutation.isPending}
                 data-testid="button-continue-turn2-submit"
               >
@@ -1658,6 +1765,46 @@ export default function LaminationStudio() {
               </Button>
             </DialogFooter>
           </div>
+          )}
+          {showContinueSubtype && (
+            <div className="space-y-5 py-2">
+              <div>
+                <label className="text-sm font-medium mb-2 block">4×4 Technique</label>
+                <div className="grid grid-cols-1 gap-3">
+                  <Button
+                    variant={continueTurn2Subtype === "cross laminated" ? "default" : "outline"}
+                    className="h-14 text-base justify-start gap-3"
+                    onClick={() => setContinueTurn2Subtype("cross laminated")}
+                    data-testid="button-continue-subtype-cross"
+                  >
+                    <Layers className="w-5 h-5" />
+                    Cross Laminated
+                  </Button>
+                  <Button
+                    variant={continueTurn2Subtype === "bi color" ? "default" : "outline"}
+                    className="h-14 text-base justify-start gap-3"
+                    onClick={() => setContinueTurn2Subtype("bi color")}
+                    data-testid="button-continue-subtype-bicolor"
+                  >
+                    <Layers className="w-5 h-5" />
+                    Bi Color
+                  </Button>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowContinueSubtype(false)} data-testid="button-continue-subtype-back">
+                  Back
+                </Button>
+                <Button
+                  onClick={handleContinueTurn2Submit}
+                  disabled={!continueTurn2Subtype || updateMutation.isPending}
+                  data-testid="button-continue-subtype-submit"
+                >
+                  {updateMutation.isPending ? "Starting..." : "Start Rest"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1931,6 +2078,21 @@ export default function LaminationStudio() {
                     </Select>
                   </div>
                 </div>
+                {editTurn1 === "4-fold" && editTurn2 === "4-fold" && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">4×4 Technique</label>
+                    <Select value={editFoldSubtype} onValueChange={setEditFoldSubtype}>
+                      <SelectTrigger data-testid="edit-input-fold-subtype">
+                        <SelectValue placeholder="Select technique..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="cross laminated">Cross Laminated</SelectItem>
+                        <SelectItem value="bi color">Bi Color</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </>
             ) : (
               <>
