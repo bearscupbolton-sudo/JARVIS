@@ -2706,7 +2706,7 @@ ${sopsHtml}
         turn2Fold: z.string().optional(),
         foldSequence: z.string().optional(),
         foldSubtype: z.string().nullable().optional(),
-        status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge"]).optional(),
+        status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge", "trashed"]).optional(),
         restStartedAt: z.string().nullable().optional(),
         pastryType: z.string().optional(),
         totalPieces: z.number().int().positive().optional(),
@@ -2724,6 +2724,9 @@ ${sopsHtml}
         intendedPastry: z.string().nullable().optional(),
         chillingUntil: z.string().nullable().optional(),
         shapings: z.array(z.object({ pastryType: z.string(), pieces: z.number().int().positive() })).nullable().optional(),
+        trashReason: z.string().nullable().optional(),
+        trashedAt: z.string().nullable().optional(),
+        trashedBy: z.string().nullable().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };
@@ -2735,6 +2738,7 @@ ${sopsHtml}
       if (parsed.proofStartedAt) updates.proofStartedAt = new Date(parsed.proofStartedAt);
       if (parsed.bakedAt) updates.bakedAt = new Date(parsed.bakedAt);
       if (parsed.chillingUntil) updates.chillingUntil = new Date(parsed.chillingUntil);
+      if (parsed.trashedAt) updates.trashedAt = new Date(parsed.trashedAt);
       const dough = await storage.updateLaminationDough(id, updates);
       storage.clearAllBriefingCaches().catch(() => {});
       res.json(dough);

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -151,6 +152,9 @@ export default function LaminationStudio() {
   const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
   const [labelReminderDough, setLabelReminderDough] = useState<{number: number; type: string} | null>(null);
   const [expandedRackDoughId, setExpandedRackDoughId] = useState<number | null>(null);
+
+  const [trashDough, setTrashDough] = useState<LaminationDough | null>(null);
+  const [trashReason, setTrashReason] = useState("");
 
   const [, setTick] = useState(0);
 
@@ -658,6 +662,29 @@ export default function LaminationStudio() {
       {
         onSuccess: () => {
           toast({ title: "Moved to Proof Box", description: `${dough.pastryType || dough.doughType} is now proofing.` });
+        },
+      }
+    );
+  };
+
+  const handleTrashDough = () => {
+    if (!trashDough || !trashReason.trim()) return;
+    const now = new Date().toISOString();
+    updateMutation.mutate(
+      {
+        id: trashDough.id,
+        updates: {
+          status: "trashed",
+          trashReason: trashReason.trim(),
+          trashedAt: now,
+          trashedBy: user?.id || null,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Dough trashed", description: `Dough #${trashDough.doughNumber} has been trashed.` });
+          setTrashDough(null);
+          setTrashReason("");
         },
       }
     );
@@ -1283,6 +1310,15 @@ export default function LaminationStudio() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => { setTrashDough(dough); setTrashReason(""); }}
+                        data-testid={`button-trash-proof-${dough.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -1383,6 +1419,15 @@ export default function LaminationStudio() {
                       data-testid={`button-edit-freezer-${dough.id}`}
                     >
                       <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => { setTrashDough(dough); setTrashReason(""); }}
+                      data-testid={`button-trash-freezer-${dough.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </CardContent>
@@ -2173,6 +2218,45 @@ export default function LaminationStudio() {
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!trashDough} onOpenChange={(open) => { if (!open) { setTrashDough(null); setTrashReason(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl text-destructive">
+              Trash Dough #{trashDough?.doughNumber || "—"}
+            </DialogTitle>
+            <DialogDescription>
+              {trashDough?.doughType} — {trashDough?.pastryType || trashDough?.intendedPastry || "No pastry assigned"}. This dough will be removed from the board.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Why is this dough being trashed?</label>
+              <Textarea
+                placeholder="e.g. Overproofed, dropped on floor, freezer burn..."
+                value={trashReason}
+                onChange={(e) => setTrashReason(e.target.value)}
+                className="min-h-[80px]"
+                data-testid="input-trash-reason"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setTrashDough(null); setTrashReason(""); }} data-testid="button-trash-cancel">
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleTrashDough}
+                disabled={!trashReason.trim() || updateMutation.isPending}
+                data-testid="button-trash-confirm"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                {updateMutation.isPending ? "Trashing..." : "Trash Dough"}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

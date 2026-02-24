@@ -591,6 +591,9 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   chillingUntil: timestamp("chilling_until"),
   shapings: jsonb("shapings").$type<Array<{ pastryType: string; pieces: number }>>(),
   createdAt: timestamp("created_at").defaultNow(),
+  trashReason: text("trash_reason"),
+  trashedAt: timestamp("trashed_at"),
+  trashedBy: text("trashed_by"),
 });
 
 export const insertLaminationDoughSchema = createInsertSchema(laminationDoughs).omit({ id: true, createdAt: true });
