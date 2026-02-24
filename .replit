@@ -47,3 +47,4 @@ integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_openai_ai_int
 VITE_VAPID_PUBLIC_KEY = "BNraZ4fllVCY5VgrHXUBJezgIcCW9c7mYqjx2SuCYUYT4f_EFQ-k8haWCbXC_HpSsyIYxbPBgmHkOfAdIH8lDIM"
 VAPID_PUBLIC_KEY = "BNraZ4fllVCY5VgrHXUBJezgIcCW9c7mYqjx2SuCYUYT4f_EFQ-k8haWCbXC_HpSsyIYxbPBgmHkOfAdIH8lDIM"
 "VAPID_PRIVATE_KEY secret:" = '\n\nD81GELK5xJp2XkpPREh7iH7rBQun6GASVNnPSP4FzO8\n\n'
+SQUARE_ENVIRONMENT = "production"
