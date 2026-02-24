@@ -42,8 +42,10 @@ import {
   Pencil,
   PlusCircle,
   X,
+  ChevronRight,
+  CalendarDays,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
@@ -144,10 +146,21 @@ export default function LaminationStudio() {
 
   const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
   const [labelReminderDough, setLabelReminderDough] = useState<{number: number; type: string} | null>(null);
+  const [expandedRackDoughId, setExpandedRackDoughId] = useState<number | null>(null);
 
   const [, setTick] = useState(0);
 
-  const { data: doughs, isLoading } = useQuery<LaminationDough[]>({
+  const { data: activeDoughs, isLoading: isLoadingActive } = useQuery<LaminationDough[]>({
+    queryKey: ["/api/lamination/active"],
+    queryFn: async () => {
+      const res = await fetch("/api/lamination/active", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch active lamination doughs");
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  const { data: todayDoughs } = useQuery<LaminationDough[]>({
     queryKey: ["/api/lamination", today],
     queryFn: async () => {
       const res = await fetch(`/api/lamination/${today}`, { credentials: "include" });
@@ -156,6 +169,9 @@ export default function LaminationStudio() {
     },
     refetchInterval: 10000,
   });
+
+  const doughs = activeDoughs;
+  const isLoading = isLoadingActive;
 
   const { data: userNames = {} } = useQuery<Record<string, string>>({
     queryKey: ["/api/user-names"],
@@ -202,6 +218,11 @@ export default function LaminationStudio() {
     return () => clearInterval(interval);
   }, [doughs]);
 
+  const invalidateAllLamination = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+  }, [today]);
+
   const createMutation = useMutation({
     mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; foldSequence?: string; intendedPastry?: string; chill?: boolean }) => {
       const res = await apiRequest("POST", "/api/lamination", { doughType: data.doughType });
@@ -230,7 +251,7 @@ export default function LaminationStudio() {
       return created;
     },
     onSuccess: (created, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+      invalidateAllLamination();
       resetNewDoughDialog();
 
       const count = parseInt(localStorage.getItem("jarvis-dough-label-count") || "0");
@@ -252,7 +273,7 @@ export default function LaminationStudio() {
       await apiRequest("PATCH", `/api/lamination/${id}`, updates);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+      invalidateAllLamination();
     },
     onError: (err: any) => {
       toast({ title: "Update failed", description: err.message || "Something went wrong", variant: "destructive" });
@@ -264,7 +285,7 @@ export default function LaminationStudio() {
       await apiRequest("POST", `/api/lamination/${id}/bake`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+      invalidateAllLamination();
       setBakeConfirmDough(null);
       toast({ title: "Bake off complete", description: "Dough has been sent to the oven." });
     },
@@ -278,7 +299,7 @@ export default function LaminationStudio() {
       await apiRequest("DELETE", `/api/lamination/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+      invalidateAllLamination();
     },
   });
 
@@ -606,9 +627,19 @@ export default function LaminationStudio() {
   const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
   const frozenDoughs = doughs?.filter(d => d.status === "frozen") || [];
   const fridgeDoughs = doughs?.filter(d => d.status === "fridge") || [];
-  const bakedDoughs = doughs?.filter(d => d.status === "baked") || [];
+  const bakedDoughs = todayDoughs?.filter(d => d.status === "baked") || [];
 
-  const rackDoughs = [...restingDoughs, ...chillingDoughs];
+  const rackDoughs = [...restingDoughs, ...chillingDoughs]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  const nextUpDough = rackDoughs.find(d => {
+    if (d.status === "chilling") {
+      return !getChillProgress(d.chillingUntil).isChilling;
+    }
+    return !getRestProgress(d.restStartedAt).isResting;
+  }) || (rackDoughs.length > 0 ? rackDoughs[0] : null);
+
+  const remainingRackDoughs = rackDoughs.filter(d => d.id !== nextUpDough?.id);
 
   return (
     <div className="space-y-8" data-testid="container-lamination-studio">
@@ -635,11 +666,13 @@ export default function LaminationStudio() {
         <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
           <Layers className="w-5 h-5 text-primary" />
           The Rack
+          {rackDoughs.length > 0 && <Badge variant="secondary" className="ml-1">{rackDoughs.length}</Badge>}
         </h2>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-48 rounded-md" />)}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Skeleton className="h-64 rounded-md" />
+            <Skeleton className="h-64 rounded-md" />
           </div>
         ) : rackDoughs.length === 0 ? (
           <Card>
@@ -650,78 +683,103 @@ export default function LaminationStudio() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {rackDoughs.map(dough => {
-              if (dough.status === "chilling") {
-                const chillProgress = getChillProgress(dough.chillingUntil);
-                const isDoneChilling = !chillProgress.isChilling;
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {nextUpDough && (() => {
+              const d = nextUpDough;
+              const isChilling = d.status === "chilling";
+              const chillProgress = isChilling ? getChillProgress(d.chillingUntil) : null;
+              const restProgress = !isChilling ? getRestProgress(d.restStartedAt) : null;
+              const isLocked = restProgress ? restProgress.isResting : (chillProgress ? chillProgress.isChilling : false);
+              const isOpened = !!d.openedAt;
+              const isDoneChilling = isChilling && chillProgress && !chillProgress.isChilling;
+              const isFromToday = d.date === today;
 
-                return (
-                  <Card
-                    key={dough.id}
-                    className="border-blue-400/50 bg-blue-50/50 dark:bg-blue-950/20"
-                    data-testid={`rack-dough-${dough.id}`}
-                  >
-                    <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-bold font-mono text-blue-600" data-testid={`dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                        </div>
-                        <div>
-                          <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                          <IntendedPastryText intendedPastry={dough.intendedPastry} />
-                        </div>
-                      </div>
+              return (
+                <Card
+                  className={`border-2 ${isChilling
+                    ? "border-blue-400/60 bg-blue-50/50 dark:bg-blue-950/20"
+                    : isLocked
+                      ? "border-destructive/60 bg-destructive/5"
+                      : "border-green-500/60 bg-green-500/5"
+                  }`}
+                  data-testid={`rack-next-up-${d.id}`}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge className="bg-primary text-primary-foreground text-xs font-semibold px-2 py-0.5" data-testid="badge-next-up">
+                        NEXT UP
+                      </Badge>
                       <div className="flex items-center gap-1">
-                        {isDoneChilling ? (
-                          <Badge className="bg-green-600 text-white" data-testid={`badge-chill-ready-${dough.id}`}>
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                            Ready
+                        {isChilling ? (
+                          isDoneChilling ? (
+                            <Badge className="bg-green-600 text-white" data-testid={`badge-chill-ready-${d.id}`}>
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Ready for Turn 2
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-blue-500 text-white" data-testid={`badge-chilling-${d.id}`}>
+                              <Snowflake className="w-3 h-3 mr-1" />
+                              Chilling
+                            </Badge>
+                          )
+                        ) : isLocked ? (
+                          <Badge variant="destructive" data-testid={`badge-resting-${d.id}`}>
+                            <Lock className="w-3 h-3 mr-1" />
+                            Do Not Touch
+                          </Badge>
+                        ) : isOpened ? (
+                          <Badge className="bg-blue-600 text-white" data-testid={`badge-opened-${d.id}`}>
+                            <Scissors className="w-3 h-3 mr-1" />
+                            Opened
                           </Badge>
                         ) : (
-                          <Badge className="bg-blue-500 text-white" data-testid={`badge-chilling-${dough.id}`}>
-                            <Snowflake className="w-3 h-3 mr-1" />
-                            Chilling
+                          <Badge className="bg-green-600 text-white" data-testid={`badge-ready-${d.id}`}>
+                            <Unlock className="w-3 h-3 mr-1" />
+                            Ready
                           </Badge>
                         )}
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="text-muted-foreground text-xs">Turn 1</p>
-                          <p className="font-mono font-semibold">{dough.turn1Fold || "—"}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground text-xs">Turn 2</p>
-                          <p className="font-mono font-semibold text-muted-foreground">Pending</p>
-                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-3">
+                      <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-lg font-bold font-mono text-primary" data-testid={`dough-number-${d.id}`}>#{d.doughNumber || "—"}</span>
                       </div>
-
-                      <div className="text-xs space-y-1 border-t pt-2">
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <User className="w-3 h-3" />
-                          <span>Started by {getUserName(dough.createdBy)}</span>
-                          <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
-                        </div>
+                      <div>
+                        <CardTitle className="text-lg font-display">{d.doughType}</CardTitle>
+                        <IntendedPastryText intendedPastry={d.intendedPastry} />
+                        {!isFromToday && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5" data-testid={`dough-date-${d.id}`}>
+                            <CalendarDays className="w-3 h-3" />
+                            From {format(new Date(d.date + "T12:00:00"), "MMM d")} ({formatDistanceToNow(new Date(d.date + "T12:00:00"), { addSuffix: true })})
+                          </p>
+                        )}
                       </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Turn 1</p>
+                        <p className="font-mono font-semibold">{d.turn1Fold || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Turn 2</p>
+                        <p className="font-mono font-semibold">{isChilling ? "Pending" : (d.turn2Fold || "—")}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Sequence</p>
+                        <p className="font-mono font-semibold">{d.foldSequence || "—"}</p>
+                      </div>
+                    </div>
 
-                      {isDoneChilling ? (
+                    {isChilling && chillProgress && (
+                      isDoneChilling ? (
                         <div className="flex items-center gap-2 pt-1">
-                          <Button
-                            className="flex-1 gap-2"
-                            onClick={() => handleContinueTurn2(dough)}
-                            data-testid={`button-continue-turn2-${dough.id}`}
-                          >
+                          <Button className="flex-1 gap-2" onClick={() => handleContinueTurn2(d)} data-testid={`button-continue-turn2-${d.id}`}>
                             <Layers className="w-4 h-4" />
                             Continue Turn 2
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteMutation.mutate(dough.id)}
-                            data-testid={`button-delete-dough-${dough.id}`}
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(d.id)} data-testid={`button-delete-dough-${d.id}`}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -732,199 +790,318 @@ export default function LaminationStudio() {
                               <Snowflake className="w-4 h-4" />
                               Freezer Chill
                             </span>
-                            <span className="font-mono text-blue-600 font-bold" data-testid={`chill-timer-${dough.id}`}>
+                            <span className="font-mono text-blue-600 font-bold" data-testid={`chill-timer-${d.id}`}>
                               {formatTime(chillProgress.remaining)}
                             </span>
                           </div>
                           <div className="h-2 rounded-full bg-blue-200/50 dark:bg-blue-900/30 overflow-hidden">
-                            <div
-                              className="h-full bg-blue-500 rounded-full transition-all duration-1000"
-                              style={{ width: `${chillProgress.percent}%` }}
-                            />
+                            <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${chillProgress.percent}%` }} />
                           </div>
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              }
+                      )
+                    )}
 
-              const progress = getRestProgress(dough.restStartedAt);
-              const isLocked = progress.isResting;
-              const isOpened = !!dough.openedAt;
-
-              return (
-                <Card
-                  key={dough.id}
-                  className={isLocked ? "border-destructive/50 bg-destructive/5" : "border-green-500/50 bg-green-500/5"}
-                  data-testid={`rack-dough-${dough.id}`}
-                >
-                  <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold font-mono text-primary" data-testid={`dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                      </div>
-                      <div>
-                        <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                        <IntendedPastryText intendedPastry={dough.intendedPastry} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {isLocked ? (
-                        <Badge variant="destructive" data-testid={`badge-resting-${dough.id}`}>
-                          <Lock className="w-3 h-3 mr-1" />
-                          Do Not Touch
-                        </Badge>
-                      ) : isOpened ? (
-                        <Badge className="bg-blue-600 text-white" data-testid={`badge-opened-${dough.id}`}>
-                          <Scissors className="w-3 h-3 mr-1" />
-                          Opened
-                        </Badge>
+                    {!isChilling && restProgress && (
+                      isLocked ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="flex items-center gap-1 text-destructive font-medium">
+                              <Timer className="w-4 h-4" />
+                              Final Rest
+                            </span>
+                            <span className="font-mono text-destructive font-bold" data-testid={`timer-${d.id}`}>
+                              {formatTime(restProgress.remaining)}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-destructive/20 overflow-hidden">
+                            <div className="h-full bg-destructive rounded-full transition-all duration-1000" style={{ width: `${restProgress.percent}%` }} />
+                          </div>
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleOpenEditDough(d)} data-testid={`button-edit-resting-${d.id}`}>
+                              <Pencil className="w-3.5 h-3.5" />
+                              Edit
+                            </Button>
+                            <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(d.id)} data-testid={`button-cancel-resting-${d.id}`}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Cancel Dough
+                            </Button>
+                          </div>
+                        </div>
+                      ) : !isOpened ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button className="flex-1 gap-2" onClick={() => handleOpenDough(d)} data-testid={`button-open-dough-${d.id}`}>
+                            <Unlock className="w-4 h-4" />
+                            Open Dough
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleOpenEditDough(d)} data-testid={`button-edit-dough-${d.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(d.id)} data-testid={`button-delete-dough-${d.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       ) : (
-                        <Badge className="bg-green-600 text-white" data-testid={`badge-ready-${dough.id}`}>
-                          <Unlock className="w-3 h-3 mr-1" />
-                          Ready
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <p className="text-muted-foreground text-xs">Turn 1</p>
-                        <p className="font-mono font-semibold">{dough.turn1Fold}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">Turn 2</p>
-                        <p className="font-mono font-semibold">{dough.turn2Fold}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">Sequence</p>
-                        <p className="font-mono font-semibold">{dough.foldSequence}</p>
-                      </div>
-                    </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button className="flex-1 gap-2" onClick={() => handleStartShaping(d)} data-testid={`button-shape-dough-${d.id}`}>
+                            <Scissors className="w-4 h-4" />
+                            Shape & Complete
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleOpenEditDough(d)} data-testid={`button-edit-dough-${d.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(d.id)} data-testid={`button-delete-dough-${d.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )
+                    )}
 
                     <div className="text-xs space-y-1 border-t pt-2">
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <User className="w-3 h-3" />
-                        <span>Started by {getUserName(dough.createdBy)}</span>
-                        <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
+                        <span>Started by {getUserName(d.createdBy)}</span>
+                        <span className="ml-auto">{formatTimestamp(d.startedAt || d.createdAt)}</span>
                       </div>
-                      {dough.finalRestAt && (
+                      {d.finalRestAt && (
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <Timer className="w-3 h-3" />
                           <span>Final rest set</span>
-                          <span className="ml-auto">{formatTimestamp(dough.finalRestAt)}</span>
+                          <span className="ml-auto">{formatTimestamp(d.finalRestAt)}</span>
                         </div>
                       )}
-                      {dough.openedAt && (
+                      {d.openedAt && (
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <Unlock className="w-3 h-3" />
-                          <span>Opened by {getUserName(dough.openedBy)}</span>
-                          <span className="ml-auto">{formatTimestamp(dough.openedAt)}</span>
+                          <span>Opened by {getUserName(d.openedBy)}</span>
+                          <span className="ml-auto">{formatTimestamp(d.openedAt)}</span>
                         </div>
                       )}
                     </div>
-
-                    {isLocked ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center gap-1 text-destructive font-medium">
-                            <Timer className="w-4 h-4" />
-                            Final Rest
-                          </span>
-                          <span className="font-mono text-destructive font-bold" data-testid={`timer-${dough.id}`}>
-                            {formatTime(progress.remaining)}
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-destructive/20 overflow-hidden">
-                          <div
-                            className="h-full bg-destructive rounded-full transition-all duration-1000"
-                            style={{ width: `${progress.percent}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2 pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5"
-                            onClick={() => handleOpenEditDough(dough)}
-                            data-testid={`button-edit-resting-${dough.id}`}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-destructive hover:text-destructive"
-                            onClick={() => deleteMutation.mutate(dough.id)}
-                            data-testid={`button-cancel-resting-${dough.id}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Cancel Dough
-                          </Button>
-                        </div>
-                      </div>
-                    ) : !isOpened ? (
-                      <div className="flex items-center gap-2 pt-1">
-                        <Button
-                          className="flex-1 gap-2"
-                          onClick={() => handleOpenDough(dough)}
-                          data-testid={`button-open-dough-${dough.id}`}
-                        >
-                          <Unlock className="w-4 h-4" />
-                          Open Dough
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEditDough(dough)}
-                          data-testid={`button-edit-dough-${dough.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteMutation.mutate(dough.id)}
-                          data-testid={`button-delete-dough-${dough.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 pt-1">
-                        <Button
-                          className="flex-1 gap-2"
-                          onClick={() => handleStartShaping(dough)}
-                          data-testid={`button-shape-dough-${dough.id}`}
-                        >
-                          <Scissors className="w-4 h-4" />
-                          Shape & Complete
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEditDough(dough)}
-                          data-testid={`button-edit-dough-${dough.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteMutation.mutate(dough.id)}
-                          data-testid={`button-delete-dough-${dough.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               );
-            })}
+            })()}
+
+            {remainingRackDoughs.length > 0 && (
+              <Card data-testid="rack-list-card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base font-display flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-muted-foreground" />
+                    On the Rack
+                    <Badge variant="secondary" className="ml-auto">{remainingRackDoughs.length}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {remainingRackDoughs.map(dough => {
+                      const isChilling = dough.status === "chilling";
+                      const chillProgress = isChilling ? getChillProgress(dough.chillingUntil) : null;
+                      const restProgress = !isChilling ? getRestProgress(dough.restStartedAt) : null;
+                      const isLocked = restProgress ? restProgress.isResting : (chillProgress ? chillProgress.isChilling : false);
+                      const isOpened = !!dough.openedAt;
+                      const isDoneChilling = isChilling && chillProgress && !chillProgress.isChilling;
+                      const isExpanded = expandedRackDoughId === dough.id;
+                      const isFromToday = dough.date === today;
+
+                      let statusLabel = "";
+                      let statusColor = "";
+                      if (isChilling) {
+                        statusLabel = isDoneChilling ? "Ready" : "Chilling";
+                        statusColor = isDoneChilling ? "text-green-600" : "text-blue-600";
+                      } else if (isLocked) {
+                        statusLabel = "Final Rest";
+                        statusColor = "text-destructive";
+                      } else if (isOpened) {
+                        statusLabel = "Opened";
+                        statusColor = "text-blue-600";
+                      } else {
+                        statusLabel = "Ready";
+                        statusColor = "text-green-600";
+                      }
+
+                      return (
+                        <div key={dough.id} data-testid={`rack-dough-${dough.id}`}>
+                          <button
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
+                            onClick={() => setExpandedRackDoughId(isExpanded ? null : dough.id)}
+                            data-testid={`rack-line-item-${dough.id}`}
+                          >
+                            <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-bold font-mono text-primary">#{dough.doughNumber || "—"}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-display font-semibold text-sm">{dough.doughType}</span>
+                                {dough.intendedPastry && dough.intendedPastry !== "None" && (
+                                  <span className="text-xs text-muted-foreground truncate">for {dough.intendedPastry}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className={`font-medium ${statusColor}`}>{statusLabel}</span>
+                                {isChilling && !isDoneChilling && chillProgress && (
+                                  <span className="text-blue-600 font-mono">{formatTime(chillProgress.remaining)}</span>
+                                )}
+                                {!isChilling && isLocked && restProgress && (
+                                  <span className="text-destructive font-mono">{formatTime(restProgress.remaining)}</span>
+                                )}
+                                {!isFromToday && (
+                                  <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                                    <CalendarDays className="w-3 h-3" />
+                                    {format(new Date(dough.date + "T12:00:00"), "MMM d")}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                          </button>
+
+                          {isExpanded && (
+                            <div className="px-4 pb-3 space-y-3 bg-muted/30">
+                              <div className="grid grid-cols-3 gap-2 text-sm pt-2">
+                                <div>
+                                  <p className="text-muted-foreground text-xs">Turn 1</p>
+                                  <p className="font-mono font-semibold">{dough.turn1Fold || "—"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground text-xs">Turn 2</p>
+                                  <p className="font-mono font-semibold">{isChilling ? "Pending" : (dough.turn2Fold || "—")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground text-xs">Sequence</p>
+                                  <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
+                                </div>
+                              </div>
+
+                              {!isFromToday && (
+                                <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-2 py-1.5">
+                                  <CalendarDays className="w-3.5 h-3.5" />
+                                  <span>Created {format(new Date(dough.date + "T12:00:00"), "EEEE, MMM d")} — {formatDistanceToNow(new Date(dough.date + "T12:00:00"), { addSuffix: true })}</span>
+                                </div>
+                              )}
+
+                              {isChilling && chillProgress && (
+                                isDoneChilling ? (
+                                  <div className="flex items-center gap-2">
+                                    <Button size="sm" className="flex-1 gap-2" onClick={() => handleContinueTurn2(dough)} data-testid={`button-continue-turn2-${dough.id}`}>
+                                      <Layers className="w-4 h-4" />
+                                      Continue Turn 2
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(dough.id)} data-testid={`button-delete-dough-${dough.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="flex items-center gap-1 text-blue-600 font-medium text-xs">
+                                        <Snowflake className="w-3.5 h-3.5" />
+                                        Freezer Chill
+                                      </span>
+                                      <span className="font-mono text-blue-600 font-bold text-xs" data-testid={`chill-timer-${dough.id}`}>
+                                        {formatTime(chillProgress.remaining)}
+                                      </span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-blue-200/50 dark:bg-blue-900/30 overflow-hidden">
+                                      <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${chillProgress.percent}%` }} />
+                                    </div>
+                                  </div>
+                                )
+                              )}
+
+                              {!isChilling && restProgress && (
+                                isLocked ? (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="flex items-center gap-1 text-destructive font-medium text-xs">
+                                        <Timer className="w-3.5 h-3.5" />
+                                        Final Rest
+                                      </span>
+                                      <span className="font-mono text-destructive font-bold text-xs" data-testid={`timer-${dough.id}`}>
+                                        {formatTime(restProgress.remaining)}
+                                      </span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-destructive/20 overflow-hidden">
+                                      <div className="h-full bg-destructive rounded-full transition-all duration-1000" style={{ width: `${restProgress.percent}%` }} />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-resting-${dough.id}`}>
+                                        <Pencil className="w-3 h-3" />
+                                        Edit
+                                      </Button>
+                                      <Button variant="outline" size="sm" className="gap-1.5 text-xs text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(dough.id)} data-testid={`button-cancel-resting-${dough.id}`}>
+                                        <Trash2 className="w-3 h-3" />
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : !isOpened ? (
+                                  <div className="flex items-center gap-2">
+                                    <Button size="sm" className="flex-1 gap-2" onClick={() => handleOpenDough(dough)} data-testid={`button-open-dough-${dough.id}`}>
+                                      <Unlock className="w-4 h-4" />
+                                      Open Dough
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-dough-${dough.id}`}>
+                                      <Pencil className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(dough.id)} data-testid={`button-delete-dough-${dough.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <Button size="sm" className="flex-1 gap-2" onClick={() => handleStartShaping(dough)} data-testid={`button-shape-dough-${dough.id}`}>
+                                      <Scissors className="w-4 h-4" />
+                                      Shape & Complete
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-dough-${dough.id}`}>
+                                      <Pencil className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(dough.id)} data-testid={`button-delete-dough-${dough.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                )
+                              )}
+
+                              <div className="text-xs space-y-1 border-t pt-2">
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <User className="w-3 h-3" />
+                                  <span>Started by {getUserName(dough.createdBy)}</span>
+                                  <span className="ml-auto">{formatTimestamp(dough.startedAt || dough.createdAt)}</span>
+                                </div>
+                                {dough.finalRestAt && (
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Timer className="w-3 h-3" />
+                                    <span>Final rest set</span>
+                                    <span className="ml-auto">{formatTimestamp(dough.finalRestAt)}</span>
+                                  </div>
+                                )}
+                                {dough.openedAt && (
+                                  <div className="flex items-center gap-1 text-muted-foreground">
+                                    <Unlock className="w-3 h-3" />
+                                    <span>Opened by {getUserName(dough.openedBy)}</span>
+                                    <span className="ml-auto">{formatTimestamp(dough.openedAt)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {remainingRackDoughs.length === 0 && rackDoughs.length === 1 && (
+              <Card className="border-dashed">
+                <CardContent className="py-12 text-center">
+                  <Layers className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">Only one dough on the rack</p>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
       </div>

@@ -2655,6 +2655,15 @@ ${sopsHtml}
   });
 
   // === LAMINATION DOUGHS ===
+  app.get("/api/lamination/active", isAuthenticated, async (req: any, res) => {
+    try {
+      const doughs = await storage.getActiveLaminationDoughs();
+      res.json(doughs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/lamination/:date", isAuthenticated, async (req: any, res) => {
     try {
       const doughs = await storage.getLaminationDoughs(req.params.date);
