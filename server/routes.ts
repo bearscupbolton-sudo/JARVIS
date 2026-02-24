@@ -3243,8 +3243,8 @@ ${sopsHtml}
         if (bakeryState.chillingDoughs > 0) stateLines.push(`${bakeryState.chillingDoughs} dough(s) chilling between turns`);
         if (bakeryState.frozenDoughs > 0) stateLines.push(`${bakeryState.frozenDoughs} shaped dough(s) in the freezer`);
         if (bakeryState.fridgeDoughs > 0) stateLines.push(`${bakeryState.fridgeDoughs} dough(s) in the fridge`);
-        stateLines.push(`${bakeryState.todayProductionLogs} production log(s) today`);
-        stateLines.push(`${bakeryState.todayRecipeSessions} recipe session(s) today`);
+        if (bakeryState.todayProductionLogs > 0) stateLines.push(`${bakeryState.todayProductionLogs} production log(s) today`);
+        if (bakeryState.todayRecipeSessions > 0) stateLines.push(`${bakeryState.todayRecipeSessions} recipe session(s) today`);
 
         if (bakeryState.activeDoughDetails.length > 0) {
           stateLines.push("Active doughs: " + bakeryState.activeDoughDetails
@@ -3283,16 +3283,20 @@ ${sopsHtml}
       };
       const focusDescription = focusLabels[focus] || focusLabels.all;
 
-      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing for a team member who just opened the app. Keep it concise (2-4 sentences max). Be natural and conversational — like a helpful colleague giving a quick heads-up. Don't use bullet points or lists. Don't say "here's your briefing" — just speak naturally.
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing (2-4 sentences max) for a team member opening the app. Be natural and conversational — like a helpful colleague giving a quick heads-up. No bullet points, no lists, no "here's your briefing" phrasing.
 
-IMPORTANT: This person's briefing focus is set to "${focus}" — they care most about ${focusDescription}. Prioritize information relevant to their focus area. Don't mention things outside their focus unless truly critical. If they are FOH, focus on what's available, pastry counts, and customer-facing concerns. If BOH, focus on dough status, production, and recipes. If management, give a high-level operational overview. Mention the most important/actionable items first. If nothing notable is happening, keep it very short and encouraging.`;
+STRICT RULE — ONLY STATE FACTS FROM THE DATA PROVIDED BELOW. Never invent, assume, or hallucinate information. If the data says 0 doughs proofing, do NOT mention doughs proofing. If no active doughs are listed, do NOT reference any doughs. If no production logs exist, do NOT claim there are any. Only mention items explicitly present in the bakery state data.
+
+This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
+
+WHEN NOTHING IS HAPPENING: If the bakery state shows little or no activity (zeros across the board, no active doughs, no shifts), do NOT try to reference nonexistent work. Instead, keep it short, warm, and motivational — offer an encouraging thought, a positive note about the day ahead, or a bit of bakery-themed inspiration. Be genuine and uplifting, like a supportive teammate. Examples of tone: "Looks like a fresh start today — perfect chance to set the pace!", "Nothing on the board yet, but every great bake starts with a clean slate."`;
 
       const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
 Time: Good ${timeOfDay}
-Current bakery state:
-${stateLines.length > 0 ? stateLines.join("\n") : "No notable activity right now."}
+Current bakery state data (ONLY reference items that appear here — do not invent anything):
+${stateLines.length > 0 ? stateLines.join("\n") : "Nothing notable in the system right now — no active doughs, no production logs, no scheduled shifts."}
 
-Generate a personalized briefing for ${context.user.firstName}.`;
+Generate a personalized briefing for ${context.user.firstName}. Remember: only state facts from the data above. If there's nothing happening, be warm and motivational instead.`;
 
       const OpenAI = (await import("openai")).default;
       const briefingAI = new OpenAI({
