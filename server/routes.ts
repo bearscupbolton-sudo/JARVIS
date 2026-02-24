@@ -2680,6 +2680,7 @@ ${sopsHtml}
         createdBy: user?.id || null,
         startedAt: new Date(),
       });
+      storage.clearAllBriefingCaches().catch(() => {});
       res.json(dough);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
@@ -2725,6 +2726,7 @@ ${sopsHtml}
       if (parsed.bakedAt) updates.bakedAt = new Date(parsed.bakedAt);
       if (parsed.chillingUntil) updates.chillingUntil = new Date(parsed.chillingUntil);
       const dough = await storage.updateLaminationDough(id, updates);
+      storage.clearAllBriefingCaches().catch(() => {});
       res.json(dough);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
@@ -2761,7 +2763,7 @@ ${sopsHtml}
         bakedAt: now,
         bakedBy: user?.id || null,
       });
-
+      storage.clearAllBriefingCaches().catch(() => {});
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -2772,6 +2774,7 @@ ${sopsHtml}
     try {
       const id = parseInt(req.params.id);
       await storage.deleteLaminationDough(id);
+      storage.clearAllBriefingCaches().catch(() => {});
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

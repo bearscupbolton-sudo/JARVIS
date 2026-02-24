@@ -334,6 +334,7 @@ export interface IStorage {
     };
   }>;
   updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void>;
+  clearAllBriefingCaches(): Promise<void>;
   markJarvisBriefingSeen(userId: string): Promise<void>;
   updateShowJarvisBriefing(userId: string, show: boolean): Promise<void>;
   setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void>;
@@ -2240,6 +2241,10 @@ export class DatabaseStorage implements IStorage {
 
   async updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void> {
     await db.update(users).set({ lastBriefingText: briefingText, lastBriefingAt: new Date() }).where(eq(users.id, userId));
+  }
+
+  async clearAllBriefingCaches(): Promise<void> {
+    await db.update(users).set({ lastBriefingText: null, lastBriefingAt: null });
   }
 
   async markJarvisBriefingSeen(userId: string): Promise<void> {
