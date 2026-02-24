@@ -11,6 +11,7 @@ import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { squareCatalogMap, squareSales, shifts, directMessages } from "@shared/schema";
+import { withRetry } from "./ai-retry";
 import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
@@ -158,7 +159,7 @@ export async function registerRoutes(
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const response = await openai.chat.completions.create({
+      const response = await withRetry(() => openai.chat.completions.create({
         model: "gpt-5.2",
         max_completion_tokens: 4096,
         messages: [
@@ -212,7 +213,7 @@ Guidelines:
           }
         ],
         response_format: { type: "json_object" },
-      });
+      }), "recipe-scan");
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
@@ -418,7 +419,7 @@ Guidelines:
       const allSops = await storage.getSOPs();
       const existingCategories = Array.from(new Set(allSops.map(s => s.category)));
 
-      const response = await openai.chat.completions.create({
+      const response = await withRetry(() => openai.chat.completions.create({
         model: "gpt-5.2",
         max_completion_tokens: 8192,
         messages: [
@@ -463,7 +464,7 @@ FORMAT RULES for the content field:
           }
         ],
         response_format: { type: "json_object" },
-      });
+      }), "sop-scan");
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
@@ -1300,7 +1301,7 @@ FORMAT RULES for the content field:
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const response = await openai.chat.completions.create({
+      const response = await withRetry(() => openai.chat.completions.create({
         model: "gpt-5.2",
         max_completion_tokens: 4096,
         messages: [
@@ -1343,7 +1344,7 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
           }
         ],
         response_format: { type: "json_object" },
-      });
+      }), "invoice-scan");
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
@@ -1937,7 +1938,7 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       ];
       const uniqueItems = Array.from(new Set(knownItems));
 
-      const parseResponse = await openai.chat.completions.create({
+      const parseResponse = await withRetry(() => openai.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
         messages: [
@@ -1974,7 +1975,7 @@ Respond with JSON:
             content: transcript
           }
         ],
-      });
+      }), "kiosk-voice");
 
       const parsed = JSON.parse(parseResponse.choices[0]?.message?.content || "{}");
 
@@ -3347,7 +3348,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const completion = await briefingAI.chat.completions.create({
+      const completion = await withRetry(() => briefingAI.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
@@ -3355,7 +3356,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
         ],
         max_tokens: 200,
         temperature: 0.7,
-      });
+      }), "jarvis-briefing");
 
       const briefingText = completion.choices[0]?.message?.content || "Welcome back! Everything looks good at the bakehouse.";
 
@@ -3518,7 +3519,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const response = await ai.chat.completions.create({
+      const response = await withRetry(() => ai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           {
@@ -3541,7 +3542,7 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
         ],
         temperature: 0.8,
         max_tokens: 2000,
-      });
+      }), "game-gen");
 
       const content = response.choices[0]?.message?.content || "";
       let gameConfig: any;

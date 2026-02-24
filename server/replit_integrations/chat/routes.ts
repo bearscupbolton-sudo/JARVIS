@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import OpenAI from "openai";
 import { chatStorage } from "./storage";
 import { storage } from "../../storage";
+import { withRetry } from "../../ai-retry";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -135,12 +136,12 @@ export function registerChatRoutes(app: Express): void {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      const stream = await openai.chat.completions.create({
+      const stream = await withRetry(() => openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: chatMessages,
         stream: true,
         max_tokens: 2048,
-      });
+      }), "jarvis-chat");
 
       let fullResponse = "";
 
