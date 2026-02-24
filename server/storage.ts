@@ -325,6 +325,13 @@ export interface IStorage {
       todaySchedule: { startTime: string; endTime: string; department: string; position: string | null }[];
       pastryGoals: { itemName: string; targetCount: number; forecastedCount: number | null }[];
     };
+    shiftContext: {
+      consecutiveDaysWorked: number;
+      daysSinceLastShift: number | null;
+      hasShiftToday: boolean;
+      shiftStartsLater: boolean;
+      upcomingShiftTime: string | null;
+    };
   }>;
   updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void>;
   markJarvisBriefingSeen(userId: string): Promise<void>;
@@ -2089,23 +2096,7 @@ export class DatabaseStorage implements IStorage {
 
   // === JARVIS BRIEFING ===
 
-  async getJarvisBriefingContext(userId: string): Promise<{
-    user: { firstName: string; role: string; briefingFocus: string; showJarvisBriefing: boolean; jarvisWelcomeMessage: string | null; jarvisBriefingSeenAt: Date | null; lastBriefingText: string | null; lastBriefingAt: Date | null };
-    bakeryState: {
-      proofingDoughs: number;
-      restingDoughs: number;
-      chillingDoughs: number;
-      frozenDoughs: number;
-      fridgeDoughs: number;
-      todayProductionLogs: number;
-      todayRecipeSessions: number;
-      unreadMessages: number;
-      pendingTimeOffRequests: number;
-      activeDoughDetails: { doughNumber: number; doughType: string; status: string; intendedPastry: string | null }[];
-      todaySchedule: { startTime: string; endTime: string; department: string; position: string | null }[];
-      pastryGoals: { itemName: string; targetCount: number; forecastedCount: number | null }[];
-    };
-  }> {
+  async getJarvisBriefingContext(userId: string) {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) throw new Error("User not found");
 
@@ -2151,6 +2142,53 @@ export class DatabaseStorage implements IStorage {
       forecastedCount: pastryTotals.forecastedCount,
     }).from(pastryTotals).where(eq(pastryTotals.date, todayStr));
 
+    const recentShiftDates = await db.selectDistinct({ shiftDate: shifts.shiftDate })
+      .from(shifts)
+      .where(and(
+        eq(shifts.userId, userId),
+        sql`${shifts.shiftDate} <= ${todayStr}`,
+      ))
+      .orderBy(desc(shifts.shiftDate))
+      .limit(30);
+
+    const shiftDateStrings = recentShiftDates.map(s => s.shiftDate).sort().reverse();
+    const hasShiftToday = shiftDateStrings.length > 0 && shiftDateStrings[0] === todayStr;
+
+    let consecutiveDaysWorked = 0;
+    if (shiftDateStrings.length > 0) {
+      const today = new Date(todayStr + "T00:00:00");
+      for (let i = 0; i < shiftDateStrings.length; i++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(checkDate.getDate() - i);
+        const checkStr = checkDate.toISOString().split("T")[0];
+        if (shiftDateStrings.includes(checkStr)) {
+          consecutiveDaysWorked++;
+        } else {
+          break;
+        }
+      }
+    }
+
+    let daysSinceLastShift: number | null = null;
+    const pastShifts = shiftDateStrings.filter(d => d < todayStr);
+    if (pastShifts.length > 0) {
+      const lastShiftDate = new Date(pastShifts[0] + "T00:00:00");
+      const todayDate = new Date(todayStr + "T00:00:00");
+      daysSinceLastShift = Math.floor((todayDate.getTime() - lastShiftDate.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    const now = new Date();
+    const currentTimeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    let shiftStartsLater = false;
+    let upcomingShiftTime: string | null = null;
+    if (hasShiftToday && todaySchedule.length > 0) {
+      const futureShifts = todaySchedule.filter(s => s.startTime > currentTimeStr);
+      if (futureShifts.length > 0) {
+        shiftStartsLater = true;
+        upcomingShiftTime = futureShifts[0].startTime;
+      }
+    }
+
     return {
       user: {
         firstName: user.firstName || "Team Member",
@@ -2189,6 +2227,13 @@ export class DatabaseStorage implements IStorage {
           targetCount: g.targetCount,
           forecastedCount: g.forecastedCount,
         })),
+      },
+      shiftContext: {
+        consecutiveDaysWorked,
+        daysSinceLastShift,
+        hasShiftToday,
+        shiftStartsLater,
+        upcomingShiftTime,
       },
     };
   }

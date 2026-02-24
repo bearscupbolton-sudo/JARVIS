@@ -3229,13 +3229,37 @@ ${sopsHtml}
       if (hour >= 12 && hour < 17) timeOfDay = "afternoon";
       else if (hour >= 17) timeOfDay = "evening";
 
-      const { bakeryState } = context;
+      const { bakeryState, shiftContext } = context;
       const focus = context.user.briefingFocus || "all";
       const stateLines: string[] = [];
 
       const includeBOH = focus === "all" || focus === "boh" || focus === "management";
       const includeFOH = focus === "all" || focus === "foh" || focus === "management";
       const includeManagement = focus === "management" || context.user.role === "owner" || context.user.role === "manager";
+
+      if (shiftContext.hasShiftToday && bakeryState.todaySchedule.length > 0) {
+        if (shiftContext.shiftStartsLater && shiftContext.upcomingShiftTime) {
+          stateLines.push(`You're on the schedule today — your next shift starts at ${shiftContext.upcomingShiftTime}`);
+        } else {
+          stateLines.push("You're on the schedule today: " + bakeryState.todaySchedule
+            .map(s => `${s.startTime}-${s.endTime} (${s.department}${s.position ? `, ${s.position}` : ""})`)
+            .join("; "));
+        }
+      } else if (!shiftContext.hasShiftToday) {
+        stateLines.push("No shift scheduled for you today");
+      }
+
+      if (shiftContext.daysSinceLastShift !== null && shiftContext.daysSinceLastShift >= 4) {
+        stateLines.push(`WELCOME BACK — it's been ${shiftContext.daysSinceLastShift} days since your last shift`);
+      }
+
+      if (shiftContext.consecutiveDaysWorked >= 13) {
+        stateLines.push(`WELLNESS ALERT: ${shiftContext.consecutiveDaysWorked} consecutive days worked — they deserve a rest day. Encourage hydration, stretching, and taking time to recharge.`);
+      } else if (shiftContext.consecutiveDaysWorked >= 7) {
+        stateLines.push(`${shiftContext.consecutiveDaysWorked} consecutive days worked — that's a solid stretch`);
+      } else if (shiftContext.consecutiveDaysWorked >= 4) {
+        stateLines.push(`${shiftContext.consecutiveDaysWorked} days in a row on the schedule`);
+      }
 
       if (includeBOH) {
         if (bakeryState.proofingDoughs > 0) stateLines.push(`${bakeryState.proofingDoughs} dough(s) proofing`);
@@ -3269,12 +3293,6 @@ ${sopsHtml}
         }
       }
 
-      if (bakeryState.todaySchedule.length > 0) {
-        stateLines.push("Your shift(s) today: " + bakeryState.todaySchedule
-          .map(s => `${s.startTime}-${s.endTime} (${s.department}${s.position ? `, ${s.position}` : ""})`)
-          .join("; "));
-      }
-
       const focusLabels: Record<string, string> = {
         all: "all bakery operations",
         foh: "front-of-house (customer service, display cases, pastry availability, sales)",
@@ -3287,16 +3305,24 @@ ${sopsHtml}
 
 STRICT RULE — ONLY STATE FACTS FROM THE DATA PROVIDED BELOW. Never invent, assume, or hallucinate information. If the data says 0 doughs proofing, do NOT mention doughs proofing. If no active doughs are listed, do NOT reference any doughs. If no production logs exist, do NOT claim there are any. Only mention items explicitly present in the bakery state data.
 
+SHIFT AWARENESS — Always weave the person's schedule into the greeting naturally:
+- If they have a shift today that starts later: greet them and let them know what's going on before their shift.
+- If they're currently on shift: acknowledge they're in the thick of it.
+- If they have no shift today: keep it light and positive.
+- If they haven't been on the schedule for 4+ days (WELCOME BACK flag): warmly welcome them back and catch them up on what's happening.
+- If they've worked 13+ consecutive days (WELLNESS ALERT flag): genuinely encourage them to take a day off, rest, hydrate, and stretch. Be caring, not preachy — like a friend who notices they've been grinding too hard.
+- If they've worked 7-12 consecutive days: acknowledge their solid work ethic with a brief encouraging note.
+
 This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
 
-WHEN NOTHING IS HAPPENING: If the bakery state shows little or no activity (zeros across the board, no active doughs, no shifts), do NOT try to reference nonexistent work. Instead, keep it short, warm, and motivational — offer an encouraging thought, a positive note about the day ahead, or a bit of bakery-themed inspiration. Be genuine and uplifting, like a supportive teammate. Examples of tone: "Looks like a fresh start today — perfect chance to set the pace!", "Nothing on the board yet, but every great bake starts with a clean slate."`;
+WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and motivational — offer an encouraging thought or a positive note about the day. Be genuine and uplifting, like a supportive teammate.`;
 
       const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
 Time: Good ${timeOfDay}
 Current bakery state data (ONLY reference items that appear here — do not invent anything):
-${stateLines.length > 0 ? stateLines.join("\n") : "Nothing notable in the system right now — no active doughs, no production logs, no scheduled shifts."}
+${stateLines.join("\n")}
 
-Generate a personalized briefing for ${context.user.firstName}. Remember: only state facts from the data above. If there's nothing happening, be warm and motivational instead.`;
+Generate a personalized briefing for ${context.user.firstName}. Remember: only state facts from the data above. Weave the shift/schedule info naturally into the greeting.`;
 
       const OpenAI = (await import("openai")).default;
       const briefingAI = new OpenAI({

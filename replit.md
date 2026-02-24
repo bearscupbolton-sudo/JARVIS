@@ -38,7 +38,7 @@ Authentication is PIN-based with server-side PostgreSQL sessions. Roles include 
 The system integrates with OpenAI-compatible APIs for "Jarvis," an AI assistant providing text chat (with streaming), audio capabilities (STT/TTS), image generation, and invoice scanning via a vision model. Jarvis is contextualized with bakery data and supports kiosk voice commands for logging production.
 
 ### Jarvis Briefing
-The Home page features a personalized, AI-generated briefing (2-4 sentences) tailored to the user's role, bakery state, and time of day. It utilizes gpt-4o-mini and includes caching, user preferences for visibility and focus (FOH, BOH, Management), and a customizable welcome message.
+The Home page features a personalized, AI-generated briefing (2-4 sentences) tailored to the user's role, bakery state, and time of day. It utilizes gpt-4o-mini and includes caching, user preferences for visibility and focus (FOH, BOH, Management), and a customizable welcome message. Jarvis is shift-aware: it checks the user's schedule and weaves shift context into every greeting (e.g., "I see you're on later, here's how the day is going"). It detects when a user hasn't been on the schedule for 4+ days and gives a "welcome back" greeting. After 13+ consecutive days of shifts, Jarvis triggers a wellness nudge encouraging the person to rest, hydrate, and stretch. The AI prompt is strictly grounded — Jarvis only states facts from real database data and never invents or assumes information.
 
 ### Multi-Location Support
 The system supports multiple bakery locations. Users can be assigned to locations, and operational data (e.g., pastry totals, shifts) is tagged by `locationId`. A `LocationProvider` manages the selected location, which is persisted locally.
