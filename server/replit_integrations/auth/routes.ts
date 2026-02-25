@@ -144,6 +144,25 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/shift-manager", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { isShiftManager } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (targetUser.role !== "manager" && targetUser.role !== "owner") {
+        return res.status(400).json({ message: "Shift manager designation is only for managers or owners" });
+      }
+      const user = await authStorage.updateShiftManager(targetId, !!isShiftManager);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating shift manager status:", error);
+      res.status(500).json({ message: "Failed to update shift manager status" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/pin", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const { pin } = req.body;

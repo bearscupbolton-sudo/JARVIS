@@ -39,6 +39,7 @@ export const users = pgTable("users", {
   lastBriefingText: text("last_briefing_text"),
   lastBriefingAt: timestamp("last_briefing_at"),
   jarvisBriefingFocus: varchar("jarvis_briefing_focus").default("all").notNull(),
+  isShiftManager: boolean("is_shift_manager").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

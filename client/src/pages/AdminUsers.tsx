@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -126,6 +127,11 @@ export default function AdminUsers() {
                     >
                       {u.role === "owner" ? "Owner" : u.role === "manager" ? "Manager" : "Member"}
                     </Badge>
+                    {(u as any).isShiftManager && (
+                      <Badge variant="outline" className="text-[10px] border-blue-500/60 text-blue-700 dark:text-blue-400" data-testid={`badge-shift-manager-${u.id}`}>
+                        Shift Mgr
+                      </Badge>
+                    )}
                     {u.locked && (
                       <Badge variant="destructive" data-testid={`badge-locked-${u.id}`}>
                         Locked
@@ -351,6 +357,19 @@ function UserDetailDialog({
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
 
+  const shiftManagerMutation = useMutation({
+    mutationFn: async (isShiftManager: boolean) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/shift-manager`, { isShiftManager });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Shift manager status updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   const welcomeMutation = useMutation({
     mutationFn: async (message: string) => {
       await apiRequest("PUT", `/api/users/${u.id}/welcome-message`, { message: message || null });
@@ -494,6 +513,23 @@ function UserDetailDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {(u.role === "manager" || u.role === "owner") && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                    <div>
+                      <Label className="text-sm font-medium">Shift Manager</Label>
+                      <p className="text-[11px] text-muted-foreground">Can approve shift pickups and import schedules</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={!!(u as any).isShiftManager}
+                    onCheckedChange={(checked) => shiftManagerMutation.mutate(checked)}
+                    disabled={shiftManagerMutation.isPending}
+                    data-testid={`switch-shift-manager-${u.id}`}
+                  />
+                </div>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"

@@ -19,10 +19,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
-  MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check
+  MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
+  HandMetal, Upload, FileSpreadsheet
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
 
@@ -44,12 +48,14 @@ function getUserDisplayName(userId: string, members: TeamMember[]): string {
 }
 
 const TIME_OPTIONS = [
-  "4:00 AM", "4:30 AM", "5:00 AM", "5:30 AM", "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM",
-  "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
-  "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM",
-  "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM",
-  "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM",
-  "8:00 PM", "8:30 PM", "9:00 PM",
+  "12:00 AM", "12:30 AM", "1:00 AM", "1:30 AM", "2:00 AM", "2:30 AM",
+  "3:00 AM", "3:30 AM", "4:00 AM", "4:30 AM", "5:00 AM", "5:30 AM",
+  "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
+  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+  "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
+  "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
+  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM",
+  "9:00 PM", "9:30 PM", "10:00 PM", "10:30 PM", "11:00 PM", "11:30 PM",
 ];
 
 const REQUEST_TYPES = [
@@ -60,13 +66,14 @@ const REQUEST_TYPES = [
 ];
 
 const shiftFormSchema = z.object({
-  userId: z.string().min(1, "Please select a team member"),
+  userId: z.string().optional(),
   shiftDate: z.string().min(1, "Please select a date"),
   startTime: z.string().min(1, "Required"),
   endTime: z.string().min(1, "Required"),
   department: z.string().min(1, "Required"),
   position: z.string().optional(),
   notes: z.string().optional(),
+  isOpenShift: z.boolean().optional(),
 });
 
 type ShiftFormValues = z.infer<typeof shiftFormSchema>;
@@ -100,8 +107,14 @@ export default function Schedule() {
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
+  const [uploadTeam, setUploadTeam] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const isOwner = user?.role === "owner";
-  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "locations">("schedule");
+  const isShiftManager = (user as any)?.isShiftManager;
+  const canManagePickups = isOwner || isShiftManager;
+  const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "pickups" | "locations">("schedule");
 
   const shiftForm = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
@@ -113,6 +126,7 @@ export default function Schedule() {
       department: "kitchen",
       position: "",
       notes: "",
+      isOpenShift: false,
     },
   });
 
@@ -188,6 +202,44 @@ export default function Schedule() {
     },
   });
 
+  const claimShiftMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/shifts/${id}/claim`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Shift pickup requested", description: "Waiting for manager approval" });
+    },
+    onError: (e: Error) => toast({ title: "Cannot pick up shift", description: e.message, variant: "destructive" }),
+  });
+
+  const approveShiftMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/shifts/${id}/approve`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Shift pickup approved" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to approve", description: e.message, variant: "destructive" }),
+  });
+
+  const denyShiftMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/shifts/${id}/deny`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Shift pickup denied" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to deny", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkCreateShiftsMutation = useMutation({
+    mutationFn: (shifts: any[]) => apiRequest("POST", "/api/shifts/bulk", { shifts }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setUploadDialogOpen(false);
+      setUploadPreview(null);
+      toast({ title: "Schedule imported successfully" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to import schedule", description: e.message, variant: "destructive" }),
+  });
+
   const createTimeOffMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/time-off", data),
     onSuccess: () => {
@@ -252,6 +304,7 @@ export default function Schedule() {
       department: dept || "kitchen",
       position: "",
       notes: "",
+      isOpenShift: false,
     });
     setShiftDialogOpen(true);
   }
@@ -259,22 +312,25 @@ export default function Schedule() {
   function openEditShift(shift: Shift) {
     setEditingShift(shift);
     shiftForm.reset({
-      userId: shift.userId,
+      userId: shift.userId || "",
       shiftDate: shift.shiftDate,
       startTime: shift.startTime,
       endTime: shift.endTime,
       department: shift.department || "kitchen",
       position: shift.position || "",
       notes: shift.notes || "",
+      isOpenShift: shift.status === "open",
     });
     setShiftDialogOpen(true);
   }
 
   function handleShiftSubmit(values: ShiftFormValues) {
+    const { isOpenShift, ...rest } = values;
     const payload = {
-      ...values,
-      position: values.position || null,
-      notes: values.notes || null,
+      ...rest,
+      userId: isOpenShift ? null : rest.userId || null,
+      position: rest.position || null,
+      notes: rest.notes || null,
       createdBy: user!.id,
       locationId: selectedLocationId,
     };
@@ -282,6 +338,36 @@ export default function Schedule() {
       updateShiftMutation.mutate({ id: editingShift.id, ...payload });
     } else {
       createShiftMutation.mutate(payload);
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      let csvContent = "";
+      if (file.name.endsWith(".csv") || file.name.endsWith(".txt")) {
+        csvContent = await file.text();
+      } else {
+        const XLSX = await import("xlsx");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        csvContent = XLSX.utils.sheet_to_csv(firstSheet);
+      }
+      const res = await apiRequest("POST", "/api/shifts/import", {
+        csvContent,
+        weekStartDate: format(weekStart, "yyyy-MM-dd"),
+      });
+      const data = await res.json();
+      setUploadPreview(data.shifts || []);
+      setUploadTeam(data.teamMembers || []);
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message || "Could not parse file", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
     }
   }
 
@@ -317,6 +403,9 @@ export default function Schedule() {
   const members = teamMembers || [];
   const activeMessages = (messagesData || []).filter(m => !m.resolved);
   const resolvedMessages = (messagesData || []).filter(m => m.resolved);
+  const pendingPickups = (shiftsData || []).filter(s => s.status === "pending");
+  const openShifts = (shiftsData || []).filter(s => s.status === "open");
+  const myPendingClaims = pendingPickups.filter(s => s.claimedBy === user?.id);
 
   const locationName = locationsData?.[0]?.name || "Bear's Cup Bakehouse";
 
@@ -370,6 +459,19 @@ export default function Schedule() {
             </Badge>
           )}
         </Button>
+        <Button
+          variant={activeTab === "pickups" ? "default" : "outline"}
+          onClick={() => setActiveTab("pickups")}
+          data-testid="button-tab-pickups"
+        >
+          <HandMetal className="w-4 h-4 mr-2" />
+          Shift Pickups
+          {(canManagePickups ? pendingPickups.length : myPendingClaims.length) > 0 && (
+            <Badge variant="destructive" className="ml-2 text-[10px]" data-testid="badge-pending-pickups">
+              {canManagePickups ? pendingPickups.length : myPendingClaims.length}
+            </Badge>
+          )}
+        </Button>
         {isOwner && (
           <Button
             variant={activeTab === "locations" ? "default" : "outline"}
@@ -399,12 +501,30 @@ export default function Schedule() {
                 {format(weekStart, "MMM d")} - {format(weekEnd, "MMM d, yyyy")}
               </span>
             </div>
-            {isManagerOrOwner && (
-              <Button onClick={() => openAddShift()} data-testid="button-add-shift">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Shift
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {canManagePickups && (
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.txt"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    data-testid="input-upload-schedule"
+                    disabled={isUploading}
+                  />
+                  <Button variant="outline" disabled={isUploading} data-testid="button-upload-schedule">
+                    {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                    Upload Schedule
+                  </Button>
+                </div>
+              )}
+              {isManagerOrOwner && (
+                <Button onClick={() => openAddShift()} data-testid="button-add-shift">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Shift
+                </Button>
+              )}
+            </div>
           </div>
 
           {shiftsLoading ? (
@@ -463,51 +583,78 @@ export default function Schedule() {
                               {dayShifts.length === 0 ? (
                                 <p className="text-[10px] text-muted-foreground italic">No staff</p>
                               ) : (
-                                dayShifts.map((shift) => (
-                                  <div
-                                    key={shift.id}
-                                    className="p-1.5 rounded-md bg-muted/50 space-y-0.5 group"
-                                    data-testid={`shift-card-${shift.id}`}
-                                  >
-                                    <div className="flex items-center justify-between gap-1">
-                                      <div className="flex items-center gap-1 min-w-0">
-                                        <UserCircle className="w-3 h-3 text-muted-foreground shrink-0" />
-                                        <span className="text-[11px] font-medium truncate">
-                                          {getUserDisplayName(shift.userId, members)}
-                                        </span>
-                                      </div>
-                                      {isManagerOrOwner && (
-                                        <div className="flex items-center gap-0.5 invisible group-hover:visible">
-                                          <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            onClick={() => openEditShift(shift)}
-                                            data-testid={`button-edit-shift-${shift.id}`}
-                                          >
-                                            <Pencil className="w-2.5 h-2.5" />
-                                          </Button>
-                                          <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            onClick={() => {
-                                              if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
-                                            }}
-                                            data-testid={`button-delete-shift-${shift.id}`}
-                                          >
-                                            <Trash2 className="w-2.5 h-2.5 text-destructive" />
-                                          </Button>
+                                dayShifts.map((shift) => {
+                                  const isOpen = shift.status === "open";
+                                  const isPending = shift.status === "pending";
+                                  const isMyPending = isPending && shift.claimedBy === user?.id;
+                                  return (
+                                    <div
+                                      key={shift.id}
+                                      className={`p-1.5 rounded-md space-y-0.5 group ${
+                                        isOpen ? "border border-dashed border-green-500/60 bg-green-50/50 dark:bg-green-950/20" :
+                                        isPending ? "border border-dashed border-amber-500/60 bg-amber-50/50 dark:bg-amber-950/20" :
+                                        "bg-muted/50"
+                                      }`}
+                                      data-testid={`shift-card-${shift.id}`}
+                                    >
+                                      <div className="flex items-center justify-between gap-1">
+                                        <div className="flex items-center gap-1 min-w-0">
+                                          <UserCircle className="w-3 h-3 text-muted-foreground shrink-0" />
+                                          <span className="text-[11px] font-medium truncate">
+                                            {isOpen ? "Open Shift" : isPending ? `${getUserDisplayName(shift.claimedBy || "", members)} (pending)` : getUserDisplayName(shift.userId || "", members)}
+                                          </span>
                                         </div>
+                                        {isManagerOrOwner && (
+                                          <div className="flex items-center gap-0.5 invisible group-hover:visible">
+                                            <Button
+                                              size="icon"
+                                              variant="ghost"
+                                              onClick={() => openEditShift(shift)}
+                                              data-testid={`button-edit-shift-${shift.id}`}
+                                            >
+                                              <Pencil className="w-2.5 h-2.5" />
+                                            </Button>
+                                            <Button
+                                              size="icon"
+                                              variant="ghost"
+                                              onClick={() => {
+                                                if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
+                                              }}
+                                              data-testid={`button-delete-shift-${shift.id}`}
+                                            >
+                                              <Trash2 className="w-2.5 h-2.5 text-destructive" />
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 text-muted-foreground">
+                                        <Clock className="w-2.5 h-2.5" />
+                                        <span className="text-[10px]">{shift.startTime} - {shift.endTime}</span>
+                                      </div>
+                                      {shift.position && (
+                                        <Badge variant="secondary" className="text-[9px]">{shift.position}</Badge>
+                                      )}
+                                      {isOpen && !isManagerOrOwner && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="w-full h-6 text-[10px] border-green-500/60 text-green-700 dark:text-green-400"
+                                          onClick={() => claimShiftMutation.mutate(shift.id)}
+                                          disabled={claimShiftMutation.isPending}
+                                          data-testid={`button-pickup-shift-${shift.id}`}
+                                        >
+                                          <HandMetal className="w-3 h-3 mr-1" />
+                                          Pick Up
+                                        </Button>
+                                      )}
+                                      {isMyPending && (
+                                        <Badge variant="outline" className="text-[9px] border-amber-500/60 text-amber-700 dark:text-amber-400">
+                                          Awaiting Approval
+                                        </Badge>
                                       )}
                                     </div>
-                                    <div className="flex items-center gap-1 text-muted-foreground">
-                                      <Clock className="w-2.5 h-2.5" />
-                                      <span className="text-[10px]">{shift.startTime} - {shift.endTime}</span>
-                                    </div>
-                                    {shift.position && (
-                                      <Badge variant="secondary" className="text-[9px]">{shift.position}</Badge>
-                                    )}
-                                  </div>
-                                ))
+                                  );
+                                })
                               )}
                             </CardContent>
                           </Card>
@@ -823,6 +970,123 @@ export default function Schedule() {
         </div>
       )}
 
+      {activeTab === "pickups" && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-display font-bold">Shift Pickups</h2>
+            <p className="text-sm text-muted-foreground">
+              {canManagePickups ? "Review and approve shift pickup requests" : "View available shifts and your pending requests"}
+            </p>
+          </div>
+
+          {openShifts.length > 0 && !canManagePickups && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">Available Open Shifts</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {openShifts.map((shift) => (
+                  <Card key={shift.id} className="border-dashed border-green-500/60" data-testid={`card-open-shift-${shift.id}`}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <Badge variant="outline" className="text-green-700 dark:text-green-400 border-green-500/60 mb-1">Open Shift</Badge>
+                          <p className="text-sm font-medium">{shift.shiftDate}</p>
+                          <p className="text-sm text-muted-foreground">{shift.startTime} - {shift.endTime}</p>
+                        </div>
+                        <Badge variant="secondary">{shift.department || "kitchen"}</Badge>
+                      </div>
+                      {shift.position && <p className="text-xs text-muted-foreground">Position: {shift.position}</p>}
+                      {shift.notes && <p className="text-xs text-muted-foreground">{shift.notes}</p>}
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => claimShiftMutation.mutate(shift.id)}
+                        disabled={claimShiftMutation.isPending}
+                        data-testid={`button-claim-shift-${shift.id}`}
+                      >
+                        <HandMetal className="w-4 h-4 mr-2" />
+                        Pick Up This Shift
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {canManagePickups && pendingPickups.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">Pending Approval ({pendingPickups.length})</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {pendingPickups.map((shift) => (
+                  <Card key={shift.id} className="border-dashed border-amber-500/60" data-testid={`card-pending-pickup-${shift.id}`}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-500/60 mb-1">Pending Pickup</Badge>
+                          <p className="text-sm font-semibold">{getUserDisplayName(shift.claimedBy || "", members)}</p>
+                          <p className="text-sm text-muted-foreground">{shift.shiftDate}</p>
+                          <p className="text-sm text-muted-foreground">{shift.startTime} - {shift.endTime}</p>
+                        </div>
+                        <Badge variant="secondary">{shift.department || "kitchen"}</Badge>
+                      </div>
+                      {shift.position && <p className="text-xs text-muted-foreground">Position: {shift.position}</p>}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="default"
+                          className="flex-1"
+                          onClick={() => approveShiftMutation.mutate(shift.id)}
+                          disabled={approveShiftMutation.isPending || denyShiftMutation.isPending}
+                          data-testid={`button-approve-pickup-${shift.id}`}
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Approve
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="flex-1"
+                          onClick={() => denyShiftMutation.mutate(shift.id)}
+                          disabled={approveShiftMutation.isPending || denyShiftMutation.isPending}
+                          data-testid={`button-deny-pickup-${shift.id}`}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" />
+                          Deny
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!canManagePickups && myPendingClaims.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">My Pending Requests</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {myPendingClaims.map((shift) => (
+                  <Card key={shift.id} className="border-dashed border-amber-500/60" data-testid={`card-my-pending-${shift.id}`}>
+                    <CardContent className="p-4 space-y-2">
+                      <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-500/60">Awaiting Approval</Badge>
+                      <p className="text-sm">{shift.shiftDate} • {shift.startTime} - {shift.endTime}</p>
+                      <Badge variant="secondary">{shift.department || "kitchen"}</Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(canManagePickups ? pendingPickups.length === 0 : (openShifts.length === 0 && myPendingClaims.length === 0)) && (
+            <div className="text-center py-12">
+              <HandMetal className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-muted-foreground">
+                {canManagePickups ? "No pending pickup requests" : "No open shifts available right now"}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === "locations" && isOwner && (
         <LocationsManager locations={locationsData || []} />
       )}
@@ -834,6 +1098,27 @@ export default function Schedule() {
           </DialogHeader>
           <Form {...shiftForm}>
             <form onSubmit={shiftForm.handleSubmit(handleShiftSubmit)} className="space-y-4">
+              {isManagerOrOwner && (
+                <FormField
+                  control={shiftForm.control}
+                  name="isOpenShift"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex items-center gap-3 p-3 rounded-md border border-dashed border-green-500/60 bg-green-50/30 dark:bg-green-950/10">
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-open-shift"
+                        />
+                        <div>
+                          <Label className="text-sm font-medium">Post as Open Shift</Label>
+                          <p className="text-xs text-muted-foreground">Team members can pick up this shift</p>
+                        </div>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={shiftForm.control}
                 name="department"
@@ -856,28 +1141,30 @@ export default function Schedule() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={shiftForm.control}
-                name="userId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Team Member</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-shift-user">
-                          <SelectValue placeholder="Select team member" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {members.map(m => (
-                          <SelectItem key={m.id} value={m.id}>{getDisplayName(m)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!shiftForm.watch("isOpenShift") && (
+                <FormField
+                  control={shiftForm.control}
+                  name="userId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Team Member</FormLabel>
+                      <Select value={field.value || ""} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-shift-user">
+                            <SelectValue placeholder="Select team member" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {members.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{getDisplayName(m)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={shiftForm.control}
                 name="shiftDate"
@@ -1066,6 +1353,84 @@ export default function Schedule() {
               </Button>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!uploadPreview} onOpenChange={(open) => { if (!open) { setUploadPreview(null); setUploadTeam([]); } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-upload-preview">
+          <DialogHeader>
+            <DialogTitle>
+              <FileSpreadsheet className="w-5 h-5 inline mr-2" />
+              Schedule Preview
+            </DialogTitle>
+          </DialogHeader>
+          {uploadPreview && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Jarvis found {uploadPreview.length} shift(s). Review and confirm to add them to the schedule.
+              </p>
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                {uploadPreview.map((s: any, i: number) => {
+                  const teamMember = uploadTeam.find((t: any) => t.id === s.userId);
+                  return (
+                    <Card key={i} className={!s.userId ? "border-amber-500/60" : ""} data-testid={`card-preview-shift-${i}`}>
+                      <CardContent className="p-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <UserCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+                            <span className="text-sm font-medium">
+                              {teamMember ? teamMember.name || teamMember.username : (s.notes ? `Unknown: ${s.notes}` : "Open Shift")}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="secondary" className="text-[10px]">{s.department || "kitchen"}</Badge>
+                            <span className="text-xs text-muted-foreground">{s.shiftDate}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1 text-muted-foreground">
+                          <Clock className="w-3 h-3" />
+                          <span className="text-xs">{s.startTime} - {s.endTime}</span>
+                        </div>
+                        {s.position && <p className="text-xs text-muted-foreground mt-1">Position: {s.position}</p>}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+              {uploadPreview.some((s: any) => !s.userId) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Shifts highlighted in amber could not be matched to a team member and will be created as open shifts.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    const shiftsToCreate = uploadPreview.map((s: any) => ({
+                      ...s,
+                      locationId: selectedLocationId,
+                    }));
+                    bulkCreateShiftsMutation.mutate(shiftsToCreate);
+                  }}
+                  disabled={bulkCreateShiftsMutation.isPending}
+                  data-testid="button-confirm-import"
+                >
+                  {bulkCreateShiftsMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importing...</>
+                  ) : (
+                    <><CheckCircle2 className="w-4 h-4 mr-2" /> Confirm & Import {uploadPreview.length} Shifts</>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => { setUploadPreview(null); setUploadTeam([]); }}
+                  data-testid="button-cancel-import"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

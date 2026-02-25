@@ -160,6 +160,8 @@ export interface IStorage {
 
   // Shifts
   getShifts(startDate: string, endDate: string, locationId?: number): Promise<Shift[]>;
+  getShiftById(id: number): Promise<Shift | undefined>;
+  getPendingShifts(): Promise<Shift[]>;
   createShift(shift: InsertShift): Promise<Shift>;
   updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
@@ -787,6 +789,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(shifts)
       .where(and(...conditions))
       .orderBy(shifts.shiftDate, shifts.startTime);
+  }
+
+  async getShiftById(id: number): Promise<Shift | undefined> {
+    const [shift] = await db.select().from(shifts).where(eq(shifts.id, id));
+    return shift;
+  }
+
+  async getPendingShifts(): Promise<Shift[]> {
+    return await db.select().from(shifts).where(eq(shifts.status, "pending")).orderBy(shifts.shiftDate, shifts.startTime);
   }
 
   async createShift(shift: InsertShift): Promise<Shift> {

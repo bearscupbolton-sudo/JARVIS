@@ -305,7 +305,7 @@ export type InsertUserLocation = z.infer<typeof insertUserLocationSchema>;
 // === SHIFTS (Schedule) ===
 export const shifts = pgTable("shifts", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id"),
   shiftDate: text("shift_date").notNull(),
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),
@@ -313,6 +313,9 @@ export const shifts = pgTable("shifts", {
   position: text("position"),
   notes: text("notes"),
   locationId: integer("location_id"),
+  status: text("status").notNull().default("assigned"),
+  claimedBy: text("claimed_by"),
+  claimedAt: timestamp("claimed_at"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

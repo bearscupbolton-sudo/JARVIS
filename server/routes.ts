@@ -1596,19 +1596,116 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       if (deptCount >= 10) {
         return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${input.department || "kitchen"}` });
       }
-      const shift = await storage.createShift(input);
-      sendPushToUser(input.userId, {
-        title: "New Shift Assigned",
-        body: `You've been scheduled on ${input.shiftDate} from ${input.startTime} to ${input.endTime}`,
-        tag: `shift-${shift.id}`,
-        url: "/schedule",
-      }).catch(err => console.error("[Push] Shift notification error:", err));
+      const isOpenShift = !input.userId;
+      const shiftData = {
+        ...input,
+        status: isOpenShift ? "open" : "assigned",
+        createdBy: (req.appUser as any).id,
+      };
+      const shift = await storage.createShift(shiftData);
+      if (input.userId) {
+        sendPushToUser(input.userId, {
+          title: "New Shift Assigned",
+          body: `You've been scheduled on ${input.shiftDate} from ${input.startTime} to ${input.endTime}`,
+          tag: `shift-${shift.id}`,
+          url: "/schedule",
+        }).catch(err => console.error("[Push] Shift notification error:", err));
+      }
       res.status(201).json(shift);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
       }
       throw err;
+    }
+  });
+
+  app.post("/api/shifts/:id/claim", isAuthenticated, async (req: any, res) => {
+    try {
+      const shiftId = Number(req.params.id);
+      const userId = (req.appUser as any).id;
+      const shift = await storage.getShiftById(shiftId);
+      if (!shift) return res.status(404).json({ message: "Shift not found" });
+      if (shift.status !== "open") return res.status(400).json({ message: "This shift is not available for pickup" });
+      const updated = await storage.updateShift(shiftId, {
+        status: "pending",
+        claimedBy: userId,
+        claimedAt: new Date(),
+      } as any);
+      const shiftManagers = await authStorage.getAllUsers();
+      const managers = shiftManagers.filter(u => u.isShiftManager || u.role === "owner");
+      for (const mgr of managers) {
+        sendPushToUser(mgr.id, {
+          title: "Shift Pickup Request",
+          body: `A team member has requested to pick up a shift on ${shift.shiftDate} (${shift.startTime} - ${shift.endTime})`,
+          tag: `shift-claim-${shiftId}`,
+          url: "/schedule",
+        }).catch(err => console.error("[Push] Shift claim notification error:", err));
+      }
+      res.json(updated);
+    } catch (err) {
+      console.error("Error claiming shift:", err);
+      res.status(500).json({ message: "Failed to claim shift" });
+    }
+  });
+
+  app.patch("/api/shifts/:id/approve", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && !user.isShiftManager) {
+        return res.status(403).json({ message: "Only shift managers or owners can approve shift pickups" });
+      }
+      const shiftId = Number(req.params.id);
+      const shift = await storage.getShiftById(shiftId);
+      if (!shift) return res.status(404).json({ message: "Shift not found" });
+      if (shift.status !== "pending" || !shift.claimedBy) {
+        return res.status(400).json({ message: "This shift has no pending pickup request" });
+      }
+      const updated = await storage.updateShift(shiftId, {
+        status: "assigned",
+        userId: shift.claimedBy,
+      } as any);
+      sendPushToUser(shift.claimedBy, {
+        title: "Shift Pickup Approved",
+        body: `Your pickup request for ${shift.shiftDate} (${shift.startTime} - ${shift.endTime}) has been approved!`,
+        tag: `shift-approved-${shiftId}`,
+        url: "/schedule",
+      }).catch(err => console.error("[Push] Shift approve notification error:", err));
+      res.json(updated);
+    } catch (err) {
+      console.error("Error approving shift:", err);
+      res.status(500).json({ message: "Failed to approve shift" });
+    }
+  });
+
+  app.patch("/api/shifts/:id/deny", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && !user.isShiftManager) {
+        return res.status(403).json({ message: "Only shift managers or owners can deny shift pickups" });
+      }
+      const shiftId = Number(req.params.id);
+      const shift = await storage.getShiftById(shiftId);
+      if (!shift) return res.status(404).json({ message: "Shift not found" });
+      if (shift.status !== "pending" || !shift.claimedBy) {
+        return res.status(400).json({ message: "This shift has no pending pickup request" });
+      }
+      const claimedBy = shift.claimedBy;
+      const updated = await storage.updateShift(shiftId, {
+        status: "open",
+        claimedBy: null,
+        claimedAt: null,
+      } as any);
+      sendPushToUser(claimedBy, {
+        title: "Shift Pickup Denied",
+        body: `Your pickup request for ${shift.shiftDate} (${shift.startTime} - ${shift.endTime}) was not approved. The shift is still available.`,
+        tag: `shift-denied-${shiftId}`,
+        url: "/schedule",
+      }).catch(err => console.error("[Push] Shift deny notification error:", err));
+      res.json(updated);
+    } catch (err) {
+      console.error("Error denying shift:", err);
+      res.status(500).json({ message: "Failed to deny shift" });
     }
   });
 
@@ -1620,7 +1717,7 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       const oldShift = existingShift.find(s => s.id === id);
       const shift = await storage.updateShift(id, input);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
-      if (oldShift) {
+      if (oldShift && shift.userId) {
         sendPushToUser(shift.userId, {
           title: "Shift Updated",
           body: `Your shift on ${shift.shiftDate} has been updated: ${shift.startTime} - ${shift.endTime}`,
@@ -1640,6 +1737,108 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.delete(api.shifts.delete.path, isAuthenticated, isManager, async (req, res) => {
     await storage.deleteShift(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.post("/api/shifts/import", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && !user.isShiftManager) {
+        return res.status(403).json({ message: "Only shift managers or owners can import schedules" });
+      }
+      const { csvContent, weekStartDate } = req.body;
+      if (!csvContent) {
+        return res.status(400).json({ message: "No schedule data provided" });
+      }
+      const allUsers = await authStorage.getAllUsers();
+      const teamList = allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+        username: u.username || "",
+      })).filter(u => u.name || u.username);
+
+      const { openai: aiClient } = await import("./replit_integrations/audio/client");
+      const prompt = `You are a schedule parser. Given the following CSV/spreadsheet data and a list of team members, extract shift assignments.
+
+Team members (id, name, username):
+${teamList.map(t => `- ${t.id}: ${t.name} (${t.username})`).join("\n")}
+
+Schedule data:
+${csvContent}
+
+${weekStartDate ? `The week starts on: ${weekStartDate}` : ""}
+
+Return a JSON array of shift objects. Each shift should have:
+- userId: the team member's ID from the list above (match by name or username, case-insensitive)
+- shiftDate: in YYYY-MM-DD format
+- startTime: in format like "6:00 AM"
+- endTime: in format like "2:00 PM"
+- department: one of "kitchen", "foh", or "bakery" (infer from context, default to "kitchen")
+- position: optional role description
+- notes: optional notes
+
+If you can't match a name to a team member, set userId to null and add the original name in notes.
+Only return the JSON array, no other text.`;
+
+      const completion = await withRetry(() => aiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 4096,
+        temperature: 0.1,
+      }), "schedule-import");
+
+      const responseText = completion.choices[0]?.message?.content || "[]";
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        return res.status(400).json({ message: "Could not parse schedule from the uploaded data" });
+      }
+      const parsedShifts = JSON.parse(jsonMatch[0]);
+      res.json({ shifts: parsedShifts, teamMembers: teamList });
+    } catch (err) {
+      console.error("Error importing schedule:", err);
+      res.status(500).json({ message: "Failed to parse schedule data" });
+    }
+  });
+
+  app.post("/api/shifts/bulk", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && !user.isShiftManager) {
+        return res.status(403).json({ message: "Only shift managers or owners can bulk create shifts" });
+      }
+      const { shifts: shiftList } = req.body;
+      if (!Array.isArray(shiftList) || shiftList.length === 0) {
+        return res.status(400).json({ message: "No shifts provided" });
+      }
+      const created = [];
+      for (const s of shiftList) {
+        if (!s.shiftDate || !s.startTime || !s.endTime) continue;
+        const shift = await storage.createShift({
+          userId: s.userId || null,
+          shiftDate: s.shiftDate,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          department: s.department || "kitchen",
+          position: s.position || null,
+          notes: s.notes || null,
+          locationId: s.locationId || null,
+          status: s.userId ? "assigned" : "open",
+          createdBy: user.id,
+        } as any);
+        created.push(shift);
+        if (s.userId) {
+          sendPushToUser(s.userId, {
+            title: "New Shift Assigned",
+            body: `You've been scheduled on ${s.shiftDate} from ${s.startTime} to ${s.endTime}`,
+            tag: `shift-${shift.id}`,
+            url: "/schedule",
+          }).catch(err => console.error("[Push] Bulk shift notification error:", err));
+        }
+      }
+      res.status(201).json(created);
+    } catch (err) {
+      console.error("Error bulk creating shifts:", err);
+      res.status(500).json({ message: "Failed to create shifts" });
+    }
   });
 
   // === TIME OFF REQUESTS ===

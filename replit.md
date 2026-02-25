@@ -28,11 +28,14 @@ The recipe system supports inline scaling with two methods: Unit Weight × Unit 
 ### Lamination Studio
 This module tracks the full lifecycle of lamination doughs, assigning sequential numbers for identification. It manages dough creation, folding steps (with optional chilling), resting, and destination assignment (Proof Box, Freezer, Fridge). It includes a multi-pastry shaping feature, allowing multiple pastry types from a single dough, and comprehensive editing capabilities for doughs at various stages. The rack view shows ALL active doughs regardless of date (via `/api/lamination/active`), with a FIFO "Next Up" card highlighting the next ready dough and a clickable line-item list for remaining doughs. Old doughs display their creation date. Dough status changes automatically clear Jarvis briefing caches to prevent stale data. When both folds are 4-fold (4×4), the system prompts for a `foldSubtype` classification: "Cross Laminated" or "Bi Color". This subtype is displayed on dough cards and is editable. Doughs in the Proof Box or Freezer can be trashed with a required reason (stored as `trashReason`, `trashedAt`, `trashedBy`); trashed doughs are excluded from active views.
 
+### Schedule & Shift Management
+The schedule system supports full 24-hour availability (12:00 AM–11:30 PM in 30-minute intervals). Shifts have three statuses: "assigned" (standard), "open" (available for pickup), and "pending" (claimed, awaiting approval). Managers can post open shifts that any team member can pick up; claims require approval from a designated shift manager or owner. The shifts table includes `status`, `claimedBy`, and `claimedAt` columns. Shift managers (designated by owners via `isShiftManager` flag on users) can also upload CSV/Excel spreadsheets which Jarvis AI parses to auto-generate schedules with a preview-and-confirm workflow. Push notifications are sent on shift creation, updates, pickup requests, approvals, and denials.
+
 ### Time Card System
 A comprehensive system includes a persistent Clock Bar, a PIN-based Kiosk Clock, personal "My Time Cards" for history and adjustment requests, and a "Time Review" for managers to approve and edit team entries.
 
 ### Authentication & Roles
-Authentication is PIN-based with server-side PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware.
+Authentication is PIN-based with server-side PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware. Owners can designate managers as "Shift Managers" (`isShiftManager` flag) who gain the ability to approve shift pickup requests and import schedules.
 
 ### AI Integration
 The system integrates with OpenAI-compatible APIs for "Jarvis," an AI assistant providing text chat (with streaming), audio capabilities (STT/TTS), image generation, and invoice scanning via a vision model. Jarvis is contextualized with bakery data and supports kiosk voice commands for logging production.
