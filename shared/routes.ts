@@ -588,6 +588,7 @@ export const api = {
         unit: z.string().optional(),
         quantity: z.number().optional(),
         notes: z.string().optional(),
+        inventoryItemId: z.number().optional(),
       }),
       responses: { 201: z.any(), 400: errorSchemas.validation },
     },

@@ -3055,6 +3055,41 @@ ${sopsHtml}
     }
   });
 
+  // === COST ENGINE ===
+  app.get("/api/recipes/:id/cost", isAuthenticated, async (req: any, res) => {
+    try {
+      const { calculateRecipeCost } = await import("./cost-engine");
+      const id = parseInt(req.params.id);
+      const result = await calculateRecipeCost(id);
+      if (!result) return res.status(404).json({ message: "Recipe not found" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/pastry-items/costs", isAuthenticated, async (req: any, res) => {
+    try {
+      const { calculateAllPastryCosts } = await import("./cost-engine");
+      const result = await calculateAllPastryCosts();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/pastry-items/:id/cost", isAuthenticated, async (req: any, res) => {
+    try {
+      const { calculatePastryCost } = await import("./cost-engine");
+      const id = parseInt(req.params.id);
+      const result = await calculatePastryCost(id);
+      if (!result) return res.status(404).json({ message: "Pastry item not found" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === PERSONALIZED HOME ===
   app.get("/api/home", isAuthenticated, async (req: any, res) => {
     try {

@@ -151,7 +151,10 @@ export default function LaminationStudio() {
   const [totalPieces, setTotalPieces] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<"proof" | "freezer" | "">("");
   const [destinationPieces, setDestinationPieces] = useState("");
-  const [shapingEntries, setShapingEntries] = useState<Array<{ pastryType: string; pieces: number }>>([]);
+  const [weightPerPiece, setWeightPerPiece] = useState("");
+  const [doughWeightG, setDoughWeightG] = useState("");
+  const [wasteG, setWasteG] = useState("");
+  const [shapingEntries, setShapingEntries] = useState<Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>>([]);
 
   const [editDough, setEditDough] = useState<LaminationDough | null>(null);
   const [editDoughType, setEditDoughType] = useState("");
@@ -356,6 +359,9 @@ export default function LaminationStudio() {
     setCompleteDoughStep("pastry");
     setPastryType("");
     setTotalPieces("");
+    setWeightPerPiece("");
+    setDoughWeightG("");
+    setWasteG("");
     setSelectedDestination("");
     setDestinationPieces("");
     setShapingEntries([]);
@@ -495,6 +501,9 @@ export default function LaminationStudio() {
     setCompleteDoughStep("pastry");
     setPastryType(dough.intendedPastry || "");
     setTotalPieces("");
+    setWeightPerPiece("");
+    setDoughWeightG("");
+    setWasteG("");
     setSelectedDestination("");
     setDestinationPieces("");
     setShapingEntries([]);
@@ -504,9 +513,11 @@ export default function LaminationStudio() {
     if (!pastryType || !totalPieces) return;
     const pieces = parseInt(totalPieces);
     if (isNaN(pieces) || pieces <= 0) return;
-    setShapingEntries(prev => [...prev, { pastryType, pieces }]);
+    const wpg = parseFloat(weightPerPiece) || undefined;
+    setShapingEntries(prev => [...prev, { pastryType, pieces, weightPerPieceG: wpg }]);
     setPastryType("");
     setTotalPieces("");
+    setWeightPerPiece("");
   };
 
   const handleRemoveShapingEntry = (idx: number) => {
@@ -518,13 +529,15 @@ export default function LaminationStudio() {
     if (pastryType && totalPieces) {
       const pieces = parseInt(totalPieces);
       if (!isNaN(pieces) && pieces > 0) {
-        entries = [...entries, { pastryType, pieces }];
+        const wpg = parseFloat(weightPerPiece) || undefined;
+        entries = [...entries, { pastryType, pieces, weightPerPieceG: wpg }];
       }
     }
     if (entries.length === 0) return;
     setShapingEntries(entries);
     setPastryType("");
     setTotalPieces("");
+    setWeightPerPiece("");
     setCompleteDoughStep("destination");
     const totalAllPieces = entries.reduce((sum, e) => sum + e.pieces, 0);
     setDestinationPieces(String(totalAllPieces));
@@ -550,6 +563,8 @@ export default function LaminationStudio() {
       shapedBy: user?.id || null,
       shapedAt: now,
       shapings: shapingEntries,
+      doughWeightG: doughWeightG ? parseFloat(doughWeightG) : null,
+      wasteG: wasteG ? parseFloat(wasteG) : null,
     };
 
     if (selectedDestination === "proof") {
@@ -1301,11 +1316,11 @@ export default function LaminationStudio() {
                         <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                         {dough.shapings && dough.shapings.length > 1 ? (
                           <div data-testid={`proof-pastry-type-${dough.id}`}>
-                            {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                            {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
                               const pp = getPassportForPastryName(s.pastryType);
                               return (
                                 <div key={i} className="flex items-center gap-1">
-                                  <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                  <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
                                   {pp && (
                                     <Link href={`/pastry-passports/${pp.id}`}>
                                       <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}-${i}`} />
@@ -1387,6 +1402,13 @@ export default function LaminationStudio() {
                         )}
                       </div>
                     </div>
+
+                    {(dough.doughWeightG || dough.wasteG) && (
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`proof-weight-info-${dough.id}`}>
+                        {dough.doughWeightG && <span>Dough: {dough.doughWeightG}g</span>}
+                        {dough.wasteG && <span>Waste: {dough.wasteG}g</span>}
+                      </div>
+                    )}
 
                     <div className="text-xs space-y-1 border-t pt-2">
                       {dough.shapedAt && (
@@ -1499,11 +1521,11 @@ export default function LaminationStudio() {
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                       {dough.shapings && dough.shapings.length > 1 ? (
                         <div data-testid={`freezer-pastry-type-${dough.id}`}>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
                             const pp = getPassportForPastryName(s.pastryType);
                             return (
                               <div key={i} className="flex items-center gap-1">
-                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
                                 {pp && (
                                   <Link href={`/pastry-passports/${pp.id}`}>
                                     <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}-${i}`} />
@@ -1549,6 +1571,13 @@ export default function LaminationStudio() {
                       )}
                     </div>
                   </div>
+
+                  {(dough.doughWeightG || dough.wasteG) && (
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`freezer-weight-info-${dough.id}`}>
+                      {dough.doughWeightG && <span>Dough: {dough.doughWeightG}g</span>}
+                      {dough.wasteG && <span>Waste: {dough.wasteG}g</span>}
+                    </div>
+                  )}
 
                   <div className="text-xs space-y-1 border-t pt-2">
                     {dough.shapedAt && (
@@ -1625,11 +1654,11 @@ export default function LaminationStudio() {
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                       {dough.shapings && dough.shapings.length > 1 ? (
                         <div>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
                             const pp = getPassportForPastryName(s.pastryType);
                             return (
                               <div key={i} className="flex items-center gap-1">
-                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
                                 {pp && (
                                   <Link href={`/pastry-passports/${pp.id}`}>
                                     <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}-${i}`} />
@@ -1730,8 +1759,8 @@ export default function LaminationStudio() {
                       <p className="text-muted-foreground text-xs">Pastry</p>
                       {dough.shapings && dough.shapings.length > 1 ? (
                         <div>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
-                            <p key={i} className="font-medium text-xs">{s.pastryType} ({s.pieces})</p>
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => (
+                            <p key={i} className="font-medium text-xs">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
                           ))}
                         </div>
                       ) : (
@@ -2060,7 +2089,10 @@ export default function LaminationStudio() {
                   <label className="text-sm font-medium block">Added Pastries</label>
                   {shapingEntries.map((entry, idx) => (
                     <div key={idx} className="flex items-center justify-between p-2 rounded-md border bg-muted/30" data-testid={`shaping-entry-${idx}`}>
-                      <span className="text-sm font-medium">{entry.pastryType} — {entry.pieces} pcs</span>
+                      <span className="text-sm font-medium">
+                        {entry.pastryType} — {entry.pieces} pcs
+                        {entry.weightPerPieceG && <span className="text-muted-foreground ml-1">({entry.weightPerPieceG}g/pc)</span>}
+                      </span>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -2097,16 +2129,30 @@ export default function LaminationStudio() {
                   </div>
                 )}
               </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Pieces</label>
-                <Input
-                  type="number"
-                  placeholder="Number of pieces"
-                  value={totalPieces}
-                  onChange={(e) => setTotalPieces(e.target.value)}
-                  min={1}
-                  data-testid="input-total-pieces"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Pieces</label>
+                  <Input
+                    type="number"
+                    placeholder="Number of pieces"
+                    value={totalPieces}
+                    onChange={(e) => setTotalPieces(e.target.value)}
+                    min={1}
+                    data-testid="input-total-pieces"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Weight/pc (g)</label>
+                  <Input
+                    type="number"
+                    placeholder="Optional"
+                    value={weightPerPiece}
+                    onChange={(e) => setWeightPerPiece(e.target.value)}
+                    min={0}
+                    step="0.1"
+                    data-testid="input-weight-per-piece"
+                  />
+                </div>
               </div>
               {pastryType && totalPieces && (
                 <Button
@@ -2166,6 +2212,32 @@ export default function LaminationStudio() {
                   min={1}
                   data-testid="input-destination-pieces"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Total Dough Weight (g)</label>
+                  <Input
+                    type="number"
+                    placeholder="Optional"
+                    value={doughWeightG}
+                    onChange={(e) => setDoughWeightG(e.target.value)}
+                    min={0}
+                    step="0.1"
+                    data-testid="input-dough-weight"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Waste (g)</label>
+                  <Input
+                    type="number"
+                    placeholder="Optional"
+                    value={wasteG}
+                    onChange={(e) => setWasteG(e.target.value)}
+                    min={0}
+                    step="0.1"
+                    data-testid="input-waste"
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setCompleteDoughStep("pastry")} data-testid="button-destination-back">

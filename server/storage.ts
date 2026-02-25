@@ -717,8 +717,13 @@ export class DatabaseStorage implements IStorage {
       createdLines.push(createdLine);
 
       if (matchedItemId) {
+        const costUpdate: any = { onHand: sql`${inventoryItems.onHand} + ${line.quantity}` };
+        if (line.unitPrice != null && line.unitPrice > 0) {
+          costUpdate.costPerUnit = line.unitPrice;
+          costUpdate.lastUpdatedCost = new Date();
+        }
         await db.update(inventoryItems)
-          .set({ onHand: sql`${inventoryItems.onHand} + ${line.quantity}` })
+          .set(costUpdate)
           .where(eq(inventoryItems.id, matchedItemId));
 
         if (line.manualMatchId && line.saveAsAlias) {

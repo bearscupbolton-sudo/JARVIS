@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -25,8 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink } from "lucide-react";
-import type { PastryItem } from "@shared/schema";
+import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink, DollarSign, AlertCircle } from "lucide-react";
+import type { PastryItem, InventoryItem } from "@shared/schema";
+import { Separator } from "@/components/ui/separator";
 
 const PASSPORT_CATEGORIES = [
   "Bread",
@@ -116,6 +117,17 @@ export default function PastryPassportDetail() {
   });
   const { data: recipes } = useQuery<any[]>({ queryKey: ['/api/recipes'] });
   const { data: pastryItems } = useQuery<PastryItem[]>({ queryKey: ['/api/pastry-items'] });
+  const { data: inventoryItems } = useQuery<InventoryItem[]>({ queryKey: ['/api/inventory'] });
+
+  const { data: costData, isLoading: costLoading } = useQuery<any>({
+    queryKey: ['/api/pastry-items', passport?.pastryItemId, 'cost'],
+    queryFn: async () => {
+      const res = await fetch(`/api/pastry-items/${passport.pastryItemId}/cost`);
+      if (!res.ok) throw new Error('Failed to fetch cost data');
+      return res.json();
+    },
+    enabled: !!passport?.pastryItemId,
+  });
 
   const linkedPastryItem = passport?.pastryItemId ? pastryItems?.find(i => i.id === passport.pastryItemId) : null;
 
@@ -142,6 +154,7 @@ export default function PastryPassportDetail() {
   const [addinQuantity, setAddinQuantity] = useState("");
   const [addinUnit, setAddinUnit] = useState("");
   const [addinNotes, setAddinNotes] = useState("");
+  const [addinInventoryItemId, setAddinInventoryItemId] = useState<string>("");
   const [addingAddin, setAddingAddin] = useState(false);
 
   const [uploading, setUploading] = useState(false);
@@ -296,6 +309,7 @@ export default function PastryPassportDetail() {
         unit: addinUnit || undefined,
         quantity: addinQuantity ? Number(addinQuantity) : undefined,
         notes: addinNotes || undefined,
+        inventoryItemId: addinInventoryItemId ? Number(addinInventoryItemId) : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/pastry-passports', params.id] });
       toast({ title: "Ingredient added", description: "Add-in ingredient saved." });
@@ -304,6 +318,7 @@ export default function PastryPassportDetail() {
       setAddinQuantity("");
       setAddinUnit("");
       setAddinNotes("");
+      setAddinInventoryItemId("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -712,6 +727,31 @@ export default function PastryPassportDetail() {
                     </DialogHeader>
                     <div className="space-y-4">
                       <div className="space-y-2">
+                        <Label>Link to Inventory Item (optional)</Label>
+                        <Select value={addinInventoryItemId} onValueChange={(val) => {
+                          setAddinInventoryItemId(val === "none" ? "" : val);
+                          if (val && val !== "none") {
+                            const item = inventoryItems?.find(i => i.id === Number(val));
+                            if (item) {
+                              setAddinName(item.name);
+                              if (item.unit) setAddinUnit(item.unit);
+                            }
+                          }
+                        }}>
+                          <SelectTrigger data-testid="select-addin-inventory-item">
+                            <SelectValue placeholder="Select inventory item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            {inventoryItems?.map((item) => (
+                              <SelectItem key={item.id} value={String(item.id)}>
+                                {item.name} {item.costPerUnit != null ? `($${item.costPerUnit.toFixed(2)}/${item.unit})` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
                         <Label>Name</Label>
                         <Input value={addinName} onChange={(e) => setAddinName(e.target.value)} placeholder="Ingredient name" data-testid="input-addin-name" />
                       </div>
@@ -744,20 +784,28 @@ export default function PastryPassportDetail() {
                 <p className="text-muted-foreground text-sm italic" data-testid="text-no-addins">No add-ins yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {addins.map((a: any) => (
+                  {addins.map((a: any) => {
+                    const linkedInventory = a.inventoryItemId ? inventoryItems?.find(i => i.id === a.inventoryItemId) : null;
+                    return (
                     <div key={a.id} className="flex items-center justify-between gap-2 p-3 rounded-md bg-muted/30 border border-border" data-testid={`addin-item-${a.id}`}>
                       <div className="min-w-0">
                         <p className="font-medium text-foreground" data-testid={`text-addin-name-${a.id}`}>
                           {a.name}
                           {a.quantity != null && a.unit && <span className="text-muted-foreground ml-2 text-sm">{a.quantity} {a.unit}</span>}
                         </p>
+                        {linkedInventory && linkedInventory.costPerUnit != null && (
+                          <p className="text-xs text-muted-foreground" data-testid={`text-addin-cost-${a.id}`}>
+                            {"$"}{linkedInventory.costPerUnit.toFixed(2)}/{linkedInventory.unit}
+                          </p>
+                        )}
                         {a.notes && <p className="text-xs text-muted-foreground">{a.notes}</p>}
                       </div>
                       <Button variant="ghost" size="icon" onClick={() => handleDeleteAddin(a.id)} data-testid={`button-delete-addin-${a.id}`}>
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -790,6 +838,127 @@ export default function PastryPassportDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {passport?.pastryItemId && (
+        <Card data-testid="card-cost-breakdown">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap space-y-0 pb-4">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-muted-foreground" />
+              <CardTitle className="text-lg">Cost Breakdown</CardTitle>
+            </div>
+            {costData && (
+              <Badge
+                variant={costData.dataCompleteness === "full" ? "default" : "secondary"}
+                className={
+                  costData.dataCompleteness === "full"
+                    ? "bg-green-600 text-white"
+                    : costData.dataCompleteness === "partial"
+                    ? "bg-yellow-600 text-white"
+                    : ""
+                }
+                data-testid="badge-data-completeness"
+              >
+                {costData.dataCompleteness === "full"
+                  ? "Complete"
+                  : costData.dataCompleteness === "partial"
+                  ? "Partial Data"
+                  : "No Data"}
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {costLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            ) : !costData ? (
+              <p className="text-muted-foreground text-sm italic" data-testid="text-no-cost-data">
+                Unable to calculate costs.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2" data-testid="section-dough-cost">
+                  <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Dough</h4>
+                  {costData.doughCost.costPerPiece != null ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-sm text-foreground" data-testid="text-dough-recipe">
+                          {costData.doughCost.recipeName || "Mother Dough"}
+                        </span>
+                        <span className="font-mono text-sm font-medium" data-testid="text-dough-cost-per-piece">
+                          ${costData.doughCost.costPerPiece.toFixed(2)}/pc
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground" data-testid="text-dough-allocation">
+                        {costData.doughCost.allocationMethod === "weight"
+                          ? `Allocated by weight (${costData.doughCost.weightPerPieceG}g/pc of ${costData.doughCost.doughWeightG}g batch)`
+                          : costData.doughCost.allocationMethod === "equal"
+                          ? `Split equally across ~${costData.doughCost.piecesFromDough} pieces`
+                          : "No allocation data"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <AlertCircle className="w-4 h-4" />
+                      <span data-testid="text-no-dough-cost">No dough cost data available</span>
+                    </div>
+                  )}
+                </div>
+
+                {costData.addinsCost.items.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2" data-testid="section-addins-cost">
+                      <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Add-ins</h4>
+                      <div className="space-y-1">
+                        {costData.addinsCost.items.map((item: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 flex-wrap" data-testid={`addin-cost-${idx}`}>
+                            <span className="text-sm text-foreground">{item.name}</span>
+                            <span className="font-mono text-sm text-muted-foreground">
+                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "No cost data"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {costData.componentsCost.items.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2" data-testid="section-components-cost">
+                      <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Components</h4>
+                      <div className="space-y-1">
+                        {costData.componentsCost.items.map((item: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 flex-wrap" data-testid={`component-cost-${idx}`}>
+                            <span className="text-sm text-foreground">{item.recipeName}</span>
+                            <span className="font-mono text-sm text-muted-foreground">
+                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "No cost data"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </CardContent>
+          {costData?.totalCost != null && (
+            <CardFooter className="border-t border-border pt-4">
+              <div className="flex items-center justify-between gap-2 w-full flex-wrap">
+                <span className="text-sm font-semibold uppercase tracking-wider" data-testid="label-total-cogs">Total COGS</span>
+                <span className="font-mono text-lg font-bold" data-testid="text-total-cogs">
+                  ${costData.totalCost.toFixed(2)}
+                </span>
+              </div>
+            </CardFooter>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

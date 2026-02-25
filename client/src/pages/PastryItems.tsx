@@ -65,6 +65,10 @@ export default function PastryItems() {
     queryKey: ["/api/pastry-passports"],
   });
 
+  const { data: costs } = useQuery<Record<number, { totalCost: number | null; dataCompleteness: "full" | "partial" | "none" }>>({
+    queryKey: ["/api/pastry-items/costs"],
+  });
+
   const passportByItemId = new Map<number, PastryPassport>();
   passports?.forEach(p => {
     if (p.pastryItemId) passportByItemId.set(p.pastryItemId, p);
@@ -196,6 +200,7 @@ export default function PastryItems() {
                   <div className="space-y-2">
                     {groupItems.map((item) => {
                       const linkedPassport = passportByItemId.get(item.id);
+                      const costData = costs?.[item.id];
                       return (
                         <div
                           key={item.id}
@@ -204,9 +209,20 @@ export default function PastryItems() {
                           }`}
                           data-testid={`pastry-item-${item.id}`}
                         >
-                          <span className="flex-1 text-sm font-medium" data-testid={`pastry-name-${item.id}`}>
-                            {item.name}
-                          </span>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium" data-testid={`pastry-name-${item.id}`}>
+                              {item.name}
+                            </span>
+                            {costData && costData.totalCost != null ? (
+                              <span className="ml-2 text-xs text-muted-foreground" data-testid={`cost-estimate-${item.id}`}>
+                                est. ${costData.totalCost.toFixed(2)}
+                              </span>
+                            ) : (
+                              <span className="ml-2 text-xs text-muted-foreground" data-testid={`cost-estimate-${item.id}`}>
+                                —
+                              </span>
+                            )}
+                          </div>
                           {linkedPassport ? (
                             <Link href={`/pastry-passports/${linkedPassport.id}`}>
                               <Badge variant="secondary" className="gap-1 cursor-pointer text-xs" data-testid={`badge-passport-${item.id}`}>

@@ -210,6 +210,8 @@ export const inventoryItems = pgTable("inventory_items", {
   unit: text("unit").notNull(),
   aliases: text("aliases").array().notNull().default([]),
   onHand: doublePrecision("on_hand").notNull().default(0),
+  costPerUnit: doublePrecision("cost_per_unit"),
+  lastUpdatedCost: timestamp("last_updated_cost"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -426,6 +428,7 @@ export const pastryAddins = pgTable("pastry_addins", {
   unit: text("unit"),
   quantity: doublePrecision("quantity"),
   notes: text("notes"),
+  inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
 });
 
 export const insertPastryAddinSchema = createInsertSchema(pastryAddins).omit({ id: true });
@@ -593,7 +596,9 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   bakedBy: text("baked_by"),
   intendedPastry: text("intended_pastry"),
   chillingUntil: timestamp("chilling_until"),
-  shapings: jsonb("shapings").$type<Array<{ pastryType: string; pieces: number }>>(),
+  shapings: jsonb("shapings").$type<Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>>(),
+  doughWeightG: doublePrecision("dough_weight_g"),
+  wasteG: doublePrecision("waste_g"),
   roomTempAt: timestamp("room_temp_at"),
   roomTempReturnedAt: timestamp("room_temp_returned_at"),
   adjustedProofStartedAt: timestamp("adjusted_proof_started_at"),
