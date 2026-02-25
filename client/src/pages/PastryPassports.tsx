@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertPastryPassportSchema, type PastryPassport, type Recipe, type InsertPastryPassport } from "@shared/schema";
+import { insertPastryPassportSchema, type PastryPassport, type PastryItem, type Recipe, type InsertPastryPassport } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -46,23 +46,41 @@ const PASSPORT_CATEGORIES = [
   "Mother",
 ] as const;
 
-function CreatePassportDialog() {
-  const [open, setOpen] = useState(false);
+const DOUGH_TYPE_TO_CATEGORY: Record<string, string> = {
+  "Croissant": "Viennoiserie",
+  "Danish": "Viennoiserie",
+};
+
+function CreatePassportDialog({ preselectedItemId }: { preselectedItemId?: number }) {
+  const [open, setOpen] = useState(!!preselectedItemId);
   const { toast } = useToast();
 
   const { data: recipes } = useQuery<Recipe[]>({
     queryKey: ["/api/recipes"],
   });
 
+  const { data: pastryItems } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items"],
+  });
+
+  const { data: existingPassports } = useQuery<PastryPassport[]>({
+    queryKey: ["/api/pastry-passports"],
+  });
+
+  const linkedItemIds = new Set(existingPassports?.filter(p => p.pastryItemId).map(p => p.pastryItemId) || []);
+
+  const preselectedItem = preselectedItemId ? pastryItems?.find(i => i.id === preselectedItemId) : undefined;
+
   const form = useForm<InsertPastryPassport>({
     resolver: zodResolver(insertPastryPassportSchema),
     defaultValues: {
-      name: "",
-      category: "",
+      name: preselectedItem?.name || "",
+      category: preselectedItem ? (DOUGH_TYPE_TO_CATEGORY[preselectedItem.doughType] || "") : "",
       descriptionText: "",
       photoUrl: "",
       primaryRecipeId: undefined,
       motherRecipeId: undefined,
+      pastryItemId: preselectedItemId || undefined,
       assemblyText: "",
       bakingText: "",
       finishText: "",
@@ -72,6 +90,23 @@ function CreatePassportDialog() {
   const watchCategory = form.watch("category");
 
   const motherRecipes = recipes?.filter((r) => r.category === "Mother") || [];
+
+  const handlePastryItemSelect = (val: string) => {
+    if (val === "none") {
+      form.setValue("pastryItemId", undefined as any);
+      return;
+    }
+    const itemId = Number(val);
+    const item = pastryItems?.find(i => i.id === itemId);
+    if (item) {
+      form.setValue("pastryItemId", item.id);
+      form.setValue("name", item.name);
+      const mappedCategory = DOUGH_TYPE_TO_CATEGORY[item.doughType];
+      if (mappedCategory) {
+        form.setValue("category", mappedCategory);
+      }
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: async (data: InsertPastryPassport) => {
@@ -94,6 +129,7 @@ function CreatePassportDialog() {
       ...data,
       primaryRecipeId: data.primaryRecipeId || null,
       motherRecipeId: data.motherRecipeId || null,
+      pastryItemId: data.pastryItemId || null,
       photoUrl: data.photoUrl || null,
       assemblyText: data.assemblyText || null,
       bakingText: data.bakingText || null,
@@ -102,6 +138,8 @@ function CreatePassportDialog() {
     };
     mutation.mutate(cleaned);
   };
+
+  const availableItems = pastryItems?.filter(i => i.isActive && !linkedItemIds.has(i.id)) || [];
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -116,6 +154,35 @@ function CreatePassportDialog() {
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="pastryItemId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Link to Master Pastry List (optional)</FormLabel>
+                  <Select
+                    onValueChange={handlePastryItemSelect}
+                    value={field.value ? String(field.value) : ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger data-testid="select-passport-pastry-item">
+                        <SelectValue placeholder="Select from master list..." />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">None (manual entry)</SelectItem>
+                      {availableItems.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)} data-testid={`select-pastry-item-${item.id}`}>
+                          {item.name} ({item.doughType})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="name"
@@ -254,6 +321,9 @@ export default function PastryPassports() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const createForItemId = urlParams.get("createFor") ? Number(urlParams.get("createFor")) : undefined;
+
   const categories = ["All", ...PASSPORT_CATEGORIES];
 
   const filteredPassports = passports?.filter((p) => {
@@ -269,7 +339,7 @@ export default function PastryPassports() {
           <h1 className="text-3xl font-display font-bold" data-testid="text-page-title">Pastry Passports</h1>
           <p className="text-muted-foreground" data-testid="text-page-subtitle">Every pastry tells a story. Here are their travel documents.</p>
         </div>
-        <CreatePassportDialog />
+        <CreatePassportDialog preselectedItemId={createForItemId} />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-md border border-border shadow-sm">

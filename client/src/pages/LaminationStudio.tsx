@@ -47,9 +47,11 @@ import {
   CalendarDays,
   Sun,
   RotateCcw,
+  Stamp,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
-import type { LaminationDough, PastryItem } from "@shared/schema";
+import { Link } from "wouter";
+import type { LaminationDough, PastryItem, PastryPassport } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
@@ -196,6 +198,21 @@ export default function LaminationStudio() {
   const { data: userNames = {} } = useQuery<Record<string, string>>({
     queryKey: ["/api/user-names"],
   });
+
+  const { data: allPassports } = useQuery<PastryPassport[]>({
+    queryKey: ["/api/pastry-passports"],
+  });
+  const { data: allPastryItems } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items"],
+  });
+
+  const getPassportForPastryName = (name: string): PastryPassport | undefined => {
+    const item = allPastryItems?.find(i => i.name === name);
+    if (item) {
+      return allPassports?.find(p => p.pastryItemId === item.id);
+    }
+    return allPassports?.find(p => p.name.toLowerCase() === name.toLowerCase());
+  };
 
   const completeDoughType = completeDough?.doughType;
   const { data: pastryItemsForType } = useQuery<PastryItem[]>({
@@ -1284,12 +1301,29 @@ export default function LaminationStudio() {
                         <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                         {dough.shapings && dough.shapings.length > 1 ? (
                           <div data-testid={`proof-pastry-type-${dough.id}`}>
-                            {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
-                              <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
-                            ))}
+                            {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                              const pp = getPassportForPastryName(s.pastryType);
+                              return (
+                                <div key={i} className="flex items-center gap-1">
+                                  <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                  {pp && (
+                                    <Link href={`/pastry-passports/${pp.id}`}>
+                                      <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}-${i}`} />
+                                    </Link>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
-                          <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                          <div className="flex items-center gap-1">
+                            <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                            {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
+                              <Link href={`/pastry-passports/${pp.id}`}>
+                                <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}`} />
+                              </Link>
+                            ) : null; })()}
+                          </div>
                         )}
                         {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                           <p className="text-xs text-muted-foreground line-through" data-testid={`proof-intended-pastry-${dough.id}`}>
@@ -1465,12 +1499,29 @@ export default function LaminationStudio() {
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                       {dough.shapings && dough.shapings.length > 1 ? (
                         <div data-testid={`freezer-pastry-type-${dough.id}`}>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
-                            <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
-                          ))}
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                            const pp = getPassportForPastryName(s.pastryType);
+                            return (
+                              <div key={i} className="flex items-center gap-1">
+                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                {pp && (
+                                  <Link href={`/pastry-passports/${pp.id}`}>
+                                    <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}-${i}`} />
+                                  </Link>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
-                        <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
+                          {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
+                            <Link href={`/pastry-passports/${pp.id}`}>
+                              <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}`} />
+                            </Link>
+                          ) : null; })()}
+                        </div>
                       )}
                       {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                         <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
@@ -1574,12 +1625,29 @@ export default function LaminationStudio() {
                       <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
                       {dough.shapings && dough.shapings.length > 1 ? (
                         <div>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => (
-                            <p key={i} className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
-                          ))}
+                          {(dough.shapings as Array<{ pastryType: string; pieces: number }>).map((s, i) => {
+                            const pp = getPassportForPastryName(s.pastryType);
+                            return (
+                              <div key={i} className="flex items-center gap-1">
+                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces})</p>
+                                {pp && (
+                                  <Link href={`/pastry-passports/${pp.id}`}>
+                                    <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}-${i}`} />
+                                  </Link>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
-                        <p className="text-xs font-medium">{dough.pastryType}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs font-medium">{dough.pastryType}</p>
+                          {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
+                            <Link href={`/pastry-passports/${pp.id}`}>
+                              <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}`} />
+                            </Link>
+                          ) : null; })()}
+                        </div>
                       )}
                       {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
                         <p className="text-xs text-muted-foreground line-through">Intended: {dough.intendedPastry}</p>

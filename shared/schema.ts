@@ -381,6 +381,7 @@ export const pastryPassports = pgTable("pastry_passports", {
   photoUrl: text("photo_url"),
   primaryRecipeId: integer("primary_recipe_id").references(() => recipes.id),
   motherRecipeId: integer("mother_recipe_id").references(() => recipes.id),
+  pastryItemId: integer("pastry_item_id").references(() => pastryItems.id),
   descriptionText: text("description_text"),
   assemblyText: text("assembly_text"),
   bakingText: text("baking_text"),

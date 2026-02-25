@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,8 +30,10 @@ import {
   Cookie,
   ToggleLeft,
   ToggleRight,
+  Stamp,
+  ExternalLink,
 } from "lucide-react";
-import type { PastryItem } from "@shared/schema";
+import type { PastryItem, PastryPassport } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 
@@ -44,6 +47,15 @@ export default function PastryItems() {
 
   const { data: items, isLoading } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
+  });
+
+  const { data: passports } = useQuery<PastryPassport[]>({
+    queryKey: ["/api/pastry-passports"],
+  });
+
+  const passportByItemId = new Map<number, PastryPassport>();
+  passports?.forEach(p => {
+    if (p.pastryItemId) passportByItemId.set(p.pastryItemId, p);
   });
 
   const createMutation = useMutation({
@@ -164,46 +176,63 @@ export default function PastryItems() {
                   <p className="text-sm text-muted-foreground py-2">No pastries yet</p>
                 ) : (
                   <div className="space-y-2">
-                    {groupItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`flex items-center gap-2 p-2 rounded-md border ${
-                          item.isActive ? "" : "opacity-50"
-                        }`}
-                        data-testid={`pastry-item-${item.id}`}
-                      >
-                        <span className="flex-1 text-sm font-medium" data-testid={`pastry-name-${item.id}`}>
-                          {item.name}
-                        </span>
-                        {!item.isActive && (
-                          <Badge variant="outline" className="text-xs">Inactive</Badge>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => toggleActive(item)}
-                          data-testid={`toggle-active-${item.id}`}
+                    {groupItems.map((item) => {
+                      const linkedPassport = passportByItemId.get(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex items-center gap-2 p-2 rounded-md border ${
+                            item.isActive ? "" : "opacity-50"
+                          }`}
+                          data-testid={`pastry-item-${item.id}`}
                         >
-                          {item.isActive ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => openEdit(item)}
-                          data-testid={`edit-pastry-${item.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deleteMutation.mutate(item.id)}
-                          data-testid={`delete-pastry-${item.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
+                          <span className="flex-1 text-sm font-medium" data-testid={`pastry-name-${item.id}`}>
+                            {item.name}
+                          </span>
+                          {linkedPassport ? (
+                            <Link href={`/pastry-passports/${linkedPassport.id}`}>
+                              <Badge variant="secondary" className="gap-1 cursor-pointer text-xs" data-testid={`badge-passport-${item.id}`}>
+                                <Stamp className="w-3 h-3" /> Passport
+                                <ExternalLink className="w-3 h-3" />
+                              </Badge>
+                            </Link>
+                          ) : (
+                            <Link href={`/pastry-passports?createFor=${item.id}`}>
+                              <Badge variant="outline" className="gap-1 cursor-pointer text-xs text-muted-foreground" data-testid={`badge-no-passport-${item.id}`}>
+                                <Plus className="w-3 h-3" /> Add Passport
+                              </Badge>
+                            </Link>
+                          )}
+                          {!item.isActive && (
+                            <Badge variant="outline" className="text-xs">Inactive</Badge>
+                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => toggleActive(item)}
+                            data-testid={`toggle-active-${item.id}`}
+                          >
+                            {item.isActive ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => openEdit(item)}
+                            data-testid={`edit-pastry-${item.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteMutation.mutate(item.id)}
+                            data-testid={`delete-pastry-${item.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

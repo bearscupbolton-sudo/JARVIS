@@ -25,7 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink } from "lucide-react";
+import type { PastryItem } from "@shared/schema";
 
 const PASSPORT_CATEGORIES = [
   "Bread",
@@ -114,6 +115,9 @@ export default function PastryPassportDetail() {
     queryKey: ['/api/pastry-passports', params.id],
   });
   const { data: recipes } = useQuery<any[]>({ queryKey: ['/api/recipes'] });
+  const { data: pastryItems } = useQuery<PastryItem[]>({ queryKey: ['/api/pastry-items'] });
+
+  const linkedPastryItem = passport?.pastryItemId ? pastryItems?.find(i => i.id === passport.pastryItemId) : null;
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -405,6 +409,15 @@ export default function PastryPassportDetail() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {linkedPastryItem && (
+                  <Link href="/admin/pastry-items">
+                    <Badge variant="secondary" className="gap-1 cursor-pointer" data-testid="badge-linked-pastry-item">
+                      <Package className="w-3 h-3" /> {linkedPastryItem.doughType} Dough
+                      {!linkedPastryItem.isActive && <span className="text-muted-foreground">(Inactive)</span>}
+                      <ExternalLink className="w-3 h-3" />
+                    </Badge>
+                  </Link>
+                )}
                 {motherRecipe && (
                   <Link href={`/recipes/${motherRecipe.id}`}>
                     <Badge variant="outline" className="gap-1 cursor-pointer" data-testid="badge-mother-recipe">
