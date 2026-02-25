@@ -45,6 +45,8 @@ import {
   X,
   ChevronRight,
   CalendarDays,
+  Sun,
+  RotateCcw,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import type { LaminationDough, PastryItem } from "@shared/schema";
@@ -58,6 +60,7 @@ const CHILL_DURATION_MS = 20 * 60 * 1000;
 const PROOF_RED_MS = 2 * 60 * 60 * 1000;
 const PROOF_YELLOW_MS = 3 * 60 * 60 * 1000;
 const PROOF_GREEN_MS = 4 * 60 * 60 * 1000;
+const ROOM_TEMP_MIN_MS = 5 * 60 * 60 * 1000;
 
 function getRestProgress(restStartedAt: string | Date | null): { elapsed: number; remaining: number; percent: number; isResting: boolean } {
   if (!restStartedAt) return { elapsed: 0, remaining: REST_DURATION_MS, percent: 0, isResting: false };
@@ -80,14 +83,23 @@ function getChillProgress(chillingUntil: string | Date | null): { elapsed: numbe
   return { elapsed, remaining, percent, isChilling: remaining > 0 };
 }
 
-function getProofState(proofStartedAt: string | Date | null): { elapsed: number; phase: "red" | "yellow" | "green" | "overproofing" } {
-  if (!proofStartedAt) return { elapsed: 0, phase: "red" };
-  const start = new Date(proofStartedAt).getTime();
+function getProofState(dough: { proofStartedAt: string | Date | null; adjustedProofStartedAt?: string | Date | null }): { elapsed: number; phase: "red" | "yellow" | "green" | "overproofing" } {
+  const effectiveStart = dough.adjustedProofStartedAt || dough.proofStartedAt;
+  if (!effectiveStart) return { elapsed: 0, phase: "red" };
+  const start = new Date(effectiveStart).getTime();
   const elapsed = Date.now() - start;
   if (elapsed < PROOF_RED_MS) return { elapsed, phase: "red" };
   if (elapsed < PROOF_YELLOW_MS) return { elapsed, phase: "yellow" };
   if (elapsed < PROOF_GREEN_MS) return { elapsed, phase: "green" };
   return { elapsed, phase: "overproofing" };
+}
+
+function getRoomTempState(roomTempAt: string | Date | null): { elapsed: number; remaining: number; isReady: boolean } {
+  if (!roomTempAt) return { elapsed: 0, remaining: ROOM_TEMP_MIN_MS, isReady: false };
+  const start = new Date(roomTempAt).getTime();
+  const elapsed = Date.now() - start;
+  const remaining = Math.max(0, ROOM_TEMP_MIN_MS - elapsed);
+  return { elapsed, remaining, isReady: remaining <= 0 };
 }
 
 function formatTime(ms: number): string {
@@ -690,6 +702,53 @@ export default function LaminationStudio() {
     );
   };
 
+  const handleSetRoomTemp = (dough: LaminationDough) => {
+    const now = new Date().toISOString();
+    updateMutation.mutate(
+      {
+        id: dough.id,
+        updates: {
+          roomTempAt: now,
+          roomTempReturnedAt: null,
+          adjustedProofStartedAt: null,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Room temperature", description: `Dough #${dough.doughNumber} is now at room temp. Minimum 5 hours.` });
+        },
+      }
+    );
+  };
+
+  const handleReturnToProofBox = (dough: LaminationDough) => {
+    const now = new Date();
+    const roomTempStart = dough.roomTempAt ? new Date(dough.roomTempAt).getTime() : now.getTime();
+    const timeSpentAtRoomTemp = now.getTime() - roomTempStart;
+    const remainingRoomTemp = Math.max(0, ROOM_TEMP_MIN_MS - timeSpentAtRoomTemp);
+    const adjustedRemainingMs = remainingRoomTemp / 2;
+    const effectiveProofStart = new Date(now.getTime() - (PROOF_GREEN_MS - adjustedRemainingMs));
+
+    updateMutation.mutate(
+      {
+        id: dough.id,
+        updates: {
+          roomTempReturnedAt: now.toISOString(),
+          adjustedProofStartedAt: effectiveProofStart.toISOString(),
+        },
+      },
+      {
+        onSuccess: () => {
+          const adjMinutes = Math.round(adjustedRemainingMs / 60000);
+          toast({
+            title: "Returned to proof box",
+            description: `Dough #${dough.doughNumber} is back in the proof box. ~${adjMinutes} min adjusted proof time remaining.`,
+          });
+        },
+      }
+    );
+  };
+
   const getUserName = (userId: string | null) => {
     if (!userId) return "Unknown";
     return userNames[userId] || "Unknown";
@@ -1194,16 +1253,21 @@ export default function LaminationStudio() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {proofingDoughs.map(dough => {
-              const proof = getProofState(dough.proofStartedAt);
+              const proof = getProofState(dough);
+              const roomTemp = getRoomTempState(dough.roomTempAt);
+              const isAtRoomTemp = !!dough.roomTempAt && !dough.roomTempReturnedAt;
               const isRedPhase = proof.phase === "red";
 
               const phaseStyles = {
                 red: { border: "border-destructive/50 bg-destructive/5", timerColor: "text-destructive" },
                 yellow: { border: "border-amber-500/50 bg-amber-500/5", timerColor: "text-amber-600" },
                 green: { border: "border-green-500/50 bg-green-500/5", timerColor: "text-green-600" },
-                overproofing: { border: "border-blue-500/50 bg-blue-500/5 animate-pulse", timerColor: "text-blue-600" },
+                overproofing: { border: "border-orange-500 bg-orange-500/15 animate-pulse ring-2 ring-orange-400/50", timerColor: "text-orange-600" },
               };
-              const style = phaseStyles[proof.phase];
+              const roomTempStyle = isAtRoomTemp
+                ? { border: "border-yellow-500/60 bg-yellow-500/10", timerColor: "text-yellow-600" }
+                : null;
+              const style = roomTempStyle || phaseStyles[proof.phase];
 
               return (
                 <Card
@@ -1235,28 +1299,34 @@ export default function LaminationStudio() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      {proof.phase === "red" && (
+                      {!isAtRoomTemp && proof.phase === "red" && (
                         <Badge variant="destructive" data-testid={`badge-proof-red-${dough.id}`}>
                           <Lock className="w-3 h-3 mr-1" />
                           DO NOT TOUCH
                         </Badge>
                       )}
-                      {proof.phase === "yellow" && (
+                      {!isAtRoomTemp && proof.phase === "yellow" && (
                         <Badge className="bg-amber-500 text-white" data-testid={`badge-proof-yellow-${dough.id}`}>
                           <Clock className="w-3 h-3 mr-1" />
                           Ready Soon
                         </Badge>
                       )}
-                      {proof.phase === "green" && (
+                      {!isAtRoomTemp && proof.phase === "green" && (
                         <Badge className="bg-green-600 text-white" data-testid={`badge-proof-green-${dough.id}`}>
                           <Flame className="w-3 h-3 mr-1" />
                           Ready to Bake
                         </Badge>
                       )}
-                      {proof.phase === "overproofing" && (
-                        <Badge variant="destructive" className="animate-pulse" data-testid={`badge-proof-over-${dough.id}`}>
-                          <Flame className="w-3 h-3 mr-1" />
+                      {proof.phase === "overproofing" && !isAtRoomTemp && (
+                        <Badge className="bg-orange-500 text-white animate-pulse" data-testid={`badge-proof-over-${dough.id}`}>
+                          <AlertTriangle className="w-3 h-3 mr-1" />
                           OVERPROOFING
+                        </Badge>
+                      )}
+                      {isAtRoomTemp && (
+                        <Badge className="bg-yellow-500 text-black" data-testid={`badge-room-temp-${dough.id}`}>
+                          <Sun className="w-3 h-3 mr-1" />
+                          {roomTemp.isReady ? "ROOM TEMP READY" : "ROOM TEMP"}
                         </Badge>
                       )}
                     </div>
@@ -1268,10 +1338,19 @@ export default function LaminationStudio() {
                         <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Proof Time</p>
-                        <p className={`font-mono font-bold ${style.timerColor}`} data-testid={`proof-timer-${dough.id}`}>
-                          {formatTime(proof.elapsed)}
-                        </p>
+                        <p className="text-muted-foreground text-xs">{isAtRoomTemp ? "Room Temp Time" : "Proof Time"}</p>
+                        {isAtRoomTemp ? (
+                          <div>
+                            <p className={`font-mono font-bold ${roomTemp.isReady ? "text-green-600" : "text-yellow-600"}`} data-testid={`room-temp-timer-${dough.id}`}>
+                              {roomTemp.isReady ? formatTime(roomTemp.elapsed) : `-${formatTime(roomTemp.remaining)}`}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">{roomTemp.isReady ? "Ready" : "Min 5h remaining"}</p>
+                          </div>
+                        ) : (
+                          <p className={`font-mono font-bold ${style.timerColor}`} data-testid={`proof-timer-${dough.id}`}>
+                            {formatTime(proof.elapsed)}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -1290,18 +1369,57 @@ export default function LaminationStudio() {
                           <span className="ml-auto">{formatTimestamp(dough.proofStartedAt)}</span>
                         </div>
                       )}
+                      {isAtRoomTemp && dough.roomTempAt && (
+                        <div className="flex items-center gap-1 text-yellow-600">
+                          <Sun className="w-3 h-3" />
+                          <span>At room temp since</span>
+                          <span className="ml-auto">{formatTimestamp(dough.roomTempAt)}</span>
+                        </div>
+                      )}
+                      {dough.roomTempReturnedAt && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Returned to proof box</span>
+                          <span className="ml-auto">{formatTimestamp(dough.roomTempReturnedAt)}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">
-                      <Button
-                        className="flex-1 gap-2"
-                        disabled={isRedPhase || bakeMutation.isPending}
-                        onClick={() => setBakeConfirmDough(dough)}
-                        data-testid={`button-bake-off-${dough.id}`}
-                      >
-                        <Flame className="w-4 h-4" />
-                        Bake Off
-                      </Button>
+                      {isAtRoomTemp ? (
+                        <Button
+                          className="flex-1 gap-2"
+                          variant="outline"
+                          disabled={updateMutation.isPending}
+                          onClick={() => handleReturnToProofBox(dough)}
+                          data-testid={`button-return-proof-${dough.id}`}
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          Return to Proof Box
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            className="flex-1 gap-2"
+                            disabled={isRedPhase || bakeMutation.isPending}
+                            onClick={() => setBakeConfirmDough(dough)}
+                            data-testid={`button-bake-off-${dough.id}`}
+                          >
+                            <Flame className="w-4 h-4" />
+                            Bake Off
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50"
+                            onClick={() => handleSetRoomTemp(dough)}
+                            title="Set to Room Temperature"
+                            data-testid={`button-room-temp-${dough.id}`}
+                          >
+                            <Sun className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

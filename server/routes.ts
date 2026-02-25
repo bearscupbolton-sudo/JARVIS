@@ -2927,6 +2927,9 @@ ${sopsHtml}
         trashReason: z.string().nullable().optional(),
         trashedAt: z.string().nullable().optional(),
         trashedBy: z.string().nullable().optional(),
+        roomTempAt: z.string().nullable().optional(),
+        roomTempReturnedAt: z.string().nullable().optional(),
+        adjustedProofStartedAt: z.string().nullable().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };
@@ -2939,6 +2942,9 @@ ${sopsHtml}
       if (parsed.bakedAt) updates.bakedAt = new Date(parsed.bakedAt);
       if (parsed.chillingUntil) updates.chillingUntil = new Date(parsed.chillingUntil);
       if (parsed.trashedAt) updates.trashedAt = new Date(parsed.trashedAt);
+      if (parsed.roomTempAt) updates.roomTempAt = new Date(parsed.roomTempAt);
+      if (parsed.roomTempReturnedAt) updates.roomTempReturnedAt = new Date(parsed.roomTempReturnedAt);
+      if (parsed.adjustedProofStartedAt) updates.adjustedProofStartedAt = new Date(parsed.adjustedProofStartedAt);
       const dough = await storage.updateLaminationDough(id, updates);
       storage.clearAllBriefingCaches().catch(() => {});
       res.json(dough);
