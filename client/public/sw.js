@@ -106,6 +106,12 @@ self.addEventListener('push', function(event) {
       tag: data.tag || undefined,
       data: data.data || {},
       vibrate: [200, 100, 200],
+    }).then(function() {
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    }).then(function(windowClients) {
+      for (var i = 0; i < windowClients.length; i++) {
+        windowClients[i].postMessage({ type: 'PUSH_RECEIVED', payload: data.data || {} });
+      }
     })
   );
 });

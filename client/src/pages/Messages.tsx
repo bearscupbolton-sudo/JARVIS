@@ -96,16 +96,22 @@ export default function Messages() {
 
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({
     queryKey: ["/api/messages/inbox"],
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: sentMessages = [], isLoading: loadingSent } = useQuery<SentMessage[]>({
     queryKey: ["/api/messages/sent"],
     enabled: isManager,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: archivedMessages = [], isLoading: loadingArchived } = useQuery<InboxMessage[]>({
     queryKey: ["/api/messages/archived"],
     enabled: viewMode === "archived",
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: searchResults = [], isLoading: loadingSearch } = useQuery<InboxMessage[]>({

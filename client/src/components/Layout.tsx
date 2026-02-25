@@ -47,7 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const BearLogoIcon = ({ className }: { className?: string }) => (
   <img src="/bear-logo.png" alt="Jarvis" className={cn("rounded-sm object-contain", className)} />
@@ -148,6 +148,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [location, user]);
 
+  React.useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "PUSH_RECEIVED") {
+        queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/messages/inbox"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/messages/sent"] });
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, []);
+
   const { data: pendingCount } = useQuery<{ count: number }>({
     queryKey: ["/api/pending-changes/count"],
     enabled: isOwner,
@@ -157,6 +170,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { data: unreadCount } = useQuery<{ count: number }>({
     queryKey: ["/api/messages/unread-count"],
     refetchInterval: 15000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
   });
 
 
