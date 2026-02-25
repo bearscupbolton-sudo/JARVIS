@@ -193,10 +193,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
-      <Link href="/">
-        <div className="p-6 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setMobileOpen(false)} data-testid="link-home-banner">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-foreground flex items-center justify-center shadow-lg overflow-hidden">
+      <div className="p-6">
+        <Link href="/">
+          <div
+            className="flex items-center gap-3 cursor-pointer rounded-lg px-2 py-1.5 -mx-2 -my-1.5 hover:bg-muted/50 transition-colors"
+            onClick={() => setMobileOpen(false)}
+            data-testid="link-home-banner"
+          >
+            <div className="w-10 h-10 rounded-lg bg-foreground flex items-center justify-center shadow-lg overflow-hidden shrink-0">
               <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain invert dark:invert-0" data-testid="img-sidebar-logo" />
             </div>
             <div>
@@ -204,8 +208,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
             </div>
           </div>
-        </div>
-      </Link>
+        </Link>
+      </div>
 
       {allLocations.length > 1 && (
         <div className="px-4 pb-2">
