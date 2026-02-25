@@ -32,6 +32,11 @@ import {
   Eye,
   MessageSquare,
   Gamepad2,
+  Star,
+  Pencil,
+  Plus,
+  X,
+  Check,
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { useAuth } from "@/hooks/use-auth";
@@ -47,6 +52,48 @@ import { apiRequest } from "@/lib/queryClient";
 const BearLogoIcon = ({ className }: { className?: string }) => (
   <img src="/bear-logo.png" alt="Jarvis" className={cn("rounded-sm object-contain", className)} />
 );
+
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
+
+const ALL_SHORTCUT_OPTIONS: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bakery", label: "Bakery", icon: Croissant },
+  { href: "/coffee", label: "Coffee", icon: Coffee },
+  { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
+  { href: "/recipes", label: "Recipes", icon: ChefHat },
+  { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
+  { href: "/lamination", label: "Lamination Studio", icon: Layers },
+  { href: "/production", label: "Production Logs", icon: ClipboardList },
+  { href: "/sops", label: "SOPs", icon: BookOpen },
+  { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/schedule", label: "Schedule", icon: CalendarDays },
+  { href: "/calendar", label: "Event Calendar", icon: Calendar },
+  { href: "/time-cards", label: "Time Cards", icon: Clock },
+  { href: "/tasks", label: "Task Manager", icon: ListChecks },
+  { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
+  { href: "/starkade", label: "Starkade", icon: Gamepad2 },
+  { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
+  { href: "/profile", label: "My Profile", icon: UserCircle },
+];
+
+const DEFAULT_SHORTCUTS = ["/calendar", "/recipes", "/schedule", "/tasks"];
+
+const SHORTCUTS_STORAGE_KEY = "jarvis-sidebar-shortcuts";
+
+function loadShortcuts(): string[] {
+  try {
+    const stored = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_SHORTCUTS;
+}
+
+function saveShortcuts(shortcuts: string[]) {
+  localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(shortcuts));
+}
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
@@ -89,6 +136,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [shortcuts, setShortcuts] = React.useState<string[]>(loadShortcuts);
+  const [editingShortcuts, setEditingShortcuts] = React.useState(false);
+  const [editDraft, setEditDraft] = React.useState<string[]>([]);
   const isOwner = user?.role === "owner";
 
   React.useEffect(() => {
@@ -112,19 +162,50 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { locations: allLocations, selectedLocationId, setSelectedLocationId } = useLocationContext();
 
+  const shortcutItems = React.useMemo(() => 
+    shortcuts
+      .map(href => ALL_SHORTCUT_OPTIONS.find(o => o.href === href))
+      .filter(Boolean) as NavItem[],
+    [shortcuts]
+  );
+
+  const startEditingShortcuts = () => {
+    setEditDraft([...shortcuts]);
+    setEditingShortcuts(true);
+  };
+
+  const toggleShortcutDraft = (href: string) => {
+    setEditDraft(prev => 
+      prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href]
+    );
+  };
+
+  const saveShortcutEdits = () => {
+    setShortcuts(editDraft);
+    saveShortcuts(editDraft);
+    setEditingShortcuts(false);
+  };
+
+  const cancelShortcutEdits = () => {
+    setEditDraft([]);
+    setEditingShortcuts(false);
+  };
+
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
-      <div className="p-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-foreground flex items-center justify-center shadow-lg overflow-hidden">
-            <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain invert dark:invert-0" data-testid="img-sidebar-logo" />
-          </div>
-          <div>
-            <h1 className="font-display text-xl font-bold tracking-tight text-foreground" data-testid="text-sidebar-brand">Jarvis</h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
+      <Link href="/">
+        <div className="p-6 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setMobileOpen(false)} data-testid="link-home-banner">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-foreground flex items-center justify-center shadow-lg overflow-hidden">
+              <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain invert dark:invert-0" data-testid="img-sidebar-logo" />
+            </div>
+            <div>
+              <h1 className="font-display text-xl font-bold tracking-tight text-foreground" data-testid="text-sidebar-brand">Jarvis</h1>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-medium">by Bear's Cup Bakehouse</p>
+            </div>
           </div>
         </div>
-      </div>
+      </Link>
 
       {allLocations.length > 1 && (
         <div className="px-4 pb-2">
@@ -148,7 +229,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.slice(0, 2).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href}>
@@ -168,6 +249,116 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     {unreadCount.count}
                   </Badge>
                 )}
+              </div>
+            </Link>
+          );
+        })}
+
+        {!editingShortcuts && shortcutItems.length > 0 && (
+          <>
+            <div className="pt-3 pb-1 px-2 flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold flex items-center gap-1">
+                <Star className="w-3 h-3" />
+                Shortcuts
+              </p>
+              <button
+                onClick={startEditingShortcuts}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="button-edit-shortcuts"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
+            {shortcutItems.map((item) => {
+              const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
+              return (
+                <Link key={item.href} href={item.href}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 cursor-pointer group",
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-md"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    onClick={() => setMobileOpen(false)}
+                    data-testid={`shortcut-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <item.icon className={cn("w-4 h-4", isActive ? "text-accent" : "group-hover:text-primary")} />
+                    <span className="text-sm font-medium">{item.label}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </>
+        )}
+
+        {editingShortcuts && (
+          <>
+            <div className="pt-3 pb-1 px-2 flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold flex items-center gap-1">
+                <Star className="w-3 h-3" />
+                Edit Shortcuts
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={saveShortcutEdits}
+                  className="text-green-500 hover:text-green-400 transition-colors"
+                  data-testid="button-save-shortcuts"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={cancelShortcutEdits}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  data-testid="button-cancel-shortcuts"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 max-h-60 overflow-y-auto">
+              {ALL_SHORTCUT_OPTIONS.map((item) => {
+                const selected = editDraft.includes(item.href);
+                return (
+                  <div
+                    key={item.href}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2 rounded-md cursor-pointer transition-all duration-200",
+                      selected
+                        ? "bg-primary/10 text-foreground border border-primary/30"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    onClick={() => toggleShortcutDraft(item.href)}
+                    data-testid={`shortcut-option-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <item.icon className={cn("w-4 h-4", selected ? "text-primary" : "")} />
+                    <span className="text-sm font-medium flex-1">{item.label}</span>
+                    {selected && <Check className="w-3.5 h-3.5 text-primary" />}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <div className="pt-3 pb-1 px-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Navigation</p>
+        </div>
+        {NAV_ITEMS.slice(2).map((item) => {
+          const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
+          return (
+            <Link key={item.href} href={item.href}>
+              <div
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
+                  isActive 
+                    ? "bg-primary text-primary-foreground shadow-md" 
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+                onClick={() => setMobileOpen(false)}
+              >
+                <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
+                <span className="font-medium">{item.label}</span>
               </div>
             </Link>
           );
@@ -274,13 +465,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
           {/* Mobile Header */}
           <header className="lg:hidden h-16 border-b border-border bg-card flex items-center px-4 justify-between gap-2 sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain dark:invert" />
-              <div className="flex flex-col">
-                <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
+            <Link href="/">
+              <div className="flex items-center gap-2 cursor-pointer" data-testid="link-mobile-home-banner">
+                <img src={bearLogoPath} alt="Bear's Cup" className="w-8 h-8 object-contain dark:invert" />
+                <div className="flex flex-col">
+                  <span className="font-display font-bold text-lg leading-tight">Jarvis</span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">by Bear's Cup Bakehouse</span>
+                </div>
               </div>
-            </div>
+            </Link>
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} data-testid="button-mobile-menu">
               <Menu className="w-6 h-6" />
             </Button>
