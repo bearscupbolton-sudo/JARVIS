@@ -15,8 +15,11 @@ import {
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
   MessageSquare,
   LogIn, LogOut, Coffee,
-  RefreshCw, X
+  RefreshCw, X, Pencil, Check, Star,
+  LayoutDashboard, Croissant, UtensilsCrossed,
+  Package, Layers, Stamp, Gamepad2
 } from "lucide-react";
+import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { format, isToday, isTomorrow } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
 
@@ -59,6 +62,51 @@ function senderName(sender: InboxMessage["sender"]): string {
 
 type ActiveTimeEntry = TimeEntry & { breaks: BreakEntry[] };
 
+const BearLogoIcon = ({ className }: { className?: string }) => (
+  <img src="/bear-logo.png" alt="Jarvis" className={`rounded-sm object-contain ${className || ""}`} />
+);
+
+type QuickActionItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
+
+const ALL_QUICK_ACTIONS: QuickActionItem[] = [
+  { href: "/calendar", label: "Event Calendar", icon: Calendar },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/recipes", label: "Recipes", icon: ChefHat },
+  { href: "/tasks", label: "Task Manager", icon: ListChecks },
+  { href: "/sops", label: "SOPs", icon: BookOpen },
+  { href: "/schedule", label: "Schedule", icon: CalendarDays },
+  { href: "/assistant", label: "Ask Jarvis", icon: BearLogoIcon },
+  { href: "/kiosk", label: "Kiosk", icon: Mic },
+  { href: "/profile", label: "My Profile", icon: UserCircle },
+  { href: "/bakery", label: "Bakery", icon: Croissant },
+  { href: "/coffee", label: "Coffee", icon: Coffee },
+  { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
+  { href: "/lamination", label: "Lamination Studio", icon: Layers },
+  { href: "/production", label: "Production Logs", icon: ClipboardList },
+  { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
+  { href: "/time-cards", label: "Time Cards", icon: Clock },
+  { href: "/starkade", label: "Starkade", icon: Gamepad2 },
+  { href: "/messages", label: "Messages", icon: MessageSquare },
+];
+
+const DEFAULT_QUICK_ACTIONS = ["/calendar", "/dashboard", "/recipes", "/tasks", "/sops", "/schedule", "/assistant", "/kiosk"];
+const QA_STORAGE_KEY = "jarvis-home-quick-actions";
+
+function loadQuickActions(): string[] {
+  try {
+    const stored = localStorage.getItem(QA_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_QUICK_ACTIONS;
+}
+
+function saveQuickActions(actions: string[]) {
+  localStorage.setItem(QA_STORAGE_KEY, JSON.stringify(actions));
+}
 
 function ClockBar() {
   const { toast } = useToast();
@@ -303,6 +351,9 @@ export default function Home() {
   const { user } = useAuth();
   const isManager = user?.role === "manager" || user?.role === "owner";
   const [briefingDismissed, setBriefingDismissed] = useState(false);
+  const [quickActions, setQuickActions] = useState<string[]>(loadQuickActions);
+  const [editingQA, setEditingQA] = useState(false);
+  const [qaDraft, setQaDraft] = useState<string[]>([]);
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({
     queryKey: ["/api/home"],
@@ -332,6 +383,20 @@ export default function Home() {
   const bakeoffEntries = homeData?.bakeoffSummary
     ? Object.entries(homeData.bakeoffSummary).sort((a, b) => a[0].localeCompare(b[0]))
     : [];
+
+  const resolvedQA = useMemo(() =>
+    quickActions
+      .map(href => ALL_QUICK_ACTIONS.find(a => a.href === href))
+      .filter(Boolean) as QuickActionItem[],
+    [quickActions]
+  );
+
+  const startEditingQA = () => { setQaDraft([...quickActions]); setEditingQA(true); };
+  const toggleQADraft = (href: string) => {
+    setQaDraft(prev => prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href]);
+  };
+  const saveQAEdits = () => { setQuickActions(qaDraft); saveQuickActions(qaDraft); setEditingQA(false); };
+  const cancelQAEdits = () => { setQaDraft([]); setEditingQA(false); };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-home">
@@ -500,6 +565,81 @@ export default function Home() {
         </Card>
         </Link>
 
+        {/* Quick Actions - Customizable */}
+        <Card className="lg:col-span-2" data-testid="container-quick-actions">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-display flex items-center gap-2">
+              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                <Star className="w-4 h-4 text-primary" />
+              </div>
+              Quick Actions
+              {!editingQA && (
+                <button
+                  onClick={startEditingQA}
+                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                  data-testid="button-edit-quick-actions"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              {editingQA && (
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={saveQAEdits}
+                    className="text-green-500 hover:text-green-400 transition-colors"
+                    data-testid="button-save-quick-actions"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={cancelQAEdits}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="button-cancel-quick-actions"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {!editingQA ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {resolvedQA.map((item) => (
+                  <Link key={item.href} href={item.href}>
+                    <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid={`quick-action-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-6 h-6 text-primary" />
+                      <span className="text-xs font-medium">{item.label}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {ALL_QUICK_ACTIONS.map((item) => {
+                  const selected = qaDraft.includes(item.href);
+                  return (
+                    <div
+                      key={item.href}
+                      className={`flex flex-col items-center gap-2 p-4 rounded-md border cursor-pointer transition-all text-center ${
+                        selected
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                      onClick={() => toggleQADraft(item.href)}
+                      data-testid={`qa-option-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <item.icon className={`w-6 h-6 ${selected ? "text-primary" : ""}`} />
+                      <span className="text-xs font-medium">{item.label}</span>
+                      {selected && <Check className="w-3.5 h-3.5 text-primary" />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* My Schedule Card */}
         <Link href="/schedule">
         <Card className="cursor-pointer hover-elevate" data-testid="container-my-schedule">
@@ -614,69 +754,6 @@ export default function Home() {
           </Link>
         )}
 
-        {/* Quick Actions */}
-        <Card className="lg:col-span-2" data-testid="container-quick-actions">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <ArrowRight className="w-4 h-4 text-primary" />
-              </div>
-              Quick Actions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-              <Link href="/dashboard">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-dashboard">
-                  <ClipboardList className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Dashboard</span>
-                </div>
-              </Link>
-              <Link href="/recipes">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-recipes">
-                  <ChefHat className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Recipes</span>
-                </div>
-              </Link>
-              <Link href="/tasks">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-tasks">
-                  <ListChecks className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Task Manager</span>
-                </div>
-              </Link>
-              <Link href="/sops">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-sops">
-                  <BookOpen className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">SOPs</span>
-                </div>
-              </Link>
-              <Link href="/schedule">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-schedule">
-                  <CalendarDays className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Schedule</span>
-                </div>
-              </Link>
-              <Link href="/assistant">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-assistant">
-                  <MessageSquare className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Ask Jarvis</span>
-                </div>
-              </Link>
-              <Link href="/kiosk">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-kiosk">
-                  <Mic className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">Kiosk</span>
-                </div>
-              </Link>
-              <Link href="/profile">
-                <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid="quick-action-profile">
-                  <UserCircle className="w-6 h-6 text-primary" />
-                  <span className="text-xs font-medium">My Profile</span>
-                </div>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
     </div>
