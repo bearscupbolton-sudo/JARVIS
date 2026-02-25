@@ -49,6 +49,9 @@ const PASSPORT_CATEGORIES = [
 const DOUGH_TYPE_TO_CATEGORY: Record<string, string> = {
   "Croissant": "Viennoiserie",
   "Danish": "Viennoiserie",
+  "Cookies": "Cookies",
+  "Cake": "Muffin/Cake",
+  "Bread": "Bread",
 };
 
 function CreatePassportDialog({ preselectedItemId }: { preselectedItemId?: number }) {

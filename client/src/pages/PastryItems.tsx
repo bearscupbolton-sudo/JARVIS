@@ -32,10 +32,22 @@ import {
   ToggleRight,
   Stamp,
   ExternalLink,
+  CakeSlice,
+  Coffee,
+  UtensilsCrossed,
 } from "lucide-react";
 import type { PastryItem, PastryPassport } from "@shared/schema";
 
-const DOUGH_TYPES = ["Croissant", "Danish"];
+const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Cake", "Bread", "Other"];
+
+const CATEGORY_ICONS: Record<string, any> = {
+  "Croissant": Croissant,
+  "Danish": Cookie,
+  "Cookies": Cookie,
+  "Cake": CakeSlice,
+  "Bread": UtensilsCrossed,
+  "Coffee": Coffee,
+};
 
 export default function PastryItems() {
   const { toast } = useToast();
@@ -117,8 +129,17 @@ export default function PastryItems() {
   }
 
   const filtered = items?.filter(i => filterType === "all" || i.doughType === filterType) || [];
-  const croissantItems = filtered.filter(i => i.doughType === "Croissant");
-  const danishItems = filtered.filter(i => i.doughType === "Danish");
+
+  const allCategories = Array.from(new Set(items?.map(i => i.doughType) || [])).sort();
+  const filterCategories = allCategories.length > 0 ? allCategories : CATEGORY_OPTIONS;
+
+  const groupedItems = (filterType === "all" ? allCategories : [filterType])
+    .map(cat => ({
+      label: cat,
+      items: filtered.filter(i => i.doughType === cat),
+      icon: CATEGORY_ICONS[cat] || UtensilsCrossed,
+    }))
+    .filter(g => g.items.length > 0);
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6" data-testid="container-pastry-items">
@@ -128,7 +149,7 @@ export default function PastryItems() {
             Master Pastry List
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Manage the pastries for each dough type. This list is used across the entire system.
+            Manage all your pastries. This list is used across the entire system.
           </p>
         </div>
         <Button onClick={() => { resetForm(); setShowAdd(true); }} data-testid="button-add-pastry">
@@ -137,8 +158,8 @@ export default function PastryItems() {
         </Button>
       </div>
 
-      <div className="flex gap-2">
-        {["all", ...DOUGH_TYPES].map((type) => (
+      <div className="flex gap-2 flex-wrap">
+        {["all", ...filterCategories].map((type) => (
           <Button
             key={type}
             variant={filterType === type ? "default" : "outline"}
@@ -161,14 +182,11 @@ export default function PastryItems() {
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
-          {(filterType === "all" ? [{ label: "Croissant", items: croissantItems, icon: Croissant }, { label: "Danish", items: danishItems, icon: Cookie }] :
-            filterType === "Croissant" ? [{ label: "Croissant", items: croissantItems, icon: Croissant }] :
-            [{ label: "Danish", items: danishItems, icon: Cookie }]
-          ).map(({ label, items: groupItems, icon: Icon }) => (
+          {groupedItems.map(({ label, items: groupItems, icon: Icon }) => (
             <Card key={label}>
               <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-3">
                 <Icon className="w-5 h-5 text-muted-foreground" />
-                <CardTitle className="text-lg">{label} Dough</CardTitle>
+                <CardTitle className="text-lg">{label}</CardTitle>
                 <Badge variant="secondary" className="ml-auto">{groupItems.length}</Badge>
               </CardHeader>
               <CardContent>
@@ -260,19 +278,29 @@ export default function PastryItems() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Dough Type</label>
-              <Select value={doughType} onValueChange={setDoughType}>
+              <label className="text-sm font-medium mb-2 block">Category</label>
+              <Select value={doughType} onValueChange={(val) => { if (val !== "__custom__") setDoughType(val); else setDoughType(""); }}>
                 <SelectTrigger data-testid="select-dough-type">
-                  <SelectValue placeholder="Select dough type..." />
+                  <SelectValue placeholder="Select category..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {DOUGH_TYPES.map((type) => (
+                  {[...new Set([...CATEGORY_OPTIONS, ...allCategories])].map((type) => (
                     <SelectItem key={type} value={type}>
                       {type}
                     </SelectItem>
                   ))}
+                  <SelectItem value="__custom__">Custom...</SelectItem>
                 </SelectContent>
               </Select>
+              {!CATEGORY_OPTIONS.includes(doughType) && !allCategories.includes(doughType) && (
+                <Input
+                  className="mt-2"
+                  placeholder="Type a custom category..."
+                  value={doughType}
+                  onChange={(e) => setDoughType(e.target.value)}
+                  data-testid="input-custom-dough-type"
+                />
+              )}
             </div>
           </div>
           <DialogFooter>
