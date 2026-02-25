@@ -888,7 +888,6 @@ function ComposeDialog({
   isPending: boolean;
 }) {
   const otherMembers = teamMembers.filter(m => m.id !== currentUserId);
-  const [recipientSearch, setRecipientSearch] = useState("");
   const canSend = composeForm.subject.trim() && composeForm.body.trim() && (
     (composeForm.targetType === "individual" && composeForm.recipientIds.length > 0) ||
     (composeForm.targetType === "role" && composeForm.targetValue) ||
@@ -896,17 +895,10 @@ function ComposeDialog({
     composeForm.targetType === "everyone"
   );
 
-  const filteredMembers = recipientSearch.trim()
-    ? otherMembers.filter(m => {
-        const q = recipientSearch.toLowerCase();
-        return (m.firstName?.toLowerCase().includes(q) || m.lastName?.toLowerCase().includes(q) || m.username?.toLowerCase().includes(q));
-      })
-    : otherMembers;
-
   const selectedMembers = otherMembers.filter(m => composeForm.recipientIds.includes(m.id));
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setRecipientSearch(""); }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -934,14 +926,40 @@ function ComposeDialog({
 
           {composeForm.targetType === "individual" && (
             <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Recipients</Label>
+              <Select
+                value=""
+                onValueChange={(memberId) => {
+                  if (!composeForm.recipientIds.includes(memberId)) {
+                    setComposeForm(prev => ({ ...prev, recipientIds: [...prev.recipientIds, memberId] }));
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9" data-testid="select-recipient">
+                  <SelectValue placeholder="Select a team member..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {otherMembers.map(m => (
+                    <SelectItem
+                      key={m.id}
+                      value={m.id}
+                      disabled={composeForm.recipientIds.includes(m.id)}
+                      data-testid={`recipient-option-${m.id}`}
+                    >
+                      {m.firstName || m.username} {m.lastName || ""} ({m.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {selectedMembers.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   {selectedMembers.map(m => (
                     <Badge key={m.id} variant="secondary" className="gap-1 pr-1 text-xs">
-                      {m.firstName || m.username}
+                      {m.firstName || m.username} {m.lastName ? m.lastName.charAt(0) + "." : ""}
                       <button
                         onClick={() => setComposeForm(prev => ({ ...prev, recipientIds: prev.recipientIds.filter(id => id !== m.id) }))}
                         className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                        data-testid={`remove-recipient-${m.id}`}
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -949,47 +967,6 @@ function ComposeDialog({
                   ))}
                 </div>
               )}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Search team members..."
-                  value={recipientSearch}
-                  onChange={(e) => setRecipientSearch(e.target.value)}
-                  className="pl-8 h-8 text-sm"
-                  data-testid="input-recipient-search"
-                />
-              </div>
-              <ScrollArea className="max-h-32 border border-border rounded-md">
-                {filteredMembers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-3">No team members found</p>
-                ) : (
-                  filteredMembers.map(m => {
-                    const isSelected = composeForm.recipientIds.includes(m.id);
-                    return (
-                      <div
-                        key={m.id}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-muted"}`}
-                        onClick={() => {
-                          setComposeForm(prev => ({
-                            ...prev,
-                            recipientIds: isSelected
-                              ? prev.recipientIds.filter(id => id !== m.id)
-                              : [...prev.recipientIds, m.id]
-                          }));
-                        }}
-                        data-testid={`recipient-option-${m.id}`}
-                      >
-                        <Avatar user={{ id: m.id, firstName: m.firstName, lastName: m.lastName, username: m.username }} size="sm" />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm">{m.firstName || m.username} {m.lastName || ""}</span>
-                          <span className="text-xs text-muted-foreground ml-1">({m.role})</span>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-primary flex-shrink-0" />}
-                      </div>
-                    );
-                  })
-                )}
-              </ScrollArea>
             </div>
           )}
 
