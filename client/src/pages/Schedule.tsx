@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2 } from "lucide-react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
@@ -45,6 +46,21 @@ function getDisplayName(member: TeamMember): string {
 function getUserDisplayName(userId: string, members: TeamMember[]): string {
   const m = members.find(u => u.id === userId);
   return m ? getDisplayName(m) : userId;
+}
+
+function compactTime(timeStr: string): string {
+  const m = timeStr.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!m) return timeStr;
+  let h = parseInt(m[1]);
+  const ampm = m[3].toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return String(displayH);
+}
+
+function compactShiftTime(start: string, end: string): string {
+  return `${compactTime(start)}-${compactTime(end)}`;
 }
 
 const TIME_OPTIONS = [
@@ -115,6 +131,7 @@ export default function Schedule() {
   const isShiftManager = (user as any)?.isShiftManager;
   const canManagePickups = isOwner || isShiftManager;
   const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "pickups" | "locations">("schedule");
+  const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery">("all");
 
   const shiftForm = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
@@ -527,145 +544,213 @@ export default function Schedule() {
             </div>
           </div>
 
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              {(["all", "kitchen", "foh", "bakery"] as const).map((dept) => {
+                const labels: Record<string, string> = { all: "All", kitchen: "Kitchen", foh: "FOH", bakery: "Bakery" };
+                return (
+                  <Button
+                    key={dept}
+                    variant={deptFilter === dept ? "default" : "outline"}
+                    size="sm"
+                    className="text-xs h-7"
+                    onClick={() => setDeptFilter(dept)}
+                    data-testid={`button-filter-dept-${dept}`}
+                  >
+                    {labels[dept]}
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-3 ml-auto text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-muted border border-border inline-block" /> Assigned</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 dark:bg-green-900/50 border border-green-400/50 inline-block" /> Open</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-200 dark:bg-amber-900/50 border border-amber-400/50 inline-block" /> Pending</span>
+            </div>
+          </div>
+
           {shiftsLoading ? (
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-32 rounded-md" />
               ))}
             </div>
-          ) : (
-            <div className="space-y-4">
-              {DEPARTMENTS.map((dept) => {
-                const DeptIcon = dept.icon;
-                return (
-                  <div key={dept.value} data-testid={`section-dept-${dept.value}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <DeptIcon className={`w-5 h-5 ${dept.color}`} />
-                      <h3 className="text-lg font-display font-semibold">{dept.label}</h3>
-                      <span className="text-xs text-muted-foreground">(max 10 per day)</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-                      {weekDays.map((day) => {
-                        const dayShifts = shiftsForDayDept(day, dept.value);
-                        const isToday = isSameDay(day, new Date());
-                        return (
-                          <Card
-                            key={day.toISOString()}
-                            className={isToday ? "border-foreground/30" : ""}
-                            data-testid={`card-day-${dept.value}-${format(day, "yyyy-MM-dd")}`}
-                          >
-                            <CardHeader className="p-2 pb-1">
-                              <div className="flex items-center justify-between gap-1">
-                                <CardTitle className="text-xs font-semibold">
-                                  {format(day, "EEE")}
-                                  <span className={`ml-1 ${isToday ? "font-bold" : "text-muted-foreground"}`}>
-                                    {format(day, "d")}
-                                  </span>
-                                </CardTitle>
-                                <div className="flex items-center gap-1">
-                                  <Badge variant="outline" className="text-[9px] px-1">
-                                    {dayShifts.length}/10
-                                  </Badge>
-                                  {isManagerOrOwner && dayShifts.length < 10 && (
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => openAddShift(day, dept.value)}
-                                      data-testid={`button-add-shift-${dept.value}-${format(day, "yyyy-MM-dd")}`}
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                    </Button>
-                                  )}
-                                </div>
+          ) : (() => {
+            const filteredShifts = (shiftsData || []).filter(s => deptFilter === "all" || (s.department || "kitchen") === deptFilter);
+
+            const employeeMap = new Map<string, { name: string; shifts: Shift[] }>();
+            const openShiftsList: Shift[] = [];
+
+            for (const shift of filteredShifts) {
+              if (shift.status === "open" && !shift.userId) {
+                openShiftsList.push(shift);
+              } else {
+                const uid = shift.userId || "unassigned";
+                if (!employeeMap.has(uid)) {
+                  employeeMap.set(uid, {
+                    name: getUserDisplayName(uid, members),
+                    shifts: [],
+                  });
+                }
+                employeeMap.get(uid)!.shifts.push(shift);
+              }
+            }
+
+            const sortedEmployees = Array.from(employeeMap.entries()).sort((a, b) =>
+              a[1].name.localeCompare(b[1].name)
+            );
+
+            const hasOpenShifts = openShiftsList.length > 0;
+
+            return (
+              <div className="overflow-x-auto border border-border rounded-lg" data-testid="schedule-grid">
+                <TooltipProvider delayDuration={200}>
+                  <table className="w-full min-w-[700px] border-collapse">
+                    <thead>
+                      <tr className="bg-muted/50">
+                        <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-10" data-testid="header-employee">
+                          Employee
+                        </th>
+                        {weekDays.map((day) => {
+                          const today = isSameDay(day, new Date());
+                          return (
+                            <th
+                              key={day.toISOString()}
+                              className={`text-center text-xs font-semibold p-2 border-b border-border ${today ? "bg-primary/10" : ""}`}
+                              data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
+                            >
+                              <div>{format(day, "EEE")}</div>
+                              <div className={`text-[10px] ${today ? "font-bold text-primary" : "text-muted-foreground font-normal"}`}>
+                                {format(day, "M/d")}
                               </div>
-                            </CardHeader>
-                            <CardContent className="p-2 pt-0 space-y-1">
-                              {dayShifts.length === 0 ? (
-                                <p className="text-[10px] text-muted-foreground italic">No staff</p>
-                              ) : (
-                                dayShifts.map((shift) => {
-                                  const isOpen = shift.status === "open";
-                                  const isPending = shift.status === "pending";
-                                  const isMyPending = isPending && shift.claimedBy === user?.id;
-                                  return (
-                                    <div
-                                      key={shift.id}
-                                      className={`p-1.5 rounded-md space-y-0.5 group ${
-                                        isOpen ? "border border-dashed border-green-500/60 bg-green-50/50 dark:bg-green-950/20" :
-                                        isPending ? "border border-dashed border-amber-500/60 bg-amber-50/50 dark:bg-amber-950/20" :
-                                        "bg-muted/50"
-                                      }`}
-                                      data-testid={`shift-card-${shift.id}`}
-                                    >
-                                      <div className="flex items-center justify-between gap-1">
-                                        <div className="flex items-center gap-1 min-w-0">
-                                          <UserCircle className="w-3 h-3 text-muted-foreground shrink-0" />
-                                          <span className="text-[11px] font-medium truncate">
-                                            {isOpen ? "Open Shift" : isPending ? `${getUserDisplayName(shift.claimedBy || "", members)} (pending)` : getUserDisplayName(shift.userId || "", members)}
-                                          </span>
-                                        </div>
-                                        {isManagerOrOwner && (
-                                          <div className="flex items-center gap-0.5 invisible group-hover:visible">
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              onClick={() => openEditShift(shift)}
-                                              data-testid={`button-edit-shift-${shift.id}`}
-                                            >
-                                              <Pencil className="w-2.5 h-2.5" />
-                                            </Button>
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              onClick={() => {
-                                                if (confirm("Delete this shift?")) deleteShiftMutation.mutate(shift.id);
-                                              }}
-                                              data-testid={`button-delete-shift-${shift.id}`}
-                                            >
-                                              <Trash2 className="w-2.5 h-2.5 text-destructive" />
-                                            </Button>
-                                          </div>
-                                        )}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedEmployees.length === 0 && !hasOpenShifts ? (
+                        <tr>
+                          <td colSpan={8} className="text-center text-sm text-muted-foreground py-12 italic">
+                            No shifts scheduled this week
+                          </td>
+                        </tr>
+                      ) : (
+                        <>
+                          {sortedEmployees.map(([uid, emp]) => (
+                            <tr key={uid} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
+                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 truncate max-w-[140px]" data-testid={`cell-employee-name-${uid}`}>
+                                {emp.name}
+                              </td>
+                              {weekDays.map((day) => {
+                                const dateStr = format(day, "yyyy-MM-dd");
+                                const dayShifts = emp.shifts.filter(s => s.shiftDate === dateStr);
+                                const today = isSameDay(day, new Date());
+                                return (
+                                  <td
+                                    key={dateStr}
+                                    className={`p-1 border-border text-center align-top ${today ? "bg-primary/5" : ""}`}
+                                    data-testid={`cell-${uid}-${dateStr}`}
+                                  >
+                                    {dayShifts.length > 0 ? (
+                                      <div className="space-y-1">
+                                        {dayShifts.map(shift => {
+                                          const isPending = shift.status === "pending";
+                                          return (
+                                            <Tooltip key={shift.id}>
+                                              <TooltipTrigger asChild>
+                                                <button
+                                                  className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
+                                                    isPending
+                                                      ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
+                                                      : "bg-muted hover:bg-muted/80 text-foreground"
+                                                  }`}
+                                                  onClick={() => isManagerOrOwner ? openEditShift(shift) : undefined}
+                                                  data-testid={`shift-cell-${shift.id}`}
+                                                >
+                                                  {compactShiftTime(shift.startTime, shift.endTime)}
+                                                </button>
+                                              </TooltipTrigger>
+                                              <TooltipContent side="top" className="text-xs">
+                                                <div className="space-y-0.5">
+                                                  <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
+                                                  <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
+                                                  {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
+                                                  {isPending && <div className="text-amber-600">Pending approval</div>}
+                                                  {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                                </div>
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          );
+                                        })}
                                       </div>
-                                      <div className="flex items-center gap-1 text-muted-foreground">
-                                        <Clock className="w-2.5 h-2.5" />
-                                        <span className="text-[10px]">{shift.startTime} - {shift.endTime}</span>
+                                    ) : null}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                          {hasOpenShifts && (
+                            <tr className="border-b border-border last:border-b-0" data-testid="row-open-shifts">
+                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 text-green-700 dark:text-green-400 italic">
+                                Open Shifts
+                              </td>
+                              {weekDays.map((day) => {
+                                const dateStr = format(day, "yyyy-MM-dd");
+                                const dayOpenShifts = openShiftsList.filter(s => s.shiftDate === dateStr);
+                                const today = isSameDay(day, new Date());
+                                return (
+                                  <td
+                                    key={dateStr}
+                                    className={`p-1 border-border text-center align-top ${today ? "bg-primary/5" : ""}`}
+                                    data-testid={`cell-open-${dateStr}`}
+                                  >
+                                    {dayOpenShifts.length > 0 ? (
+                                      <div className="space-y-1">
+                                        {dayOpenShifts.map(shift => (
+                                          <Tooltip key={shift.id}>
+                                            <TooltipTrigger asChild>
+                                              <button
+                                                className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 hover:bg-green-300 dark:hover:bg-green-900/60"
+                                                onClick={() => {
+                                                  if (isManagerOrOwner) {
+                                                    openEditShift(shift);
+                                                  } else {
+                                                    claimShiftMutation.mutate(shift.id);
+                                                  }
+                                                }}
+                                                data-testid={`shift-cell-${shift.id}`}
+                                              >
+                                                {compactShiftTime(shift.startTime, shift.endTime)}
+                                              </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top" className="text-xs">
+                                              <div className="space-y-0.5">
+                                                <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
+                                                <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
+                                                {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
+                                                <div className="text-green-600 font-medium">Available for pickup</div>
+                                                {!isManagerOrOwner && <div className="text-muted-foreground italic">Click to pick up</div>}
+                                                {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                              </div>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        ))}
                                       </div>
-                                      {shift.position && (
-                                        <Badge variant="secondary" className="text-[9px]">{shift.position}</Badge>
-                                      )}
-                                      {isOpen && !isManagerOrOwner && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="w-full h-6 text-[10px] border-green-500/60 text-green-700 dark:text-green-400"
-                                          onClick={() => claimShiftMutation.mutate(shift.id)}
-                                          disabled={claimShiftMutation.isPending}
-                                          data-testid={`button-pickup-shift-${shift.id}`}
-                                        >
-                                          <HandMetal className="w-3 h-3 mr-1" />
-                                          Pick Up
-                                        </Button>
-                                      )}
-                                      {isMyPending && (
-                                        <Badge variant="outline" className="text-[9px] border-amber-500/60 text-amber-700 dark:text-amber-400">
-                                          Awaiting Approval
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                                    ) : null}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          )}
+                        </>
+                      )}
+                    </tbody>
+                  </table>
+                </TooltipProvider>
+              </div>
+            );
+          })()}
         </div>
       )}
 
