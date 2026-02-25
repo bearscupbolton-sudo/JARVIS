@@ -35,8 +35,9 @@ import {
   CakeSlice,
   Coffee,
   UtensilsCrossed,
+  Settings2,
 } from "lucide-react";
-import type { PastryItem, PastryPassport } from "@shared/schema";
+import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
 const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Cake", "Bread", "Other"];
 
@@ -56,6 +57,10 @@ export default function PastryItems() {
   const [name, setName] = useState("");
   const [doughType, setDoughType] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
+  const [fatConfigType, setFatConfigType] = useState<string | null>(null);
+  const [fatRatio, setFatRatio] = useState("");
+  const [fatItemId, setFatItemId] = useState<string>("");
+  const [fatDescription, setFatDescription] = useState("");
 
   const { data: items, isLoading } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
@@ -68,6 +73,17 @@ export default function PastryItems() {
   const { data: costs } = useQuery<Record<number, { totalCost: number | null; dataCompleteness: "full" | "partial" | "none" }>>({
     queryKey: ["/api/pastry-items/costs"],
   });
+
+  const { data: doughTypeConfigsList } = useQuery<DoughTypeConfig[]>({
+    queryKey: ["/api/dough-type-configs"],
+  });
+
+  const { data: inventoryItemsList } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/inventory"],
+  });
+
+  const doughTypeConfigMap = new Map<string, DoughTypeConfig>();
+  doughTypeConfigsList?.forEach(c => doughTypeConfigMap.set(c.doughType, c));
 
   const passportByItemId = new Map<number, PastryPassport>();
   passports?.forEach(p => {
@@ -104,6 +120,37 @@ export default function PastryItems() {
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+
+  const fatConfigMutation = useMutation({
+    mutationFn: (data: { doughType: string; fatRatio: number | null; fatInventoryItemId: number | null; fatDescription: string | null }) =>
+      apiRequest("PUT", "/api/dough-type-configs", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/dough-type-configs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pastry-items/costs"] });
+      toast({ title: "Butter/fat config saved" });
+      setFatConfigType(null);
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function openFatConfig(dt: string) {
+    const existing = doughTypeConfigMap.get(dt);
+    setFatConfigType(dt);
+    setFatRatio(existing?.fatRatio != null ? String(Math.round(existing.fatRatio * 100)) : "");
+    setFatItemId(existing?.fatInventoryItemId != null ? String(existing.fatInventoryItemId) : "");
+    setFatDescription(existing?.fatDescription || "");
+  }
+
+  function saveFatConfig() {
+    if (!fatConfigType) return;
+    const ratio = fatRatio ? parseFloat(fatRatio) / 100 : null;
+    fatConfigMutation.mutate({
+      doughType: fatConfigType,
+      fatRatio: ratio,
+      fatInventoryItemId: fatItemId ? parseInt(fatItemId) : null,
+      fatDescription: fatDescription.trim() || null,
+    });
+  }
 
   function resetForm() {
     setShowAdd(false);
@@ -191,7 +238,24 @@ export default function PastryItems() {
               <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-3">
                 <Icon className="w-5 h-5 text-muted-foreground" />
                 <CardTitle className="text-lg">{label}</CardTitle>
-                <Badge variant="secondary" className="ml-auto">{groupItems.length}</Badge>
+                {doughTypeConfigMap.get(label)?.fatRatio && (
+                  <span className="text-xs text-muted-foreground">
+                    {Math.round((doughTypeConfigMap.get(label)!.fatRatio || 0) * 100)}% butter
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => openFatConfig(label)}
+                    data-testid={`button-fat-config-${label}`}
+                    title="Configure lamination fat/butter"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                  </Button>
+                  <Badge variant="secondary">{groupItems.length}</Badge>
+                </div>
               </CardHeader>
               <CardContent>
                 {groupItems.length === 0 ? (
@@ -274,6 +338,68 @@ export default function PastryItems() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!fatConfigType} onOpenChange={(open) => { if (!open) setFatConfigType(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Butter/Fat Config — {fatConfigType}</DialogTitle>
+            <DialogDescription>
+              Configure the lamination fat (butter sheet) that gets rolled into this dough type after the recipe.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Fat Ratio (% of dough weight)</label>
+              <Input
+                type="number"
+                placeholder="e.g. 27"
+                value={fatRatio}
+                onChange={(e) => setFatRatio(e.target.value)}
+                min={0}
+                max={100}
+                data-testid="input-fat-ratio"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Typically 27% for croissant/danish (butter sheet weight as % of total dough)
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Butter/Fat Inventory Item</label>
+              <Select value={fatItemId} onValueChange={setFatItemId}>
+                <SelectTrigger data-testid="select-fat-inventory-item">
+                  <SelectValue placeholder="Select inventory item..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {inventoryItemsList?.map((inv) => (
+                    <SelectItem key={inv.id} value={String(inv.id)}>
+                      {inv.name} {inv.costPerUnit != null ? `($${inv.costPerUnit.toFixed(2)}/${inv.unit})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Description (optional)</label>
+              <Input
+                placeholder="e.g. French Butter Sheets"
+                value={fatDescription}
+                onChange={(e) => setFatDescription(e.target.value)}
+                data-testid="input-fat-description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFatConfigType(null)}>Cancel</Button>
+            <Button
+              onClick={saveFatConfig}
+              disabled={fatConfigMutation.isPending}
+              data-testid="button-save-fat-config"
+            >
+              {fatConfigMutation.isPending ? "Saving..." : "Save Config"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showAdd} onOpenChange={(open) => { if (!open) resetForm(); }}>
         <DialogContent className="sm:max-w-md">

@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   recipes, inventoryItems, invoiceLines,
   pastryPassports, pastryComponents, pastryAddins,
-  pastryItems, laminationDoughs,
+  pastryItems, laminationDoughs, doughTypeConfigs,
   type Recipe, type InventoryItem, type PastryPassport,
 } from "@shared/schema";
 import { eq, desc, and, isNotNull, ne } from "drizzle-orm";
@@ -166,6 +166,13 @@ export type PastryCostResult = {
     costPerPiece: number | null;
     allocationMethod: "weight" | "equal" | "none";
   };
+  laminationFatCost: {
+    fatDescription: string | null;
+    fatRatio: number | null;
+    fatCostPerUnit: number | null;
+    fatCostPerPiece: number | null;
+    configured: boolean;
+  };
   addinsCost: {
     items: Array<{
       name: string;
@@ -282,6 +289,41 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
     }
   }
 
+  let laminationFatCost: PastryCostResult["laminationFatCost"] = {
+    fatDescription: null, fatRatio: null, fatCostPerUnit: null,
+    fatCostPerPiece: null, configured: false,
+  };
+
+  const [dtConfig] = await db.select().from(doughTypeConfigs).where(eq(doughTypeConfigs.doughType, item.doughType));
+  if (dtConfig && dtConfig.fatRatio) {
+    laminationFatCost.configured = true;
+    laminationFatCost.fatDescription = dtConfig.fatDescription;
+    laminationFatCost.fatRatio = dtConfig.fatRatio;
+
+    if (dtConfig.fatInventoryItemId) {
+      const allInvItems = await db.select().from(inventoryItems);
+      const fatItem = allInvItems.find(i => i.id === dtConfig.fatInventoryItemId);
+      if (fatItem?.costPerUnit != null) {
+        laminationFatCost.fatCostPerUnit = fatItem.costPerUnit;
+        const fatUnit = normalizeUnit(fatItem.unit);
+
+        if (doughCost.weightPerPieceG && doughCost.doughWeightG) {
+          const totalFatWeightG = doughCost.doughWeightG * dtConfig.fatRatio / (1 - dtConfig.fatRatio);
+          let fatWeightInItemUnit = convertQuantity(totalFatWeightG, "g", fatUnit);
+          if (fatWeightInItemUnit === null) fatWeightInItemUnit = totalFatWeightG / 1000;
+          const totalFatCost = fatWeightInItemUnit * fatItem.costPerUnit;
+          const usableWeight = doughCost.doughWeightG - (doughCost.wasteG || 0);
+          if (usableWeight > 0 && doughCost.weightPerPieceG) {
+            laminationFatCost.fatCostPerPiece = (totalFatCost * doughCost.weightPerPieceG) / usableWeight;
+          }
+        } else if (doughCost.piecesFromDough && doughCost.piecesFromDough > 0 && doughCost.totalRecipeCost != null) {
+          const fatCostTotal = doughCost.totalRecipeCost * dtConfig.fatRatio / (1 - dtConfig.fatRatio);
+          laminationFatCost.fatCostPerPiece = fatCostTotal / doughCost.piecesFromDough;
+        }
+      }
+    }
+  }
+
   let addinsCost: PastryCostResult["addinsCost"] = { items: [], total: null };
   let componentsCost: PastryCostResult["componentsCost"] = { items: [], total: null };
 
@@ -340,25 +382,28 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
   }
 
   const doughPart = doughCost.costPerPiece || 0;
+  const fatPart = laminationFatCost.fatCostPerPiece || 0;
   const addinPart = addinsCost.total || 0;
   const compPart = componentsCost.total || 0;
-  const hasAnyCost = doughCost.costPerPiece != null || addinsCost.total != null || componentsCost.total != null;
+  const hasAnyCost = doughCost.costPerPiece != null || laminationFatCost.fatCostPerPiece != null || addinsCost.total != null || componentsCost.total != null;
 
   let dataCompleteness: "full" | "partial" | "none" = "none";
   if (hasAnyCost) {
     const hasDough = doughCost.costPerPiece != null;
+    const hasFat = !laminationFatCost.configured || laminationFatCost.fatCostPerPiece != null;
     const hasAllAddins = addinsCost.items.length === 0 || addinsCost.items.every(a => a.totalCost != null);
     const hasAllComps = componentsCost.items.length === 0 || componentsCost.items.every(c => c.totalCost != null);
-    dataCompleteness = hasDough && hasAllAddins && hasAllComps ? "full" : "partial";
+    dataCompleteness = hasDough && hasFat && hasAllAddins && hasAllComps ? "full" : "partial";
   }
 
   return {
     pastryItemId: item.id,
     pastryName: item.name,
     doughCost,
+    laminationFatCost,
     addinsCost,
     componentsCost,
-    totalCost: hasAnyCost ? doughPart + addinPart + compPart : null,
+    totalCost: hasAnyCost ? doughPart + fatPart + addinPart + compPart : null,
     dataCompleteness,
   };
 }

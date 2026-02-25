@@ -907,6 +907,35 @@ export default function PastryPassportDetail() {
                   )}
                 </div>
 
+                {costData.laminationFatCost?.configured && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2" data-testid="section-fat-cost">
+                      <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Lamination Fat</h4>
+                      {costData.laminationFatCost.fatCostPerPiece != null ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-sm text-foreground" data-testid="text-fat-description">
+                              {costData.laminationFatCost.fatDescription || "Butter Sheet"}
+                              <span className="text-muted-foreground ml-2 text-xs">
+                                ({Math.round((costData.laminationFatCost.fatRatio || 0) * 100)}% of dough weight)
+                              </span>
+                            </span>
+                            <span className="font-mono text-sm font-medium" data-testid="text-fat-cost-per-piece">
+                              ${costData.laminationFatCost.fatCostPerPiece.toFixed(2)}/pc
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <AlertCircle className="w-4 h-4" />
+                          <span data-testid="text-no-fat-cost">Fat configured ({Math.round((costData.laminationFatCost.fatRatio || 0) * 100)}%) but no cost data</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
                 {costData.addinsCost.items.length > 0 && (
                   <>
                     <Separator />

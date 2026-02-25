@@ -625,6 +625,20 @@ export const insertPastryItemSchema = createInsertSchema(pastryItems).omit({ id:
 export type PastryItem = typeof pastryItems.$inferSelect;
 export type InsertPastryItem = z.infer<typeof insertPastryItemSchema>;
 
+// === DOUGH TYPE CONFIGS (lamination fat/butter settings per dough type) ===
+export const doughTypeConfigs = pgTable("dough_type_configs", {
+  id: serial("id").primaryKey(),
+  doughType: text("dough_type").notNull().unique(),
+  fatRatio: doublePrecision("fat_ratio"),
+  fatInventoryItemId: integer("fat_inventory_item_id"),
+  fatDescription: text("fat_description"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDoughTypeConfigSchema = createInsertSchema(doughTypeConfigs).omit({ id: true, createdAt: true });
+export type DoughTypeConfig = typeof doughTypeConfigs.$inferSelect;
+export type InsertDoughTypeConfig = z.infer<typeof insertDoughTypeConfigSchema>;
+
 // === TIME ENTRIES (Clock In / Clock Out) ===
 export const timeEntries = pgTable("time_entries", {
   id: serial("id").primaryKey(),

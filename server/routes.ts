@@ -3055,6 +3055,33 @@ ${sopsHtml}
     }
   });
 
+  // === DOUGH TYPE CONFIGS ===
+  app.get("/api/dough-type-configs", isAuthenticated, async (req: any, res) => {
+    try {
+      const configs = await storage.getDoughTypeConfigs();
+      res.json(configs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/dough-type-configs", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        doughType: z.string().min(1),
+        fatRatio: z.number().min(0).max(1).nullable().optional(),
+        fatInventoryItemId: z.number().nullable().optional(),
+        fatDescription: z.string().nullable().optional(),
+      });
+      const data = schema.parse(req.body);
+      const config = await storage.upsertDoughTypeConfig(data);
+      res.json(config);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === COST ENGINE ===
   app.get("/api/recipes/:id/cost", isAuthenticated, async (req: any, res) => {
     try {

@@ -11,6 +11,7 @@ import {
   pushSubscriptions,
   laminationDoughs,
   pastryItems,
+  doughTypeConfigs,
   timeEntries,
   breakEntries,
   userLocations,
@@ -51,6 +52,7 @@ import {
   type PushSubscription, type InsertPushSubscription,
   type LaminationDough, type InsertLaminationDough,
   type PastryItem, type InsertPastryItem,
+  type DoughTypeConfig, type InsertDoughTypeConfig,
   type TimeEntry, type InsertTimeEntry,
   type BreakEntry, type InsertBreakEntry,
   type UserLocation, type InsertUserLocation,
@@ -266,6 +268,11 @@ export interface IStorage {
   createPastryItem(item: InsertPastryItem): Promise<PastryItem>;
   updatePastryItem(id: number, updates: Partial<InsertPastryItem>): Promise<PastryItem>;
   deletePastryItem(id: number): Promise<void>;
+
+  // Dough Type Configs
+  getDoughTypeConfigs(): Promise<DoughTypeConfig[]>;
+  getDoughTypeConfig(doughType: string): Promise<DoughTypeConfig | undefined>;
+  upsertDoughTypeConfig(config: InsertDoughTypeConfig): Promise<DoughTypeConfig>;
 
   // Time Entries
   getActiveTimeEntry(userId: string): Promise<(TimeEntry & { breaks: BreakEntry[] }) | undefined>;
@@ -1382,6 +1389,29 @@ export class DatabaseStorage implements IStorage {
 
   async deletePastryItem(id: number): Promise<void> {
     await db.delete(pastryItems).where(eq(pastryItems.id, id));
+  }
+
+  // Dough Type Configs
+  async getDoughTypeConfigs(): Promise<DoughTypeConfig[]> {
+    return db.select().from(doughTypeConfigs);
+  }
+
+  async getDoughTypeConfig(doughType: string): Promise<DoughTypeConfig | undefined> {
+    const [config] = await db.select().from(doughTypeConfigs).where(eq(doughTypeConfigs.doughType, doughType));
+    return config;
+  }
+
+  async upsertDoughTypeConfig(config: InsertDoughTypeConfig): Promise<DoughTypeConfig> {
+    const existing = await this.getDoughTypeConfig(config.doughType);
+    if (existing) {
+      const [updated] = await db.update(doughTypeConfigs)
+        .set({ fatRatio: config.fatRatio, fatInventoryItemId: config.fatInventoryItemId, fatDescription: config.fatDescription })
+        .where(eq(doughTypeConfigs.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(doughTypeConfigs).values(config).returning();
+    return created;
   }
 
   // Time Entries
