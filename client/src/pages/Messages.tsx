@@ -266,7 +266,7 @@ export default function Messages() {
   }, {} as Record<string, ReactionWithUser[]>);
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col" data-testid="container-messages">
+    <div className="h-[calc(100vh-4rem)] flex flex-col max-w-6xl mx-auto" data-testid="container-messages">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur">
         <div className="flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-primary" />
@@ -284,10 +284,8 @@ export default function Messages() {
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0">
-        {/* Left Panel - Message List */}
-        <div className={`w-full md:w-[380px] lg:w-[420px] flex-shrink-0 border-r border-border flex flex-col bg-background ${(selectedMessage || selectedSentMessage) ? 'hidden md:flex' : 'flex'}`}>
-          {/* View Tabs */}
+      <div className="flex flex-1 min-h-0 border-x border-border">
+        <div className={`w-full md:w-[340px] flex-shrink-0 border-r border-border flex flex-col bg-background ${(selectedMessage || selectedSentMessage) ? 'hidden md:flex' : 'flex'}`}>
           <div className="flex items-center gap-1 px-3 py-2 border-b border-border">
             <Button
               variant={viewMode === "inbox" ? "default" : "ghost"}
@@ -324,7 +322,6 @@ export default function Messages() {
             </Button>
           </div>
 
-          {/* Search + Filters */}
           <div className="px-3 py-2 space-y-2 border-b border-border">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -397,7 +394,6 @@ export default function Messages() {
             )}
           </div>
 
-          {/* Message List */}
           <ScrollArea className="flex-1">
             {viewMode === "sent" ? (
               loadingSent ? (
@@ -405,7 +401,7 @@ export default function Messages() {
                   {[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
                 </div>
               ) : sentMessages.length === 0 ? (
-                <EmptyState icon={<Send className="w-10 h-10" />} text="No sent messages" />
+                <EmptyState icon={<Send className="w-8 h-8" />} text="No sent messages" />
               ) : (
                 <div className="p-1.5">
                   {sentMessages.map(msg => (
@@ -425,7 +421,7 @@ export default function Messages() {
                 </div>
               ) : displayMessages.length === 0 ? (
                 <EmptyState
-                  icon={searchQuery ? <Search className="w-10 h-10" /> : viewMode === "archived" ? <Archive className="w-10 h-10" /> : <Inbox className="w-10 h-10" />}
+                  icon={searchQuery ? <Search className="w-8 h-8" /> : viewMode === "archived" ? <Archive className="w-8 h-8" /> : <Inbox className="w-8 h-8" />}
                   text={searchQuery ? "No results found" : viewMode === "archived" ? "No archived messages" : "Your inbox is empty"}
                 />
               ) : (
@@ -461,8 +457,7 @@ export default function Messages() {
           </ScrollArea>
         </div>
 
-        {/* Right Panel - Detail */}
-        <div className={`flex-1 flex flex-col bg-muted/30 ${!(selectedMessage || selectedSentMessage) ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col bg-muted/20 min-w-0 ${!(selectedMessage || selectedSentMessage) ? 'hidden md:flex' : 'flex'}`}>
           {selectedMessage ? (
             <InboxDetail
               msg={selectedMessage}
@@ -500,17 +495,18 @@ export default function Messages() {
             <SentDetail msg={selectedSentMessage} onBack={() => setSelectedSentMessage(null)} />
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm font-medium">Select a message to read</p>
-                <p className="text-xs mt-1 opacity-70">Choose from your inbox on the left</p>
+              <div className="text-center text-muted-foreground p-8">
+                <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="w-7 h-7 opacity-40" />
+                </div>
+                <p className="text-sm font-medium">Select a message</p>
+                <p className="text-xs mt-1 opacity-60">Choose from your inbox on the left</p>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Compose Dialog */}
       <ComposeDialog
         open={showCompose}
         onOpenChange={setShowCompose}
@@ -539,9 +535,9 @@ function Avatar({ user: u, size = "md" }: { user: UserInfo | null | undefined; s
 
 function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground opacity-50">
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground opacity-50">
       {icon}
-      <p className="text-sm mt-3">{text}</p>
+      <p className="text-sm mt-2">{text}</p>
     </div>
   );
 }
@@ -550,7 +546,7 @@ function InboxMessageRow({ msg, isSelected, onClick }: { msg: InboxMessage; isSe
   const isUnread = !msg.recipient.read;
   return (
     <div
-      className={`flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5
+      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5
         ${isSelected ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/80 border border-transparent"}
         ${isUnread ? "bg-primary/5" : ""}`}
       onClick={onClick}
@@ -563,7 +559,7 @@ function InboxMessageRow({ msg, isSelected, onClick }: { msg: InboxMessage; isSe
           <span className="flex-shrink-0 text-[10px] text-muted-foreground ml-auto">{formatMessageDate(msg.createdAt)}</span>
         </div>
         <p className="text-xs text-muted-foreground truncate">{userName(msg.sender)}</p>
-        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{msg.body.slice(0, 80)}{msg.body.length > 80 ? "..." : ""}</p>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{msg.body.slice(0, 60)}{msg.body.length > 60 ? "..." : ""}</p>
         <div className="flex items-center gap-1 mt-1 flex-wrap">
           {msg.priority === "urgent" && <Badge variant="destructive" className="text-[10px] h-4 px-1">Urgent</Badge>}
           {msg.requiresAck && !msg.recipient.acknowledged && <Badge variant="outline" className="text-[10px] h-4 px-1">Ack Required</Badge>}
@@ -581,7 +577,7 @@ function SentMessageRow({ msg, isSelected, onClick }: { msg: SentMessage; isSele
   const readCount = msg.recipients.filter(r => r.read).length;
   return (
     <div
-      className={`flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5
+      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5
         ${isSelected ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/80 border border-transparent"}`}
       onClick={onClick}
       data-testid={`sent-message-${msg.id}`}
@@ -597,7 +593,7 @@ function SentMessageRow({ msg, isSelected, onClick }: { msg: SentMessage; isSele
         <p className="text-xs text-muted-foreground">
           To {totalRecipients} {totalRecipients === 1 ? "person" : "people"} · {readCount}/{totalRecipients} read
         </p>
-        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{msg.body.slice(0, 80)}{msg.body.length > 80 ? "..." : ""}</p>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{msg.body.slice(0, 60)}{msg.body.length > 60 ? "..." : ""}</p>
         {msg.priority === "urgent" && <Badge variant="destructive" className="text-[10px] h-4 px-1 mt-1">Urgent</Badge>}
       </div>
     </div>
@@ -635,7 +631,6 @@ function InboxDetail({
 }) {
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-background">
         <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={onBack} data-testid="button-back">
           <ChevronLeft className="w-4 h-4" />
@@ -676,10 +671,8 @@ function InboxDetail({
         </TooltipProvider>
       </div>
 
-      {/* Message Body */}
       <ScrollArea className="flex-1 p-4">
-        <div className="max-w-2xl mx-auto space-y-4">
-          {/* Original message */}
+        <div className="max-w-xl mx-auto space-y-4">
           <div className="space-y-3">
             <div className="flex items-start gap-3">
               <Avatar user={msg.sender} size="md" />
@@ -694,7 +687,6 @@ function InboxDetail({
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
             </div>
 
-            {/* Reactions */}
             <div className="ml-12 flex items-center gap-1.5 flex-wrap">
               {Object.entries(groupedReactions).map(([emoji, users]) => (
                 <button
@@ -732,7 +724,6 @@ function InboxDetail({
               </Popover>
             </div>
 
-            {/* Ack status */}
             {msg.requiresAck && (
               <div className="ml-12">
                 {msg.recipient.acknowledged ? (
@@ -750,7 +741,6 @@ function InboxDetail({
             )}
           </div>
 
-          {/* Replies / Thread */}
           {(replies.length > 0 || loadingReplies) && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 ml-12">
@@ -785,9 +775,8 @@ function InboxDetail({
         </div>
       </ScrollArea>
 
-      {/* Reply Composer */}
       <div className="border-t border-border bg-background px-4 py-3">
-        <div className="max-w-2xl mx-auto flex items-end gap-2">
+        <div className="max-w-xl mx-auto flex items-end gap-2">
           <Textarea
             ref={replyInputRef}
             value={replyText}
@@ -834,7 +823,7 @@ function SentDetail({ msg, onBack }: { msg: SentMessage; onBack: () => void }) {
         </div>
       </div>
       <ScrollArea className="flex-1 p-4">
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="max-w-xl mx-auto space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Clock className="w-3.5 h-3.5" />
             <span>{formatFullDate(msg.createdAt)}</span>
@@ -844,7 +833,6 @@ function SentDetail({ msg, onBack }: { msg: SentMessage; onBack: () => void }) {
             <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="text-sent-body">{msg.body}</p>
           </div>
 
-          {/* Delivery Status */}
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Users className="w-4 h-4 text-muted-foreground" />
@@ -900,6 +888,7 @@ function ComposeDialog({
   isPending: boolean;
 }) {
   const otherMembers = teamMembers.filter(m => m.id !== currentUserId);
+  const [recipientSearch, setRecipientSearch] = useState("");
   const canSend = composeForm.subject.trim() && composeForm.body.trim() && (
     (composeForm.targetType === "individual" && composeForm.recipientIds.length > 0) ||
     (composeForm.targetType === "role" && composeForm.targetValue) ||
@@ -907,22 +896,31 @@ function ComposeDialog({
     composeForm.targetType === "everyone"
   );
 
+  const filteredMembers = recipientSearch.trim()
+    ? otherMembers.filter(m => {
+        const q = recipientSearch.toLowerCase();
+        return (m.firstName?.toLowerCase().includes(q) || m.lastName?.toLowerCase().includes(q) || m.username?.toLowerCase().includes(q));
+      })
+    : otherMembers;
+
+  const selectedMembers = otherMembers.filter(m => composeForm.recipientIds.includes(m.id));
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setRecipientSearch(""); }}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Send className="w-4 h-4" /> New Message
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
+        <div className="space-y-3">
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">Send To</Label>
             <Select
               value={composeForm.targetType}
-              onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetType: v, targetValue: "", recipientIds: [] }))}
+              onValueChange={(v) => { setComposeForm(prev => ({ ...prev, targetType: v, targetValue: "", recipientIds: [] })); setRecipientSearch(""); }}
             >
-              <SelectTrigger data-testid="select-target-type">
+              <SelectTrigger className="h-9" data-testid="select-target-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -935,42 +933,71 @@ function ComposeDialog({
           </div>
 
           {composeForm.targetType === "individual" && (
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">Recipients</Label>
-              <ScrollArea className="max-h-40 border border-border rounded-md p-2">
-                {otherMembers.map(m => (
-                  <label key={m.id} className="flex items-center gap-2.5 py-1.5 px-1 hover:bg-muted rounded cursor-pointer">
-                    <Checkbox
-                      checked={composeForm.recipientIds.includes(m.id)}
-                      onCheckedChange={(checked) => {
-                        setComposeForm(prev => ({
-                          ...prev,
-                          recipientIds: checked
-                            ? [...prev.recipientIds, m.id]
-                            : prev.recipientIds.filter(id => id !== m.id)
-                        }));
-                      }}
-                      data-testid={`checkbox-recipient-${m.id}`}
-                    />
-                    <Avatar user={{ id: m.id, firstName: m.firstName, lastName: m.lastName, username: m.username }} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm">{m.firstName || m.username} {m.lastName || ""}</span>
-                      <span className="text-xs text-muted-foreground ml-1">({m.role})</span>
-                    </div>
-                  </label>
-                ))}
-              </ScrollArea>
-              {composeForm.recipientIds.length > 0 && (
-                <p className="text-xs text-muted-foreground">{composeForm.recipientIds.length} selected</p>
+            <div className="space-y-1.5">
+              {selectedMembers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedMembers.map(m => (
+                    <Badge key={m.id} variant="secondary" className="gap-1 pr-1 text-xs">
+                      {m.firstName || m.username}
+                      <button
+                        onClick={() => setComposeForm(prev => ({ ...prev, recipientIds: prev.recipientIds.filter(id => id !== m.id) }))}
+                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
               )}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Search team members..."
+                  value={recipientSearch}
+                  onChange={(e) => setRecipientSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                  data-testid="input-recipient-search"
+                />
+              </div>
+              <ScrollArea className="max-h-32 border border-border rounded-md">
+                {filteredMembers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-3">No team members found</p>
+                ) : (
+                  filteredMembers.map(m => {
+                    const isSelected = composeForm.recipientIds.includes(m.id);
+                    return (
+                      <div
+                        key={m.id}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-muted"}`}
+                        onClick={() => {
+                          setComposeForm(prev => ({
+                            ...prev,
+                            recipientIds: isSelected
+                              ? prev.recipientIds.filter(id => id !== m.id)
+                              : [...prev.recipientIds, m.id]
+                          }));
+                        }}
+                        data-testid={`recipient-option-${m.id}`}
+                      >
+                        <Avatar user={{ id: m.id, firstName: m.firstName, lastName: m.lastName, username: m.username }} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm">{m.firstName || m.username} {m.lastName || ""}</span>
+                          <span className="text-xs text-muted-foreground ml-1">({m.role})</span>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-primary flex-shrink-0" />}
+                      </div>
+                    );
+                  })
+                )}
+              </ScrollArea>
             </div>
           )}
 
           {composeForm.targetType === "role" && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label className="text-xs font-medium">Role</Label>
               <Select value={composeForm.targetValue} onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetValue: v }))}>
-                <SelectTrigger data-testid="select-role-target"><SelectValue placeholder="Choose role" /></SelectTrigger>
+                <SelectTrigger className="h-9" data-testid="select-role-target"><SelectValue placeholder="Choose role" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="owner">Owners</SelectItem>
                   <SelectItem value="manager">Managers</SelectItem>
@@ -981,10 +1008,10 @@ function ComposeDialog({
           )}
 
           {composeForm.targetType === "department" && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label className="text-xs font-medium">Department</Label>
               <Select value={composeForm.targetValue} onValueChange={(v) => setComposeForm(prev => ({ ...prev, targetValue: v }))}>
-                <SelectTrigger data-testid="select-dept-target"><SelectValue placeholder="Choose department" /></SelectTrigger>
+                <SelectTrigger className="h-9" data-testid="select-dept-target"><SelectValue placeholder="Choose department" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="kitchen">Kitchen</SelectItem>
                   <SelectItem value="bakery">Bakery</SelectItem>
@@ -994,23 +1021,25 @@ function ComposeDialog({
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">Subject</Label>
             <Input
               value={composeForm.subject}
               onChange={(e) => setComposeForm(prev => ({ ...prev, subject: e.target.value }))}
               placeholder="What's this about?"
+              className="h-9"
               data-testid="input-message-subject"
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">Message</Label>
             <Textarea
               value={composeForm.body}
               onChange={(e) => setComposeForm(prev => ({ ...prev, body: e.target.value }))}
               placeholder="Write your message..."
-              rows={5}
+              rows={4}
+              className="text-sm"
               data-testid="input-message-body"
             />
           </div>
