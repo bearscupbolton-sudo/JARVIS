@@ -147,6 +147,7 @@ export default function PastryPassportDetail() {
   const [addComponentDialogOpen, setAddComponentDialogOpen] = useState(false);
   const [componentRecipeId, setComponentRecipeId] = useState<string>("");
   const [componentNotes, setComponentNotes] = useState("");
+  const [componentWeightPerPiece, setComponentWeightPerPiece] = useState("");
   const [addingComponent, setAddingComponent] = useState(false);
 
   const [addAddinDialogOpen, setAddAddinDialogOpen] = useState(false);
@@ -155,6 +156,7 @@ export default function PastryPassportDetail() {
   const [addinUnit, setAddinUnit] = useState("");
   const [addinNotes, setAddinNotes] = useState("");
   const [addinInventoryItemId, setAddinInventoryItemId] = useState<string>("");
+  const [addinWeightPerPiece, setAddinWeightPerPiece] = useState("");
   const [addingAddin, setAddingAddin] = useState(false);
 
   const [uploading, setUploading] = useState(false);
@@ -277,12 +279,14 @@ export default function PastryPassportDetail() {
       await apiRequest("POST", `/api/pastry-passports/${params.id}/components`, {
         recipeId: Number(componentRecipeId),
         notes: componentNotes || undefined,
+        weightPerPieceG: componentWeightPerPiece ? Number(componentWeightPerPiece) : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/pastry-passports', params.id] });
       toast({ title: "Component added", description: "Recipe component linked." });
       setAddComponentDialogOpen(false);
       setComponentRecipeId("");
       setComponentNotes("");
+      setComponentWeightPerPiece("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -310,6 +314,7 @@ export default function PastryPassportDetail() {
         quantity: addinQuantity ? Number(addinQuantity) : undefined,
         notes: addinNotes || undefined,
         inventoryItemId: addinInventoryItemId ? Number(addinInventoryItemId) : undefined,
+        weightPerPieceG: addinWeightPerPiece ? Number(addinWeightPerPiece) : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/pastry-passports', params.id] });
       toast({ title: "Ingredient added", description: "Add-in ingredient saved." });
@@ -319,6 +324,7 @@ export default function PastryPassportDetail() {
       setAddinUnit("");
       setAddinNotes("");
       setAddinInventoryItemId("");
+      setAddinWeightPerPiece("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -674,6 +680,11 @@ export default function PastryPassportDetail() {
                         </Select>
                       </div>
                       <div className="space-y-2">
+                        <Label>Weight per piece (g)</Label>
+                        <Input type="number" value={componentWeightPerPiece} onChange={(e) => setComponentWeightPerPiece(e.target.value)} placeholder="e.g. 75" min={0} step="0.1" data-testid="input-component-weight-per-piece" />
+                        <p className="text-xs text-muted-foreground">Grams of this component in each finished pastry</p>
+                      </div>
+                      <div className="space-y-2">
                         <Label>Notes (optional)</Label>
                         <Input value={componentNotes} onChange={(e) => setComponentNotes(e.target.value)} placeholder="Notes" data-testid="input-component-notes" />
                       </div>
@@ -697,7 +708,10 @@ export default function PastryPassportDetail() {
                     return (
                       <div key={c.id} className="flex items-center justify-between gap-2 p-3 rounded-md bg-muted/30 border border-border" data-testid={`component-item-${c.id}`}>
                         <div className="min-w-0">
-                          <p className="font-medium text-foreground" data-testid={`text-component-name-${c.id}`}>{recipe?.title || `Recipe #${c.recipeId}`}</p>
+                          <p className="font-medium text-foreground" data-testid={`text-component-name-${c.id}`}>
+                            {recipe?.title || `Recipe #${c.recipeId}`}
+                            {c.weightPerPieceG != null && <span className="text-muted-foreground ml-2 text-sm">{c.weightPerPieceG}g/pc</span>}
+                          </p>
                           {c.notes && <p className="text-xs text-muted-foreground">{c.notes}</p>}
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => handleDeleteComponent(c.id)} data-testid={`button-delete-component-${c.id}`}>
@@ -766,6 +780,11 @@ export default function PastryPassportDetail() {
                         </div>
                       </div>
                       <div className="space-y-2">
+                        <Label>Weight per piece (g)</Label>
+                        <Input type="number" value={addinWeightPerPiece} onChange={(e) => setAddinWeightPerPiece(e.target.value)} placeholder="e.g. 75" min={0} step="0.1" data-testid="input-addin-weight-per-piece" />
+                        <p className="text-xs text-muted-foreground">Grams of this add-in in each finished pastry</p>
+                      </div>
+                      <div className="space-y-2">
                         <Label>Notes (optional)</Label>
                         <Input value={addinNotes} onChange={(e) => setAddinNotes(e.target.value)} placeholder="Notes" data-testid="input-addin-notes" />
                       </div>
@@ -792,6 +811,7 @@ export default function PastryPassportDetail() {
                         <p className="font-medium text-foreground" data-testid={`text-addin-name-${a.id}`}>
                           {a.name}
                           {a.quantity != null && a.unit && <span className="text-muted-foreground ml-2 text-sm">{a.quantity} {a.unit}</span>}
+                          {a.weightPerPieceG != null && <span className="text-muted-foreground ml-2 text-sm">{a.weightPerPieceG}g/pc</span>}
                         </p>
                         {linkedInventory && linkedInventory.costPerUnit != null && (
                           <p className="text-xs text-muted-foreground" data-testid={`text-addin-cost-${a.id}`}>
@@ -886,6 +906,9 @@ export default function PastryPassportDetail() {
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-sm text-foreground" data-testid="text-dough-recipe">
                           {costData.doughCost.recipeName || "Mother Dough"}
+                          {costData.doughCost.doughGramsPerPiece != null && (
+                            <span className="text-muted-foreground ml-2 text-xs">({costData.doughCost.doughGramsPerPiece}g dough/pc)</span>
+                          )}
                         </span>
                         <span className="font-mono text-sm font-medium" data-testid="text-dough-cost-per-piece">
                           ${costData.doughCost.costPerPiece.toFixed(2)}/pc
@@ -893,10 +916,13 @@ export default function PastryPassportDetail() {
                       </div>
                       <p className="text-xs text-muted-foreground" data-testid="text-dough-allocation">
                         {costData.doughCost.allocationMethod === "weight"
-                          ? `Allocated by weight (${costData.doughCost.weightPerPieceG}g/pc of ${costData.doughCost.doughWeightG}g batch)`
+                          ? `${costData.doughCost.doughGramsPerPiece}g dough per piece from ${costData.doughCost.doughWeightG}g total batch`
                           : costData.doughCost.allocationMethod === "equal"
                           ? `Split equally across ~${costData.doughCost.piecesFromDough} pieces`
                           : "No allocation data"}
+                        {costData.doughCost.scrapsImpliedG != null && costData.doughCost.scrapsImpliedG > 0 && (
+                          ` · ~${costData.doughCost.scrapsImpliedG}g scraps (reused)`
+                        )}
                       </p>
                     </div>
                   ) : (
@@ -944,9 +970,12 @@ export default function PastryPassportDetail() {
                       <div className="space-y-1">
                         {costData.addinsCost.items.map((item: any, idx: number) => (
                           <div key={idx} className="flex items-center justify-between gap-2 flex-wrap" data-testid={`addin-cost-${idx}`}>
-                            <span className="text-sm text-foreground">{item.name}</span>
+                            <span className="text-sm text-foreground">
+                              {item.name}
+                              {item.weightPerPieceG != null && <span className="text-muted-foreground text-xs ml-1">({item.weightPerPieceG}g/pc)</span>}
+                            </span>
                             <span className="font-mono text-sm text-muted-foreground">
-                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "No cost data"}
+                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}/pc` : "No cost data"}
                             </span>
                           </div>
                         ))}
@@ -963,9 +992,12 @@ export default function PastryPassportDetail() {
                       <div className="space-y-1">
                         {costData.componentsCost.items.map((item: any, idx: number) => (
                           <div key={idx} className="flex items-center justify-between gap-2 flex-wrap" data-testid={`component-cost-${idx}`}>
-                            <span className="text-sm text-foreground">{item.recipeName}</span>
+                            <span className="text-sm text-foreground">
+                              {item.recipeName}
+                              {item.weightPerPieceG != null && <span className="text-muted-foreground text-xs ml-1">({item.weightPerPieceG}g/pc)</span>}
+                            </span>
                             <span className="font-mono text-sm text-muted-foreground">
-                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "No cost data"}
+                              {item.totalCost != null ? `$${item.totalCost.toFixed(2)}/pc` : "No cost data"}
                             </span>
                           </div>
                         ))}

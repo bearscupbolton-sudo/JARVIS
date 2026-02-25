@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
-import type { LaminationDough, PastryItem, PastryPassport } from "@shared/schema";
+import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
@@ -153,7 +153,6 @@ export default function LaminationStudio() {
   const [destinationPieces, setDestinationPieces] = useState("");
   const [weightPerPiece, setWeightPerPiece] = useState("");
   const [doughWeightG, setDoughWeightG] = useState("");
-  const [wasteG, setWasteG] = useState("");
   const [shapingEntries, setShapingEntries] = useState<Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>>([]);
 
   const [editDough, setEditDough] = useState<LaminationDough | null>(null);
@@ -207,6 +206,9 @@ export default function LaminationStudio() {
   });
   const { data: allPastryItems } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
+  });
+  const { data: doughTypeConfigsList } = useQuery<DoughTypeConfig[]>({
+    queryKey: ["/api/dough-type-configs"],
   });
 
   const getPassportForPastryName = (name: string): PastryPassport | undefined => {
@@ -502,11 +504,17 @@ export default function LaminationStudio() {
     setPastryType(dough.intendedPastry || "");
     setTotalPieces("");
     setWeightPerPiece("");
-    setDoughWeightG("");
-    setWasteG("");
     setSelectedDestination("");
     setDestinationPieces("");
     setShapingEntries([]);
+    const dtConfig = doughTypeConfigsList?.find((c: any) => c.doughType === dough.doughType);
+    if (dtConfig?.baseDoughWeightG) {
+      const fatRatio = dtConfig.fatRatio || 0;
+      const totalWeight = dtConfig.baseDoughWeightG + (dtConfig.baseDoughWeightG * fatRatio / (1 - fatRatio));
+      setDoughWeightG(String(Math.round(totalWeight)));
+    } else {
+      setDoughWeightG("");
+    }
   };
 
   const handleAddShapingEntry = () => {
@@ -564,7 +572,6 @@ export default function LaminationStudio() {
       shapedAt: now,
       shapings: shapingEntries,
       doughWeightG: doughWeightG ? parseFloat(doughWeightG) : null,
-      wasteG: wasteG ? parseFloat(wasteG) : null,
     };
 
     if (selectedDestination === "proof") {
@@ -1403,10 +1410,9 @@ export default function LaminationStudio() {
                       </div>
                     </div>
 
-                    {(dough.doughWeightG || dough.wasteG) && (
+                    {dough.doughWeightG && (
                       <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`proof-weight-info-${dough.id}`}>
-                        {dough.doughWeightG && <span>Dough: {dough.doughWeightG}g</span>}
-                        {dough.wasteG && <span>Waste: {dough.wasteG}g</span>}
+                        <span>Dough: {dough.doughWeightG}g</span>
                       </div>
                     )}
 
@@ -1572,10 +1578,9 @@ export default function LaminationStudio() {
                     </div>
                   </div>
 
-                  {(dough.doughWeightG || dough.wasteG) && (
+                  {dough.doughWeightG && (
                     <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`freezer-weight-info-${dough.id}`}>
-                      {dough.doughWeightG && <span>Dough: {dough.doughWeightG}g</span>}
-                      {dough.wasteG && <span>Waste: {dough.wasteG}g</span>}
+                      <span>Dough: {dough.doughWeightG}g</span>
                     </div>
                   )}
 
@@ -2213,31 +2218,18 @@ export default function LaminationStudio() {
                   data-testid="input-destination-pieces"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Total Dough Weight (g)</label>
-                  <Input
-                    type="number"
-                    placeholder="Optional"
-                    value={doughWeightG}
-                    onChange={(e) => setDoughWeightG(e.target.value)}
-                    min={0}
-                    step="0.1"
-                    data-testid="input-dough-weight"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Waste (g)</label>
-                  <Input
-                    type="number"
-                    placeholder="Optional"
-                    value={wasteG}
-                    onChange={(e) => setWasteG(e.target.value)}
-                    min={0}
-                    step="0.1"
-                    data-testid="input-waste"
-                  />
-                </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Total Dough Weight (g)</label>
+                <Input
+                  type="number"
+                  placeholder="Optional"
+                  value={doughWeightG}
+                  onChange={(e) => setDoughWeightG(e.target.value)}
+                  min={0}
+                  step="0.1"
+                  data-testid="input-dough-weight"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Total weight including butter/fat</p>
               </div>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setCompleteDoughStep("pastry")} data-testid="button-destination-back">

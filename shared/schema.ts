@@ -415,6 +415,7 @@ export const pastryComponents = pgTable("pastry_components", {
   pastryId: integer("pastry_id").notNull().references(() => pastryPassports.id, { onDelete: "cascade" }),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id),
   notes: text("notes"),
+  weightPerPieceG: doublePrecision("weight_per_piece_g"),
 });
 
 export const insertPastryComponentSchema = createInsertSchema(pastryComponents).omit({ id: true });
@@ -429,6 +430,7 @@ export const pastryAddins = pgTable("pastry_addins", {
   quantity: doublePrecision("quantity"),
   notes: text("notes"),
   inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
+  weightPerPieceG: doublePrecision("weight_per_piece_g"),
 });
 
 export const insertPastryAddinSchema = createInsertSchema(pastryAddins).omit({ id: true });
@@ -632,6 +634,7 @@ export const doughTypeConfigs = pgTable("dough_type_configs", {
   fatRatio: doublePrecision("fat_ratio"),
   fatInventoryItemId: integer("fat_inventory_item_id"),
   fatDescription: text("fat_description"),
+  baseDoughWeightG: doublePrecision("base_dough_weight_g"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

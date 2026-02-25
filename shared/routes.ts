@@ -572,6 +572,7 @@ export const api = {
       input: z.object({
         recipeId: z.number(),
         notes: z.string().optional(),
+        weightPerPieceG: z.number().optional(),
       }),
       responses: { 201: z.any(), 400: errorSchemas.validation },
     },
@@ -589,6 +590,7 @@ export const api = {
         quantity: z.number().optional(),
         notes: z.string().optional(),
         inventoryItemId: z.number().optional(),
+        weightPerPieceG: z.number().optional(),
       }),
       responses: { 201: z.any(), 400: errorSchemas.validation },
     },

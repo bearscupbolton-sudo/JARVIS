@@ -162,7 +162,8 @@ export type PastryCostResult = {
     piecesFromDough: number | null;
     weightPerPieceG: number | null;
     doughWeightG: number | null;
-    wasteG: number | null;
+    doughGramsPerPiece: number | null;
+    scrapsImpliedG: number | null;
     costPerPiece: number | null;
     allocationMethod: "weight" | "equal" | "none";
   };
@@ -178,6 +179,7 @@ export type PastryCostResult = {
       name: string;
       quantity: number | null;
       unit: string | null;
+      weightPerPieceG: number | null;
       costPerUnit: number | null;
       totalCost: number | null;
       inventoryItemId: number | null;
@@ -189,6 +191,7 @@ export type PastryCostResult = {
     items: Array<{
       recipeId: number;
       recipeName: string;
+      weightPerPieceG: number | null;
       totalCost: number | null;
     }>;
     total: number | null;
@@ -205,11 +208,29 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
   const passport = allPassports.find(p => p.pastryItemId === pastryItemId)
     || allPassports.find(p => p.name.toLowerCase() === item.name.toLowerCase());
 
+  const [dtConfig] = await db.select().from(doughTypeConfigs).where(eq(doughTypeConfigs.doughType, item.doughType));
+  const allInvItems = await db.select().from(inventoryItems);
+
+  let addins: any[] = [];
+  let components: any[] = [];
+  if (passport) {
+    addins = await db.select().from(pastryAddins).where(eq(pastryAddins.pastryId, passport.id));
+    components = await db.select().from(pastryComponents).where(eq(pastryComponents.pastryId, passport.id));
+  }
+
   let doughCost: PastryCostResult["doughCost"] = {
     recipeId: null, recipeName: null, totalRecipeCost: null,
     piecesFromDough: null, weightPerPieceG: null, doughWeightG: null,
-    wasteG: null, costPerPiece: null, allocationMethod: "none",
+    doughGramsPerPiece: null, scrapsImpliedG: null,
+    costPerPiece: null, allocationMethod: "none",
   };
+
+  let totalDoughWeightG: number | null = null;
+
+  if (dtConfig?.baseDoughWeightG) {
+    const fatRatio = dtConfig.fatRatio || 0;
+    totalDoughWeightG = dtConfig.baseDoughWeightG + (dtConfig.baseDoughWeightG * fatRatio / (1 - fatRatio));
+  }
 
   if (passport?.motherRecipeId) {
     const recipeCost = await calculateRecipeCost(passport.motherRecipeId);
@@ -231,8 +252,6 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
 
       let avgPieces = 0;
       let avgWeightPerPiece: number | null = null;
-      let avgDoughWeight: number | null = null;
-      let avgWaste: number | null = null;
 
       if (recentDoughs.length > 0) {
         const relevantDoughs = recentDoughs.filter(d => {
@@ -247,11 +266,9 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
 
         const weightsPerPiece: number[] = [];
         const doughWeights: number[] = [];
-        const wastes: number[] = [];
 
         for (const d of doughsToUse) {
           if (d.doughWeightG) doughWeights.push(d.doughWeightG);
-          if (d.wasteG != null) wastes.push(d.wasteG);
           const shapings = d.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>;
           if (shapings) {
             for (const s of shapings) {
@@ -266,25 +283,34 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
           avgWeightPerPiece = weightsPerPiece.reduce((a, b) => a + b, 0) / weightsPerPiece.length;
           doughCost.weightPerPieceG = Math.round(avgWeightPerPiece);
         }
-        if (doughWeights.length > 0) {
-          avgDoughWeight = doughWeights.reduce((a, b) => a + b, 0) / doughWeights.length;
-          doughCost.doughWeightG = Math.round(avgDoughWeight);
+        if (doughWeights.length > 0 && totalDoughWeightG == null) {
+          totalDoughWeightG = doughWeights.reduce((a, b) => a + b, 0) / doughWeights.length;
         }
-        if (wastes.length > 0) {
-          avgWaste = wastes.reduce((a, b) => a + b, 0) / wastes.length;
-          doughCost.wasteG = Math.round(avgWaste);
-        }
+      }
 
-        if (recipeCost.totalCost != null && avgWeightPerPiece && avgDoughWeight) {
-          const usableWeight = avgDoughWeight - (avgWaste || 0);
-          if (usableWeight > 0) {
-            doughCost.costPerPiece = (recipeCost.totalCost * avgWeightPerPiece) / usableWeight;
-            doughCost.allocationMethod = "weight";
-          }
-        } else if (recipeCost.totalCost != null && avgPieces > 0) {
-          doughCost.costPerPiece = recipeCost.totalCost / avgPieces;
-          doughCost.allocationMethod = "equal";
+      doughCost.doughWeightG = totalDoughWeightG ? Math.round(totalDoughWeightG) : null;
+
+      const addinWeightSum = addins.reduce((sum: number, a: any) => sum + (a.weightPerPieceG || 0), 0);
+      const componentWeightSum = components.reduce((sum: number, c: any) => sum + (c.weightPerPieceG || 0), 0);
+      const fillingWeightPerPiece = addinWeightSum + componentWeightSum;
+
+      if (avgWeightPerPiece && fillingWeightPerPiece > 0) {
+        doughCost.doughGramsPerPiece = Math.round(avgWeightPerPiece - fillingWeightPerPiece);
+      } else if (avgWeightPerPiece) {
+        doughCost.doughGramsPerPiece = Math.round(avgWeightPerPiece);
+      }
+
+      if (recipeCost.totalCost != null && doughCost.doughGramsPerPiece && doughCost.doughGramsPerPiece > 0 && totalDoughWeightG && totalDoughWeightG > 0) {
+        doughCost.costPerPiece = (recipeCost.totalCost * doughCost.doughGramsPerPiece) / totalDoughWeightG;
+        doughCost.allocationMethod = "weight";
+
+        if (avgPieces > 0) {
+          const totalDoughUsedG = avgPieces * doughCost.doughGramsPerPiece;
+          doughCost.scrapsImpliedG = Math.round(totalDoughWeightG - totalDoughUsedG);
         }
+      } else if (recipeCost.totalCost != null && avgPieces > 0) {
+        doughCost.costPerPiece = recipeCost.totalCost / avgPieces;
+        doughCost.allocationMethod = "equal";
       }
     }
   }
@@ -294,27 +320,25 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
     fatCostPerPiece: null, configured: false,
   };
 
-  const [dtConfig] = await db.select().from(doughTypeConfigs).where(eq(doughTypeConfigs.doughType, item.doughType));
   if (dtConfig && dtConfig.fatRatio) {
     laminationFatCost.configured = true;
     laminationFatCost.fatDescription = dtConfig.fatDescription;
     laminationFatCost.fatRatio = dtConfig.fatRatio;
 
     if (dtConfig.fatInventoryItemId) {
-      const allInvItems = await db.select().from(inventoryItems);
       const fatItem = allInvItems.find(i => i.id === dtConfig.fatInventoryItemId);
       if (fatItem?.costPerUnit != null) {
         laminationFatCost.fatCostPerUnit = fatItem.costPerUnit;
         const fatUnit = normalizeUnit(fatItem.unit);
 
-        if (doughCost.weightPerPieceG && doughCost.doughWeightG) {
-          const totalFatWeightG = doughCost.doughWeightG * dtConfig.fatRatio / (1 - dtConfig.fatRatio);
+        const baseDoughG = dtConfig.baseDoughWeightG || (totalDoughWeightG || 0);
+        if (baseDoughG > 0 && doughCost.doughGramsPerPiece && doughCost.doughGramsPerPiece > 0) {
+          const totalFatWeightG = baseDoughG * dtConfig.fatRatio / (1 - dtConfig.fatRatio);
           let fatWeightInItemUnit = convertQuantity(totalFatWeightG, "g", fatUnit);
           if (fatWeightInItemUnit === null) fatWeightInItemUnit = totalFatWeightG / 1000;
           const totalFatCost = fatWeightInItemUnit * fatItem.costPerUnit;
-          const usableWeight = doughCost.doughWeightG - (doughCost.wasteG || 0);
-          if (usableWeight > 0 && doughCost.weightPerPieceG) {
-            laminationFatCost.fatCostPerPiece = (totalFatCost * doughCost.weightPerPieceG) / usableWeight;
+          if (totalDoughWeightG && totalDoughWeightG > 0) {
+            laminationFatCost.fatCostPerPiece = (totalFatCost * doughCost.doughGramsPerPiece) / totalDoughWeightG;
           }
         } else if (doughCost.piecesFromDough && doughCost.piecesFromDough > 0 && doughCost.totalRecipeCost != null) {
           const fatCostTotal = doughCost.totalRecipeCost * dtConfig.fatRatio / (1 - dtConfig.fatRatio);
@@ -327,59 +351,74 @@ export async function calculatePastryCost(pastryItemId: number): Promise<PastryC
   let addinsCost: PastryCostResult["addinsCost"] = { items: [], total: null };
   let componentsCost: PastryCostResult["componentsCost"] = { items: [], total: null };
 
-  if (passport) {
-    const addins = await db.select().from(pastryAddins).where(eq(pastryAddins.pastryId, passport.id));
-    const allInvItems = await db.select().from(inventoryItems);
-    let addinsTotal = 0;
-    let hasAddinCost = false;
+  let addinsTotal = 0;
+  let hasAddinCost = false;
 
-    for (const addin of addins) {
-      let invItem: InventoryItem | null = null;
-      if (addin.inventoryItemId) {
-        invItem = allInvItems.find(i => i.id === addin.inventoryItemId) || null;
-      }
-
-      let addinCost: number | null = null;
-      if (invItem?.costPerUnit != null && addin.quantity != null) {
-        const addinUnit = normalizeUnit(addin.unit || "");
-        const invUnit = normalizeUnit(invItem.unit);
-        let convertedQty = convertQuantity(addin.quantity, addinUnit, invUnit);
-        if (convertedQty === null) convertedQty = addin.quantity;
-        addinCost = convertedQty * invItem.costPerUnit;
-        addinsTotal += addinCost;
-        hasAddinCost = true;
-      }
-
-      addinsCost.items.push({
-        name: addin.name,
-        quantity: addin.quantity,
-        unit: addin.unit,
-        costPerUnit: invItem?.costPerUnit || null,
-        totalCost: addinCost,
-        inventoryItemId: addin.inventoryItemId,
-        linked: !!addin.inventoryItemId,
-      });
+  for (const addin of addins) {
+    let invItem: InventoryItem | null = null;
+    if (addin.inventoryItemId) {
+      invItem = allInvItems.find(i => i.id === addin.inventoryItemId) || null;
     }
-    if (hasAddinCost) addinsCost.total = addinsTotal;
 
-    const components = await db.select().from(pastryComponents).where(eq(pastryComponents.pastryId, passport.id));
-    let compTotal = 0;
-    let hasCompCost = false;
-
-    for (const comp of components) {
-      const compCost = await calculateRecipeCost(comp.recipeId);
-      componentsCost.items.push({
-        recipeId: comp.recipeId,
-        recipeName: compCost?.recipeName || "Unknown",
-        totalCost: compCost?.totalCost || null,
-      });
-      if (compCost?.totalCost != null) {
-        compTotal += compCost.totalCost;
-        hasCompCost = true;
-      }
+    let addinCostPerPiece: number | null = null;
+    if (invItem?.costPerUnit != null && addin.weightPerPieceG != null) {
+      const invUnit = normalizeUnit(invItem.unit);
+      let weightInInvUnit = convertQuantity(addin.weightPerPieceG, "g", invUnit);
+      if (weightInInvUnit === null) weightInInvUnit = addin.weightPerPieceG / 1000;
+      addinCostPerPiece = weightInInvUnit * invItem.costPerUnit;
+      addinsTotal += addinCostPerPiece;
+      hasAddinCost = true;
+    } else if (invItem?.costPerUnit != null && addin.quantity != null) {
+      const addinUnit = normalizeUnit(addin.unit || "");
+      const invUnit = normalizeUnit(invItem.unit);
+      let convertedQty = convertQuantity(addin.quantity, addinUnit, invUnit);
+      if (convertedQty === null) convertedQty = addin.quantity;
+      addinCostPerPiece = convertedQty * invItem.costPerUnit;
+      addinsTotal += addinCostPerPiece;
+      hasAddinCost = true;
     }
-    if (hasCompCost) componentsCost.total = compTotal;
+
+    addinsCost.items.push({
+      name: addin.name,
+      quantity: addin.quantity,
+      unit: addin.unit,
+      weightPerPieceG: addin.weightPerPieceG,
+      costPerUnit: invItem?.costPerUnit || null,
+      totalCost: addinCostPerPiece,
+      inventoryItemId: addin.inventoryItemId,
+      linked: !!addin.inventoryItemId,
+    });
   }
+  if (hasAddinCost) addinsCost.total = addinsTotal;
+
+  let compTotal = 0;
+  let hasCompCost = false;
+
+  for (const comp of components) {
+    const compCost = await calculateRecipeCost(comp.recipeId);
+    let costPerPiece: number | null = null;
+
+    if (compCost?.totalCost != null && comp.weightPerPieceG != null && compCost.yieldAmount > 0) {
+      const yieldUnit = normalizeUnit(compCost.yieldUnit);
+      let yieldInG = convertQuantity(compCost.yieldAmount, yieldUnit, "g");
+      if (yieldInG === null) yieldInG = compCost.yieldAmount;
+      costPerPiece = (compCost.totalCost / yieldInG) * comp.weightPerPieceG;
+    } else if (compCost?.totalCost != null) {
+      costPerPiece = compCost.totalCost;
+    }
+
+    componentsCost.items.push({
+      recipeId: comp.recipeId,
+      recipeName: compCost?.recipeName || "Unknown",
+      weightPerPieceG: comp.weightPerPieceG,
+      totalCost: costPerPiece,
+    });
+    if (costPerPiece != null) {
+      compTotal += costPerPiece;
+      hasCompCost = true;
+    }
+  }
+  if (hasCompCost) componentsCost.total = compTotal;
 
   const doughPart = doughCost.costPerPiece || 0;
   const fatPart = laminationFatCost.fatCostPerPiece || 0;

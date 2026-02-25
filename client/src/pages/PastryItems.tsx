@@ -61,6 +61,7 @@ export default function PastryItems() {
   const [fatRatio, setFatRatio] = useState("");
   const [fatItemId, setFatItemId] = useState<string>("");
   const [fatDescription, setFatDescription] = useState("");
+  const [baseDoughWeightG, setBaseDoughWeightG] = useState("");
 
   const { data: items, isLoading } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
@@ -122,7 +123,7 @@ export default function PastryItems() {
   });
 
   const fatConfigMutation = useMutation({
-    mutationFn: (data: { doughType: string; fatRatio: number | null; fatInventoryItemId: number | null; fatDescription: string | null }) =>
+    mutationFn: (data: { doughType: string; fatRatio: number | null; fatInventoryItemId: number | null; fatDescription: string | null; baseDoughWeightG: number | null }) =>
       apiRequest("PUT", "/api/dough-type-configs", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dough-type-configs"] });
@@ -139,6 +140,7 @@ export default function PastryItems() {
     setFatRatio(existing?.fatRatio != null ? String(Math.round(existing.fatRatio * 100)) : "");
     setFatItemId(existing?.fatInventoryItemId != null ? String(existing.fatInventoryItemId) : "");
     setFatDescription(existing?.fatDescription || "");
+    setBaseDoughWeightG(existing?.baseDoughWeightG != null ? String(existing.baseDoughWeightG) : "");
   }
 
   function saveFatConfig() {
@@ -149,6 +151,7 @@ export default function PastryItems() {
       fatRatio: ratio,
       fatInventoryItemId: fatItemId ? parseInt(fatItemId) : null,
       fatDescription: fatDescription.trim() || null,
+      baseDoughWeightG: baseDoughWeightG ? parseFloat(baseDoughWeightG) : null,
     });
   }
 
@@ -386,6 +389,20 @@ export default function PastryItems() {
                 onChange={(e) => setFatDescription(e.target.value)}
                 data-testid="input-fat-description"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Base Dough Weight (g)</label>
+              <Input
+                type="number"
+                placeholder="e.g. 4700"
+                value={baseDoughWeightG}
+                onChange={(e) => setBaseDoughWeightG(e.target.value)}
+                min={0}
+                data-testid="input-base-dough-weight"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Starting dough weight before butter (auto-fills total weight in shaping)
+              </p>
             </div>
           </div>
           <DialogFooter>

@@ -3072,6 +3072,7 @@ ${sopsHtml}
         fatRatio: z.number().min(0).max(1).nullable().optional(),
         fatInventoryItemId: z.number().nullable().optional(),
         fatDescription: z.string().nullable().optional(),
+        baseDoughWeightG: z.number().min(0).nullable().optional(),
       });
       const data = schema.parse(req.body);
       const config = await storage.upsertDoughTypeConfig(data);

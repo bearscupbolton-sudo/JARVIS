@@ -1405,7 +1405,7 @@ export class DatabaseStorage implements IStorage {
     const existing = await this.getDoughTypeConfig(config.doughType);
     if (existing) {
       const [updated] = await db.update(doughTypeConfigs)
-        .set({ fatRatio: config.fatRatio, fatInventoryItemId: config.fatInventoryItemId, fatDescription: config.fatDescription })
+        .set({ fatRatio: config.fatRatio, fatInventoryItemId: config.fatInventoryItemId, fatDescription: config.fatDescription, baseDoughWeightG: config.baseDoughWeightG })
         .where(eq(doughTypeConfigs.id, existing.id))
         .returning();
       return updated;
