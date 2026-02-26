@@ -48,6 +48,7 @@ import {
   Sun,
   RotateCcw,
   Stamp,
+  SplitSquareVertical,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
@@ -149,8 +150,10 @@ export default function LaminationStudio() {
   const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
   const [pastryType, setPastryType] = useState("");
   const [totalPieces, setTotalPieces] = useState("");
-  const [selectedDestination, setSelectedDestination] = useState<"proof" | "freezer" | "">("");
+  const [selectedDestination, setSelectedDestination] = useState<"proof" | "freezer" | "split" | "">("");
   const [destinationPieces, setDestinationPieces] = useState("");
+  const [splitProofPieces, setSplitProofPieces] = useState("");
+  const [splitFreezerPieces, setSplitFreezerPieces] = useState("");
   const [weightPerPiece, setWeightPerPiece] = useState("");
   const [doughWeightG, setDoughWeightG] = useState("");
   const [wasteG, setWasteG] = useState("");
@@ -370,6 +373,8 @@ export default function LaminationStudio() {
     setWasteG("");
     setSelectedDestination("");
     setDestinationPieces("");
+    setSplitProofPieces("");
+    setSplitFreezerPieces("");
     setShapingEntries([]);
   }, []);
 
@@ -510,6 +515,8 @@ export default function LaminationStudio() {
     setWeightPerPiece("");
     setSelectedDestination("");
     setDestinationPieces("");
+    setSplitProofPieces("");
+    setSplitFreezerPieces("");
     setShapingEntries([]);
     const dtConfig = doughTypeConfigsList?.find((c: any) => c.doughType === dough.doughType);
     if (dtConfig?.baseDoughWeightG) {
@@ -555,18 +562,61 @@ export default function LaminationStudio() {
     setDestinationPieces(String(totalAllPieces));
   };
 
-  const handleDestinationSelect = (dest: "proof" | "freezer") => {
+  const handleDestinationSelect = (dest: "proof" | "freezer" | "split") => {
     setSelectedDestination(dest);
+    if (dest === "split") {
+      const totalAllPieces = shapingEntries.reduce((sum, e) => sum + e.pieces, 0);
+      const half = Math.floor(totalAllPieces / 2);
+      setSplitProofPieces(String(half));
+      setSplitFreezerPieces(String(totalAllPieces - half));
+    }
   };
 
+  const splitMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await apiRequest("POST", `/api/lamination/${id}/split`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+    },
+  });
+
   const handleCompleteDough = () => {
-    if (!completeDough || shapingEntries.length === 0 || !selectedDestination || !destinationPieces) return;
-    const pieces = parseInt(destinationPieces);
-    if (isNaN(pieces) || pieces <= 0) return;
+    if (!completeDough || shapingEntries.length === 0 || !selectedDestination) return;
     const now = new Date().toISOString();
     const allPastryNames = shapingEntries.map(e => e.pastryType).join(", ");
     const totalAllPieces = shapingEntries.reduce((sum, e) => sum + e.pieces, 0);
     const primaryPastry = shapingEntries[0].pastryType;
+
+    if (selectedDestination === "split") {
+      const proofCount = parseInt(splitProofPieces);
+      const freezerCount = parseInt(splitFreezerPieces);
+      if (isNaN(proofCount) || proofCount <= 0 || isNaN(freezerCount) || freezerCount <= 0) return;
+      splitMutation.mutate(
+        {
+          id: completeDough.id,
+          data: {
+            proofPieces: proofCount,
+            freezerPieces: freezerCount,
+            shapings: shapingEntries,
+            doughWeightG: doughWeightG ? parseFloat(doughWeightG) : null,
+          },
+        },
+        {
+          onSuccess: () => {
+            resetCompleteDoughDialog();
+            toast({ title: "Dough Split", description: `${allPastryNames} — ${proofCount} to Proof Box, ${freezerCount} to Freezer` });
+          },
+        }
+      );
+      return;
+    }
+
+    if (!destinationPieces) return;
+    const pieces = parseInt(destinationPieces);
+    if (isNaN(pieces) || pieces <= 0) return;
 
     const baseUpdates: Record<string, any> = {
       pastryType: primaryPastry,

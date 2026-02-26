@@ -2999,6 +2999,79 @@ ${sopsHtml}
     }
   });
 
+  app.post("/api/lamination/:id/split", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const id = parseInt(req.params.id);
+      const schema = z.object({
+        proofPieces: z.number().int().positive(),
+        freezerPieces: z.number().int().positive(),
+        shapings: z.array(z.object({
+          pastryType: z.string(),
+          pieces: z.number().int().positive(),
+          weightPerPieceG: z.number().optional(),
+        })),
+        doughWeightG: z.number().nullable().optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const dough = await storage.getLaminationDoughById(id);
+      if (!dough) return res.status(404).json({ message: "Dough not found" });
+
+      const now = new Date();
+      const totalPieces = parsed.proofPieces + parsed.freezerPieces;
+      const allPastryNames = parsed.shapings.map((e: any) => e.pastryType).join(", ");
+      const primaryPastry = parsed.shapings[0]?.pastryType || dough.doughType;
+
+      const proofDough = await storage.updateLaminationDough(id, {
+        pastryType: primaryPastry,
+        totalPieces: parsed.proofPieces,
+        proofPieces: parsed.proofPieces,
+        shapedBy: user?.id || null,
+        shapedAt: now,
+        shapings: parsed.shapings,
+        doughWeightG: parsed.doughWeightG ?? null,
+        status: "proofing",
+        destination: "proof",
+        proofStartedAt: now,
+      });
+
+      const today = new Date().toISOString().split("T")[0];
+      const existingDoughs = await storage.getLaminationDoughs(today);
+      const allDoughs = await storage.getActiveLaminationDoughs();
+      const maxNumber = [...existingDoughs, ...allDoughs].reduce((max, d) => Math.max(max, d.doughNumber || 0), 0);
+
+      const freezerDough = await storage.createLaminationDough({
+        date: dough.date,
+        doughType: dough.doughType,
+        doughNumber: maxNumber + 1,
+        turn1Fold: dough.turn1Fold,
+        turn2Fold: dough.turn2Fold,
+        foldSequence: dough.foldSequence,
+        foldSubtype: dough.foldSubtype,
+        status: "frozen",
+        createdBy: dough.createdBy,
+        startedAt: dough.startedAt,
+        openedBy: dough.openedBy,
+        openedAt: dough.openedAt,
+        shapedBy: user?.id || null,
+        shapedAt: now,
+        pastryType: primaryPastry,
+        totalPieces: parsed.freezerPieces,
+        proofPieces: parsed.freezerPieces,
+        destination: "freezer",
+        shapings: parsed.shapings,
+        doughWeightG: parsed.doughWeightG ?? null,
+        intendedPastry: dough.intendedPastry,
+      });
+
+      storage.clearAllBriefingCaches().catch(() => {});
+      res.json({ proofDough, freezerDough });
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/lamination/:id/bake", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
