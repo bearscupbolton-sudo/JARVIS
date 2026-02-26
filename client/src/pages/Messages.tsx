@@ -22,7 +22,7 @@ import {
   Mail, MailOpen, Send, Inbox, Search, Pin, PinOff,
   Archive, ArchiveRestore, Trash2, Check, CheckCircle2,
   Clock, ChevronLeft, Reply, SmilePlus, AlertCircle,
-  Filter, X, MessageSquare, Plus, Star, Users
+  Filter, X, MessageSquare, Plus, Star, Users, ChevronDown
 } from "lucide-react";
 import { format, formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import type { DirectMessage, MessageRecipient, MessageReaction } from "@shared/schema";
@@ -875,30 +875,60 @@ function SentDetail({ msg, onBack }: { msg: SentMessage; onBack: () => void }) {
 }
 
 function RecipientPicker({ members, onSelect }: { members: TeamMember[]; onSelect: (id: string) => void }) {
-  const [pickerKey, setPickerKey] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const filtered = members.filter(m => {
+    if (!search) return true;
+    const name = `${m.firstName || ""} ${m.lastName || ""} ${m.username || ""}`.toLowerCase();
+    return name.includes(search.toLowerCase());
+  });
+
   return (
-    <Select
-      key={pickerKey}
-      onValueChange={(memberId) => {
-        onSelect(memberId);
-        setPickerKey(k => k + 1);
-      }}
-    >
-      <SelectTrigger className="h-9" data-testid="select-recipient">
-        <SelectValue placeholder="Select a team member..." />
-      </SelectTrigger>
-      <SelectContent>
-        {members.map(m => (
-          <SelectItem
-            key={m.id}
-            value={m.id}
-            data-testid={`recipient-option-${m.id}`}
-          >
-            {m.firstName || m.username} {m.lastName || ""} ({m.role})
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          className="w-full justify-between h-9 font-normal text-muted-foreground"
+          data-testid="select-recipient"
+        >
+          Select a team member...
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <div className="p-2 border-b border-border">
+          <Input
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8 text-sm"
+            data-testid="input-recipient-search"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-3 text-center">No members found</p>
+          ) : (
+            filtered.map(m => (
+              <button
+                key={m.id}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                onClick={() => {
+                  onSelect(m.id);
+                  setSearch("");
+                  setOpen(false);
+                }}
+                data-testid={`recipient-option-${m.id}`}
+              >
+                {m.firstName || m.username} {m.lastName || ""} <span className="text-muted-foreground">({m.role})</span>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
