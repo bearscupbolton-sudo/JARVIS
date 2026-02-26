@@ -53,6 +53,24 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/team", isAuthenticated, async (req: any, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      const safeTeam = allUsers.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        username: u.username,
+        role: u.role,
+        profileImageUrl: u.profileImageUrl,
+      }));
+      res.json(safeTeam);
+    } catch (error) {
+      console.error("Error fetching team:", error);
+      res.status(500).json({ message: "Failed to fetch team" });
+    }
+  });
+
   app.get("/api/admin/users", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const allUsers = await authStorage.getAllUsers();
