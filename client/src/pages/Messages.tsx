@@ -874,6 +874,34 @@ function SentDetail({ msg, onBack }: { msg: SentMessage; onBack: () => void }) {
   );
 }
 
+function RecipientPicker({ members, onSelect }: { members: TeamMember[]; onSelect: (id: string) => void }) {
+  const [pickerKey, setPickerKey] = useState(0);
+  return (
+    <Select
+      key={pickerKey}
+      onValueChange={(memberId) => {
+        onSelect(memberId);
+        setPickerKey(k => k + 1);
+      }}
+    >
+      <SelectTrigger className="h-9" data-testid="select-recipient">
+        <SelectValue placeholder="Select a team member..." />
+      </SelectTrigger>
+      <SelectContent>
+        {members.map(m => (
+          <SelectItem
+            key={m.id}
+            value={m.id}
+            data-testid={`recipient-option-${m.id}`}
+          >
+            {m.firstName || m.username} {m.lastName || ""} ({m.role})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function ComposeDialog({
   open, onOpenChange, teamMembers, currentUserId,
   composeForm, setComposeForm, onSend, isPending
@@ -910,7 +938,7 @@ function ComposeDialog({
             <Label className="text-xs font-medium">Send To</Label>
             <Select
               value={composeForm.targetType}
-              onValueChange={(v) => { setComposeForm(prev => ({ ...prev, targetType: v, targetValue: "", recipientIds: [] })); setRecipientSearch(""); }}
+              onValueChange={(v) => { setComposeForm(prev => ({ ...prev, targetType: v, targetValue: "", recipientIds: [] })); }}
             >
               <SelectTrigger className="h-9" data-testid="select-target-type">
                 <SelectValue />
@@ -927,30 +955,14 @@ function ComposeDialog({
           {composeForm.targetType === "individual" && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Recipients</Label>
-              <Select
-                value=""
-                onValueChange={(memberId) => {
+              <RecipientPicker
+                members={otherMembers.filter(m => !composeForm.recipientIds.includes(m.id))}
+                onSelect={(memberId) => {
                   if (!composeForm.recipientIds.includes(memberId)) {
                     setComposeForm(prev => ({ ...prev, recipientIds: [...prev.recipientIds, memberId] }));
                   }
                 }}
-              >
-                <SelectTrigger className="h-9" data-testid="select-recipient">
-                  <SelectValue placeholder="Select a team member..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {otherMembers.map(m => (
-                    <SelectItem
-                      key={m.id}
-                      value={m.id}
-                      disabled={composeForm.recipientIds.includes(m.id)}
-                      data-testid={`recipient-option-${m.id}`}
-                    >
-                      {m.firstName || m.username} {m.lastName || ""} ({m.role})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
               {selectedMembers.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {selectedMembers.map(m => (
