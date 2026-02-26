@@ -1851,12 +1851,18 @@ Only return the JSON array, no other text.`;
         return res.status(403).json({ message: "Only shift managers or owners can bulk create shifts" });
       }
       const { shifts: shiftList } = req.body;
+      console.log("[Bulk Shifts] Received", shiftList?.length, "shifts. Sample:", JSON.stringify(shiftList?.[0]));
       if (!Array.isArray(shiftList) || shiftList.length === 0) {
         return res.status(400).json({ message: "No shifts provided" });
       }
       const created = [];
+      let skipped = 0;
       for (const s of shiftList) {
-        if (!s.shiftDate || !s.startTime || !s.endTime) continue;
+        if (!s.shiftDate || !s.startTime || !s.endTime) {
+          console.log("[Bulk Shifts] Skipping shift — missing required fields:", JSON.stringify(s));
+          skipped++;
+          continue;
+        }
         const shift = await storage.createShift({
           userId: s.userId || null,
           shiftDate: s.shiftDate,
@@ -1879,6 +1885,7 @@ Only return the JSON array, no other text.`;
           }).catch(err => console.error("[Push] Bulk shift notification error:", err));
         }
       }
+      console.log("[Bulk Shifts] Created", created.length, "shifts, skipped", skipped);
       res.status(201).json(created);
     } catch (err) {
       console.error("Error bulk creating shifts:", err);
