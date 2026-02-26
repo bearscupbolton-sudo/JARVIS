@@ -3260,12 +3260,14 @@ ${sopsHtml}
         timeOffReqs,
         bakeoffToday,
         recentAnnouncements,
+        myTaggedEvents,
       ] = await Promise.all([
         storage.getUnreadCount(user.id),
         storage.getShifts(today, weekEndStr),
         storage.getTimeOffRequests(user.id),
         storage.getBakeoffLogs(today),
         storage.getAnnouncements(),
+        storage.getEventsForUser(user.id),
       ]);
 
       const myUpcomingShifts = myShifts
@@ -3300,6 +3302,7 @@ ${sopsHtml}
         bakeoffSummary,
         pinnedAnnouncements,
         managerData,
+        myTaggedEvents,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

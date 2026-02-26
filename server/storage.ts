@@ -103,6 +103,7 @@ export interface IStorage {
   // Events
   getUpcomingEvents(days?: number): Promise<CalendarEvent[]>;
   getEventsByMonth(year: number, month: number): Promise<CalendarEvent[]>;
+  getEventsForUser(userId: number, days?: number): Promise<CalendarEvent[]>;
   getEvent(id: number): Promise<CalendarEvent | undefined>;
   createEvent(event: InsertEvent): Promise<CalendarEvent>;
   updateEvent(id: number, updates: Partial<InsertEvent>): Promise<CalendarEvent>;
@@ -518,6 +519,20 @@ export class DatabaseStorage implements IStorage {
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month, 0, 23, 59, 59);
     return await db.select().from(events).where(and(gte(events.date, start), lte(events.date, end))).orderBy(events.date);
+  }
+
+  async getEventsForUser(userId: number, days = 14): Promise<CalendarEvent[]> {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const future = new Date(now);
+    future.setDate(future.getDate() + days);
+    return await db.select().from(events).where(
+      and(
+        gte(events.date, now),
+        lte(events.date, future),
+        sql`${events.taggedUserIds} @> ARRAY[${userId}]::integer[]`
+      )
+    ).orderBy(events.date);
   }
 
   async getEvent(id: number): Promise<CalendarEvent | undefined> {

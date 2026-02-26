@@ -40,6 +40,9 @@ The invoice capture page supports uploading multiple photos at once or adding ph
 ### Schedule & Shift Management
 The schedule system supports full 24-hour availability (12:00 AM–11:30 PM in 30-minute intervals). Shifts have three statuses: "assigned" (standard), "open" (available for pickup), and "pending" (claimed, awaiting approval). Managers can post open shifts that any team member can pick up; claims require approval from a designated shift manager or owner. The shifts table includes `status`, `claimedBy`, and `claimedAt` columns. Shift managers (designated by owners via `isShiftManager` flag on users) can also upload CSV/Excel spreadsheets or photos which Jarvis AI parses to auto-generate schedules with a preview-and-confirm workflow. Push notifications are sent on shift creation, updates, pickup requests, approvals, and denials.
 
+### Events & Calendar
+Events support tagging team members via `taggedUserIds` (integer array on the `events` table). Tagged users see their events in a "Your Events" section on the Home page. Event times are stored and displayed in 12-hour AM/PM format (e.g., "9:00 AM") using Select dropdowns instead of native time inputs. The `formatTimeDisplay` helper converts any legacy 24-hour times to AM/PM for display. Events are managed on the Calendar page and the Dashboard's Forward 5 Look.
+
 ### Time Card System
 A comprehensive system includes a persistent Clock Bar, a PIN-based Kiosk Clock, personal "My Time Cards" for history and adjustment requests, and a "Time Review" for managers to approve and edit team entries.
 

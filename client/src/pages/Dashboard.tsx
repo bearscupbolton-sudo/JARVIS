@@ -54,6 +54,28 @@ function formatDayLabel(date: Date): string {
   return format(date, "EEE, MMM d");
 }
 
+function formatTimeDisplay(time: string | null): string {
+  if (!time) return "";
+  if (time.includes("AM") || time.includes("PM")) return time;
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr || "00";
+  if (isNaN(h)) return time;
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h < 12 ? "AM" : "PM";
+  return `${hour12}:${m} ${ampm}`;
+}
+
+const TIME_OPTIONS: string[] = [];
+for (let h = 0; h < 24; h++) {
+  for (const m of [0, 30]) {
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h < 12 ? "AM" : "PM";
+    const min = m === 0 ? "00" : "30";
+    TIME_OPTIONS.push(`${hour12}:${min} ${ampm}`);
+  }
+}
+
 type BirthdayEntry = { userId: string; name: string; birthday: string };
 
 const EVENT_TYPE_ICONS: Record<string, string> = {
@@ -799,8 +821,32 @@ export default function Dashboard() {
                       </Select>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <Input type="time" placeholder="Start time" value={eventForm.startTime} onChange={e => setEventForm(p => ({ ...p, startTime: e.target.value }))} data-testid="input-event-start-time" />
-                      <Input type="time" placeholder="End time" value={eventForm.endTime} onChange={e => setEventForm(p => ({ ...p, endTime: e.target.value }))} data-testid="input-event-end-time" />
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+                        <Select value={eventForm.startTime} onValueChange={v => setEventForm(p => ({ ...p, startTime: v }))}>
+                          <SelectTrigger data-testid="select-event-start-time">
+                            <SelectValue placeholder="Select time" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60">
+                            {TIME_OPTIONS.map(t => (
+                              <SelectItem key={t} value={t}>{t}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">End Time</label>
+                        <Select value={eventForm.endTime} onValueChange={v => setEventForm(p => ({ ...p, endTime: v }))}>
+                          <SelectTrigger data-testid="select-event-end-time">
+                            <SelectValue placeholder="Select time" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60">
+                            {TIME_OPTIONS.map(t => (
+                              <SelectItem key={t} value={t}>{t}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <Input placeholder="Contact name (optional)" value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-event-contact-name" />
                     <div className="grid grid-cols-2 gap-3">
@@ -849,7 +895,7 @@ export default function Dashboard() {
                               </div>
                               <span className="text-sm flex-1 min-w-0 truncate">{event.title}</span>
                               {event.startTime && (
-                                <span className="text-[10px] text-muted-foreground flex-shrink-0">{event.startTime}</span>
+                                <span className="text-[10px] text-muted-foreground flex-shrink-0">{formatTimeDisplay(event.startTime)}</span>
                               )}
                               <Badge variant="outline" className={`text-[10px] ${isBirthday ? "border-pink-500/30 text-pink-500" : ""}`}>{event.eventType}</Badge>
                             </div>
@@ -894,7 +940,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 text-sm">
                       <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <span data-testid="text-event-detail-time">
-                        {selectedEvent.startTime}{selectedEvent.endTime ? ` – ${selectedEvent.endTime}` : ""}
+                        {formatTimeDisplay(selectedEvent.startTime)}{selectedEvent.endTime ? ` – ${formatTimeDisplay(selectedEvent.endTime)}` : ""}
                       </span>
                     </div>
                   )}

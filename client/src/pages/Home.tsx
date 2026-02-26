@@ -21,7 +21,19 @@ import {
 } from "lucide-react";
 import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
 import { format, isToday, isTomorrow } from "date-fns";
-import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry } from "@shared/schema";
+import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent } from "@shared/schema";
+
+function formatTimeDisplay(time: string | null): string {
+  if (!time) return "";
+  if (time.includes("AM") || time.includes("PM")) return time;
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr || "00";
+  if (isNaN(h)) return time;
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h < 12 ? "AM" : "PM";
+  return `${hour12}:${m} ${ampm}`;
+}
 
 type InboxMessage = DirectMessage & {
   sender: { id: string; firstName: string | null; lastName: string | null; username: string | null };
@@ -39,6 +51,7 @@ type HomeData = {
     todayStaffCount: number;
     todayShiftCount: number;
   } | null;
+  myTaggedEvents: CalendarEvent[];
 };
 
 type JarvisBriefingData = {
@@ -686,6 +699,48 @@ export default function Home() {
           </CardContent>
         </Card>
         </Link>
+
+        {/* Your Upcoming Events */}
+        {homeData?.myTaggedEvents && homeData.myTaggedEvents.length > 0 && (
+          <Link href="/calendar">
+          <Card className="cursor-pointer hover-elevate" data-testid="container-my-events">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-purple-500/10 flex items-center justify-center">
+                  <Calendar className="w-4 h-4 text-purple-500" />
+                </div>
+                Your Events
+              </CardTitle>
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                Calendar <ArrowRight className="w-3 h-3" />
+              </span>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-2">
+                {homeData.myTaggedEvents.slice(0, 5).map(event => (
+                  <div key={event.id} className="flex items-center gap-3 p-3 rounded-md border border-border" data-testid={`home-event-${event.id}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{event.title}</span>
+                        <Badge variant="secondary" className="capitalize">{event.eventType}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
+                        <span>{format(new Date(event.date), "EEE, MMM d")}</span>
+                        {event.startTime && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatTimeDisplay(event.startTime)}{event.endTime ? ` - ${formatTimeDisplay(event.endTime)}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          </Link>
+        )}
 
         {/* Out of the Oven Today */}
         <Link href="/dashboard">

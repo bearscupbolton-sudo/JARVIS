@@ -11,9 +11,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, Trash2,
-  MapPin, Clock, Phone, Mail, Cake
+  MapPin, Clock, Phone, Mail, Cake, Users, X, Check
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths, getMonth, getDate } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
@@ -37,11 +38,46 @@ const EVENT_TYPE_ICONS: Record<string, string> = {
   birthday: "B",
 };
 
+const TIME_OPTIONS: string[] = [];
+for (let h = 0; h < 24; h++) {
+  for (const m of [0, 30]) {
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h < 12 ? "AM" : "PM";
+    const min = m === 0 ? "00" : "30";
+    TIME_OPTIONS.push(`${hour12}:${min} ${ampm}`);
+  }
+}
+
+function formatTimeDisplay(time: string | null): string {
+  if (!time) return "";
+  if (time.includes("AM") || time.includes("PM")) return time;
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr || "00";
+  if (isNaN(h)) return time;
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h < 12 ? "AM" : "PM";
+  return `${hour12}:${m} ${ampm}`;
+}
+
 type BirthdayEntry = {
   userId: string;
   name: string;
   birthday: string;
 };
+
+type TeamMember = {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
+  role: string;
+  profileImageUrl: string | null;
+};
+
+function getTeamMemberName(m: TeamMember): string {
+  return [m.firstName, m.lastName].filter(Boolean).join(" ") || m.username || "Unknown";
+}
 
 export default function CalendarPage() {
   const { user } = useAuth();
@@ -50,10 +86,12 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [eventForm, setEventForm] = useState({
     title: "", description: "", date: format(new Date(), "yyyy-MM-dd"),
     eventType: "event", contactName: "", contactPhone: "",
     contactEmail: "", address: "", startTime: "", endTime: "",
+    taggedUserIds: [] as number[],
   });
 
   const year = currentMonth.getFullYear();
@@ -70,6 +108,10 @@ export default function CalendarPage() {
 
   const { data: birthdays = [] } = useQuery<BirthdayEntry[]>({
     queryKey: ["/api/team/birthdays"],
+  });
+
+  const { data: teamMembers = [] } = useQuery<TeamMember[]>({
+    queryKey: ["/api/team"],
   });
 
   const events = useMemo(() => {
@@ -98,7 +140,7 @@ export default function CalendarPage() {
           address: null,
           startTime: null,
           endTime: null,
-          createdBy: null,
+          taggedUserIds: null,
           createdAt: null,
         } as CalendarEvent;
       });
@@ -112,6 +154,7 @@ export default function CalendarPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/events") });
+      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
       toast({ title: "Event added" });
     },
   });
@@ -122,6 +165,7 @@ export default function CalendarPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/events") });
+      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
       toast({ title: "Event deleted" });
     },
   });
@@ -153,6 +197,23 @@ export default function CalendarPage() {
     setShowAddForm(true);
   }
 
+  function toggleTaggedUser(userId: number) {
+    setEventForm(prev => ({
+      ...prev,
+      taggedUserIds: prev.taggedUserIds.includes(userId)
+        ? prev.taggedUserIds.filter(id => id !== userId)
+        : [...prev.taggedUserIds, userId],
+    }));
+  }
+
+  function getTaggedNames(ids: number[] | null): string[] {
+    if (!ids || ids.length === 0) return [];
+    return ids.map(id => {
+      const member = teamMembers.find(m => m.id === id);
+      return member ? getTeamMemberName(member) : `User #${id}`;
+    });
+  }
+
   async function handleAddEvent() {
     if (!eventForm.title.trim()) return;
     await createEvent.mutateAsync({
@@ -167,8 +228,9 @@ export default function CalendarPage() {
       address: eventForm.address || null,
       startTime: eventForm.startTime || null,
       endTime: eventForm.endTime || null,
+      taggedUserIds: eventForm.taggedUserIds.length > 0 ? eventForm.taggedUserIds : null,
     });
-    setEventForm({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
+    setEventForm({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "", taggedUserIds: [] });
     setShowAddForm(false);
   }
 
@@ -209,8 +271,80 @@ export default function CalendarPage() {
                 </Select>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Input type="time" placeholder="Start time" value={eventForm.startTime} onChange={e => setEventForm(p => ({ ...p, startTime: e.target.value }))} data-testid="input-cal-event-start-time" />
-                <Input type="time" placeholder="End time" value={eventForm.endTime} onChange={e => setEventForm(p => ({ ...p, endTime: e.target.value }))} data-testid="input-cal-event-end-time" />
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+                  <Select value={eventForm.startTime} onValueChange={v => setEventForm(p => ({ ...p, startTime: v }))}>
+                    <SelectTrigger data-testid="select-cal-event-start-time">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {TIME_OPTIONS.map(t => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">End Time</label>
+                  <Select value={eventForm.endTime} onValueChange={v => setEventForm(p => ({ ...p, endTime: v }))}>
+                    <SelectTrigger data-testid="select-cal-event-end-time">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {TIME_OPTIONS.map(t => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Tag People</label>
+                <Popover open={tagPickerOpen} onOpenChange={setTagPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-tag-people">
+                      <Users className="w-4 h-4 mr-2 text-muted-foreground" />
+                      {eventForm.taggedUserIds.length > 0
+                        ? `${eventForm.taggedUserIds.length} people tagged`
+                        : "Tag team members (optional)"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2 max-h-60 overflow-y-auto" align="start">
+                    {teamMembers.map(member => {
+                      const isSelected = eventForm.taggedUserIds.includes(member.id);
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-muted transition-colors ${isSelected ? "bg-primary/10" : ""}`}
+                          onClick={() => toggleTaggedUser(member.id)}
+                          data-testid={`tag-user-${member.id}`}
+                        >
+                          {isSelected ? <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" /> : <div className="w-3.5 h-3.5 flex-shrink-0" />}
+                          <span className="truncate">{getTeamMemberName(member)}</span>
+                        </button>
+                      );
+                    })}
+                    {teamMembers.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-2">No team members found</p>
+                    )}
+                  </PopoverContent>
+                </Popover>
+                {eventForm.taggedUserIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {eventForm.taggedUserIds.map(id => {
+                      const member = teamMembers.find(m => m.id === id);
+                      return (
+                        <Badge key={id} variant="secondary" className="text-xs gap-1">
+                          {member ? getTeamMemberName(member) : `#${id}`}
+                          <button type="button" onClick={() => toggleTaggedUser(id)} className="hover:text-destructive" data-testid={`remove-tag-${id}`}>
+                            <X className="w-3 h-3" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               <Input placeholder="Contact name (optional)" value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-cal-event-contact-name" />
               <div className="grid grid-cols-2 gap-3">
@@ -344,7 +478,13 @@ export default function CalendarPage() {
                       {event.startTime && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                           <Clock className="w-3 h-3" />
-                          {event.startTime}{event.endTime ? ` – ${event.endTime}` : ""}
+                          {formatTimeDisplay(event.startTime)}{event.endTime ? ` – ${formatTimeDisplay(event.endTime)}` : ""}
+                        </div>
+                      )}
+                      {event.taggedUserIds && event.taggedUserIds.length > 0 && (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                          <Users className="w-3 h-3" />
+                          {getTaggedNames(event.taggedUserIds).join(", ")}
                         </div>
                       )}
                       {event.description && (
@@ -399,7 +539,19 @@ export default function CalendarPage() {
                 {(selectedEvent.startTime || selectedEvent.endTime) && (
                   <div className="flex items-center gap-2 text-sm">
                     <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <span>{selectedEvent.startTime}{selectedEvent.endTime ? ` – ${selectedEvent.endTime}` : ""}</span>
+                    <span>{formatTimeDisplay(selectedEvent.startTime)}{selectedEvent.endTime ? ` – ${formatTimeDisplay(selectedEvent.endTime)}` : ""}</span>
+                  </div>
+                )}
+                {selectedEvent.taggedUserIds && selectedEvent.taggedUserIds.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Tagged People</p>
+                    <div className="flex flex-wrap gap-1">
+                      {getTaggedNames(selectedEvent.taggedUserIds).map((name, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs" data-testid={`badge-tagged-${i}`}>
+                          {name}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {selectedEvent.description && (
