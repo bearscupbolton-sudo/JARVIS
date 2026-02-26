@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X, Trash2, Percent, Timer } from "lucide-react";
+import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X, Trash2, Percent, Timer, Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
@@ -106,6 +106,24 @@ function userName(u: { firstName: string | null; lastName: string | null; userna
   const name = [u.firstName, u.lastName].filter(Boolean).join(" ");
   return name || u.username || "Unknown";
 }
+
+function downloadCsv(filename: string, headers: string[], rows: (string | number | null | undefined)[][]) {
+  const escape = (v: any) => {
+    if (v == null) return "";
+    const s = String(v);
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [headers.map(escape).join(","), ...rows.map(r => r.map(escape).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type KpiDrilldownSection = "revenue" | "labor" | "laborPct" | "foodCost" | "revPerHour" | "avgTransaction" | "salesVsProd" | "waste" | null;
 
 const PIE_COLORS = ["#f59e0b", "#3b82f6", "#10b981", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 const STATUS_LABELS: Record<string, string> = {
@@ -226,10 +244,21 @@ function ActivityHeatmap({ data }: { data: HeatmapEntry[] }) {
   );
 }
 
+type KpiProductionDetail = {
+  period: { days: number; startDate: string };
+  items: {
+    itemName: string; produced: number; productionSessions: number;
+    sold: number; revenue: number; unitCost: number | null;
+    totalCost: number | null; variance: number; variancePct: number | null;
+  }[];
+  totals: { produced: number; sold: number; revenue: number; totalCost: number };
+};
+
 export default function AdminInsights() {
   const [tab, setTab] = useState("overview");
   const [days, setDays] = useState("30");
   const [selectedUser, setSelectedUser] = useState<UserActivity | null>(null);
+  const [kpiDrilldown, setKpiDrilldown] = useState<KpiDrilldownSection>(null);
 
   const { data: comparison, isLoading: loadingComparison } = useQuery<ComparisonData>({
     queryKey: ["/api/admin/insights/summary-comparison", { days }],
@@ -299,6 +328,47 @@ export default function AdminInsights() {
     queryFn: () => fetch(`/api/admin/insights/kpi-labor-detail?days=${days}`, { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to load labor detail"); return r.json(); }),
     enabled: tab === "kpi",
   });
+
+  const { data: kpiProdDetail } = useQuery<KpiProductionDetail>({
+    queryKey: ["/api/admin/insights/kpi-production-detail", { days }],
+    queryFn: () => fetch(`/api/admin/insights/kpi-production-detail?days=${days}`, { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to load production detail"); return r.json(); }),
+    enabled: tab === "kpi" && (kpiDrilldown === "salesVsProd" || kpiDrilldown === "revenue"),
+  });
+
+  function exportFullKpiCsv() {
+    if (!kpiReport) return;
+    const headers = ["Metric", "Value", "Change"];
+    const s = kpiReport.summary;
+    const rows: (string | number | null)[][] = [
+      ["Total Revenue", `$${s.totalRevenue.toFixed(2)}`, `${s.totalRevenueChange}%`],
+      ["Labor Cost", `$${s.totalLaborCost.toFixed(2)}`, `${s.totalLaborCostChange}%`],
+      ["Labor Cost %", `${s.laborCostPct}%`, `${s.laborCostPctChange}%`],
+      ["Food Cost %", `${s.foodCostPct}%`, null],
+      ["Food Cost Total", `$${s.totalFoodCost.toFixed(2)}`, null],
+      ["Revenue per Labor Hour", `$${s.revenuePerLaborHour.toFixed(2)}`, `${s.revenuePerLaborHourChange}%`],
+      ["Avg Transaction Value", `$${s.avgTransactionValue.toFixed(2)}`, `${s.avgTransactionValueChange}%`],
+      ["Total Labor Hours", `${s.totalLaborHours}`, null],
+      ["", "", ""],
+      ["--- Revenue Trend ---", "", ""],
+    ];
+    kpiReport.revenueTrend.forEach(r => rows.push([r.date, `$${r.revenue.toFixed(2)}`, null]));
+    rows.push(["", "", ""], ["--- Sales vs Production ---", "", ""]);
+    rows.push(["Item", "Produced", "Sold"]);
+    kpiReport.salesVsProduction.forEach(r => rows.push([r.itemName, r.produced, r.sold]));
+    rows.push(["", "", ""], ["--- Food Cost ---", "", ""]);
+    rows.push(["Item", "Unit Cost", "Produced", "Total Cost"]);
+    kpiReport.foodCost.items.forEach(r => rows.push([r.itemName, r.unitCost != null ? `$${r.unitCost.toFixed(2)}` : "", r.unitsProduced, r.totalCost != null ? `$${r.totalCost.toFixed(2)}` : ""]));
+    rows.push(["", "", ""], ["--- Waste ---", "", ""]);
+    rows.push(["Doughs Trashed", kpiReport.waste.totalTrashed, null]);
+    rows.push(["Scrap Weight (g)", kpiReport.waste.totalScrapG, null]);
+    kpiReport.waste.reasons.forEach(r => rows.push([`Reason: ${r.reason}`, r.count, null]));
+    if (kpiLabor) {
+      rows.push(["", "", ""], ["--- Labor Breakdown ---", "", ""]);
+      rows.push(["Employee", "Hours", "Rate", "Cost", "Shifts"]);
+      kpiLabor.employees.forEach(e => rows.push([userName(e), e.hoursWorked, e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]));
+    }
+    downloadCsv(`kpi-report-${days}days.csv`, headers, rows);
+  }
 
   const summary = comparison?.current;
   const prev = comparison?.previous;
@@ -850,54 +920,78 @@ export default function AdminInsights() {
             <EmptyState icon={DollarSign} text="No KPI data available. Connect Square and log time entries to see metrics." />
           ) : (
             <>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm text-muted-foreground">Click any card to drill down. Export full report or individual sections.</p>
+                <Button variant="outline" size="sm" onClick={exportFullKpiCsv} data-testid="button-export-full-kpi">
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Export Full Report
+                </Button>
+              </div>
+
               {/* Top KPI Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="kpi-summary-grid">
-                <KpiCard
-                  title="Total Revenue"
-                  value={`$${kpiReport.summary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={DollarSign}
-                  subtitle={`Last ${days} days`}
-                  change={{ value: `${kpiReport.summary.totalRevenueChange > 0 ? '+' : ''}${kpiReport.summary.totalRevenueChange}%`, direction: kpiReport.summary.totalRevenueChange > 0 ? "up" : kpiReport.summary.totalRevenueChange < 0 ? "down" : "neutral" }}
-                />
-                <KpiCard
-                  title="Labor Cost"
-                  value={`$${kpiReport.summary.totalLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={Users}
-                  subtitle={`${kpiReport.summary.totalLaborHours}h total`}
-                  change={{ value: `${kpiReport.summary.totalLaborCostChange > 0 ? '+' : ''}${kpiReport.summary.totalLaborCostChange}%`, direction: kpiReport.summary.totalLaborCostChange > 0 ? "up" : kpiReport.summary.totalLaborCostChange < 0 ? "down" : "neutral" }}
-                />
-                <KpiCard
-                  title="Labor Cost %"
-                  value={`${kpiReport.summary.laborCostPct}%`}
-                  icon={Percent}
-                  subtitle="Labor / Revenue"
-                  change={{ value: `${kpiReport.summary.laborCostPctChange > 0 ? '+' : ''}${kpiReport.summary.laborCostPctChange}%`, direction: kpiReport.summary.laborCostPctChange > 0 ? "up" : kpiReport.summary.laborCostPctChange < 0 ? "down" : "neutral" }}
-                />
-                <KpiCard
-                  title="Food Cost %"
-                  value={`${kpiReport.summary.foodCostPct}%`}
-                  icon={CookingPot}
-                  subtitle={`$${kpiReport.summary.totalFoodCost.toLocaleString()} COGS`}
-                />
-                <KpiCard
-                  title="Rev / Labor Hr"
-                  value={`$${kpiReport.summary.revenuePerLaborHour.toFixed(2)}`}
-                  icon={Timer}
-                  change={{ value: `${kpiReport.summary.revenuePerLaborHourChange > 0 ? '+' : ''}${kpiReport.summary.revenuePerLaborHourChange}%`, direction: kpiReport.summary.revenuePerLaborHourChange > 0 ? "up" : kpiReport.summary.revenuePerLaborHourChange < 0 ? "down" : "neutral" }}
-                />
-                <KpiCard
-                  title="Avg Transaction"
-                  value={`$${kpiReport.summary.avgTransactionValue.toFixed(2)}`}
-                  icon={TrendingUp}
-                  change={{ value: `${kpiReport.summary.avgTransactionValueChange > 0 ? '+' : ''}${kpiReport.summary.avgTransactionValueChange}%`, direction: kpiReport.summary.avgTransactionValueChange > 0 ? "up" : kpiReport.summary.avgTransactionValueChange < 0 ? "down" : "neutral" }}
-                />
+                <button onClick={() => setKpiDrilldown("revenue")} className="text-left" data-testid="kpi-card-revenue">
+                  <KpiCard
+                    title="Total Revenue"
+                    value={`$${kpiReport.summary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={DollarSign}
+                    subtitle={`Last ${days} days`}
+                    change={{ value: `${kpiReport.summary.totalRevenueChange > 0 ? '+' : ''}${kpiReport.summary.totalRevenueChange}%`, direction: kpiReport.summary.totalRevenueChange > 0 ? "up" : kpiReport.summary.totalRevenueChange < 0 ? "down" : "neutral" }}
+                  />
+                </button>
+                <button onClick={() => setKpiDrilldown("labor")} className="text-left" data-testid="kpi-card-labor">
+                  <KpiCard
+                    title="Labor Cost"
+                    value={`$${kpiReport.summary.totalLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={Users}
+                    subtitle={`${kpiReport.summary.totalLaborHours}h total`}
+                    change={{ value: `${kpiReport.summary.totalLaborCostChange > 0 ? '+' : ''}${kpiReport.summary.totalLaborCostChange}%`, direction: kpiReport.summary.totalLaborCostChange > 0 ? "up" : kpiReport.summary.totalLaborCostChange < 0 ? "down" : "neutral" }}
+                  />
+                </button>
+                <button onClick={() => setKpiDrilldown("laborPct")} className="text-left" data-testid="kpi-card-labor-pct">
+                  <KpiCard
+                    title="Labor Cost %"
+                    value={`${kpiReport.summary.laborCostPct}%`}
+                    icon={Percent}
+                    subtitle="Labor / Revenue"
+                    change={{ value: `${kpiReport.summary.laborCostPctChange > 0 ? '+' : ''}${kpiReport.summary.laborCostPctChange}%`, direction: kpiReport.summary.laborCostPctChange > 0 ? "up" : kpiReport.summary.laborCostPctChange < 0 ? "down" : "neutral" }}
+                  />
+                </button>
+                <button onClick={() => setKpiDrilldown("foodCost")} className="text-left" data-testid="kpi-card-food-cost">
+                  <KpiCard
+                    title="Food Cost %"
+                    value={`${kpiReport.summary.foodCostPct}%`}
+                    icon={CookingPot}
+                    subtitle={`$${kpiReport.summary.totalFoodCost.toLocaleString()} COGS`}
+                  />
+                </button>
+                <button onClick={() => setKpiDrilldown("revPerHour")} className="text-left" data-testid="kpi-card-rev-per-hour">
+                  <KpiCard
+                    title="Rev / Labor Hr"
+                    value={`$${kpiReport.summary.revenuePerLaborHour.toFixed(2)}`}
+                    icon={Timer}
+                    change={{ value: `${kpiReport.summary.revenuePerLaborHourChange > 0 ? '+' : ''}${kpiReport.summary.revenuePerLaborHourChange}%`, direction: kpiReport.summary.revenuePerLaborHourChange > 0 ? "up" : kpiReport.summary.revenuePerLaborHourChange < 0 ? "down" : "neutral" }}
+                  />
+                </button>
+                <button onClick={() => setKpiDrilldown("avgTransaction")} className="text-left" data-testid="kpi-card-avg-transaction">
+                  <KpiCard
+                    title="Avg Transaction"
+                    value={`$${kpiReport.summary.avgTransactionValue.toFixed(2)}`}
+                    icon={TrendingUp}
+                    change={{ value: `${kpiReport.summary.avgTransactionValueChange > 0 ? '+' : ''}${kpiReport.summary.avgTransactionValueChange}%`, direction: kpiReport.summary.avgTransactionValueChange > 0 ? "up" : kpiReport.summary.avgTransactionValueChange < 0 ? "down" : "neutral" }}
+                  />
+                </button>
               </div>
 
               {/* Revenue Trend */}
               {kpiReport.revenueTrend.length > 0 ? (
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium">Revenue Trend</CardTitle>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" data-testid="button-export-revenue"
+                      onClick={() => downloadCsv(`revenue-trend-${days}days.csv`, ["Date", "Revenue"], kpiReport.revenueTrend.map(r => [r.date, `$${r.revenue.toFixed(2)}`]))}>
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <div className="h-64" data-testid="chart-kpi-revenue-trend">
@@ -920,8 +1014,12 @@ export default function AdminInsights() {
               {/* Sales vs Production */}
               {kpiReport.salesVsProduction.length > 0 ? (
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium">Sales vs Production by Item</CardTitle>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" data-testid="button-export-sales-vs-prod"
+                      onClick={() => downloadCsv(`sales-vs-production-${days}days.csv`, ["Item", "Produced", "Sold", "Revenue"], kpiReport.salesVsProduction.map(r => [r.itemName, r.produced, r.sold, `$${r.revenue.toFixed(2)}`]))}>
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80" data-testid="chart-kpi-sales-vs-production">
@@ -937,7 +1035,12 @@ export default function AdminInsights() {
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">Compare production output vs sales to identify over/under production.</p>
+                    <div className="flex items-center justify-between mt-2">
+                      <p className="text-xs text-muted-foreground">Compare production output vs sales to identify over/under production.</p>
+                      <Button variant="link" size="sm" className="text-xs h-auto p-0" onClick={() => setKpiDrilldown("salesVsProd")} data-testid="button-drilldown-sales-vs-prod">
+                        View Details
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ) : (
@@ -947,8 +1050,12 @@ export default function AdminInsights() {
               {/* Labor Breakdown Table */}
               {!loadingKpiLabor && kpiLabor && kpiLabor.employees.length > 0 ? (
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium">Labor Breakdown by Employee</CardTitle>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" data-testid="button-export-labor"
+                      onClick={() => downloadCsv(`labor-breakdown-${days}days.csv`, ["Employee", "Role", "Hours", "Rate", "Labor Cost", "Shifts"], kpiLabor.employees.map(e => [userName(e), e.role || "member", e.hoursWorked, e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]))}>
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -1027,8 +1134,12 @@ export default function AdminInsights() {
                   </Card>
 
                   <Card>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                       <CardTitle className="text-sm font-medium">Food Cost Detail</CardTitle>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" data-testid="button-export-food-cost"
+                        onClick={() => downloadCsv(`food-cost-${days}days.csv`, ["Item", "Unit Cost", "Produced", "Total Cost"], kpiReport.foodCost.items.map(r => [r.itemName, r.unitCost != null ? `$${r.unitCost.toFixed(2)}` : "", r.unitsProduced, r.totalCost != null ? `$${r.totalCost.toFixed(2)}` : ""]))}>
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
                     </CardHeader>
                     <CardContent className="p-0">
                       <div className="overflow-x-auto max-h-64 overflow-y-auto">
@@ -1063,11 +1174,14 @@ export default function AdminInsights() {
               {/* Waste Report */}
               {kpiReport.waste.totalTrashed > 0 || kpiReport.waste.totalScrapG > 0 ? (
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
                       <Trash2 className="w-4 h-4" />
                       Waste Report
                     </CardTitle>
+                    <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => setKpiDrilldown("waste")} data-testid="button-drilldown-waste">
+                      Details
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -1135,6 +1249,383 @@ export default function AdminInsights() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* ===== KPI DRILL-DOWN DIALOG ===== */}
+      <Dialog open={!!kpiDrilldown} onOpenChange={(open) => !open && setKpiDrilldown(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              {kpiDrilldown === "revenue" && "Revenue Detail"}
+              {kpiDrilldown === "labor" && "Labor Cost Detail"}
+              {kpiDrilldown === "laborPct" && "Labor Cost % Breakdown"}
+              {kpiDrilldown === "foodCost" && "Food Cost Breakdown"}
+              {kpiDrilldown === "revPerHour" && "Revenue per Labor Hour"}
+              {kpiDrilldown === "avgTransaction" && "Average Transaction Value"}
+              {kpiDrilldown === "salesVsProd" && "Sales vs Production Detail"}
+              {kpiDrilldown === "waste" && "Waste Detail"}
+            </DialogTitle>
+            <DialogDescription>Last {days} days</DialogDescription>
+          </DialogHeader>
+
+          {kpiReport && (
+            <div className="space-y-4 py-2">
+              {/* Revenue drill-down */}
+              {kpiDrilldown === "revenue" && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Revenue</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.avgTransactionValue.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Avg Transaction</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.revenueTrend.length}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Days with Sales</p>
+                    </div>
+                  </div>
+                  {kpiReport.revenueTrend.length > 0 && (
+                    <div className="h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={kpiReport.revenueTrend}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
+                          <Tooltip labelFormatter={(v) => formatShortDate(v as string)} formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} />
+                          <Bar dataKey="revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {kpiReport.salesVsProduction.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-2">Revenue by Item</h4>
+                      <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table className="w-full text-sm" data-testid="table-drilldown-revenue">
+                          <thead className="sticky top-0 bg-card">
+                            <tr className="border-b">
+                              <th className="text-left p-2 font-medium text-muted-foreground text-xs">Item</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Qty Sold</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Revenue</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">% of Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {kpiReport.salesVsProduction
+                              .filter(r => r.revenue > 0)
+                              .sort((a, b) => b.revenue - a.revenue)
+                              .map((r, idx) => (
+                                <tr key={idx} className="border-b last:border-0">
+                                  <td className="p-2 text-xs font-medium">{r.itemName}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{r.sold}</td>
+                                  <td className="p-2 text-right text-xs font-mono">${r.revenue.toFixed(2)}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{kpiReport.summary.totalRevenue > 0 ? ((r.revenue / kpiReport.summary.totalRevenue) * 100).toFixed(1) : "0"}%</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Labor drill-down */}
+              {(kpiDrilldown === "labor" || kpiDrilldown === "laborPct" || kpiDrilldown === "revPerHour") && kpiLabor && (
+                <>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiLabor.totalCost.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Labor</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiLabor.totalHours}h</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Hours</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.summary.laborCostPct}%</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">% of Revenue</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.revenuePerLaborHour.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Rev / Hour</p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="table-drilldown-labor">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-2 font-medium text-muted-foreground text-xs">Employee</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground text-xs">Hours</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground text-xs">Rate</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground text-xs">Cost</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground text-xs">% of Total</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground text-xs">Shifts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {kpiLabor.employees
+                          .sort((a, b) => b.totalCost - a.totalCost)
+                          .map((e) => (
+                            <tr key={e.userId} className="border-b last:border-0">
+                              <td className="p-2 text-xs font-medium">{userName(e)}</td>
+                              <td className="p-2 text-center text-xs font-mono">{e.hoursWorked}</td>
+                              <td className="p-2 text-center text-xs font-mono">{e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "—"}</td>
+                              <td className="p-2 text-center text-xs font-mono">${e.totalCost.toFixed(2)}</td>
+                              <td className="p-2 text-center text-xs font-mono">{kpiLabor.totalCost > 0 ? ((e.totalCost / kpiLabor.totalCost) * 100).toFixed(1) : "0"}%</td>
+                              <td className="p-2 text-center text-xs font-mono">{e.shifts}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 font-bold">
+                          <td className="p-2 text-xs">Total</td>
+                          <td className="p-2 text-center text-xs font-mono">{kpiLabor.totalHours}</td>
+                          <td className="p-2"></td>
+                          <td className="p-2 text-center text-xs font-mono">${kpiLabor.totalCost.toFixed(2)}</td>
+                          <td className="p-2 text-center text-xs font-mono">100%</td>
+                          <td className="p-2 text-center text-xs font-mono">{kpiLabor.employees.reduce((s, e) => s + e.shifts, 0)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  {kpiLabor.employees.length > 0 && (
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={kpiLabor.employees.sort((a, b) => b.totalCost - a.totalCost)} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
+                          <YAxis dataKey={(e: any) => userName(e)} type="category" tick={{ fontSize: 10 }} width={100} />
+                          <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Labor Cost"]} />
+                          <Bar dataKey="totalCost" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Food Cost drill-down */}
+              {kpiDrilldown === "foodCost" && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.totalFoodCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total COGS</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.summary.foodCostPct}%</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">% of Revenue</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.foodCost.items.length}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Items Tracked</p>
+                    </div>
+                  </div>
+                  {kpiReport.foodCost.items.length > 0 && (
+                    <>
+                      <div className="h-56">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={kpiReport.foodCost.items.filter(i => i.totalCost != null && i.totalCost > 0).slice(0, 10)}
+                              cx="50%" cy="50%" outerRadius={90} innerRadius={45}
+                              dataKey="totalCost" nameKey="itemName"
+                              label={({ itemName, percent }: { itemName: string; percent: number }) => `${itemName.length > 15 ? itemName.slice(0, 15) + '...' : itemName} ${(percent * 100).toFixed(0)}%`}
+                              labelLine
+                            >
+                              {kpiReport.foodCost.items.filter(i => i.totalCost != null && i.totalCost > 0).slice(0, 10).map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Cost"]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table className="w-full text-sm" data-testid="table-drilldown-food-cost">
+                          <thead className="sticky top-0 bg-card">
+                            <tr className="border-b">
+                              <th className="text-left p-2 font-medium text-muted-foreground text-xs">Item</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Unit Cost</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Produced</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Total Cost</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">% of COGS</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {kpiReport.foodCost.items
+                              .sort((a, b) => (b.totalCost ?? 0) - (a.totalCost ?? 0))
+                              .map((item, idx) => (
+                                <tr key={idx} className="border-b last:border-0">
+                                  <td className="p-2 text-xs font-medium">{item.itemName}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{item.unitCost != null ? `$${item.unitCost.toFixed(2)}` : "—"}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{item.unitsProduced}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "—"}</td>
+                                  <td className="p-2 text-right text-xs font-mono">{item.pctOfTotal != null ? `${item.pctOfTotal.toFixed(1)}%` : "—"}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Avg Transaction drill-down */}
+              {kpiDrilldown === "avgTransaction" && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.avgTransactionValue.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Avg Transaction</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiReport.summary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Revenue</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.summary.avgTransactionValueChange > 0 ? "+" : ""}{kpiReport.summary.avgTransactionValueChange}%</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">vs Previous Period</p>
+                    </div>
+                  </div>
+                  {kpiReport.revenueTrend.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-2">Daily Revenue (basis for avg transaction)</h4>
+                      <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={kpiReport.revenueTrend}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
+                            <Tooltip labelFormatter={(v) => formatShortDate(v as string)} formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} />
+                            <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Waste drill-down */}
+              {kpiDrilldown === "waste" && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.waste.totalTrashed}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Doughs Trashed</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.waste.totalScrapG > 1000 ? `${(kpiReport.waste.totalScrapG / 1000).toFixed(1)}kg` : `${kpiReport.waste.totalScrapG}g`}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Estimated Scrap</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiReport.waste.shapedDoughCount}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Doughs Shaped</p>
+                    </div>
+                  </div>
+                  {kpiReport.waste.reasons.length > 0 && (
+                    <>
+                      <h4 className="text-sm font-medium">Waste by Reason</h4>
+                      <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpiReport.waste.reasons}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="reason" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="count" name="Trashed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="table-drilldown-waste">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left p-2 font-medium text-muted-foreground text-xs">Reason</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Count</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">% of Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {kpiReport.waste.reasons.map((r, idx) => (
+                              <tr key={idx} className="border-b last:border-0">
+                                <td className="p-2 text-xs font-medium">{r.reason}</td>
+                                <td className="p-2 text-right text-xs font-mono">{r.count}</td>
+                                <td className="p-2 text-right text-xs font-mono">{kpiReport.waste.totalTrashed > 0 ? ((r.count / kpiReport.waste.totalTrashed) * 100).toFixed(1) : "0"}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Sales vs Production drill-down */}
+              {kpiDrilldown === "salesVsProd" && !kpiProdDetail && (
+                <LoadingState />
+              )}
+              {kpiDrilldown === "salesVsProd" && kpiProdDetail && (
+                <>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiProdDetail.totals.produced}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Produced</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">{kpiProdDetail.totals.sold}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total Sold</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiProdDetail.totals.revenue.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Revenue</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xl font-bold">${kpiProdDetail.totals.totalCost.toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase">Total COGS</p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="table-drilldown-production">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-2 font-medium text-muted-foreground text-xs">Item</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground text-xs">Produced</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground text-xs">Sold</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground text-xs">Variance</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground text-xs">Revenue</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground text-xs">COGS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {kpiProdDetail.items.map((item, idx) => (
+                          <tr key={idx} className="border-b last:border-0">
+                            <td className="p-2 text-xs font-medium">{item.itemName}</td>
+                            <td className="p-2 text-right text-xs font-mono">{item.produced}</td>
+                            <td className="p-2 text-right text-xs font-mono">{item.sold}</td>
+                            <td className={`p-2 text-right text-xs font-mono ${item.variance > 0 ? "text-amber-500" : item.variance < 0 ? "text-red-500" : ""}`}>
+                              {item.variance > 0 ? "+" : ""}{item.variance}
+                              {item.variancePct != null && <span className="text-muted-foreground ml-1">({item.variancePct.toFixed(0)}%)</span>}
+                            </td>
+                            <td className="p-2 text-right text-xs font-mono">${item.revenue.toFixed(2)}</td>
+                            <td className="p-2 text-right text-xs font-mono">{item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ===== USER DRILLDOWN DIALOG ===== */}
       <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>

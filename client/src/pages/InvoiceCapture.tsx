@@ -110,6 +110,7 @@ export default function InvoiceCapture() {
       form.reset({ vendorName: "", invoiceDate: getToday(), invoiceNumber: "", invoiceTotal: "", notes: "" });
       setLines([]);
       setPreviewImage(null);
+      setStagedImages([]);
       setScanMode("idle");
     },
     onError: (err: Error) => {
@@ -118,8 +119,8 @@ export default function InvoiceCapture() {
   });
 
   const scanMutation = useMutation({
-    mutationFn: async (imageData: string) => {
-      const res = await apiRequest("POST", "/api/invoices/scan", { image: imageData });
+    mutationFn: async (images: string[]) => {
+      const res = await apiRequest("POST", "/api/invoices/scan", { images });
       return res.json();
     },
     onSuccess: (data) => {
@@ -143,29 +144,45 @@ export default function InvoiceCapture() {
       setScanMode("review");
       toast({
         title: "Invoice scanned",
-        description: `Found ${data.lines?.length || 0} line items. Review and edit before saving.`,
+        description: `Found ${data.lines?.length || 0} line items from ${stagedImages.length} photo${stagedImages.length > 1 ? "s" : ""}. Review and edit before saving.`,
       });
     },
     onError: (err: Error) => {
       toast({ title: "Scan failed", description: err.message, variant: "destructive" });
-      setScanMode("idle");
+      setScanMode("capturing");
     },
   });
 
-  function handleImageSelected(file: File) {
+  function stageImage(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      setPreviewImage(dataUrl);
-      setScanMode("scanning");
-      scanMutation.mutate(dataUrl);
+      setStagedImages(prev => [...prev, dataUrl]);
+      if (scanMode === "idle") setScanMode("capturing");
     };
     reader.readAsDataURL(file);
   }
 
+  function removeStagedImage(idx: number) {
+    setStagedImages(prev => {
+      const next = prev.filter((_, i) => i !== idx);
+      if (next.length === 0) setScanMode("idle");
+      return next;
+    });
+  }
+
+  function scanAllImages() {
+    if (stagedImages.length === 0) return;
+    setPreviewImage(stagedImages[0]);
+    setScanMode("scanning");
+    scanMutation.mutate(stagedImages);
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleImageSelected(file);
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach(f => stageImage(f));
+    }
     e.target.value = "";
   }
 
@@ -212,6 +229,7 @@ export default function InvoiceCapture() {
 
   function clearScan() {
     setPreviewImage(null);
+    setStagedImages([]);
     setScanMode("idle");
     form.reset({ vendorName: "", invoiceDate: getToday(), invoiceNumber: "", invoiceTotal: "", notes: "" });
     setLines([]);
@@ -244,12 +262,31 @@ export default function InvoiceCapture() {
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         onChange={handleFileChange}
         data-testid="input-file-upload"
       />
+      <input
+        ref={addMoreFileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+        data-testid="input-add-more-file"
+      />
+      <input
+        ref={addMoreCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+        data-testid="input-add-more-camera"
+      />
 
-      {scanMode === "idle" && (
+      {(scanMode === "idle" || scanMode === "capturing") && (
         <Card>
           <CardContent className="py-8">
             <div className="flex flex-col items-center gap-6">
@@ -257,18 +294,42 @@ export default function InvoiceCapture() {
                 <ScanLine className="w-8 h-8 text-primary" />
               </div>
               <div className="text-center">
-                <h2 className="text-lg font-semibold mb-1">Scan an Invoice</h2>
+                <h2 className="text-lg font-semibold mb-1">
+                  {stagedImages.length > 0 ? `${stagedImages.length} Photo${stagedImages.length > 1 ? "s" : ""} Ready` : "Scan an Invoice"}
+                </h2>
                 <p className="text-sm text-muted-foreground max-w-md">
-                  Take a photo or upload an image of a vendor invoice. Jarvis will read it and extract all the details automatically.
+                  {stagedImages.length > 0
+                    ? "Add more photos if the invoice has multiple pages, or scan now."
+                    : "Take a photo or upload images of a vendor invoice. Jarvis will read them and extract all the details automatically."}
                 </p>
               </div>
+
+              {stagedImages.length > 0 && (
+                <div className="flex flex-wrap gap-2 justify-center max-w-lg" data-testid="staged-images-grid">
+                  {stagedImages.map((img, idx) => (
+                    <div key={idx} className="relative group w-20 h-20 rounded-md overflow-hidden border" data-testid={`staged-image-${idx}`}>
+                      <img src={img} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => removeStagedImage(idx)}
+                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        data-testid={`button-remove-staged-${idx}`}
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                      <span className="absolute bottom-0.5 left-0.5 text-[9px] bg-black/60 text-white px-1 rounded">{idx + 1}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex items-center gap-3 flex-wrap justify-center">
                 <Button
                   onClick={() => cameraInputRef.current?.click()}
+                  variant={stagedImages.length > 0 ? "outline" : "default"}
                   data-testid="button-take-photo"
                 >
                   <Camera className="w-4 h-4 mr-2" />
-                  Take Photo
+                  {stagedImages.length > 0 ? "Add Photo" : "Take Photo"}
                 </Button>
                 <Button
                   variant="outline"
@@ -276,22 +337,39 @@ export default function InvoiceCapture() {
                   data-testid="button-upload-photo"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  Upload Image
+                  {stagedImages.length > 0 ? "Add Images" : "Upload Images"}
                 </Button>
               </div>
-              <div className="flex items-center gap-3 w-full max-w-xs">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground">or</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => setScanMode("review")}
-                data-testid="button-manual-entry"
-              >
-                <Pencil className="w-4 h-4 mr-2" />
-                Enter Manually
-              </Button>
+
+              {stagedImages.length > 0 && (
+                <Button
+                  onClick={scanAllImages}
+                  size="lg"
+                  className="px-8"
+                  data-testid="button-scan-all"
+                >
+                  <ScanLine className="w-4 h-4 mr-2" />
+                  Scan {stagedImages.length} Photo{stagedImages.length > 1 ? "s" : ""}
+                </Button>
+              )}
+
+              {stagedImages.length === 0 && (
+                <>
+                  <div className="flex items-center gap-3 w-full max-w-xs">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">or</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setScanMode("review")}
+                    data-testid="button-manual-entry"
+                  >
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Enter Manually
+                  </Button>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -303,12 +381,16 @@ export default function InvoiceCapture() {
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-primary" />
               <div className="text-center">
-                <h2 className="text-lg font-semibold mb-1">Jarvis is reading the invoice...</h2>
+                <h2 className="text-lg font-semibold mb-1">Jarvis is reading {stagedImages.length > 1 ? `${stagedImages.length} photos` : "the invoice"}...</h2>
                 <p className="text-sm text-muted-foreground">Extracting vendor, dates, line items, and prices</p>
               </div>
-              {previewImage && (
-                <div className="mt-4 max-w-xs rounded-md overflow-hidden border">
-                  <img src={previewImage} alt="Invoice preview" className="w-full h-auto" data-testid="img-invoice-preview" />
+              {stagedImages.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                  {stagedImages.map((img, idx) => (
+                    <div key={idx} className="w-20 h-20 rounded-md overflow-hidden border">
+                      <img src={img} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" data-testid={`img-scanning-preview-${idx}`} />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -319,17 +401,21 @@ export default function InvoiceCapture() {
       {(scanMode === "review") && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
-            {previewImage && (
+            {stagedImages.length > 0 && (
               <Card>
                 <CardContent className="py-4">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <div className="w-16 h-16 rounded-md overflow-hidden border shrink-0">
-                      <img src={previewImage} alt="Scanned invoice" className="w-full h-full object-cover" />
+                    <div className="flex gap-1.5 shrink-0">
+                      {stagedImages.map((img, idx) => (
+                        <div key={idx} className="w-12 h-12 rounded-md overflow-hidden border">
+                          <img src={img} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-600" />
-                        <span className="text-sm font-medium">Invoice scanned</span>
+                        <span className="text-sm font-medium">Invoice scanned ({stagedImages.length} photo{stagedImages.length > 1 ? "s" : ""})</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">Review the extracted data below and make any corrections before saving.</p>
                     </div>
@@ -343,8 +429,8 @@ export default function InvoiceCapture() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle>{previewImage ? "Review Invoice" : "New Invoice"}</CardTitle>
-                {!previewImage && (
+                <CardTitle>{stagedImages.length > 0 ? "Review Invoice" : "New Invoice"}</CardTitle>
+                {stagedImages.length === 0 && (
                   <Button variant="ghost" size="sm" onClick={() => setScanMode("idle")} data-testid="button-back-scan">
                     <Camera className="w-4 h-4 mr-2" />
                     Scan Instead

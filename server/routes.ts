@@ -1368,18 +1368,18 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
         return res.status(400).json({ message: "Could not parse invoice image" });
       }
 
-      let parsed;
+      let invoiceData;
       try {
-        parsed = JSON.parse(content);
+        invoiceData = JSON.parse(content);
       } catch {
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
+          invoiceData = JSON.parse(jsonMatch[0]);
         } else {
           return res.status(400).json({ message: "Could not extract structured data from the invoice. Please try a clearer photo." });
         }
       }
-      res.json(parsed);
+      res.json(invoiceData);
     } catch (err: any) {
       console.error("Invoice scan error:", err);
       res.status(500).json({ message: err.message || "Failed to scan invoice" });
