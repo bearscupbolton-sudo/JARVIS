@@ -1154,7 +1154,13 @@ export class DatabaseStorage implements IStorage {
   async getUnreadCount(userId: string): Promise<number> {
     const result = await db.select({ count: sql<number>`count(*)::int` })
       .from(messageRecipients)
-      .where(and(eq(messageRecipients.userId, userId), eq(messageRecipients.read, false), eq(messageRecipients.archived, false)));
+      .innerJoin(directMessages, eq(directMessages.id, messageRecipients.messageId))
+      .where(and(
+        eq(messageRecipients.userId, userId),
+        eq(messageRecipients.read, false),
+        eq(messageRecipients.archived, false),
+        sql`${directMessages.parentMessageId} IS NULL`
+      ));
     return result[0]?.count || 0;
   }
 
