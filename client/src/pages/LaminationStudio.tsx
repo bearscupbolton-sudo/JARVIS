@@ -169,6 +169,9 @@ export default function LaminationStudio() {
   const [bakeConfirmDough, setBakeConfirmDough] = useState<LaminationDough | null>(null);
   const [labelReminderDough, setLabelReminderDough] = useState<{number: number; type: string} | null>(null);
   const [expandedRackDoughId, setExpandedRackDoughId] = useState<number | null>(null);
+  const [expandedProofDoughId, setExpandedProofDoughId] = useState<number | null>(null);
+  const [expandedFreezerDoughId, setExpandedFreezerDoughId] = useState<number | null>(null);
+  const [expandedFridgeDoughId, setExpandedFridgeDoughId] = useState<number | null>(null);
 
   const [trashDough, setTrashDough] = useState<LaminationDough | null>(null);
   const [trashReason, setTrashReason] = useState("");
@@ -1286,452 +1289,522 @@ export default function LaminationStudio() {
 
       {proofingDoughs.length > 0 && (
         <div>
-          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-            <Thermometer className="w-5 h-5 text-amber-600" />
-            Proof Box
-            <Badge variant="secondary" className="ml-1">{proofingDoughs.length}</Badge>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {proofingDoughs.map(dough => {
-              const proof = getProofState(dough);
-              const roomTemp = getRoomTempState(dough.roomTempAt);
-              const isAtRoomTemp = !!dough.roomTempAt && !dough.roomTempReturnedAt;
-              const isRedPhase = proof.phase === "red";
+          <Card data-testid="proof-box-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Thermometer className="w-4 h-4 text-amber-600" />
+                Proof Box
+                <Badge variant="secondary" className="ml-auto">{proofingDoughs.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {proofingDoughs.map(dough => {
+                  const proof = getProofState(dough);
+                  const roomTemp = getRoomTempState(dough.roomTempAt);
+                  const isAtRoomTemp = !!dough.roomTempAt && !dough.roomTempReturnedAt;
+                  const isRedPhase = proof.phase === "red";
+                  const isExpanded = expandedProofDoughId === dough.id;
 
-              const phaseStyles = {
-                red: { border: "border-destructive/50 bg-destructive/5", timerColor: "text-destructive" },
-                yellow: { border: "border-amber-500/50 bg-amber-500/5", timerColor: "text-amber-600" },
-                green: { border: "border-green-500/50 bg-green-500/5", timerColor: "text-green-600" },
-                overproofing: { border: "border-orange-500 bg-orange-500/15 animate-pulse ring-2 ring-orange-400/50", timerColor: "text-orange-600" },
-              };
-              const roomTempStyle = isAtRoomTemp
-                ? { border: "border-yellow-500/60 bg-yellow-500/10", timerColor: "text-yellow-600" }
-                : null;
-              const style = roomTempStyle || phaseStyles[proof.phase];
+                  const phaseColors = {
+                    red: { bg: "bg-destructive/8", text: "text-destructive", label: "DO NOT TOUCH", icon: Lock },
+                    yellow: { bg: "bg-amber-500/8", text: "text-amber-600", label: "Ready Soon", icon: Clock },
+                    green: { bg: "bg-green-500/8", text: "text-green-600", label: "Ready to Bake", icon: Flame },
+                    overproofing: { bg: "bg-orange-500/15", text: "text-orange-600", label: "OVERPROOFING", icon: AlertTriangle },
+                  };
+                  const phaseInfo = isAtRoomTemp
+                    ? { bg: "bg-yellow-500/10", text: "text-yellow-600", label: roomTemp.isReady ? "ROOM TEMP READY" : "ROOM TEMP", icon: Sun }
+                    : phaseColors[proof.phase];
+                  const PhaseIcon = phaseInfo.icon;
 
-              return (
-                <Card
-                  key={dough.id}
-                  className={style.border}
-                  data-testid={`proof-dough-${dough.id}`}
-                >
-                  <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold font-mono text-primary" data-testid={`proof-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                      </div>
-                      <div>
-                        <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                        {dough.shapings && dough.shapings.length > 1 ? (
-                          <div data-testid={`proof-pastry-type-${dough.id}`}>
-                            {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
-                              const pp = getPassportForPastryName(s.pastryType);
-                              return (
-                                <div key={i} className="flex items-center gap-1">
-                                  <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
-                                  {pp && (
-                                    <Link href={`/pastry-passports/${pp.id}`}>
-                                      <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}-${i}`} />
-                                    </Link>
-                                  )}
+                  const totalPieces = dough.shapings
+                    ? (dough.shapings as Array<{ pieces: number }>).reduce((sum, s) => sum + s.pieces, 0)
+                    : (dough.proofPieces ?? dough.totalPieces ?? 0);
+
+                  const pastryLabel = dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number }>).length > 1
+                    ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).map(s => `${s.pastryType}(${s.pieces})`).join(", ")
+                    : (dough.pastryType || "");
+
+                  return (
+                    <div key={dough.id} data-testid={`proof-dough-${dough.id}`} className={proof.phase === "overproofing" && !isAtRoomTemp ? "animate-pulse" : ""}>
+                      <button
+                        className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left ${phaseInfo.bg}`}
+                        onClick={() => setExpandedProofDoughId(isExpanded ? null : dough.id)}
+                        data-testid={`proof-line-item-${dough.id}`}
+                      >
+                        <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold font-mono text-primary" data-testid={`proof-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-display font-semibold text-sm">{dough.doughType}</span>
+                            {pastryLabel && (
+                              <span className="text-xs text-muted-foreground truncate">{pastryLabel}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className={`font-medium ${phaseInfo.text} flex items-center gap-0.5`}>
+                              <PhaseIcon className="w-3 h-3" />
+                              {phaseInfo.label}
+                            </span>
+                            <span className={`font-mono font-bold ${phaseInfo.text}`} data-testid={`proof-timer-${dough.id}`}>
+                              {isAtRoomTemp
+                                ? (roomTemp.isReady ? formatTime(roomTemp.elapsed) : `-${formatTime(roomTemp.remaining)}`)
+                                : formatTime(proof.elapsed)
+                              }
+                            </span>
+                            <span className="text-muted-foreground">{totalPieces}pc</span>
+                            {dough.doughWeightG && <span className="text-muted-foreground">{dough.doughWeightG}g</span>}
+                          </div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-3 space-y-3 bg-muted/30">
+                          <div className="grid grid-cols-3 gap-2 text-sm pt-2">
+                            <div>
+                              <p className="text-muted-foreground text-xs">Pieces</p>
+                              <p className="font-mono font-semibold">{totalPieces || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Fold</p>
+                              <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
+                              {dough.foldSubtype && (
+                                <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">{isAtRoomTemp ? "Room Temp" : "Proof Time"}</p>
+                              {isAtRoomTemp ? (
+                                <div>
+                                  <p className={`font-mono font-bold ${roomTemp.isReady ? "text-green-600" : "text-yellow-600"}`} data-testid={`room-temp-timer-${dough.id}`}>
+                                    {roomTemp.isReady ? formatTime(roomTemp.elapsed) : `-${formatTime(roomTemp.remaining)}`}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">{roomTemp.isReady ? "Ready" : "Min 5h"}</p>
                                 </div>
-                              );
-                            })}
+                              ) : (
+                                <p className={`font-mono font-bold ${phaseInfo.text}`}>
+                                  {formatTime(proof.elapsed)}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <p className="text-xs font-medium" data-testid={`proof-pastry-type-${dough.id}`}>{dough.pastryType}</p>
-                            {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
-                              <Link href={`/pastry-passports/${pp.id}`}>
-                                <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}`} />
-                              </Link>
-                            ) : null; })()}
-                          </div>
-                        )}
-                        {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
-                          <p className="text-xs text-muted-foreground line-through" data-testid={`proof-intended-pastry-${dough.id}`}>
-                            Intended: {dough.intendedPastry}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {!isAtRoomTemp && proof.phase === "red" && (
-                        <Badge variant="destructive" data-testid={`badge-proof-red-${dough.id}`}>
-                          <Lock className="w-3 h-3 mr-1" />
-                          DO NOT TOUCH
-                        </Badge>
-                      )}
-                      {!isAtRoomTemp && proof.phase === "yellow" && (
-                        <Badge className="bg-amber-500 text-white" data-testid={`badge-proof-yellow-${dough.id}`}>
-                          <Clock className="w-3 h-3 mr-1" />
-                          Ready Soon
-                        </Badge>
-                      )}
-                      {!isAtRoomTemp && proof.phase === "green" && (
-                        <Badge className="bg-green-600 text-white" data-testid={`badge-proof-green-${dough.id}`}>
-                          <Flame className="w-3 h-3 mr-1" />
-                          Ready to Bake
-                        </Badge>
-                      )}
-                      {proof.phase === "overproofing" && !isAtRoomTemp && (
-                        <Badge className="bg-orange-500 text-white animate-pulse" data-testid={`badge-proof-over-${dough.id}`}>
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                          OVERPROOFING
-                        </Badge>
-                      )}
-                      {isAtRoomTemp && (
-                        <Badge className="bg-yellow-500 text-black" data-testid={`badge-room-temp-${dough.id}`}>
-                          <Sun className="w-3 h-3 mr-1" />
-                          {roomTemp.isReady ? "ROOM TEMP READY" : "ROOM TEMP"}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <p className="text-muted-foreground text-xs">Pieces</p>
-                        <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">{isAtRoomTemp ? "Room Temp Time" : "Proof Time"}</p>
-                        {isAtRoomTemp ? (
-                          <div>
-                            <p className={`font-mono font-bold ${roomTemp.isReady ? "text-green-600" : "text-yellow-600"}`} data-testid={`room-temp-timer-${dough.id}`}>
-                              {roomTemp.isReady ? formatTime(roomTemp.elapsed) : `-${formatTime(roomTemp.remaining)}`}
+
+                          {dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).length > 0 && (
+                            <div className="space-y-1" data-testid={`proof-pastry-type-${dough.id}`}>
+                              {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
+                                const pp = getPassportForPastryName(s.pastryType);
+                                return (
+                                  <div key={i} className="flex items-center gap-1 text-xs">
+                                    <span className="font-medium">{s.pastryType} ({s.pieces}pc){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</span>
+                                    {pp && (
+                                      <Link href={`/pastry-passports/${pp.id}`}>
+                                        <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`proof-passport-link-${dough.id}-${i}`} />
+                                      </Link>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                            <p className="text-xs text-muted-foreground line-through" data-testid={`proof-intended-pastry-${dough.id}`}>
+                              Intended: {dough.intendedPastry}
                             </p>
-                            <p className="text-[10px] text-muted-foreground">{roomTemp.isReady ? "Ready" : "Min 5h remaining"}</p>
+                          )}
+
+                          <div className="text-xs space-y-1 border-t pt-2">
+                            {dough.shapedAt && (
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Scissors className="w-3 h-3" />
+                                <span>Shaped by {getUserName(dough.shapedBy)}</span>
+                                <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
+                              </div>
+                            )}
+                            {dough.proofStartedAt && (
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Thermometer className="w-3 h-3" />
+                                <span>Proofing since</span>
+                                <span className="ml-auto">{formatTimestamp(dough.proofStartedAt)}</span>
+                              </div>
+                            )}
+                            {isAtRoomTemp && dough.roomTempAt && (
+                              <div className="flex items-center gap-1 text-yellow-600">
+                                <Sun className="w-3 h-3" />
+                                <span>At room temp since</span>
+                                <span className="ml-auto">{formatTimestamp(dough.roomTempAt)}</span>
+                              </div>
+                            )}
+                            {dough.roomTempReturnedAt && (
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Returned to proof box</span>
+                                <span className="ml-auto">{formatTimestamp(dough.roomTempReturnedAt)}</span>
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <p className={`font-mono font-bold ${style.timerColor}`} data-testid={`proof-timer-${dough.id}`}>
-                            {formatTime(proof.elapsed)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
 
-                    {dough.doughWeightG && (
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`proof-weight-info-${dough.id}`}>
-                        <span>Dough: {dough.doughWeightG}g</span>
-                      </div>
-                    )}
-
-                    <div className="text-xs space-y-1 border-t pt-2">
-                      {dough.shapedAt && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Scissors className="w-3 h-3" />
-                          <span>Shaped by {getUserName(dough.shapedBy)}</span>
-                          <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
-                        </div>
-                      )}
-                      {dough.proofStartedAt && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Thermometer className="w-3 h-3" />
-                          <span>Proofing since</span>
-                          <span className="ml-auto">{formatTimestamp(dough.proofStartedAt)}</span>
-                        </div>
-                      )}
-                      {isAtRoomTemp && dough.roomTempAt && (
-                        <div className="flex items-center gap-1 text-yellow-600">
-                          <Sun className="w-3 h-3" />
-                          <span>At room temp since</span>
-                          <span className="ml-auto">{formatTimestamp(dough.roomTempAt)}</span>
-                        </div>
-                      )}
-                      {dough.roomTempReturnedAt && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <RotateCcw className="w-3 h-3" />
-                          <span>Returned to proof box</span>
-                          <span className="ml-auto">{formatTimestamp(dough.roomTempReturnedAt)}</span>
+                          <div className="flex items-center gap-2 pt-1">
+                            {isAtRoomTemp ? (
+                              <Button
+                                className="flex-1 gap-2"
+                                variant="outline"
+                                size="sm"
+                                disabled={updateMutation.isPending}
+                                onClick={() => handleReturnToProofBox(dough)}
+                                data-testid={`button-return-proof-${dough.id}`}
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Return to Proof Box
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  className="flex-1 gap-2"
+                                  size="sm"
+                                  disabled={isRedPhase || bakeMutation.isPending}
+                                  onClick={() => setBakeConfirmDough(dough)}
+                                  data-testid={`button-bake-off-${dough.id}`}
+                                >
+                                  <Flame className="w-4 h-4" />
+                                  Bake Off
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 gap-1.5 text-xs"
+                                  onClick={() => handleSetRoomTemp(dough)}
+                                  data-testid={`button-room-temp-${dough.id}`}
+                                >
+                                  <Sun className="w-3 h-3" />
+                                  Room Temp
+                                </Button>
+                              </>
+                            )}
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-proof-${dough.id}`}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => { setTrashDough(dough); setTrashReason(""); }}
+                              data-testid={`button-trash-proof-${dough.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
-
-                    <div className="flex items-center gap-2 pt-1">
-                      {isAtRoomTemp ? (
-                        <Button
-                          className="flex-1 gap-2"
-                          variant="outline"
-                          disabled={updateMutation.isPending}
-                          onClick={() => handleReturnToProofBox(dough)}
-                          data-testid={`button-return-proof-${dough.id}`}
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          Return to Proof Box
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            className="flex-1 gap-2"
-                            disabled={isRedPhase || bakeMutation.isPending}
-                            onClick={() => setBakeConfirmDough(dough)}
-                            data-testid={`button-bake-off-${dough.id}`}
-                          >
-                            <Flame className="w-4 h-4" />
-                            Bake Off
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50"
-                            onClick={() => handleSetRoomTemp(dough)}
-                            title="Set to Room Temperature"
-                            data-testid={`button-room-temp-${dough.id}`}
-                          >
-                            <Sun className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEditDough(dough)}
-                        data-testid={`button-edit-proof-${dough.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => { setTrashDough(dough); setTrashReason(""); }}
-                        data-testid={`button-trash-proof-${dough.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {frozenDoughs.length > 0 && (
         <div>
-          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-            <Snowflake className="w-5 h-5 text-blue-500" />
-            Freezer
-            <Badge variant="secondary" className="ml-1">{frozenDoughs.length}</Badge>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {frozenDoughs.map(dough => (
-              <Card key={dough.id} className="border-blue-500/30 bg-blue-500/5" data-testid={`freezer-dough-${dough.id}`}>
-                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold font-mono text-blue-600" data-testid={`freezer-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                    </div>
-                    <div>
-                      <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                      {dough.shapings && dough.shapings.length > 1 ? (
-                        <div data-testid={`freezer-pastry-type-${dough.id}`}>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
-                            const pp = getPassportForPastryName(s.pastryType);
-                            return (
-                              <div key={i} className="flex items-center gap-1">
-                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
-                                {pp && (
-                                  <Link href={`/pastry-passports/${pp.id}`}>
-                                    <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}-${i}`} />
-                                  </Link>
-                                )}
+          <Card data-testid="freezer-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Snowflake className="w-4 h-4 text-blue-500" />
+                Freezer
+                <Badge variant="secondary" className="ml-auto">{frozenDoughs.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {frozenDoughs.map(dough => {
+                  const isExpanded = expandedFreezerDoughId === dough.id;
+                  const totalPieces = dough.shapings
+                    ? (dough.shapings as Array<{ pieces: number }>).reduce((sum, s) => sum + s.pieces, 0)
+                    : (dough.proofPieces ?? dough.totalPieces ?? 0);
+                  const pastryLabel = dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number }>).length > 1
+                    ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).map(s => `${s.pastryType}(${s.pieces})`).join(", ")
+                    : (dough.pastryType || "");
+                  const isFromToday = dough.date === today;
+
+                  return (
+                    <div key={dough.id} data-testid={`freezer-dough-${dough.id}`}>
+                      <button
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left bg-blue-500/5"
+                        onClick={() => setExpandedFreezerDoughId(isExpanded ? null : dough.id)}
+                        data-testid={`freezer-line-item-${dough.id}`}
+                      >
+                        <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold font-mono text-blue-600" data-testid={`freezer-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-display font-semibold text-sm">{dough.doughType}</span>
+                            {pastryLabel && (
+                              <span className="text-xs text-muted-foreground truncate">{pastryLabel}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-medium text-blue-600 flex items-center gap-0.5">
+                              <Snowflake className="w-3 h-3" />
+                              Frozen
+                            </span>
+                            <span className="text-muted-foreground">{totalPieces}pc</span>
+                            {dough.foldSequence && <span className="text-muted-foreground font-mono">{dough.foldSequence}</span>}
+                            {dough.doughWeightG && <span className="text-muted-foreground">{dough.doughWeightG}g</span>}
+                            {!isFromToday && (
+                              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                                <CalendarDays className="w-3 h-3" />
+                                {format(new Date(dough.date + "T12:00:00"), "MMM d")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-3 space-y-3 bg-muted/30">
+                          <div className="grid grid-cols-3 gap-2 text-sm pt-2">
+                            <div>
+                              <p className="text-muted-foreground text-xs">Pieces</p>
+                              <p className="font-mono font-semibold">{totalPieces || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Fold</p>
+                              <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
+                              {dough.foldSubtype && (
+                                <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Weight</p>
+                              <p className="font-mono font-semibold">{dough.doughWeightG ? `${dough.doughWeightG}g` : "—"}</p>
+                            </div>
+                          </div>
+
+                          {dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).length > 0 && (
+                            <div className="space-y-1" data-testid={`freezer-pastry-type-${dough.id}`}>
+                              {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
+                                const pp = getPassportForPastryName(s.pastryType);
+                                return (
+                                  <div key={i} className="flex items-center gap-1 text-xs">
+                                    <span className="font-medium">{s.pastryType} ({s.pieces}pc){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</span>
+                                    {pp && (
+                                      <Link href={`/pastry-passports/${pp.id}`}>
+                                        <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}-${i}`} />
+                                      </Link>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                            <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
+                              Intended: {dough.intendedPastry}
+                            </p>
+                          )}
+
+                          {!isFromToday && (
+                            <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-2 py-1.5">
+                              <CalendarDays className="w-3.5 h-3.5" />
+                              <span>Frozen {format(new Date(dough.date + "T12:00:00"), "EEEE, MMM d")} — {formatDistanceToNow(new Date(dough.date + "T12:00:00"), { addSuffix: true })}</span>
+                            </div>
+                          )}
+
+                          <div className="text-xs space-y-1 border-t pt-2">
+                            {dough.shapedAt && (
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Scissors className="w-3 h-3" />
+                                <span>Shaped by {getUserName(dough.shapedBy)}</span>
+                                <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
                               </div>
-                            );
-                          })}
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-xs"
+                              disabled={updateMutation.isPending}
+                              onClick={() => handleMoveToFridge(dough)}
+                              data-testid={`button-move-to-fridge-${dough.id}`}
+                            >
+                              <Layers className="w-3 h-3" />
+                              Fridge
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 gap-1.5 text-xs"
+                              disabled={updateMutation.isPending}
+                              onClick={() => handleMoveToProofBox(dough)}
+                              data-testid={`button-move-to-proof-${dough.id}`}
+                            >
+                              <Thermometer className="w-3 h-3" />
+                              Proof
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-freezer-${dough.id}`}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => { setTrashDough(dough); setTrashReason(""); }}
+                              data-testid={`button-trash-freezer-${dough.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs font-medium" data-testid={`freezer-pastry-type-${dough.id}`}>{dough.pastryType}</p>
-                          {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
-                            <Link href={`/pastry-passports/${pp.id}`}>
-                              <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}`} />
-                            </Link>
-                          ) : null; })()}
-                        </div>
-                      )}
-                      {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
-                        <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
-                          Intended: {dough.intendedPastry}
-                        </p>
                       )}
                     </div>
-                  </div>
-                  <Badge className="bg-blue-500 text-white" data-testid={`badge-frozen-${dough.id}`}>
-                    <Snowflake className="w-3 h-3 mr-1" />
-                    Frozen
-                  </Badge>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-muted-foreground text-xs">Pieces</p>
-                      <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground text-xs">Fold</p>
-                      <p className="font-mono font-semibold">{dough.foldSequence}</p>
-                      {dough.foldSubtype && (
-                        <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {dough.doughWeightG && (
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid={`freezer-weight-info-${dough.id}`}>
-                      <span>Dough: {dough.doughWeightG}g</span>
-                    </div>
-                  )}
-
-                  <div className="text-xs space-y-1 border-t pt-2">
-                    {dough.shapedAt && (
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Scissors className="w-3 h-3" />
-                        <span>Shaped by {getUserName(dough.shapedBy)}</span>
-                        <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    <Button
-                      variant="outline"
-                      className="gap-1 text-xs"
-                      disabled={updateMutation.isPending}
-                      onClick={() => handleMoveToFridge(dough)}
-                      data-testid={`button-move-to-fridge-${dough.id}`}
-                    >
-                      <Layers className="w-3 h-3" />
-                      Fridge
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="gap-1 text-xs"
-                      disabled={updateMutation.isPending}
-                      onClick={() => handleMoveToProofBox(dough)}
-                      data-testid={`button-move-to-proof-${dough.id}`}
-                    >
-                      <Thermometer className="w-3 h-3" />
-                      Proof
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOpenEditDough(dough)}
-                      data-testid={`button-edit-freezer-${dough.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => { setTrashDough(dough); setTrashReason(""); }}
-                      data-testid={`button-trash-freezer-${dough.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {fridgeDoughs.length > 0 && (
         <div>
-          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-slate-500" />
-            Fridge
-            <Badge variant="secondary" className="ml-1">{fridgeDoughs.length}</Badge>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {fridgeDoughs.map(dough => (
-              <Card key={dough.id} className="border-slate-400/30 bg-slate-100/50 dark:bg-slate-800/30" data-testid={`fridge-dough-${dough.id}`}>
-                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-md bg-slate-500/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold font-mono text-slate-600" data-testid={`fridge-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                    </div>
-                    <div>
-                      <CardTitle className="text-base font-display">{dough.doughType}</CardTitle>
-                      {dough.shapings && dough.shapings.length > 1 ? (
-                        <div>
-                          {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
-                            const pp = getPassportForPastryName(s.pastryType);
-                            return (
-                              <div key={i} className="flex items-center gap-1">
-                                <p className="text-xs font-medium">{s.pastryType} ({s.pieces}){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</p>
-                                {pp && (
-                                  <Link href={`/pastry-passports/${pp.id}`}>
-                                    <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}-${i}`} />
-                                  </Link>
-                                )}
-                              </div>
-                            );
-                          })}
+          <Card data-testid="fridge-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Layers className="w-4 h-4 text-slate-500" />
+                Fridge
+                <Badge variant="secondary" className="ml-auto">{fridgeDoughs.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {fridgeDoughs.map(dough => {
+                  const isExpanded = expandedFridgeDoughId === dough.id;
+                  const totalPieces = dough.shapings
+                    ? (dough.shapings as Array<{ pieces: number }>).reduce((sum, s) => sum + s.pieces, 0)
+                    : (dough.proofPieces ?? dough.totalPieces ?? 0);
+                  const pastryLabel = dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number }>).length > 1
+                    ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).map(s => `${s.pastryType}(${s.pieces})`).join(", ")
+                    : (dough.pastryType || "");
+                  const isFromToday = dough.date === today;
+
+                  return (
+                    <div key={dough.id} data-testid={`fridge-dough-${dough.id}`}>
+                      <button
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => setExpandedFridgeDoughId(isExpanded ? null : dough.id)}
+                        data-testid={`fridge-line-item-${dough.id}`}
+                      >
+                        <div className="w-8 h-8 rounded-md bg-slate-500/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold font-mono text-slate-600" data-testid={`fridge-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs font-medium">{dough.pastryType}</p>
-                          {dough.pastryType && (() => { const pp = getPassportForPastryName(dough.pastryType); return pp ? (
-                            <Link href={`/pastry-passports/${pp.id}`}>
-                              <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}`} />
-                            </Link>
-                          ) : null; })()}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-display font-semibold text-sm">{dough.doughType}</span>
+                            {pastryLabel && (
+                              <span className="text-xs text-muted-foreground truncate">{pastryLabel}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-medium text-slate-500 flex items-center gap-0.5">
+                              <Layers className="w-3 h-3" />
+                              In Fridge
+                            </span>
+                            <span className="text-muted-foreground">{totalPieces}pc</span>
+                            {dough.foldSequence && <span className="text-muted-foreground font-mono">{dough.foldSequence}</span>}
+                            {!isFromToday && (
+                              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                                <CalendarDays className="w-3 h-3" />
+                                {format(new Date(dough.date + "T12:00:00"), "MMM d")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-3 space-y-3 bg-muted/30">
+                          <div className="grid grid-cols-3 gap-2 text-sm pt-2">
+                            <div>
+                              <p className="text-muted-foreground text-xs">Pieces</p>
+                              <p className="font-mono font-semibold">{totalPieces || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Fold</p>
+                              <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
+                              {dough.foldSubtype && (
+                                <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Weight</p>
+                              <p className="font-mono font-semibold">{dough.doughWeightG ? `${dough.doughWeightG}g` : "—"}</p>
+                            </div>
+                          </div>
+
+                          {dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).length > 0 && (
+                            <div className="space-y-1">
+                              {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
+                                const pp = getPassportForPastryName(s.pastryType);
+                                return (
+                                  <div key={i} className="flex items-center gap-1 text-xs">
+                                    <span className="font-medium">{s.pastryType} ({s.pieces}pc){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</span>
+                                    {pp && (
+                                      <Link href={`/pastry-passports/${pp.id}`}>
+                                        <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`fridge-passport-link-${dough.id}-${i}`} />
+                                      </Link>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
+                            <p className="text-xs text-muted-foreground line-through">
+                              Intended: {dough.intendedPastry}
+                            </p>
+                          )}
+
+                          {!isFromToday && (
+                            <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-2 py-1.5">
+                              <CalendarDays className="w-3.5 h-3.5" />
+                              <span>In fridge since {format(new Date(dough.date + "T12:00:00"), "EEEE, MMM d")} — {formatDistanceToNow(new Date(dough.date + "T12:00:00"), { addSuffix: true })}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 gap-2"
+                              disabled={updateMutation.isPending}
+                              onClick={() => handleMoveToProofBox(dough)}
+                              data-testid={`button-fridge-to-proof-${dough.id}`}
+                            >
+                              <Thermometer className="w-4 h-4" />
+                              Move to Proof Box
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-fridge-${dough.id}`}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       )}
-                      {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
-                        <p className="text-xs text-muted-foreground line-through">Intended: {dough.intendedPastry}</p>
-                      )}
                     </div>
-                  </div>
-                  <Badge variant="secondary" data-testid={`badge-fridge-${dough.id}`}>
-                    <Layers className="w-3 h-3 mr-1" />
-                    In Fridge
-                  </Badge>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-muted-foreground text-xs">Pieces</p>
-                      <p className="font-mono font-semibold">{dough.proofPieces ?? dough.totalPieces ?? "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground text-xs">Fold</p>
-                      <p className="font-mono font-semibold">{dough.foldSequence}</p>
-                      {dough.foldSubtype && (
-                        <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <Button
-                      variant="outline"
-                      className="flex-1 gap-2"
-                      disabled={updateMutation.isPending}
-                      onClick={() => handleMoveToProofBox(dough)}
-                      data-testid={`button-fridge-to-proof-${dough.id}`}
-                    >
-                      <Thermometer className="w-4 h-4" />
-                      Move to Proof Box
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOpenEditDough(dough)}
-                      data-testid={`button-edit-fridge-${dough.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
