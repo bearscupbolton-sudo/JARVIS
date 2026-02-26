@@ -153,6 +153,7 @@ export default function LaminationStudio() {
   const [destinationPieces, setDestinationPieces] = useState("");
   const [weightPerPiece, setWeightPerPiece] = useState("");
   const [doughWeightG, setDoughWeightG] = useState("");
+  const [wasteG, setWasteG] = useState("");
   const [shapingEntries, setShapingEntries] = useState<Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>>([]);
 
   const [editDough, setEditDough] = useState<LaminationDough | null>(null);
