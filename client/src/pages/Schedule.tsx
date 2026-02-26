@@ -122,6 +122,7 @@ export default function Schedule() {
 
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [confirmDeleteShiftId, setConfirmDeleteShiftId] = useState<number | null>(null);
   const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
@@ -217,6 +218,7 @@ export default function Schedule() {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ title: "Shift deleted" });
     },
+    onError: (e: Error) => toast({ title: "Failed to delete shift", description: e.message, variant: "destructive" }),
   });
 
   const claimShiftMutation = useMutation({
@@ -1194,7 +1196,7 @@ export default function Schedule() {
         <LocationsManager locations={locationsData || []} />
       )}
 
-      <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
+      <Dialog open={shiftDialogOpen} onOpenChange={(open) => { setShiftDialogOpen(open); if (!open) setConfirmDeleteShiftId(null); }}>
         <DialogContent data-testid="dialog-shift">
           <DialogHeader>
             <DialogTitle>{editingShift ? "Edit Shift" : "Add Shift"}</DialogTitle>
@@ -1366,6 +1368,55 @@ export default function Schedule() {
               >
                 {editingShift ? "Update Shift" : "Create Shift"}
               </Button>
+              {editingShift && (
+                <div className="pt-2 border-t border-border">
+                  {confirmDeleteShiftId === editingShift.id ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-destructive font-medium">Are you sure you want to delete this shift?</p>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          className="flex-1"
+                          disabled={deleteShiftMutation.isPending}
+                          onClick={() => {
+                            deleteShiftMutation.mutate(editingShift.id, {
+                              onSuccess: () => {
+                                setShiftDialogOpen(false);
+                                setEditingShift(null);
+                                setConfirmDeleteShiftId(null);
+                              },
+                            });
+                          }}
+                          data-testid="button-confirm-delete-shift"
+                        >
+                          {deleteShiftMutation.isPending ? "Deleting..." : "Yes, Delete"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setConfirmDeleteShiftId(null)}
+                          data-testid="button-cancel-delete-shift"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setConfirmDeleteShiftId(editingShift.id)}
+                      data-testid="button-delete-shift"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Shift
+                    </Button>
+                  )}
+                </div>
+              )}
             </form>
           </Form>
         </DialogContent>
