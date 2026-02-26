@@ -39,17 +39,27 @@ const RECIPE_CATEGORIES = [
   "Mother",
 ] as const;
 
+const DEPARTMENTS = [
+  { value: "all", label: "All", icon: "📋" },
+  { value: "bakery", label: "Bakery", icon: "🥐" },
+  { value: "kitchen", label: "Kitchen", icon: "🍳" },
+  { value: "bar", label: "Bar", icon: "☕" },
+] as const;
+
 export default function Recipes() {
   const { data: recipes, isLoading } = useRecipes();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
 
-  const existingCategories = Array.from(new Set(recipes?.map(r => r.category) || []));
+  const deptRecipes = recipes?.filter(r => departmentFilter === "all" || (r as any).department === departmentFilter || (!((r as any).department) && departmentFilter === "bakery"));
+
+  const existingCategories = Array.from(new Set(deptRecipes?.map(r => r.category) || []));
   const allCategories = Array.from(new Set([...RECIPE_CATEGORIES, ...existingCategories]));
   const categories = ["All", ...allCategories];
 
-  const filteredRecipes = recipes?.filter(recipe => {
+  const filteredRecipes = deptRecipes?.filter(recipe => {
     const matchesSearch = recipe.title.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = categoryFilter === "All" || recipe.category === categoryFilter;
     return matchesSearch && matchesCategory;
@@ -71,6 +81,24 @@ export default function Recipes() {
         </div>
       )}
 
+      <div className="flex gap-2 border-b border-border pb-0">
+        {DEPARTMENTS.map(dept => (
+          <button
+            key={dept.value}
+            onClick={() => { setDepartmentFilter(dept.value); setCategoryFilter("All"); }}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              departmentFilter === dept.value
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            }`}
+            data-testid={`tab-dept-${dept.value}`}
+          >
+            <span className="mr-1.5">{dept.icon}</span>
+            {dept.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border border-border shadow-sm">
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -79,6 +107,7 @@ export default function Recipes() {
             className="pl-9 bg-background"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            data-testid="input-search-recipes"
           />
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
@@ -92,6 +121,7 @@ export default function Recipes() {
                   ? "bg-primary text-primary-foreground" 
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
+              data-testid={`filter-category-${cat}`}
             >
               {cat}
             </button>
@@ -162,6 +192,7 @@ function CreateRecipeDialog() {
       title: "",
       description: "",
       category: "",
+      department: "bakery",
       yieldAmount: 1,
       yieldUnit: "kg",
       ingredients: [],
@@ -338,6 +369,28 @@ function CreateRecipeDialog() {
                     <FormControl>
                       <Input {...field} placeholder="e.g. Sourdough Loaf" data-testid="input-recipe-title" />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "bakery"}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-recipe-department">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="bakery">🥐 Bakery</SelectItem>
+                        <SelectItem value="kitchen">🍳 Kitchen</SelectItem>
+                        <SelectItem value="bar">☕ Bar</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

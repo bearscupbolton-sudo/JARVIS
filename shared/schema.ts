@@ -19,6 +19,7 @@ export const recipes = pgTable("recipes", {
   ingredients: jsonb("ingredients").notNull(), // Array of { name: string, quantity: number, unit: string, bakersPercentage?: number }
   instructions: jsonb("instructions").notNull(), // Array of { step: number, text: string }
   category: text("category").notNull(), // e.g., "Bread", "Pastry", "Cake"
+  department: text("department").default("bakery"), // "bakery", "kitchen", "bar"
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

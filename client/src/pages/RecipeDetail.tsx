@@ -693,6 +693,7 @@ function EditRecipeDialog({
   const [title, setTitle] = useState(recipe.title);
   const [description, setDescription] = useState(recipe.description || "");
   const [category, setCategory] = useState(recipe.category);
+  const [department, setDepartment] = useState((recipe as any).department || "bakery");
   const [yieldAmount, setYieldAmount] = useState(recipe.yieldAmount);
   const [yieldUnit, setYieldUnit] = useState(recipe.yieldUnit);
   const [ingredients, setIngredients] = useState<Ingredient[]>(baseIngredients.map(i => ({ ...i })));
@@ -704,6 +705,7 @@ function EditRecipeDialog({
       setTitle(recipe.title);
       setDescription(recipe.description || "");
       setCategory(recipe.category);
+      setDepartment((recipe as any).department || "bakery");
       setYieldAmount(recipe.yieldAmount);
       setYieldUnit(recipe.yieldUnit);
       setIngredients((recipe.ingredients as Ingredient[])?.map(i => ({ ...i })) || []);
@@ -751,6 +753,7 @@ function EditRecipeDialog({
       title: title.trim(),
       description: description.trim() || undefined,
       category,
+      department,
       yieldAmount,
       yieldUnit,
       ingredients: validIngredients,
@@ -794,6 +797,19 @@ function EditRecipeDialog({
                 placeholder="e.g. Sourdough Loaf"
                 data-testid="input-edit-recipe-title"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger data-testid="select-edit-recipe-department">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bakery">🥐 Bakery</SelectItem>
+                  <SelectItem value="kitchen">🍳 Kitchen</SelectItem>
+                  <SelectItem value="bar">☕ Bar</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>Category</Label>
