@@ -2609,7 +2609,7 @@ ${sopsHtml}
     }
   });
 
-  app.post("/api/messages", isAuthenticated, isManager, async (req: any, res) => {
+  app.post("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });

@@ -102,7 +102,6 @@ export default function Messages() {
 
   const { data: sentMessages = [], isLoading: loadingSent } = useQuery<SentMessage[]>({
     queryKey: ["/api/messages/sent"],
-    enabled: isManager,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -121,7 +120,6 @@ export default function Messages() {
 
   const { data: teamMembers = [] } = useQuery<TeamMember[]>({
     queryKey: ["/api/team"],
-    enabled: isManager,
   });
 
   const { data: replies = [], isLoading: loadingReplies } = useQuery<ReplyMessage[]>({
@@ -276,11 +274,9 @@ export default function Messages() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isManager && (
-            <Button size="sm" onClick={() => setShowCompose(true)} data-testid="button-compose">
-              <Plus className="w-4 h-4 mr-1" /> New
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setShowCompose(true)} data-testid="button-compose">
+            <Plus className="w-4 h-4 mr-1" /> New
+          </Button>
         </div>
       </div>
 
@@ -298,18 +294,16 @@ export default function Messages() {
               Inbox
               {unreadCount > 0 && <Badge variant="destructive" className="text-[10px] h-4 px-1">{unreadCount}</Badge>}
             </Button>
-            {isManager && (
-              <Button
-                variant={viewMode === "sent" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => { setViewMode("sent"); setSelectedMessage(null); setSelectedSentMessage(null); }}
-                className="gap-1.5 text-xs"
-                data-testid="button-view-sent"
-              >
-                <Send className="w-3.5 h-3.5" />
-                Sent
-              </Button>
-            )}
+            <Button
+              variant={viewMode === "sent" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => { setViewMode("sent"); setSelectedMessage(null); setSelectedSentMessage(null); }}
+              className="gap-1.5 text-xs"
+              data-testid="button-view-sent"
+            >
+              <Send className="w-3.5 h-3.5" />
+              Sent
+            </Button>
             <Button
               variant={viewMode === "archived" ? "default" : "ghost"}
               size="sm"

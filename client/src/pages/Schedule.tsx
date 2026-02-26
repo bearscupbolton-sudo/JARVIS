@@ -40,7 +40,8 @@ const DEPARTMENTS = [
 ] as const;
 
 function getDisplayName(member: TeamMember): string {
-  return member.username || member.firstName || member.email || "Unknown";
+  const fullName = [member.firstName, member.lastName].filter(Boolean).join(" ");
+  return fullName || member.username || member.email || "Unknown";
 }
 
 function getUserDisplayName(userId: string, members: TeamMember[]): string {
@@ -123,6 +124,7 @@ export default function Schedule() {
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [confirmDeleteShiftId, setConfirmDeleteShiftId] = useState<number | null>(null);
+  const [confirmDeleteGridShiftId, setConfirmDeleteGridShiftId] = useState<number | null>(null);
   const [timeOffDialogOpen, setTimeOffDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
@@ -178,10 +180,29 @@ export default function Schedule() {
     queryKey: ["/api/time-off"],
   });
 
-  const { data: teamMembers } = useQuery<TeamMember[]>({
+  const { data: teamMembersFull } = useQuery<TeamMember[]>({
     queryKey: ["/api/team-members"],
     enabled: isManagerOrOwner,
   });
+
+  const { data: teamBasic } = useQuery<{ id: string; firstName: string | null; lastName: string | null; username: string | null; role: string }[]>({
+    queryKey: ["/api/team"],
+  });
+
+  const teamMembers = useMemo((): TeamMember[] | undefined => {
+    if (teamMembersFull && teamMembersFull.length > 0) return teamMembersFull;
+    if (!teamBasic) return undefined;
+    return teamBasic.map(t => ({
+      id: t.id,
+      username: t.username || null,
+      firstName: t.firstName,
+      lastName: t.lastName,
+      email: null,
+      role: t.role,
+      phone: null,
+      smsOptIn: false,
+    }));
+  }, [teamMembersFull, teamBasic]);
 
   const { data: locationsData } = useQuery<Location[]>({
     queryKey: ["/api/locations"],
@@ -677,30 +698,44 @@ export default function Schedule() {
                                         {dayShifts.map(shift => {
                                           const isPending = shift.status === "pending";
                                           return (
-                                            <Tooltip key={shift.id}>
-                                              <TooltipTrigger asChild>
+                                            <div key={shift.id} className="relative group">
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <button
+                                                    className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
+                                                      isPending
+                                                        ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
+                                                        : "bg-muted hover:bg-muted/80 text-foreground"
+                                                    }`}
+                                                    onClick={() => isManagerOrOwner ? openEditShift(shift) : undefined}
+                                                    data-testid={`shift-cell-${shift.id}`}
+                                                  >
+                                                    {compactShiftTime(shift.startTime, shift.endTime)}
+                                                  </button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top" className="text-xs">
+                                                  <div className="space-y-0.5">
+                                                    <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
+                                                    <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
+                                                    {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
+                                                    {isPending && <div className="text-amber-600">Pending approval</div>}
+                                                    {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                                  </div>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                              {isManagerOrOwner && (
                                                 <button
-                                                  className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
-                                                    isPending
-                                                      ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
-                                                      : "bg-muted hover:bg-muted/80 text-foreground"
-                                                  }`}
-                                                  onClick={() => isManagerOrOwner ? openEditShift(shift) : undefined}
-                                                  data-testid={`shift-cell-${shift.id}`}
+                                                  className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setConfirmDeleteGridShiftId(shift.id);
+                                                  }}
+                                                  data-testid={`button-grid-delete-shift-${shift.id}`}
                                                 >
-                                                  {compactShiftTime(shift.startTime, shift.endTime)}
+                                                  <Trash2 className="w-2.5 h-2.5" />
                                                 </button>
-                                              </TooltipTrigger>
-                                              <TooltipContent side="top" className="text-xs">
-                                                <div className="space-y-0.5">
-                                                  <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
-                                                  <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
-                                                  {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
-                                                  {isPending && <div className="text-amber-600">Pending approval</div>}
-                                                  {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
-                                                </div>
-                                              </TooltipContent>
-                                            </Tooltip>
+                                              )}
+                                            </div>
                                           );
                                         })}
                                       </div>
@@ -728,33 +763,47 @@ export default function Schedule() {
                                     {dayOpenShifts.length > 0 ? (
                                       <div className="space-y-1">
                                         {dayOpenShifts.map(shift => (
-                                          <Tooltip key={shift.id}>
-                                            <TooltipTrigger asChild>
+                                          <div key={shift.id} className="relative group">
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <button
+                                                  className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 hover:bg-green-300 dark:hover:bg-green-900/60"
+                                                  onClick={() => {
+                                                    if (isManagerOrOwner) {
+                                                      openEditShift(shift);
+                                                    } else {
+                                                      claimShiftMutation.mutate(shift.id);
+                                                    }
+                                                  }}
+                                                  data-testid={`shift-cell-${shift.id}`}
+                                                >
+                                                  {compactShiftTime(shift.startTime, shift.endTime)}
+                                                </button>
+                                              </TooltipTrigger>
+                                              <TooltipContent side="top" className="text-xs">
+                                                <div className="space-y-0.5">
+                                                  <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
+                                                  <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
+                                                  {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
+                                                  <div className="text-green-600 font-medium">Available for pickup</div>
+                                                  {!isManagerOrOwner && <div className="text-muted-foreground italic">Click to pick up</div>}
+                                                  {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                                </div>
+                                              </TooltipContent>
+                                            </Tooltip>
+                                            {isManagerOrOwner && (
                                               <button
-                                                className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 hover:bg-green-300 dark:hover:bg-green-900/60"
-                                                onClick={() => {
-                                                  if (isManagerOrOwner) {
-                                                    openEditShift(shift);
-                                                  } else {
-                                                    claimShiftMutation.mutate(shift.id);
-                                                  }
+                                                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setConfirmDeleteGridShiftId(shift.id);
                                                 }}
-                                                data-testid={`shift-cell-${shift.id}`}
+                                                data-testid={`button-grid-delete-shift-${shift.id}`}
                                               >
-                                                {compactShiftTime(shift.startTime, shift.endTime)}
+                                                <Trash2 className="w-2.5 h-2.5" />
                                               </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="top" className="text-xs">
-                                              <div className="space-y-0.5">
-                                                <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
-                                                <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
-                                                {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
-                                                <div className="text-green-600 font-medium">Available for pickup</div>
-                                                {!isManagerOrOwner && <div className="text-muted-foreground italic">Click to pick up</div>}
-                                                {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
-                                              </div>
-                                            </TooltipContent>
-                                          </Tooltip>
+                                            )}
+                                          </div>
                                         ))}
                                       </div>
                                     ) : null}
@@ -1585,6 +1634,42 @@ export default function Schedule() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDeleteGridShiftId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteGridShiftId(null); }}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-4 h-4" /> Delete Shift
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Are you sure you want to delete this shift? This cannot be undone.</p>
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={deleteShiftMutation.isPending}
+              onClick={() => {
+                if (confirmDeleteGridShiftId !== null) {
+                  deleteShiftMutation.mutate(confirmDeleteGridShiftId, {
+                    onSuccess: () => setConfirmDeleteGridShiftId(null),
+                  });
+                }
+              }}
+              data-testid="button-confirm-grid-delete-shift"
+            >
+              {deleteShiftMutation.isPending ? "Deleting..." : "Yes, Delete"}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setConfirmDeleteGridShiftId(null)}
+              data-testid="button-cancel-grid-delete-shift"
+            >
+              Cancel
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
