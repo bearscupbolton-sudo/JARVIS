@@ -140,6 +140,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [editingShortcuts, setEditingShortcuts] = React.useState(false);
   const [editDraft, setEditDraft] = React.useState<string[]>([]);
   const isOwner = user?.role === "owner";
+  const sidebarPerms: string[] | null = (user as any)?.sidebarPermissions ?? null;
+  const canSeeSidebarItem = (href: string) => isOwner || sidebarPerms === null || sidebarPerms.includes(href);
 
   React.useEffect(() => {
     if (user && location) {
@@ -179,9 +181,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const shortcutItems = React.useMemo(() => 
     shortcuts
+      .filter(href => canSeeSidebarItem(href))
       .map(href => ALL_SHORTCUT_OPTIONS.find(o => o.href === href))
       .filter(Boolean) as NavItem[],
-    [shortcuts]
+    [shortcuts, sidebarPerms]
   );
 
   const startEditingShortcuts = () => {
@@ -363,7 +366,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="pt-3 pb-1 px-2">
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Navigation</p>
         </div>
-        {NAV_ITEMS.slice(2).map((item) => {
+        {NAV_ITEMS.slice(2).filter(item => canSeeSidebarItem(item.href)).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href}>
@@ -388,7 +391,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="pt-4 pb-1 px-2">
               <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Admin</p>
             </div>
-            {MANAGER_NAV_ITEMS.map((item) => {
+            {MANAGER_NAV_ITEMS.filter(item => canSeeSidebarItem(item.href)).map((item) => {
               const isActive = location === item.href;
               return (
                 <Link key={item.href} href={item.href}>

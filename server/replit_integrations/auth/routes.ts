@@ -57,12 +57,13 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const allUsers = await authStorage.getAllUsers();
       const requestingUser = req.appUser as User;
-      const isManagerOrOwner = requestingUser.role === "owner" || requestingUser.role === "manager";
+      const isOwnerRole = requestingUser.role === "owner";
 
       const safeUsers = allUsers.map((u) => {
         const { pinHash, ...rest } = u;
-        if (!isManagerOrOwner) {
-          return { id: rest.id, username: rest.username, firstName: rest.firstName, lastName: rest.lastName, role: rest.role, locked: rest.locked };
+        if (!isOwnerRole) {
+          const { hourlyRate, ...managerSafe } = rest;
+          return managerSafe;
         }
         return rest;
       });
@@ -180,6 +181,24 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error updating hourly rate:", error);
       res.status(500).json({ message: "Failed to update hourly rate" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/sidebar-permissions", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { sidebarPermissions } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const permissions = sidebarPermissions === null ? null : Array.isArray(sidebarPermissions) ? sidebarPermissions.filter((p: any) => typeof p === "string") : null;
+      const user = await authStorage.updateUserProfile(targetId, { sidebarPermissions: permissions });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating sidebar permissions:", error);
+      res.status(500).json({ message: "Failed to update sidebar permissions" });
     }
   });
 

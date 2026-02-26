@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -170,7 +171,7 @@ export default function AdminUsers() {
 
       {detailUser && (
         <UserDetailDialog
-          user={detailUser}
+          user={users?.find(u => u.id === detailUser.id) || detailUser}
           open={!!detailUser}
           onOpenChange={(open) => { if (!open) setDetailUser(null); }}
           currentUser={currentUser}
@@ -357,6 +358,43 @@ function UserDetailDialog({
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const currentPerms: string[] | null = (u as any).sidebarPermissions ?? null;
+
+  const ALL_SIDEBAR_ITEMS = [
+    { href: "/", label: "Home" },
+    { href: "/messages", label: "Messages" },
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/bakery", label: "Bakery" },
+    { href: "/coffee", label: "Coffee" },
+    { href: "/kitchen", label: "Kitchen" },
+    { href: "/recipes", label: "Recipes" },
+    { href: "/pastry-passports", label: "Pastry Passports" },
+    { href: "/lamination", label: "Lamination Studio" },
+    { href: "/production", label: "Production Logs" },
+    { href: "/sops", label: "SOPs" },
+    { href: "/inventory", label: "Inventory" },
+    { href: "/schedule", label: "Schedule" },
+    { href: "/calendar", label: "Calendar" },
+    { href: "/time-cards", label: "Time Cards" },
+    { href: "/tasks", label: "Task Manager" },
+    { href: "/assistant", label: "Jarvis" },
+    { href: "/starkade", label: "Starkade" },
+    { href: "/kiosk", label: "Kiosk Mode" },
+    ...(u.role === "manager" || u.role === "owner" ? [
+      { href: "/admin/users", label: "Team" },
+      { href: "/time-review", label: "Time Review" },
+      { href: "/admin/pastry-items", label: "Master Pastry List" },
+      { href: "/pastry-goals", label: "Pastry Goals" },
+      { href: "/live-inventory", label: "Live Inventory" },
+    ] : []),
+    ...(u.role === "owner" ? [
+      { href: "/admin/approvals", label: "Approvals" },
+      { href: "/admin/ttis", label: "TTIS" },
+      { href: "/admin/square", label: "Square Settings" },
+      { href: "/admin/insights", label: "Insights" },
+    ] : []),
+  ];
 
   const hourlyRateMutation = useMutation({
     mutationFn: async (rate: string) => {
@@ -411,6 +449,41 @@ function UserDetailDialog({
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
     },
   });
+
+  const sidebarPermMutation = useMutation({
+    mutationFn: async (perms: string[] | null) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/sidebar-permissions`, { sidebarPermissions: perms });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Sidebar permissions updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleSidebarItem = (href: string) => {
+    const allHrefs = ALL_SIDEBAR_ITEMS.map(i => i.href);
+    if (currentPerms === null) {
+      const newPerms = allHrefs.filter(h => h !== href);
+      sidebarPermMutation.mutate(newPerms);
+    } else {
+      const newPerms = currentPerms.includes(href)
+        ? currentPerms.filter(h => h !== href)
+        : [...currentPerms, href];
+      if (newPerms.length === allHrefs.length) {
+        sidebarPermMutation.mutate(null);
+      } else {
+        sidebarPermMutation.mutate(newPerms);
+      }
+    }
+  };
+
+  const isItemEnabled = (href: string) => currentPerms === null || currentPerms.includes(href);
+
+  const selectAllSidebar = () => sidebarPermMutation.mutate(null);
+  const deselectAllSidebar = () => sidebarPermMutation.mutate([]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -602,6 +675,61 @@ function UserDetailDialog({
                   Remove
                 </Button>
               </div>
+            </div>
+          )}
+
+          {!isCurrentUser && isOwner && (
+            <div className="border-t pt-4">
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left text-sm font-medium text-foreground hover:text-primary transition-colors"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                data-testid={`button-sidebar-perms-toggle-${u.id}`}
+              >
+                <PanelLeft className="w-4 h-4 text-muted-foreground" />
+                Sidebar Visibility
+                {sidebarOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+                {currentPerms !== null && (
+                  <Badge variant="secondary" className="text-[10px] ml-1">
+                    {currentPerms.length}/{ALL_SIDEBAR_ITEMS.length}
+                  </Badge>
+                )}
+              </button>
+              {sidebarOpen && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Choose which sidebar items this person can see. Unchecked items will be hidden from their navigation.</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={selectAllSidebar} data-testid={`button-sidebar-select-all-${u.id}`}>
+                      Select All
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={deselectAllSidebar} data-testid={`button-sidebar-deselect-all-${u.id}`}>
+                      Deselect All
+                    </Button>
+                  </div>
+                  <div className="max-h-[250px] overflow-y-auto space-y-1 pr-1">
+                    {ALL_SIDEBAR_ITEMS.map((item) => (
+                      <label
+                        key={item.href}
+                        className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 cursor-pointer text-sm"
+                        data-testid={`sidebar-perm-${item.href.replace(/\//g, "-")}-${u.id}`}
+                      >
+                        <Checkbox
+                          checked={isItemEnabled(item.href)}
+                          onCheckedChange={() => toggleSidebarItem(item.href)}
+                          disabled={sidebarPermMutation.isPending}
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {sidebarPermMutation.isPending && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Saving...
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

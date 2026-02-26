@@ -44,7 +44,10 @@ The schedule system supports full 24-hour availability (12:00 AM–11:30 PM in 3
 A comprehensive system includes a persistent Clock Bar, a PIN-based Kiosk Clock, personal "My Time Cards" for history and adjustment requests, and a "Time Review" for managers to approve and edit team entries.
 
 ### Authentication & Roles
-Authentication is PIN-based with server-side PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware. Owners can designate managers as "Shift Managers" (`isShiftManager` flag) who gain the ability to approve shift pickup requests and import schedules.
+Authentication is PIN-based with server-side PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware. Owners can designate managers as "Shift Managers" (`isShiftManager` flag) who gain the ability to approve shift pickup requests and import schedules. Security policy: revenue/profit data (Square sales, KPIs, TTIS tips) is owner-only. Cost data (invoices, pastry COGS) requires manager+. Hourly rates are stripped from API responses for non-owners.
+
+### Per-User Sidebar Visibility
+Owners can control which sidebar items each team member sees via the user detail dialog in Team management. The `sidebarPermissions` JSONB field on users stores an array of allowed sidebar paths (null = all items allowed for their role). The Layout component filters all nav sections (navigation, shortcuts, admin items) based on these permissions. Owners always see all items regardless of permissions.
 
 ### AI Integration
 The system integrates with OpenAI-compatible APIs for "Jarvis," an AI assistant providing text chat (with streaming), audio capabilities (STT/TTS), image generation, and invoice scanning via a vision model. Jarvis is contextualized with bakery data and supports kiosk voice commands for logging production.

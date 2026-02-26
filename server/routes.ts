@@ -774,7 +774,7 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.get("/api/square/sales", isAuthenticated, async (req, res) => {
+  app.get("/api/square/sales", isAuthenticated, isOwner, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
     const sales = await getSquareSalesForDate(date, locationId);
@@ -1258,12 +1258,12 @@ FORMAT RULES for the content field:
   });
 
   // === INVOICES ===
-  app.get(api.invoices.list.path, isAuthenticated, async (req, res) => {
+  app.get(api.invoices.list.path, isAuthenticated, isManager, async (req, res) => {
     const invoiceList = await storage.getInvoices();
     res.json(invoiceList);
   });
 
-  app.get(api.invoices.get.path, isAuthenticated, async (req, res) => {
+  app.get(api.invoices.get.path, isAuthenticated, isManager, async (req, res) => {
     const invoice = await storage.getInvoice(Number(req.params.id));
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
     res.json(invoice);
@@ -3141,7 +3141,7 @@ ${sopsHtml}
     }
   });
 
-  app.get("/api/pastry-items/costs", isAuthenticated, async (req: any, res) => {
+  app.get("/api/pastry-items/costs", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const { calculateAllPastryCosts } = await import("./cost-engine");
       const result = await calculateAllPastryCosts();
