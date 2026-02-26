@@ -4033,11 +4033,11 @@ ${sopsHtml}
       const cacheAge = context.user.lastBriefingAt ? (now.getTime() - new Date(context.user.lastBriefingAt).getTime()) / 1000 / 60 : Infinity;
 
       if (cacheAge < 30 && context.user.lastBriefingText && req.query.refresh !== "true") {
-        const showWelcome = !context.user.jarvisBriefingSeenAt;
+        const hasWelcome = !!context.user.jarvisWelcomeMessage;
         return res.json({
           briefingText: context.user.lastBriefingText,
-          showWelcome,
-          welcomeMessage: showWelcome ? context.user.jarvisWelcomeMessage : null,
+          showWelcome: hasWelcome,
+          welcomeMessage: hasWelcome ? context.user.jarvisWelcomeMessage : null,
           disabled: false,
         });
       }
@@ -4162,11 +4162,11 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
 
       await storage.updateJarvisBriefingCache(req.appUser.id, briefingText);
 
-      const showWelcome = !context.user.jarvisBriefingSeenAt;
+      const hasWelcome = !!context.user.jarvisWelcomeMessage;
       res.json({
         briefingText,
-        showWelcome,
-        welcomeMessage: showWelcome ? context.user.jarvisWelcomeMessage : null,
+        showWelcome: hasWelcome,
+        welcomeMessage: hasWelcome ? context.user.jarvisWelcomeMessage : null,
         disabled: false,
       });
     } catch (err: any) {
@@ -4205,6 +4205,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
     try {
       const { message } = req.body;
       await storage.setJarvisWelcomeMessage(req.params.userId, message || null);
+      await storage.clearBriefingCache(req.params.userId);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
