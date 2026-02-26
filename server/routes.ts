@@ -1746,9 +1746,21 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       if (user.role !== "owner" && !user.isShiftManager) {
         return res.status(403).json({ message: "Only shift managers or owners can import schedules" });
       }
-      const { csvContent, weekStartDate } = req.body;
-      if (!csvContent) {
+      const { csvContent, imageBase64, imageMimeType, weekStartDate } = req.body;
+      if (!csvContent && !imageBase64) {
         return res.status(400).json({ message: "No schedule data provided" });
+      }
+
+      if (imageBase64) {
+        const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/heic"];
+        const mime = imageMimeType || "image/jpeg";
+        if (!allowedMimes.includes(mime)) {
+          return res.status(400).json({ message: "Unsupported image format. Please upload a JPG, PNG, or WebP image." });
+        }
+        const sizeBytes = Buffer.byteLength(imageBase64, "base64");
+        if (sizeBytes > 15 * 1024 * 1024) {
+          return res.status(400).json({ message: "Image too large. Please upload an image under 15MB." });
+        }
       }
       const allUsers = await authStorage.getAllUsers();
       const teamList = allUsers.map(u => ({
@@ -1758,13 +1770,11 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
       })).filter(u => u.name || u.username);
 
       const { openai: aiClient } = await import("./replit_integrations/audio/client");
-      const prompt = `You are a schedule parser. Given the following CSV/spreadsheet data and a list of team members, extract shift assignments.
+
+      const baseInstructions = `You are a schedule parser. Given the following team members and schedule data, extract shift assignments.
 
 Team members (id, name, username):
 ${teamList.map(t => `- ${t.id}: ${t.name} (${t.username})`).join("\n")}
-
-Schedule data:
-${csvContent}
 
 ${weekStartDate ? `The week starts on: ${weekStartDate}` : ""}
 
@@ -1780,9 +1790,27 @@ Return a JSON array of shift objects. Each shift should have:
 If you can't match a name to a team member, set userId to null and add the original name in notes.
 Only return the JSON array, no other text.`;
 
+      let messages: any[];
+
+      if (imageBase64) {
+        const mime = imageMimeType || "image/jpeg";
+        messages = [{
+          role: "user",
+          content: [
+            { type: "text", text: `${baseInstructions}\n\nRead the schedule from the attached photo. Extract all shift assignments you can see, including names, dates, and times. If dates are shown as days of the week (Mon, Tue, etc.), map them to actual dates based on the week start date provided.` },
+            { type: "image_url", image_url: { url: `data:${mime};base64,${imageBase64}` } },
+          ],
+        }];
+      } else {
+        messages = [{
+          role: "user",
+          content: `${baseInstructions}\n\nSchedule data:\n${csvContent}`,
+        }];
+      }
+
       const completion = await withRetry(() => aiClient.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
+        model: imageBase64 ? "gpt-4o" : "gpt-4o-mini",
+        messages,
         max_tokens: 4096,
         temperature: 0.1,
       }), "schedule-import");

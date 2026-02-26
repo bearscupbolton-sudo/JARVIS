@@ -363,23 +363,41 @@ export default function Schedule() {
     if (!file) return;
     setIsUploading(true);
     try {
-      let csvContent = "";
-      if (file.name.endsWith(".csv") || file.name.endsWith(".txt")) {
-        csvContent = await file.text();
-      } else {
-        const XLSX = await import("xlsx");
+      const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|heic|webp)$/i.test(file.name);
+
+      if (isImage) {
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        csvContent = XLSX.utils.sheet_to_csv(firstSheet);
+        const base64 = btoa(
+          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+        );
+        const mimeType = file.type || "image/jpeg";
+        const res = await apiRequest("POST", "/api/shifts/import", {
+          imageBase64: base64,
+          imageMimeType: mimeType,
+          weekStartDate: format(weekStart, "yyyy-MM-dd"),
+        });
+        const data = await res.json();
+        setUploadPreview(data.shifts || []);
+        setUploadTeam(data.teamMembers || []);
+      } else {
+        let csvContent = "";
+        if (file.name.endsWith(".csv") || file.name.endsWith(".txt")) {
+          csvContent = await file.text();
+        } else {
+          const XLSX = await import("xlsx");
+          const buffer = await file.arrayBuffer();
+          const workbook = XLSX.read(buffer, { type: "array" });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          csvContent = XLSX.utils.sheet_to_csv(firstSheet);
+        }
+        const res = await apiRequest("POST", "/api/shifts/import", {
+          csvContent,
+          weekStartDate: format(weekStart, "yyyy-MM-dd"),
+        });
+        const data = await res.json();
+        setUploadPreview(data.shifts || []);
+        setUploadTeam(data.teamMembers || []);
       }
-      const res = await apiRequest("POST", "/api/shifts/import", {
-        csvContent,
-        weekStartDate: format(weekStart, "yyyy-MM-dd"),
-      });
-      const data = await res.json();
-      setUploadPreview(data.shifts || []);
-      setUploadTeam(data.teamMembers || []);
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message || "Could not parse file", variant: "destructive" });
     } finally {
@@ -523,7 +541,7 @@ export default function Schedule() {
                 <div className="relative">
                   <input
                     type="file"
-                    accept=".csv,.xlsx,.xls,.txt"
+                    accept=".csv,.xlsx,.xls,.txt,.jpg,.jpeg,.png,.heic,.webp,image/*"
                     onChange={handleFileUpload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     data-testid="input-upload-schedule"
