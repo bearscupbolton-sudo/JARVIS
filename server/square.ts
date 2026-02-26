@@ -1,7 +1,7 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
-import { squareCatalogMap, squareSales, pastryTotals, bakeoffLogs, locations } from "@shared/schema";
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations } from "@shared/schema";
+import { eq, and, gte, lte, inArray, isNull } from "drizzle-orm";
 
 function getSquareClient() {
   return new SquareClient({
@@ -106,6 +106,8 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
 
     const salesAgg = new Map<string, { qty: number; revenue: number }>();
     let ordersProcessed = 0;
+    let totalRevenue = 0;
+    const hourlyBuckets = new Map<number, { orderCount: number; revenue: number; itemsSold: number }>();
     let cursor: string | undefined;
 
     const body: any = {
@@ -136,6 +138,20 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
 
       for (const order of orders) {
         ordersProcessed++;
+
+        const orderTotalCents = (order as any).totalMoney?.amount ? Number((order as any).totalMoney.amount) : 0;
+        totalRevenue += orderTotalCents / 100;
+
+        const createdAt = (order as any).createdAt;
+        let orderHour = 0;
+        if (createdAt) {
+          const orderDate = new Date(createdAt);
+          orderHour = orderDate.getHours();
+        }
+        const bucket = hourlyBuckets.get(orderHour) || { orderCount: 0, revenue: 0, itemsSold: 0 };
+        bucket.orderCount++;
+        bucket.revenue += orderTotalCents / 100;
+
         for (const lineItem of (order as any).lineItems || []) {
           const catalogId = lineItem.catalogObjectId;
           let pastryName: string | undefined;
@@ -154,7 +170,10 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
           existing.qty += qty;
           existing.revenue += revCents / 100;
           salesAgg.set(pastryName, existing);
+
+          bucket.itemsSold += qty;
         }
+        hourlyBuckets.set(orderHour, bucket);
       }
 
       cursor = (response as any).cursor || undefined;
@@ -162,8 +181,10 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
 
     if (jarvisLocationId) {
       await db.delete(squareSales).where(and(eq(squareSales.date, date), eq(squareSales.locationId, jarvisLocationId)));
+      await db.delete(squareDailySummary).where(and(eq(squareDailySummary.date, date), eq(squareDailySummary.locationId, jarvisLocationId)));
     } else {
       await db.delete(squareSales).where(eq(squareSales.date, date));
+      await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
     }
 
     const entries = Array.from(salesAgg.entries());
@@ -178,6 +199,19 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
       });
     }
 
+    const hourlyBreakdown = Array.from(hourlyBuckets.entries())
+      .map(([hour, data]) => ({ hour, orderCount: data.orderCount, revenue: data.revenue, itemsSold: data.itemsSold }))
+      .sort((a, b) => a.hour - b.hour);
+
+    await db.insert(squareDailySummary).values({
+      date,
+      locationId: jarvisLocationId || null,
+      orderCount: ordersProcessed,
+      totalRevenue,
+      hourlyBreakdown,
+      lastSyncedAt: new Date(),
+    });
+
     return { itemsSynced: salesAgg.size, ordersProcessed };
   } catch (error: any) {
     console.error("Error syncing Square sales:", error);
@@ -189,6 +223,12 @@ export async function getSquareSalesForDate(date: string, locationId?: number) {
   const conditions = [eq(squareSales.date, date)];
   if (locationId) conditions.push(eq(squareSales.locationId, locationId));
   return await db.select().from(squareSales).where(and(...conditions)).orderBy(squareSales.itemName);
+}
+
+export async function getSquareDailySummaries(startDate: string, endDate: string, locationId?: number) {
+  const conditions = [gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate)];
+  if (locationId) conditions.push(eq(squareDailySummary.locationId, locationId));
+  return await db.select().from(squareDailySummary).where(and(...conditions)).orderBy(squareDailySummary.date);
 }
 
 export async function generateForecast(date: string, locationId?: number): Promise<{ itemName: string; forecast: number; method: string; confidence: number }[]> {

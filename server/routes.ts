@@ -9,9 +9,10 @@ import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrati
 import { sendPushToUsers, sendPushToUser } from "./push";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages } from "@shared/schema";
+import { eq, and, gte, lte, lt, desc, isNotNull, inArray } from "drizzle-orm";
+import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems } from "@shared/schema";
 import { withRetry } from "./ai-retry";
+import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
@@ -3485,6 +3486,420 @@ ${sopsHtml}
       res.json(data);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === KPI REPORT ENDPOINTS ===
+  app.get("/api/admin/insights/kpi-report", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - days);
+      const prevStartDate = new Date(startDate);
+      prevStartDate.setDate(prevStartDate.getDate() - days);
+
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const prevStartDateStr = prevStartDate.toISOString().split("T")[0];
+      const endDateStr = now.toISOString().split("T")[0];
+
+      // 1. Sales data from Square
+      const allSales = await db.select().from(squareSales).where(gte(squareSales.date, startDateStr));
+      const currentSales = allSales.filter(s => s.date >= startDateStr && s.date <= endDateStr);
+      const prevSales = await db.select().from(squareSales).where(and(gte(squareSales.date, prevStartDateStr), lt(squareSales.date, startDateStr)));
+
+      const totalRevenue = currentSales.reduce((sum, s) => sum + (s.revenue || 0), 0);
+      const prevTotalRevenue = prevSales.reduce((sum, s) => sum + (s.revenue || 0), 0);
+      const totalItemsSold = currentSales.reduce((sum, s) => sum + s.quantitySold, 0);
+      const prevTotalItemsSold = prevSales.reduce((sum, s) => sum + s.quantitySold, 0);
+
+      // Sales by item
+      const salesByItem = new Map<string, { qty: number; revenue: number }>();
+      for (const s of currentSales) {
+        const existing = salesByItem.get(s.itemName) || { qty: 0, revenue: 0 };
+        existing.qty += s.quantitySold;
+        existing.revenue += s.revenue || 0;
+        salesByItem.set(s.itemName, existing);
+      }
+
+      // Daily revenue
+      const dailyRevenue = new Map<string, number>();
+      for (const s of currentSales) {
+        dailyRevenue.set(s.date, (dailyRevenue.get(s.date) || 0) + (s.revenue || 0));
+      }
+      const revenueTrend = Array.from(dailyRevenue.entries())
+        .map(([date, revenue]) => ({ date, revenue: Math.round(revenue * 100) / 100 }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      // Order counts from square_daily_summary for accurate avg transaction value
+      const { getSquareDailySummaries } = await import("./square");
+      const currentDailySummaries = await getSquareDailySummaries(startDateStr, endDateStr);
+      const prevDailySummaries = await getSquareDailySummaries(prevStartDateStr, startDateStr);
+      const totalOrderCount = currentDailySummaries.reduce((sum, s) => sum + (s.orderCount || 0), 0);
+      const prevTotalOrderCount = prevDailySummaries.reduce((sum, s) => sum + (s.orderCount || 0), 0);
+
+      // 2. Labor data from time entries
+      const allTimeEntries = await db.select().from(timeEntries).where(
+        and(gte(timeEntries.clockIn, startDate), isNotNull(timeEntries.clockOut))
+      );
+      const prevTimeEntries = await db.select().from(timeEntries).where(
+        and(gte(timeEntries.clockIn, prevStartDate), lt(timeEntries.clockIn, startDate), isNotNull(timeEntries.clockOut))
+      );
+
+      const allTeIds = [...allTimeEntries, ...prevTimeEntries].map(te => te.id);
+      const allBreaks = allTeIds.length > 0
+        ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, allTeIds))
+        : [];
+
+      const breaksByEntry = new Map<number, number>();
+      for (const b of allBreaks) {
+        if (b.startAt && b.endAt) {
+          const breakMs = new Date(b.endAt).getTime() - new Date(b.startAt).getTime();
+          breaksByEntry.set(b.timeEntryId, (breaksByEntry.get(b.timeEntryId) || 0) + breakMs);
+        }
+      }
+
+      const allUsers = await db.select().from(users);
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      let totalLaborHours = 0;
+      let totalLaborCost = 0;
+      const laborByUser = new Map<string, { hours: number; cost: number; shifts: number }>();
+
+      for (const te of allTimeEntries) {
+        if (!te.clockOut) continue;
+        const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
+        const breakMs = breaksByEntry.get(te.id) || 0;
+        const netMs = Math.max(0, msWorked - breakMs);
+        const hours = netMs / (1000 * 60 * 60);
+        totalLaborHours += hours;
+
+        const user = userMap.get(te.userId);
+        const rate = user?.hourlyRate || 0;
+        const cost = hours * rate;
+        totalLaborCost += cost;
+
+        const existing = laborByUser.get(te.userId) || { hours: 0, cost: 0, shifts: 0 };
+        existing.hours += hours;
+        existing.cost += cost;
+        existing.shifts += 1;
+        laborByUser.set(te.userId, existing);
+      }
+
+      // Previous period labor (with break subtraction)
+      let prevLaborCost = 0;
+      let prevLaborHours = 0;
+      for (const te of prevTimeEntries) {
+        if (!te.clockOut) continue;
+        const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
+        const breakMs = breaksByEntry.get(te.id) || 0;
+        const netMs = Math.max(0, msWorked - breakMs);
+        const hours = netMs / (1000 * 60 * 60);
+        prevLaborHours += hours;
+        const user = userMap.get(te.userId);
+        prevLaborCost += hours * (user?.hourlyRate || 0);
+      }
+
+      const laborCostPct = totalRevenue > 0 ? (totalLaborCost / totalRevenue) * 100 : 0;
+      const prevLaborCostPct = prevTotalRevenue > 0 ? (prevLaborCost / prevTotalRevenue) * 100 : 0;
+      const revenuePerLaborHour = totalLaborHours > 0 ? totalRevenue / totalLaborHours : 0;
+      const prevRevenuePerLaborHour = prevLaborHours > 0 ? prevTotalRevenue / prevLaborHours : 0;
+
+      // 3. Production data
+      const allSessions = await db.select().from(recipeSessions).where(gte(recipeSessions.createdAt, startDate));
+      const allBakeoffs = await db.select().from(bakeoffLogs).where(gte(bakeoffLogs.date, startDateStr));
+
+      const productionByItem = new Map<string, number>();
+      for (const session of allSessions) {
+        const qty = session.unitQty || 1;
+        productionByItem.set(session.recipeTitle, (productionByItem.get(session.recipeTitle) || 0) + qty);
+      }
+      for (const bakeoff of allBakeoffs) {
+        productionByItem.set(bakeoff.itemName, (productionByItem.get(bakeoff.itemName) || 0) + bakeoff.quantity);
+      }
+
+      // Sales vs Production comparison
+      const allItemNames = new Set([...Array.from(salesByItem.keys()), ...Array.from(productionByItem.keys())]);
+      const salesVsProduction = Array.from(allItemNames).map(itemName => ({
+        itemName,
+        produced: productionByItem.get(itemName) || 0,
+        sold: salesByItem.get(itemName)?.qty || 0,
+        revenue: salesByItem.get(itemName)?.revenue || 0,
+      })).sort((a, b) => b.sold - a.sold);
+
+      // 4. Food Cost
+      let totalFoodCost = 0;
+      const foodCostItems: { itemName: string; unitCost: number | null; unitsProduced: number; totalCost: number | null; pctOfTotal?: number }[] = [];
+
+      const allPastryItemsList = await db.select().from(pastryItems);
+      const pastryCosts = await calculateAllPastryCosts();
+
+      for (const pi of allPastryItemsList) {
+        const produced = productionByItem.get(pi.name) || 0;
+        const costData = pastryCosts[pi.id];
+        const unitCost = costData?.totalCost || null;
+        const itemTotalCost = unitCost != null && produced > 0 ? unitCost * produced : null;
+        if (itemTotalCost != null) totalFoodCost += itemTotalCost;
+        if (produced > 0 || unitCost != null) {
+          foodCostItems.push({ itemName: pi.name, unitCost, unitsProduced: produced, totalCost: itemTotalCost });
+        }
+      }
+
+      for (const item of foodCostItems) {
+        item.pctOfTotal = totalFoodCost > 0 && item.totalCost != null ? (item.totalCost / totalFoodCost) * 100 : 0;
+      }
+
+      const foodCostPct = totalRevenue > 0 ? (totalFoodCost / totalRevenue) * 100 : 0;
+
+      // 5. Waste tracking
+      const trashedDoughs = await db.select().from(laminationDoughs).where(
+        and(isNotNull(laminationDoughs.trashedAt), gte(laminationDoughs.trashedAt, startDate))
+      );
+
+      const wasteReasons = new Map<string, number>();
+      for (const d of trashedDoughs) {
+        const reason = d.trashReason || "Unknown";
+        wasteReasons.set(reason, (wasteReasons.get(reason) || 0) + 1);
+      }
+
+      let totalScrapG = 0;
+      const shapedDoughs = await db.select().from(laminationDoughs).where(
+        and(isNotNull(laminationDoughs.shapedAt), gte(laminationDoughs.createdAt, startDate))
+      );
+      for (const d of shapedDoughs) {
+        if (d.doughWeightG && d.shapings) {
+          const shapings = d.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>;
+          const usedWeight = shapings.reduce((sum, s) => sum + (s.pieces * (s.weightPerPieceG || 0)), 0);
+          if (usedWeight > 0 && d.doughWeightG > usedWeight) {
+            totalScrapG += d.doughWeightG - usedWeight;
+          }
+        }
+      }
+
+      // 6. Average transaction value (total revenue / order count from daily summaries)
+      const avgTransactionValue = totalOrderCount > 0 ? totalRevenue / totalOrderCount : 0;
+      const prevAvgTransactionValue = prevTotalOrderCount > 0 ? prevTotalRevenue / prevTotalOrderCount : 0;
+
+      // 7. Peak hour analysis (from sales date timestamps — approximate by bucketing sales)
+      // Since we only have daily aggregated sales, we use clock-in times for staffing
+      const clockInByHour = new Array(24).fill(0);
+      for (const te of allTimeEntries) {
+        const hour = new Date(te.clockIn).getHours();
+        clockInByHour[hour]++;
+      }
+
+      const peakHours = clockInByHour.map((count, hour) => ({
+        hour,
+        staffingLevel: count,
+        label: `${hour === 0 ? 12 : hour > 12 ? hour - 12 : hour}${hour < 12 ? 'AM' : 'PM'}`,
+      }));
+
+      // Helper for % change
+      const pctChange = (current: number, previous: number) =>
+        previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : current > 0 ? 100 : 0;
+
+      res.json({
+        period: { days, startDate: startDateStr, endDate: endDateStr },
+        summary: {
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
+          totalRevenueChange: pctChange(totalRevenue, prevTotalRevenue),
+          totalLaborCost: Math.round(totalLaborCost * 100) / 100,
+          totalLaborCostChange: pctChange(totalLaborCost, prevLaborCost),
+          laborCostPct: Math.round(laborCostPct * 10) / 10,
+          laborCostPctChange: pctChange(laborCostPct, prevLaborCostPct),
+          foodCostPct: Math.round(foodCostPct * 10) / 10,
+          totalFoodCost: Math.round(totalFoodCost * 100) / 100,
+          revenuePerLaborHour: Math.round(revenuePerLaborHour * 100) / 100,
+          revenuePerLaborHourChange: pctChange(revenuePerLaborHour, prevRevenuePerLaborHour),
+          avgTransactionValue: Math.round(avgTransactionValue * 100) / 100,
+          avgTransactionValueChange: pctChange(avgTransactionValue, prevAvgTransactionValue),
+          totalLaborHours: Math.round(totalLaborHours * 10) / 10,
+        },
+        salesVsProduction,
+        foodCost: {
+          totalFoodCost: Math.round(totalFoodCost * 100) / 100,
+          foodCostPct: Math.round(foodCostPct * 10) / 10,
+          items: foodCostItems.sort((a, b) => (b.totalCost || 0) - (a.totalCost || 0)),
+        },
+        waste: {
+          totalTrashed: trashedDoughs.length,
+          reasons: Array.from(wasteReasons.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+          totalScrapG: Math.round(totalScrapG),
+          shapedDoughCount: shapedDoughs.length,
+        },
+        peakHours,
+        revenueTrend,
+      });
+    } catch (err: any) {
+      console.error("KPI report error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate KPI report" });
+    }
+  });
+
+  app.get("/api/admin/insights/kpi-labor-detail", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - days);
+
+      const entries = await db.select().from(timeEntries).where(
+        and(gte(timeEntries.clockIn, startDate), isNotNull(timeEntries.clockOut))
+      );
+
+      const entryIds = entries.map(te => te.id);
+      const allBreaks = entryIds.length > 0
+        ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, entryIds))
+        : [];
+
+      const breaksByEntry = new Map<number, number>();
+      for (const b of allBreaks) {
+        if (b.startAt && b.endAt) {
+          const breakMs = new Date(b.endAt).getTime() - new Date(b.startAt).getTime();
+          breaksByEntry.set(b.timeEntryId, (breaksByEntry.get(b.timeEntryId) || 0) + breakMs);
+        }
+      }
+
+      const allUsers = await db.select().from(users);
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      // Get total revenue for revenue-per-hour calc
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const salesInPeriod = await db.select().from(squareSales).where(gte(squareSales.date, startDateStr));
+      const totalRevenue = salesInPeriod.reduce((sum, s) => sum + (s.revenue || 0), 0);
+
+      const laborByUser = new Map<string, { hours: number; cost: number; shifts: number }>();
+
+      for (const te of entries) {
+        if (!te.clockOut) continue;
+        const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
+        const breakMs = breaksByEntry.get(te.id) || 0;
+        const netMs = Math.max(0, msWorked - breakMs);
+        const hours = netMs / (1000 * 60 * 60);
+
+        const existing = laborByUser.get(te.userId) || { hours: 0, cost: 0, shifts: 0 };
+        const user = userMap.get(te.userId);
+        const rate = user?.hourlyRate || 0;
+        existing.hours += hours;
+        existing.cost += hours * rate;
+        existing.shifts += 1;
+        laborByUser.set(te.userId, existing);
+      }
+
+      const totalHours = Array.from(laborByUser.values()).reduce((sum, l) => sum + l.hours, 0);
+
+      const employees = Array.from(laborByUser.entries()).map(([userId, data]) => {
+        const user = userMap.get(userId);
+        return {
+          userId,
+          firstName: user?.firstName || null,
+          lastName: user?.lastName || null,
+          username: user?.username || null,
+          role: user?.role || null,
+          hourlyRate: user?.hourlyRate || null,
+          hoursWorked: Math.round(data.hours * 100) / 100,
+          totalCost: Math.round(data.cost * 100) / 100,
+          shifts: data.shifts,
+          revenuePerHour: data.hours > 0 ? Math.round((totalRevenue / totalHours) * data.hours / data.hours * 100) / 100 : 0,
+        };
+      }).sort((a, b) => b.hoursWorked - a.hoursWorked);
+
+      const totalCost = employees.reduce((sum, e) => sum + e.totalCost, 0);
+
+      res.json({
+        period: { days, startDate: startDateStr },
+        totalHours: Math.round(totalHours * 10) / 10,
+        totalCost: Math.round(totalCost * 100) / 100,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        revenuePerLaborHour: totalHours > 0 ? Math.round((totalRevenue / totalHours) * 100) / 100 : 0,
+        employees,
+      });
+    } catch (err: any) {
+      console.error("KPI labor detail error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate labor detail" });
+    }
+  });
+
+  app.get("/api/admin/insights/kpi-production-detail", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+
+      // Production from recipe sessions
+      const sessions = await db.select().from(recipeSessions).where(gte(recipeSessions.createdAt, startDate));
+      // Production from bakeoff logs
+      const bakeoffs = await db.select().from(bakeoffLogs).where(gte(bakeoffLogs.date, startDateStr));
+      // Sales
+      const sales = await db.select().from(squareSales).where(gte(squareSales.date, startDateStr));
+
+      const productionByItem = new Map<string, { produced: number; sessions: number }>();
+      for (const session of sessions) {
+        const qty = session.unitQty || 1;
+        const existing = productionByItem.get(session.recipeTitle) || { produced: 0, sessions: 0 };
+        existing.produced += qty;
+        existing.sessions += 1;
+        productionByItem.set(session.recipeTitle, existing);
+      }
+      for (const bakeoff of bakeoffs) {
+        const existing = productionByItem.get(bakeoff.itemName) || { produced: 0, sessions: 0 };
+        existing.produced += bakeoff.quantity;
+        existing.sessions += 1;
+        productionByItem.set(bakeoff.itemName, existing);
+      }
+
+      const salesByItem = new Map<string, { qty: number; revenue: number }>();
+      for (const s of sales) {
+        const existing = salesByItem.get(s.itemName) || { qty: 0, revenue: 0 };
+        existing.qty += s.quantitySold;
+        existing.revenue += s.revenue || 0;
+        salesByItem.set(s.itemName, existing);
+      }
+
+      // COGS per item
+      const pastryCosts = await calculateAllPastryCosts();
+      const allPastryItemsList = await db.select().from(pastryItems);
+      const pastryNameToCost = new Map<string, number | null>();
+      for (const pi of allPastryItemsList) {
+        const costData = pastryCosts[pi.id];
+        pastryNameToCost.set(pi.name, costData?.totalCost || null);
+      }
+
+      const allItemNames = new Set([...Array.from(productionByItem.keys()), ...Array.from(salesByItem.keys())]);
+      const items = Array.from(allItemNames).map(itemName => {
+        const prod = productionByItem.get(itemName) || { produced: 0, sessions: 0 };
+        const sale = salesByItem.get(itemName) || { qty: 0, revenue: 0 };
+        const unitCost = pastryNameToCost.get(itemName) || null;
+        const variance = prod.produced - sale.qty;
+
+        return {
+          itemName,
+          produced: prod.produced,
+          sessions: prod.sessions,
+          sold: sale.qty,
+          revenue: Math.round(sale.revenue * 100) / 100,
+          unitCost,
+          totalCost: unitCost != null ? Math.round(unitCost * prod.produced * 100) / 100 : null,
+          variance,
+          variancePct: prod.produced > 0 ? Math.round((variance / prod.produced) * 1000) / 10 : 0,
+        };
+      }).sort((a, b) => b.sold - a.sold);
+
+      res.json({
+        period: { days, startDate: startDateStr },
+        items,
+        totals: {
+          totalProduced: items.reduce((sum, i) => sum + i.produced, 0),
+          totalSold: items.reduce((sum, i) => sum + i.sold, 0),
+          totalRevenue: Math.round(items.reduce((sum, i) => sum + i.revenue, 0) * 100) / 100,
+          totalCost: Math.round(items.filter(i => i.totalCost != null).reduce((sum, i) => sum + (i.totalCost || 0), 0) * 100) / 100,
+        },
+      });
+    } catch (err: any) {
+      console.error("KPI production detail error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate production detail" });
     }
   });
 

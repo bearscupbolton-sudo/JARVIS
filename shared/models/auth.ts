@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, date, index, integer, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -40,6 +40,7 @@ export const users = pgTable("users", {
   lastBriefingAt: timestamp("last_briefing_at"),
   jarvisBriefingFocus: varchar("jarvis_briefing_focus").default("all").notNull(),
   isShiftManager: boolean("is_shift_manager").default(false).notNull(),
+  hourlyRate: doublePrecision("hourly_rate"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -356,6 +356,22 @@ function UserDetailDialog({
   const isManagerOrAbove = currentUser?.role === "owner" || currentUser?.role === "manager";
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
+  const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
+
+  const hourlyRateMutation = useMutation({
+    mutationFn: async (rate: string) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/hourly-rate`, {
+        hourlyRate: rate === "" ? null : parseFloat(rate),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Hourly rate updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
 
   const shiftManagerMutation = useMutation({
     mutationFn: async (isShiftManager: boolean) => {
@@ -500,6 +516,36 @@ function UserDetailDialog({
 
           {!isCurrentUser && isOwner && (
             <div className="border-t pt-4 space-y-3">
+              <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/30">
+                <DollarSign className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <Label className="text-sm font-medium">Hourly Rate</Label>
+                  <p className="text-[11px] text-muted-foreground">Used for labor cost KPI calculations</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm text-muted-foreground">$</span>
+                  <Input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    className="w-20 h-8 text-sm"
+                    value={hourlyRate}
+                    onChange={(e) => setHourlyRate(e.target.value)}
+                    placeholder="0.00"
+                    data-testid={`input-hourly-rate-${u.id}`}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => hourlyRateMutation.mutate(hourlyRate)}
+                    disabled={hourlyRateMutation.isPending}
+                    data-testid={`button-save-rate-${u.id}`}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Role</Label>
                 <Select value={u.role} onValueChange={(role) => onRoleChange(u.id, role)}>

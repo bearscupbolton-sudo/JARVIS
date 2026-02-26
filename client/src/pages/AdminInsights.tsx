@@ -5,11 +5,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X } from "lucide-react";
+import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X, Trash2, Percent, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
-  BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
+  BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 
@@ -66,6 +66,41 @@ type MessageData = {
 };
 
 type FeatureEntry = { path: string; label: string; visitCount: number; uniqueUsers: number };
+
+type KpiReportData = {
+  period: { days: number; startDate: string; endDate: string };
+  summary: {
+    totalRevenue: number; totalRevenueChange: number;
+    totalLaborCost: number; totalLaborCostChange: number;
+    laborCostPct: number; laborCostPctChange: number;
+    foodCostPct: number; totalFoodCost: number;
+    revenuePerLaborHour: number; revenuePerLaborHourChange: number;
+    avgTransactionValue: number; avgTransactionValueChange: number;
+    totalLaborHours: number;
+  };
+  salesVsProduction: { itemName: string; produced: number; sold: number; revenue: number }[];
+  foodCost: {
+    totalFoodCost: number; foodCostPct: number;
+    items: { itemName: string; unitCost: number | null; unitsProduced: number; totalCost: number | null; pctOfTotal?: number }[];
+  };
+  waste: {
+    totalTrashed: number;
+    reasons: { reason: string; count: number }[];
+    totalScrapG: number; shapedDoughCount: number;
+  };
+  peakHours: { hour: number; staffingLevel: number; label: string }[];
+  revenueTrend: { date: string; revenue: number }[];
+};
+
+type KpiLaborDetail = {
+  period: { days: number; startDate: string };
+  totalHours: number; totalCost: number; totalRevenue: number; revenuePerLaborHour: number;
+  employees: {
+    userId: string; firstName: string | null; lastName: string | null;
+    username: string | null; role: string | null; hourlyRate: number | null;
+    hoursWorked: number; totalCost: number; shifts: number; revenuePerHour: number;
+  }[];
+};
 
 function userName(u: { firstName: string | null; lastName: string | null; username?: string | null }) {
   const name = [u.firstName, u.lastName].filter(Boolean).join(" ");
@@ -253,6 +288,18 @@ export default function AdminInsights() {
     enabled: tab === "features" || tab === "overview",
   });
 
+  const { data: kpiReport, isLoading: loadingKpi } = useQuery<KpiReportData>({
+    queryKey: ["/api/admin/insights/kpi-report", { days }],
+    queryFn: () => fetch(`/api/admin/insights/kpi-report?days=${days}`, { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to load KPI report"); return r.json(); }),
+    enabled: tab === "kpi",
+  });
+
+  const { data: kpiLabor, isLoading: loadingKpiLabor } = useQuery<KpiLaborDetail>({
+    queryKey: ["/api/admin/insights/kpi-labor-detail", { days }],
+    queryFn: () => fetch(`/api/admin/insights/kpi-labor-detail?days=${days}`, { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to load labor detail"); return r.json(); }),
+    enabled: tab === "kpi",
+  });
+
   const summary = comparison?.current;
   const prev = comparison?.previous;
 
@@ -301,6 +348,9 @@ export default function AdminInsights() {
           </TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">
             <BarChart3 className="w-4 h-4 mr-1.5" />Features
+          </TabsTrigger>
+          <TabsTrigger value="kpi" data-testid="tab-kpi">
+            <DollarSign className="w-4 h-4 mr-1.5" />KPI Report
           </TabsTrigger>
         </TabsList>
 
@@ -790,6 +840,297 @@ export default function AdminInsights() {
                   </div>
                 </CardContent>
               </Card>
+            </>
+          )}
+        </TabsContent>
+
+        {/* ===== KPI REPORT TAB ===== */}
+        <TabsContent value="kpi" className="mt-4 space-y-6">
+          {loadingKpi ? <LoadingState /> : !kpiReport ? (
+            <EmptyState icon={DollarSign} text="No KPI data available. Connect Square and log time entries to see metrics." />
+          ) : (
+            <>
+              {/* Top KPI Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="kpi-summary-grid">
+                <KpiCard
+                  title="Total Revenue"
+                  value={`$${kpiReport.summary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  icon={DollarSign}
+                  subtitle={`Last ${days} days`}
+                  change={{ value: `${kpiReport.summary.totalRevenueChange > 0 ? '+' : ''}${kpiReport.summary.totalRevenueChange}%`, direction: kpiReport.summary.totalRevenueChange > 0 ? "up" : kpiReport.summary.totalRevenueChange < 0 ? "down" : "neutral" }}
+                />
+                <KpiCard
+                  title="Labor Cost"
+                  value={`$${kpiReport.summary.totalLaborCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  icon={Users}
+                  subtitle={`${kpiReport.summary.totalLaborHours}h total`}
+                  change={{ value: `${kpiReport.summary.totalLaborCostChange > 0 ? '+' : ''}${kpiReport.summary.totalLaborCostChange}%`, direction: kpiReport.summary.totalLaborCostChange > 0 ? "up" : kpiReport.summary.totalLaborCostChange < 0 ? "down" : "neutral" }}
+                />
+                <KpiCard
+                  title="Labor Cost %"
+                  value={`${kpiReport.summary.laborCostPct}%`}
+                  icon={Percent}
+                  subtitle="Labor / Revenue"
+                  change={{ value: `${kpiReport.summary.laborCostPctChange > 0 ? '+' : ''}${kpiReport.summary.laborCostPctChange}%`, direction: kpiReport.summary.laborCostPctChange > 0 ? "up" : kpiReport.summary.laborCostPctChange < 0 ? "down" : "neutral" }}
+                />
+                <KpiCard
+                  title="Food Cost %"
+                  value={`${kpiReport.summary.foodCostPct}%`}
+                  icon={CookingPot}
+                  subtitle={`$${kpiReport.summary.totalFoodCost.toLocaleString()} COGS`}
+                />
+                <KpiCard
+                  title="Rev / Labor Hr"
+                  value={`$${kpiReport.summary.revenuePerLaborHour.toFixed(2)}`}
+                  icon={Timer}
+                  change={{ value: `${kpiReport.summary.revenuePerLaborHourChange > 0 ? '+' : ''}${kpiReport.summary.revenuePerLaborHourChange}%`, direction: kpiReport.summary.revenuePerLaborHourChange > 0 ? "up" : kpiReport.summary.revenuePerLaborHourChange < 0 ? "down" : "neutral" }}
+                />
+                <KpiCard
+                  title="Avg Transaction"
+                  value={`$${kpiReport.summary.avgTransactionValue.toFixed(2)}`}
+                  icon={TrendingUp}
+                  change={{ value: `${kpiReport.summary.avgTransactionValueChange > 0 ? '+' : ''}${kpiReport.summary.avgTransactionValueChange}%`, direction: kpiReport.summary.avgTransactionValueChange > 0 ? "up" : kpiReport.summary.avgTransactionValueChange < 0 ? "down" : "neutral" }}
+                />
+              </div>
+
+              {/* Revenue Trend */}
+              {kpiReport.revenueTrend.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Revenue Trend</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64" data-testid="chart-kpi-revenue-trend">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={kpiReport.revenueTrend}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                          <Tooltip labelFormatter={(v) => formatShortDate(v as string)} formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} />
+                          <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <EmptyState icon={TrendingUp} text="No revenue data available for this period." />
+              )}
+
+              {/* Sales vs Production */}
+              {kpiReport.salesVsProduction.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Sales vs Production by Item</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80" data-testid="chart-kpi-sales-vs-production">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={kpiReport.salesVsProduction.slice(0, 15)} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="itemName" type="category" tick={{ fontSize: 10 }} width={120} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="produced" name="Produced" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                          <Bar dataKey="sold" name="Sold" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">Compare production output vs sales to identify over/under production.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <EmptyState icon={ChefHat} text="No sales or production data to compare." />
+              )}
+
+              {/* Labor Breakdown Table */}
+              {!loadingKpiLabor && kpiLabor && kpiLabor.employees.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Labor Breakdown by Employee</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="table-kpi-labor">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-3 font-medium text-muted-foreground">Employee</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Role</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Hours</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Rate</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Labor Cost</th>
+                            <th className="text-center p-3 font-medium text-muted-foreground">Shifts</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {kpiLabor.employees.map((emp) => (
+                            <tr key={emp.userId} className="border-b last:border-0" data-testid={`labor-row-${emp.userId}`}>
+                              <td className="p-3 font-medium">{userName(emp)}</td>
+                              <td className="p-3 text-center">
+                                <Badge variant={emp.role === "owner" ? "default" : emp.role === "manager" ? "secondary" : "outline"} className="text-[10px]">
+                                  {emp.role || "member"}
+                                </Badge>
+                              </td>
+                              <td className="p-3 text-center font-mono">{emp.hoursWorked}</td>
+                              <td className="p-3 text-center font-mono">{emp.hourlyRate != null ? `$${emp.hourlyRate.toFixed(2)}` : "—"}</td>
+                              <td className="p-3 text-center font-mono">${emp.totalCost.toFixed(2)}</td>
+                              <td className="p-3 text-center font-mono">{emp.shifts}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t-2 font-bold">
+                            <td className="p-3">Total</td>
+                            <td className="p-3"></td>
+                            <td className="p-3 text-center font-mono">{kpiLabor.totalHours}</td>
+                            <td className="p-3"></td>
+                            <td className="p-3 text-center font-mono">${kpiLabor.totalCost.toFixed(2)}</td>
+                            <td className="p-3 text-center font-mono">{kpiLabor.employees.reduce((s, e) => s + e.shifts, 0)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : !loadingKpiLabor ? (
+                <EmptyState icon={Users} text="No labor data available. Employees need to clock in to see labor metrics." />
+              ) : null}
+
+              {/* Food Cost Breakdown */}
+              {kpiReport.foodCost.items.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Food Cost by Category</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-56" data-testid="chart-kpi-food-cost-donut">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={kpiReport.foodCost.items.filter(i => i.totalCost != null && i.totalCost > 0).slice(0, 8)}
+                              cx="50%" cy="50%" outerRadius={80} innerRadius={40}
+                              dataKey="totalCost" nameKey="itemName"
+                              label={({ itemName, percent }: { itemName: string; percent: number }) => `${itemName.length > 12 ? itemName.slice(0, 12) + '...' : itemName} ${(percent * 100).toFixed(0)}%`}
+                              labelLine={false}
+                            >
+                              {kpiReport.foodCost.items.filter(i => i.totalCost != null && i.totalCost > 0).slice(0, 8).map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Cost"]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Food Cost Detail</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table className="w-full text-sm" data-testid="table-kpi-food-cost">
+                          <thead className="sticky top-0 bg-card">
+                            <tr className="border-b">
+                              <th className="text-left p-2 font-medium text-muted-foreground text-xs">Item</th>
+                              <th className="text-center p-2 font-medium text-muted-foreground text-xs">Unit Cost</th>
+                              <th className="text-center p-2 font-medium text-muted-foreground text-xs">Produced</th>
+                              <th className="text-right p-2 font-medium text-muted-foreground text-xs">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {kpiReport.foodCost.items.map((item, idx) => (
+                              <tr key={idx} className="border-b last:border-0" data-testid={`food-cost-row-${idx}`}>
+                                <td className="p-2 text-xs font-medium">{item.itemName}</td>
+                                <td className="p-2 text-center text-xs font-mono">{item.unitCost != null ? `$${item.unitCost.toFixed(2)}` : "—"}</td>
+                                <td className="p-2 text-center text-xs font-mono">{item.unitsProduced}</td>
+                                <td className="p-2 text-right text-xs font-mono">{item.totalCost != null ? `$${item.totalCost.toFixed(2)}` : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <EmptyState icon={CookingPot} text="No food cost data available. Set up pastry items with COGS to see food cost analysis." />
+              )}
+
+              {/* Waste Report */}
+              {kpiReport.waste.totalTrashed > 0 || kpiReport.waste.totalScrapG > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Trash2 className="w-4 h-4" />
+                      Waste Report
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="text-center p-3 bg-muted/50 rounded-md">
+                        <p className="text-2xl font-bold" data-testid="text-waste-trashed">{kpiReport.waste.totalTrashed}</p>
+                        <p className="text-xs text-muted-foreground">Doughs Trashed</p>
+                      </div>
+                      <div className="text-center p-3 bg-muted/50 rounded-md">
+                        <p className="text-2xl font-bold" data-testid="text-waste-scrap">{kpiReport.waste.totalScrapG > 1000 ? `${(kpiReport.waste.totalScrapG / 1000).toFixed(1)}kg` : `${kpiReport.waste.totalScrapG}g`}</p>
+                        <p className="text-xs text-muted-foreground">Estimated Scrap</p>
+                      </div>
+                      <div className="text-center p-3 bg-muted/50 rounded-md">
+                        <p className="text-2xl font-bold" data-testid="text-waste-shaped">{kpiReport.waste.shapedDoughCount}</p>
+                        <p className="text-xs text-muted-foreground">Doughs Shaped</p>
+                      </div>
+                    </div>
+
+                    {kpiReport.waste.reasons.length > 0 && (
+                      <div className="h-48" data-testid="chart-kpi-waste-reasons">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={kpiReport.waste.reasons}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="reason" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="count" name="Trashed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <EmptyState icon={Trash2} text="No waste data recorded in this period." />
+              )}
+
+              {/* Peak Hours Chart */}
+              {kpiReport.peakHours.some(h => h.staffingLevel > 0) ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Staffing by Hour of Day
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-56" data-testid="chart-kpi-peak-hours">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={kpiReport.peakHours}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Bar dataKey="staffingLevel" name="Clock-ins" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">Shows when staff clock in throughout the day. Use this to identify staffing patterns and gaps.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <EmptyState icon={Clock} text="No staffing data available for peak hour analysis." />
+              )}
             </>
           )}
         </TabsContent>

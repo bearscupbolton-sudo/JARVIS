@@ -725,6 +725,22 @@ export const insertSquareSalesSchema = createInsertSchema(squareSales).omit({ id
 export type SquareSales = typeof squareSales.$inferSelect;
 export type InsertSquareSales = z.infer<typeof insertSquareSalesSchema>;
 
+// === SQUARE DAILY SUMMARY (order-level aggregates for KPI) ===
+export const squareDailySummary = pgTable("square_daily_summary", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  locationId: integer("location_id"),
+  orderCount: integer("order_count").notNull().default(0),
+  totalRevenue: doublePrecision("total_revenue").notNull().default(0),
+  hourlyBreakdown: jsonb("hourly_breakdown").notNull().default([]),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSquareDailySummarySchema = createInsertSchema(squareDailySummary).omit({ id: true, createdAt: true });
+export type SquareDailySummary = typeof squareDailySummary.$inferSelect;
+export type InsertSquareDailySummary = z.infer<typeof insertSquareDailySummarySchema>;
+
 // === RECIPE SESSIONS (production completions) ===
 export const recipeSessions = pgTable("recipe_sessions", {
   id: serial("id").primaryKey(),

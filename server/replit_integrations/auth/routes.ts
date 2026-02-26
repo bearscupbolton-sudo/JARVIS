@@ -163,6 +163,26 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/hourly-rate", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { hourlyRate } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const rate = hourlyRate === null || hourlyRate === undefined || hourlyRate === "" ? null : Number(hourlyRate);
+      if (rate !== null && (isNaN(rate) || rate < 0)) {
+        return res.status(400).json({ message: "Invalid hourly rate" });
+      }
+      const user = await authStorage.updateHourlyRate(targetId, rate);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating hourly rate:", error);
+      res.status(500).json({ message: "Failed to update hourly rate" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/pin", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const { pin } = req.body;

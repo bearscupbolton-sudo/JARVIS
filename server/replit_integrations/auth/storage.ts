@@ -15,6 +15,7 @@ export interface IAuthStorage {
   updateUsername(id: string, username: string): Promise<User>;
   updateUserProfile(id: string, updates: Partial<User>): Promise<User>;
   updateShiftManager(id: string, isShiftManager: boolean): Promise<User>;
+  updateHourlyRate(id: string, hourlyRate: number | null): Promise<User>;
   updateUserPin(id: string, pin: string): Promise<void>;
   verifyPin(userId: string, pin: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
@@ -114,6 +115,11 @@ class AuthStorage implements IAuthStorage {
 
   async updateShiftManager(id: string, isShiftManager: boolean): Promise<User> {
     const [user] = await db.update(users).set({ isShiftManager, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+    return user;
+  }
+
+  async updateHourlyRate(id: string, hourlyRate: number | null): Promise<User> {
+    const [user] = await db.update(users).set({ hourlyRate, updatedAt: new Date() }).where(eq(users.id, id)).returning();
     return user;
   }
 
