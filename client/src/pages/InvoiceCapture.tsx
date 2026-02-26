@@ -64,6 +64,9 @@ export default function InvoiceCapture() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const addMoreFileRef = useRef<HTMLInputElement>(null);
+  const addMoreCameraRef = useRef<HTMLInputElement>(null);
+  const [stagedImages, setStagedImages] = useState<string[]>([]);
 
   const { data: invoiceHistory = [] } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],

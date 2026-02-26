@@ -1295,12 +1295,33 @@ FORMAT RULES for the content field:
 
   app.post(api.invoices.scan.path, isAuthenticated, isUnlocked, async (req, res) => {
     try {
-      const { image } = api.invoices.scan.input.parse(req.body);
+      const parsed = api.invoices.scan.input.parse(req.body);
+      const imageList: string[] = [];
+      if (parsed.images && parsed.images.length > 0) {
+        imageList.push(...parsed.images);
+      } else if (parsed.image) {
+        imageList.push(parsed.image);
+      }
+      if (imageList.length === 0) {
+        return res.status(400).json({ message: "At least one image is required" });
+      }
+
       const OpenAI = (await import("openai")).default;
       const openai = new OpenAI({
         apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
+
+      const imageContent = imageList.map(img => ({
+        type: "image_url" as const,
+        image_url: {
+          url: img.startsWith("data:") ? img : `data:image/jpeg;base64,${img}`,
+        }
+      }));
+
+      const multiImageNote = imageList.length > 1
+        ? ` This invoice spans ${imageList.length} photos/pages. Combine ALL line items from ALL images into a single invoice. Do not duplicate items that appear on multiple photos.`
+        : "";
 
       const response = await withRetry(() => openai.chat.completions.create({
         model: "gpt-5.2",
@@ -1308,7 +1329,7 @@ FORMAT RULES for the content field:
         messages: [
           {
             role: "system",
-            content: `You are an expert invoice parser for a bakery. Extract ALL data from the invoice image.
+            content: `You are an expert invoice parser for a bakery. Extract ALL data from the invoice image${imageList.length > 1 ? "s" : ""}.${multiImageNote}
 Return a JSON object with this exact structure:
 {
   "vendorName": "string - the vendor/supplier name",
@@ -1333,14 +1354,9 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
             content: [
               {
                 type: "text",
-                text: "Parse this invoice image and extract all the data into the specified JSON format."
+                text: `Parse this invoice${imageList.length > 1 ? ` (${imageList.length} pages)` : ""} and extract all the data into the specified JSON format.`
               },
-              {
-                type: "image_url",
-                image_url: {
-                  url: image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`,
-                }
-              }
+              ...imageContent,
             ]
           }
         ],

@@ -350,7 +350,10 @@ export const api = {
       method: 'POST' as const,
       path: '/api/invoices/scan' as const,
       input: z.object({
-        image: z.string().min(1),
+        image: z.string().optional(),
+        images: z.array(z.string()).optional(),
+      }).refine(data => data.image || (data.images && data.images.length > 0), {
+        message: "At least one image is required",
       }),
       responses: { 200: z.any(), 400: errorSchemas.validation },
     },
