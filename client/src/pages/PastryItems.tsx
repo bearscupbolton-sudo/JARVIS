@@ -40,7 +40,8 @@ import {
 import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
 const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Cake", "Bread", "Other"];
-const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "bar"];
+const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "foh"];
+const DEPARTMENT_LABELS: Record<string, string> = { bakery: "Bakery", kitchen: "Kitchen", foh: "FOH" };
 
 const CATEGORY_ICONS: Record<string, any> = {
   "Croissant": Croissant,
@@ -227,7 +228,7 @@ export default function PastryItems() {
             onClick={() => { setFilterDept(dept); setFilterType("all"); }}
             data-testid={`filter-dept-${dept}`}
           >
-            {dept === "all" ? "All Departments" : dept.charAt(0).toUpperCase() + dept.slice(1)}
+            {dept === "all" ? "All Departments" : DEPARTMENT_LABELS[dept] || dept}
           </Button>
         ))}
       </div>
@@ -465,7 +466,7 @@ export default function PastryItems() {
                 <SelectContent>
                   {DEPARTMENT_OPTIONS.map((d) => (
                     <SelectItem key={d} value={d}>
-                      {d.charAt(0).toUpperCase() + d.slice(1)}
+                      {DEPARTMENT_LABELS[d] || d}
                     </SelectItem>
                   ))}
                 </SelectContent>
