@@ -231,13 +231,13 @@ export default function BeginRecipe() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm uppercase tracking-wider">Method</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               {instructions.sort((a, b) => a.step - b.step).map(inst => (
-                <div key={inst.step} className="flex gap-3 text-sm">
-                  <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold flex-shrink-0">
+                <div key={inst.step} className="flex items-start gap-3 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                     {inst.step}
                   </div>
-                  <p className="text-muted-foreground pt-0.5">{inst.text}</p>
+                  <p className="flex-1 leading-relaxed">{inst.text}</p>
                 </div>
               ))}
             </CardContent>
