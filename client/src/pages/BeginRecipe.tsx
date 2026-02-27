@@ -234,10 +234,8 @@ export default function BeginRecipe() {
             <CardContent className="space-y-4">
               {instructions.sort((a, b) => a.step - b.step).map(inst => (
                 <div key={inst.step} className="flex items-start gap-3 text-sm">
-                  <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                    {inst.step}
-                  </div>
-                  <p className="flex-1 leading-relaxed min-w-0">{inst.text}</p>
+                  <span className="font-mono font-bold text-xs text-muted-foreground shrink-0 w-5 text-right">{inst.step}.</span>
+                  <p className="flex-1 leading-relaxed min-w-0 break-words">{inst.text}</p>
                 </div>
               ))}
             </CardContent>

@@ -645,10 +645,8 @@ export default function RecipeDetail() {
                 <div className="space-y-4">
                   {instructions.sort((a, b) => a.step - b.step).map((inst) => (
                     <div key={inst.step} className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">
-                        {inst.step}
-                      </div>
-                      <p className="flex-1 text-foreground leading-relaxed min-w-0">{inst.text}</p>
+                      <span className="font-mono font-bold text-sm text-muted-foreground shrink-0 w-6 text-right">{inst.step}.</span>
+                      <p className="flex-1 text-foreground leading-relaxed min-w-0 break-words">{inst.text}</p>
                     </div>
                   ))}
                 </div>
