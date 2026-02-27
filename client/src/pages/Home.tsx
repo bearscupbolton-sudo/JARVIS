@@ -173,7 +173,7 @@ function saveQuickActions(actions: string[]) {
   localStorage.setItem(QA_STORAGE_KEY, JSON.stringify(actions));
 }
 
-type WidgetId = "briefing" | "announcements" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "messages" | "quickActions" | "whosOn";
+type WidgetId = "briefing" | "announcements" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "myTasks" | "messages" | "quickActions" | "whosOn";
 
 type WidgetMeta = {
   id: WidgetId;
@@ -194,6 +194,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
   { id: "mySchedule", label: "My Schedule", icon: CalendarDays },
   { id: "myEvents", label: "My Events", icon: Calendar },
   { id: "myEventJobs", label: "My Event Jobs", icon: ClipboardList },
+  { id: "myTasks", label: "My Assigned Tasks", icon: ClipboardList },
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "quickActions", label: "Quick Actions", icon: Star },
   { id: "whosOn", label: "Who's On Today", icon: Users, sidebar: true },
@@ -202,7 +203,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
 const DEFAULT_WIDGET_ORDER: WidgetId[] = [
   "briefing", "announcements", "quickStats", "preShiftNotes",
   "production", "problems", "forwardLook",
-  "mySchedule", "myEvents", "myEventJobs", "messages", "quickActions",
+  "mySchedule", "myEvents", "myEventJobs", "myTasks", "messages", "quickActions",
 ];
 
 const LAYOUT_STORAGE_KEY = "jarvis-home-layout";
@@ -531,6 +532,7 @@ export default function Home() {
   const todayDate = new Date().toISOString().split("T")[0];
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
+  const { data: assignedTasks = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists/assigned"] });
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
     queryKey: ["/api/home/jarvis-briefing"], staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false,
@@ -1072,6 +1074,35 @@ export default function Home() {
       ) : null
     ),
 
+    myTasks: () => (
+      assignedTasks.length > 0 ? (
+        <Card data-testid="container-my-tasks">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-base font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-primary" />My Assigned Tasks</CardTitle>
+            <Badge variant="outline" className="text-[10px]">{assignedTasks.filter((t: any) => t.status === "active").length} active</Badge>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-1.5">
+              {assignedTasks.filter((t: any) => t.status === "active").slice(0, 4).map((task: any) => (
+                <Link key={task.id} href={`/tasks/assigned/${task.id}`}>
+                  <div className="flex items-center gap-2 p-2 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors" data-testid={`home-task-${task.id}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{task.title}</p>
+                      <div className="flex items-center gap-1.5">
+                        {task.department && <Badge variant="secondary" className="text-[10px] capitalize">{task.department}</Badge>}
+                        {task.date && <span className="text-xs text-muted-foreground">{task.date}</span>}
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null
+    ),
+
     messages: () => (
       <Link href="/messages">
         <Card className="cursor-pointer hover-elevate" id="inbox-section" data-testid="container-inbox">
@@ -1149,19 +1180,19 @@ export default function Home() {
     whosOn: () => null,
   };
 
-  const pairedWidgets = new Set<WidgetId>(["problems", "forwardLook", "mySchedule", "myEvents", "myEventJobs", "messages"]);
+  const pairedWidgets = new Set<WidgetId>(["problems", "forwardLook", "mySchedule", "myEvents", "myEventJobs", "myTasks", "messages"]);
 
   const renderWidgetSequence = () => {
     const elements: React.ReactNode[] = [];
     let i = 0;
-    const visibleOrder = layoutConfig.order.filter(id => isWidgetVisible(id));
+    const visibleOrder = layoutConfig.order.filter(id => isWidgetVisible(id) && widgetRenderers[id]);
 
     while (i < visibleOrder.length) {
       const id = visibleOrder[i];
 
       if (pairedWidgets.has(id)) {
         const nextId = i + 1 < visibleOrder.length ? visibleOrder[i + 1] : null;
-        if (nextId && pairedWidgets.has(nextId)) {
+        if (nextId && pairedWidgets.has(nextId) && widgetRenderers[nextId]) {
           elements.push(
             <div key={`pair-${id}-${nextId}`} className="grid lg:grid-cols-2 gap-5">
               {widgetRenderers[id]()}

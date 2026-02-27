@@ -679,6 +679,15 @@ function InboxDetail({
             </div>
             <div className="ml-12 p-4 rounded-xl bg-background border border-border shadow-sm" data-testid="text-message-body">
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+              {msg.subject === "Task List Assigned" && msg.body.match(/\/tasks\/assigned\/(\d+)/) && (
+                <a
+                  href={msg.body.match(/\/tasks\/assigned\/(\d+)/)![0]}
+                  className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                  data-testid="button-view-task-list"
+                >
+                  View Task List
+                </a>
+              )}
             </div>
 
             <div className="ml-12 flex items-center gap-1.5 flex-wrap">

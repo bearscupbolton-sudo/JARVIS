@@ -2619,6 +2619,17 @@ Respond with JSON:
     res.json(lists);
   });
 
+  app.get("/api/task-lists/assigned", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const lists = await storage.getAssignedTaskLists(user.id);
+      res.json(lists);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/task-lists/:id", isAuthenticated, async (req, res) => {
     const list = await storage.getTaskList(Number(req.params.id));
     if (!list) return res.status(404).json({ message: "List not found" });
@@ -2766,6 +2777,172 @@ tr:nth-child(even){background:#f8f8f8}
 ${sopsHtml}
 <div class="ft">Jarvis Task Manager - Bear's Cup Bakehouse</div>
 </body></html>`);
+  });
+
+  // === TASK ASSIGNMENT & PERFORMANCE ===
+  app.post("/api/task-lists/:id/assign", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const listId = Number(req.params.id);
+      const { assignedTo, department, date } = req.body;
+      if (!assignedTo || !department || !date) {
+        return res.status(400).json({ message: "assignedTo, department, and date are required" });
+      }
+
+      const assigner = req.appUser;
+      const assignerName = assigner?.firstName || assigner?.username || "Manager";
+
+      const existingList = await storage.getTaskList(listId);
+      if (!existingList) return res.status(404).json({ message: "List not found" });
+
+      const list = await storage.assignTaskList(listId, assignedTo, assigner?.id || "unknown", department, date);
+      if (!list) return res.status(500).json({ message: "Failed to assign list" });
+
+      const fullList = await storage.getTaskList(listId);
+      const itemCount = fullList?.items?.length || 0;
+
+      try {
+        const msg = await storage.sendMessage({
+          senderId: assigner?.id || "system",
+          subject: `Task List Assigned: ${list.title}`,
+          body: `${assignerName} assigned you a task list "${list.title}" with ${itemCount} item${itemCount !== 1 ? 's' : ''} for ${date} (${department} department).\n\nOpen your task list: /tasks/assigned/${listId}`,
+          priority: "normal",
+          requiresAck: false,
+          targetType: "individual",
+          targetValue: assignedTo,
+        }, [assignedTo]);
+
+        sendPushToUser(assignedTo, {
+          title: "Task List Assigned",
+          body: `"${list.title}" - ${itemCount} tasks for ${date}`,
+          url: `/tasks/assigned/${listId}`,
+        });
+      } catch (e) {
+        // Message send failure shouldn't block assignment
+      }
+
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/task-list-items/:id/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const itemId = Number(req.params.id);
+      const allLists = await storage.getTaskLists();
+      const ownerList = allLists.find(l => l.assignedTo === user.id);
+      if (!ownerList && user.role !== "owner" && user.role !== "manager") {
+        return res.status(403).json({ message: "Not authorized to start this task" });
+      }
+      const item = await storage.startTaskItem(itemId, user.id);
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/task-list-items/:id/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const itemId = Number(req.params.id);
+      const allLists = await storage.getTaskLists();
+      const ownerList = allLists.find(l => l.assignedTo === user.id);
+      if (!ownerList && user.role !== "owner" && user.role !== "manager") {
+        return res.status(403).json({ message: "Not authorized to complete this task" });
+      }
+      const item = await storage.completeTaskItem(itemId, user.id);
+
+      const today = new Date().toISOString().split("T")[0];
+      let clockInTime: Date | null = null;
+      try {
+        const entries = await storage.getTimeEntries(user.id, today, today);
+        if (entries.length > 0) {
+          clockInTime = entries[entries.length - 1].clockIn;
+        }
+      } catch (e) {}
+
+      const startedAt = item.startedAt || item.completedAt!;
+      const durationMinutes = item.completedAt && item.startedAt
+        ? (item.completedAt.getTime() - item.startedAt.getTime()) / 60000
+        : null;
+
+      try {
+        await storage.createPerformanceLog({
+          userId: user.id,
+          taskListId: item.listId,
+          taskListItemId: item.id,
+          recipeId: item.recipeId || null,
+          recipeSessionId: req.body.recipeSessionId || null,
+          clockInTime,
+          taskStartedAt: startedAt,
+          taskCompletedAt: item.completedAt,
+          durationMinutes,
+          date: today,
+        });
+      } catch (e) {}
+
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/task-lists/:id/rollover", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const listId = Number(req.params.id);
+      const list = await storage.getTaskList(listId);
+      if (!list) return res.status(404).json({ message: "List not found" });
+      if ((list as any).status === "rolled_over") {
+        return res.status(400).json({ message: "This list has already been rolled over" });
+      }
+      const department = (list as any).department || req.body.department || "bakery";
+      const todos = await storage.rolloverUncompletedItems(listId, department);
+      res.json({ rolledOver: todos.length, items: todos });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/department-todos/:department", isAuthenticated, async (req, res) => {
+    try {
+      const todos = await storage.getDepartmentTodos(req.params.department);
+      res.json(todos);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/department-todos/:id/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const todo = await storage.completeDepartmentTodo(Number(req.params.id), user.id);
+      res.json(todo);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/performance/user/:userId", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const metrics = await storage.getPerformanceMetrics(req.params.userId, days);
+      res.json(metrics);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/performance/team-average/:recipeId", isAuthenticated, async (req, res) => {
+    try {
+      const avg = await storage.getTeamAverageForRecipe(Number(req.params.recipeId));
+      res.json({ recipeId: Number(req.params.recipeId), averageMinutes: avg });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // === DIRECT MESSAGES (Inbox) ===

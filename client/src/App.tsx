@@ -34,6 +34,7 @@ import PastryPassportDetail from "@/pages/PastryPassportDetail";
 import Kiosk from "@/pages/Kiosk";
 import Display from "@/pages/Display";
 import TaskManager from "@/pages/TaskManager";
+import AssignedTaskList from "@/pages/AssignedTaskList";
 import LaminationStudio from "@/pages/LaminationStudio";
 import PastryItems from "@/pages/PastryItems";
 import KioskClock from "@/pages/KioskClock";
@@ -173,6 +174,9 @@ function Router() {
       </Route>
       <Route path="/tasks">
         {() => <ProtectedRoute component={TaskManager} />}
+      </Route>
+      <Route path="/tasks/assigned/:id">
+        {() => <ProtectedRoute component={AssignedTaskList} />}
       </Route>
       <Route path="/lamination">
         {() => <ProtectedRoute component={LaminationStudio} />}

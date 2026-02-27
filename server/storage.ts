@@ -7,6 +7,7 @@ import {
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
+  taskPerformanceLogs, departmentTodos,
   directMessages, messageRecipients, messageReactions,
   pushSubscriptions,
   laminationDoughs,
@@ -49,6 +50,8 @@ import {
   type TaskJob, type InsertTaskJob,
   type TaskList, type InsertTaskList,
   type TaskListItem, type InsertTaskListItem,
+  type TaskPerformanceLog, type InsertTaskPerformanceLog,
+  type DepartmentTodo, type InsertDepartmentTodo,
   type DirectMessage, type InsertDirectMessage,
   type MessageRecipient, type InsertMessageRecipient,
   type MessageReaction, type InsertMessageReaction,
@@ -68,7 +71,7 @@ import {
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
+import { eq, desc, gte, lte, and, sql, inArray, avg, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // Recipes
@@ -252,6 +255,18 @@ export interface IStorage {
   createTaskListItem(item: InsertTaskListItem): Promise<TaskListItem>;
   updateTaskListItem(id: number, updates: Partial<InsertTaskListItem>): Promise<TaskListItem>;
   deleteTaskListItem(id: number): Promise<void>;
+
+  // Task Assignment & Performance
+  getAssignedTaskLists(userId: string): Promise<TaskList[]>;
+  assignTaskList(listId: number, assignedTo: string, assignedBy: string, department: string, date: string): Promise<TaskList>;
+  startTaskItem(itemId: number, userId: string): Promise<TaskListItem>;
+  completeTaskItem(itemId: number, userId: string): Promise<TaskListItem>;
+  createPerformanceLog(log: InsertTaskPerformanceLog): Promise<TaskPerformanceLog>;
+  getPerformanceMetrics(userId: string, days: number): Promise<TaskPerformanceLog[]>;
+  getTeamAverageForRecipe(recipeId: number): Promise<number | null>;
+  rolloverUncompletedItems(taskListId: number, department: string): Promise<DepartmentTodo[]>;
+  getDepartmentTodos(department: string): Promise<DepartmentTodo[]>;
+  completeDepartmentTodo(id: number, userId: string): Promise<DepartmentTodo>;
 
   // Direct Messages
   sendMessage(message: InsertDirectMessage, recipientUserIds: string[]): Promise<DirectMessage>;
@@ -1223,6 +1238,103 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTaskListItem(id: number): Promise<void> {
     await db.delete(taskListItems).where(eq(taskListItems.id, id));
+  }
+
+  // Task Assignment & Performance
+  async getAssignedTaskLists(userId: string): Promise<TaskList[]> {
+    return await db.select().from(taskLists)
+      .where(and(eq(taskLists.assignedTo, userId), eq(taskLists.status, "active")))
+      .orderBy(desc(taskLists.assignedAt));
+  }
+
+  async assignTaskList(listId: number, assignedTo: string, assignedBy: string, department: string, date: string): Promise<TaskList> {
+    const [updated] = await db.update(taskLists).set({
+      assignedTo,
+      assignedBy,
+      department,
+      date,
+      status: "active",
+      assignedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(taskLists.id, listId)).returning();
+    return updated;
+  }
+
+  async startTaskItem(itemId: number, userId: string): Promise<TaskListItem> {
+    const [updated] = await db.update(taskListItems).set({
+      startedAt: new Date(),
+    }).where(eq(taskListItems.id, itemId)).returning();
+    return updated;
+  }
+
+  async completeTaskItem(itemId: number, userId: string): Promise<TaskListItem> {
+    const [updated] = await db.update(taskListItems).set({
+      completed: true,
+      completedAt: new Date(),
+      completedBy: userId,
+    }).where(eq(taskListItems.id, itemId)).returning();
+    return updated;
+  }
+
+  async createPerformanceLog(log: InsertTaskPerformanceLog): Promise<TaskPerformanceLog> {
+    const [created] = await db.insert(taskPerformanceLogs).values(log).returning();
+    return created;
+  }
+
+  async getPerformanceMetrics(userId: string, days: number): Promise<TaskPerformanceLog[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const sinceStr = since.toISOString().split("T")[0];
+    return await db.select().from(taskPerformanceLogs)
+      .where(and(eq(taskPerformanceLogs.userId, userId), gte(taskPerformanceLogs.date, sinceStr)))
+      .orderBy(desc(taskPerformanceLogs.createdAt));
+  }
+
+  async getTeamAverageForRecipe(recipeId: number): Promise<number | null> {
+    const result = await db.select({ avg: avg(taskPerformanceLogs.durationMinutes) })
+      .from(taskPerformanceLogs)
+      .where(and(eq(taskPerformanceLogs.recipeId, recipeId), sql`${taskPerformanceLogs.durationMinutes} IS NOT NULL`));
+    return result[0]?.avg ? parseFloat(result[0].avg as string) : null;
+  }
+
+  async rolloverUncompletedItems(taskListId: number, department: string): Promise<DepartmentTodo[]> {
+    const list = await this.getTaskList(taskListId);
+    if (!list) return [];
+
+    const uncompleted = list.items.filter(item => !item.completed);
+    const created: DepartmentTodo[] = [];
+
+    for (const item of uncompleted) {
+      const title = item.job?.name || item.manualTitle || "Untitled task";
+      const [todo] = await db.insert(departmentTodos).values({
+        department,
+        itemTitle: title,
+        recipeId: item.recipeId || item.job?.recipeId || null,
+        sopId: item.job?.sopId || null,
+        originalTaskListId: taskListId,
+        originalDate: list.date || null,
+        status: "pending",
+      }).returning();
+      created.push(todo);
+    }
+
+    await db.update(taskLists).set({ status: "rolled_over", updatedAt: new Date() }).where(eq(taskLists.id, taskListId));
+    return created;
+  }
+
+  async getDepartmentTodos(department: string): Promise<DepartmentTodo[]> {
+    return await db.select().from(departmentTodos)
+      .where(and(eq(departmentTodos.department, department), eq(departmentTodos.status, "pending")))
+      .orderBy(desc(departmentTodos.createdAt));
+  }
+
+  async completeDepartmentTodo(id: number, userId: string): Promise<DepartmentTodo> {
+    const [updated] = await db.update(departmentTodos).set({
+      status: "completed",
+      completedBy: userId,
+      completedAt: new Date(),
+    }).where(eq(departmentTodos.id, id)).returning();
+    return updated;
   }
 
   // Direct Messages

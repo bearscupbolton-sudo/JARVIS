@@ -423,6 +423,9 @@ export default function AdminInsights() {
           <TabsTrigger value="kpi" data-testid="tab-kpi">
             <DollarSign className="w-4 h-4 mr-1.5" />KPI Report
           </TabsTrigger>
+          <TabsTrigger value="performance" data-testid="tab-performance">
+            <Timer className="w-4 h-4 mr-1.5" />Performance
+          </TabsTrigger>
         </TabsList>
 
         {/* ===== OVERVIEW TAB ===== */}
@@ -1275,6 +1278,11 @@ export default function AdminInsights() {
             </>
           )}
         </TabsContent>
+
+        {/* ===== PERFORMANCE TAB ===== */}
+        <TabsContent value="performance" className="mt-4 space-y-6">
+          <PerformancePanel />
+        </TabsContent>
       </Tabs>
 
       {/* ===== KPI DRILL-DOWN DIALOG ===== */}
@@ -1781,6 +1789,125 @@ export default function AdminInsights() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function PerformancePanel() {
+  const { data: team } = useQuery<any[]>({ queryKey: ["/api/team"] });
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const { data: rawLogs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/performance/user", selectedUserId],
+    queryFn: () => fetch(`/api/performance/user/${selectedUserId}`).then(r => r.json()),
+    enabled: !!selectedUserId,
+  });
+
+  const metrics = (() => {
+    if (!rawLogs || rawLogs.length === 0) return null;
+    const withDuration = rawLogs.filter((l: any) => l.durationMinutes != null);
+    const avgDuration = withDuration.length > 0
+      ? withDuration.reduce((sum: number, l: any) => sum + l.durationMinutes, 0) / withDuration.length
+      : null;
+    const withClockIn = rawLogs.filter((l: any) => l.clockInTime && l.taskStartedAt);
+    const avgClockInToFirstTask = withClockIn.length > 0
+      ? withClockIn.reduce((sum: number, l: any) => {
+          const diff = (new Date(l.taskStartedAt).getTime() - new Date(l.clockInTime).getTime()) / 60000;
+          return sum + Math.max(0, diff);
+        }, 0) / withClockIn.length
+      : null;
+    return { logs: rawLogs, totalCompleted: rawLogs.length, avgDuration, avgClockInToFirstTask };
+  })();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="text-lg font-semibold font-display">Task Performance</h3>
+          <p className="text-sm text-muted-foreground">Track individual task completion times and team comparisons.</p>
+        </div>
+        <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+          <SelectTrigger className="w-[200px]" data-testid="select-perf-user">
+            <SelectValue placeholder="Select team member..." />
+          </SelectTrigger>
+          <SelectContent>
+            {team?.map((m: any) => (
+              <SelectItem key={m.id} value={m.id}>
+                {m.firstName || m.username || "Unknown"} {m.lastName || ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {!selectedUserId ? (
+        <div className="text-center py-12 text-muted-foreground" data-testid="text-perf-select-prompt">
+          <Timer className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          Select a team member to view their performance data.
+        </div>
+      ) : isLoading ? (
+        <LoadingState />
+      ) : !metrics ? (
+        <div className="text-center py-12 text-muted-foreground" data-testid="text-no-perf-data">
+          No performance data available for this team member yet.
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card data-testid="card-perf-avg-duration">
+              <CardContent className="p-4 text-center">
+                <Timer className="w-6 h-6 mx-auto mb-1 text-primary" />
+                <p className="text-2xl font-bold font-mono">
+                  {metrics.avgDuration ? `${metrics.avgDuration.toFixed(1)}m` : "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">Avg Task Duration</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-perf-tasks-completed">
+              <CardContent className="p-4 text-center">
+                <CheckCircle2 className="w-6 h-6 mx-auto mb-1 text-green-500" />
+                <p className="text-2xl font-bold font-mono">{metrics.totalCompleted || 0}</p>
+                <p className="text-xs text-muted-foreground">Tasks Completed</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-perf-first-task">
+              <CardContent className="p-4 text-center">
+                <Clock className="w-6 h-6 mx-auto mb-1 text-amber-500" />
+                <p className="text-2xl font-bold font-mono">
+                  {metrics.avgClockInToFirstTask ? `${metrics.avgClockInToFirstTask.toFixed(0)}m` : "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">Avg Clock-In to First Task</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {metrics.logs && metrics.logs.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-display">Recent Task Completions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y divide-border">
+                  {metrics.logs.slice(0, 15).map((log: any) => (
+                    <div key={log.id} className="flex items-center justify-between py-2 gap-2" data-testid={`perf-log-${log.id}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">Task #{log.taskListItemId}</p>
+                        <p className="text-xs text-muted-foreground">{log.date}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {log.durationMinutes != null && (
+                          <Badge variant={log.durationMinutes <= (metrics.avgDuration || 999) ? "default" : "secondary"} className="text-xs font-mono">
+                            {Number(log.durationMinutes).toFixed(1)}m
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 }

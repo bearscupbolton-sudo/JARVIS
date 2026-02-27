@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -517,6 +517,7 @@ export const taskJobs = pgTable("task_jobs", {
   name: text("name").notNull(),
   description: text("description"),
   sopId: integer("sop_id").references(() => sops.id),
+  recipeId: integer("recipe_id"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -530,6 +531,12 @@ export const taskLists = pgTable("task_lists", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
+  assignedTo: text("assigned_to"),
+  department: text("department"),
+  date: text("date"),
+  status: text("status").default("active").notNull(),
+  assignedBy: text("assigned_by"),
+  assignedAt: timestamp("assigned_at"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -544,16 +551,59 @@ export const taskListItems = pgTable("task_list_items", {
   id: serial("id").primaryKey(),
   listId: integer("list_id").notNull().references(() => taskLists.id, { onDelete: "cascade" }),
   jobId: integer("job_id").references(() => taskJobs.id),
+  recipeId: integer("recipe_id"),
   manualTitle: text("manual_title"),
   startTime: text("start_time"),
   endTime: text("end_time"),
   sortOrder: integer("sort_order").default(0).notNull(),
   completed: boolean("completed").default(false).notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  completedBy: text("completed_by"),
 });
 
 export const insertTaskListItemSchema = createInsertSchema(taskListItems).omit({ id: true });
 export type TaskListItem = typeof taskListItems.$inferSelect;
 export type InsertTaskListItem = z.infer<typeof insertTaskListItemSchema>;
+
+// === TASK PERFORMANCE LOGS ===
+export const taskPerformanceLogs = pgTable("task_performance_logs", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  taskListId: integer("task_list_id").notNull(),
+  taskListItemId: integer("task_list_item_id").notNull(),
+  recipeId: integer("recipe_id"),
+  recipeSessionId: integer("recipe_session_id"),
+  clockInTime: timestamp("clock_in_time"),
+  taskStartedAt: timestamp("task_started_at").notNull(),
+  taskCompletedAt: timestamp("task_completed_at"),
+  durationMinutes: real("duration_minutes"),
+  date: text("date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTaskPerformanceLogSchema = createInsertSchema(taskPerformanceLogs).omit({ id: true, createdAt: true });
+export type TaskPerformanceLog = typeof taskPerformanceLogs.$inferSelect;
+export type InsertTaskPerformanceLog = z.infer<typeof insertTaskPerformanceLogSchema>;
+
+// === DEPARTMENT TODOS (rolled-over uncompleted tasks) ===
+export const departmentTodos = pgTable("department_todos", {
+  id: serial("id").primaryKey(),
+  department: text("department").notNull(),
+  itemTitle: text("item_title").notNull(),
+  recipeId: integer("recipe_id"),
+  sopId: integer("sop_id"),
+  originalTaskListId: integer("original_task_list_id"),
+  originalDate: text("original_date"),
+  status: text("status").default("pending").notNull(),
+  completedBy: text("completed_by"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDepartmentTodoSchema = createInsertSchema(departmentTodos).omit({ id: true, createdAt: true });
+export type DepartmentTodo = typeof departmentTodos.$inferSelect;
+export type InsertDepartmentTodo = z.infer<typeof insertDepartmentTodoSchema>;
 
 // === DIRECT MESSAGES (Inbox) ===
 export const directMessages = pgTable("direct_messages", {

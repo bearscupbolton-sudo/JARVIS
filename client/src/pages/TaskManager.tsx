@@ -1,35 +1,39 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { cn } from "@/lib/utils";
 import {
   Plus, Trash2, ClipboardList, Briefcase, Clock, Printer, ArrowLeft,
-  FileText, Link2, ChevronRight, GripVertical, Edit2, CheckCircle2
+  Link2, ChevronRight, UserPlus, Users, BookOpen, ChefHat,
+  CheckCircle2, AlertCircle, RotateCcw
 } from "lucide-react";
-import type { TaskJob, TaskList, TaskListItem, SOP } from "@shared/schema";
-import ReactMarkdown from "react-markdown";
+import type { TaskJob, TaskList, TaskListItem, SOP, Recipe, DepartmentTodo } from "@shared/schema";
 
 type TaskListWithItems = TaskList & {
   items: (TaskListItem & { job?: TaskJob | null })[];
 };
 
+type TeamMember = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
+};
+
 export default function TaskManager() {
-  const [activeTab, setActiveTab] = useState<"lists" | "jobs">("lists");
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<"lists" | "jobs" | "department">("lists");
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
 
   if (selectedListId) {
@@ -41,11 +45,11 @@ export default function TaskManager() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-3xl font-display font-bold" data-testid="text-task-manager-title">Jarvis Task Manager</h1>
-          <p className="text-muted-foreground">Create task lists and manage reusable jobs.</p>
+          <p className="text-muted-foreground">Create task lists, manage jobs, and track department to-dos.</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button
           variant={activeTab === "lists" ? "default" : "outline"}
           onClick={() => setActiveTab("lists")}
@@ -60,12 +64,21 @@ export default function TaskManager() {
         >
           <Briefcase className="w-4 h-4 mr-2" /> Jobs Library
         </Button>
+        <Button
+          variant={activeTab === "department" ? "default" : "outline"}
+          onClick={() => setActiveTab("department")}
+          data-testid="button-tab-department"
+        >
+          <Users className="w-4 h-4 mr-2" /> Department To-Do
+        </Button>
       </div>
 
       {activeTab === "lists" ? (
         <TaskListsPanel onSelectList={setSelectedListId} />
-      ) : (
+      ) : activeTab === "jobs" ? (
         <JobsPanel />
+      ) : (
+        <DepartmentTodosPanel />
       )}
     </div>
   );
@@ -109,6 +122,25 @@ function TaskListsPanel({ onSelectList }: { onSelectList: (id: number) => void }
                     {list.description && (
                       <p className="text-sm text-muted-foreground truncate">{list.description}</p>
                     )}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {list.assignedTo && (
+                        <Badge variant="secondary" className="text-xs">
+                          <UserPlus className="w-3 h-3 mr-1" /> Assigned
+                        </Badge>
+                      )}
+                      {list.department && (
+                        <Badge variant="outline" className="text-xs capitalize">{list.department}</Badge>
+                      )}
+                      {list.date && (
+                        <span className="text-xs text-muted-foreground">{list.date}</span>
+                      )}
+                      {list.status === "rolled_over" && (
+                        <Badge variant="destructive" className="text-xs">Rolled Over</Badge>
+                      )}
+                      {list.status === "completed" && (
+                        <Badge className="text-xs bg-green-600">Completed</Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
@@ -123,9 +155,8 @@ function TaskListsPanel({ onSelectList }: { onSelectList: (id: number) => void }
 
 function CreateTaskListDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated: (id: number) => void }) {
   const { toast } = useToast();
-  const form = useForm({
-    defaultValues: { title: "", description: "" },
-  });
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
 
   const createMut = useMutation({
     mutationFn: async (data: { title: string; description: string }) => {
@@ -134,7 +165,8 @@ function CreateTaskListDialog({ open, onOpenChange, onCreated }: { open: boolean
     },
     onSuccess: (list: TaskList) => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-lists"] });
-      form.reset();
+      setTitle("");
+      setDescription("");
       toast({ title: "List created" });
       onCreated(list.id);
     },
@@ -152,14 +184,14 @@ function CreateTaskListDialog({ open, onOpenChange, onCreated }: { open: boolean
           <DialogTitle>Create Task List</DialogTitle>
           <DialogDescription>Give your new task list a name and optional description.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit((d) => createMut.mutate(d))} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); if (title.trim()) createMut.mutate({ title: title.trim(), description: description.trim() }); }} className="space-y-4">
           <div>
             <label className="text-sm font-medium">Title</label>
-            <Input {...form.register("title", { required: true })} placeholder="e.g. Morning Opening Checklist" data-testid="input-list-title" />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Morning Opening Checklist" data-testid="input-list-title" />
           </div>
           <div>
             <label className="text-sm font-medium">Description (optional)</label>
-            <Input {...form.register("description")} placeholder="Brief description..." data-testid="input-list-description" />
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief description..." data-testid="input-list-description" />
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -174,13 +206,18 @@ function CreateTaskListDialog({ open, onOpenChange, onCreated }: { open: boolean
 }
 
 function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void }) {
+  const { user } = useAuth();
   const { data: list, isLoading } = useQuery<TaskListWithItems>({
     queryKey: ["/api/task-lists", listId],
   });
   const { data: jobs } = useQuery<TaskJob[]>({ queryKey: ["/api/task-jobs"] });
   const { data: allSOPs } = useQuery<SOP[]>({ queryKey: ["/api/sops"] });
+  const { data: recipes } = useQuery<Recipe[]>({ queryKey: ["/api/recipes"] });
+  const { data: team } = useQuery<TeamMember[]>({ queryKey: ["/api/team"] });
   const { toast } = useToast();
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const isManager = user?.role === "owner" || user?.role === "manager";
 
   const deleteMut = useMutation({
     mutationFn: async () => {
@@ -212,6 +249,19 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
     },
   });
 
+  const rolloverMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/task-lists/${listId}/rollover`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists", listId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/department-todos"] });
+      toast({ title: "Items rolled over", description: `${data.rolledOver} items moved to department to-do` });
+    },
+  });
+
   const handleExport = () => {
     if (!list) return;
     window.open(`/api/task-lists/${list.id}/print`, "_blank");
@@ -236,6 +286,7 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
   }
 
   const completedCount = list.items.filter((i) => i.completed).length;
+  const uncompletedCount = list.items.length - completedCount;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-task-list-detail">
@@ -246,8 +297,28 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-display font-bold truncate" data-testid="text-list-title">{list.title}</h1>
           {list.description && <p className="text-sm text-muted-foreground">{list.description}</p>}
+          {list.assignedTo && (
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <Badge variant="secondary" className="text-xs">
+                <UserPlus className="w-3 h-3 mr-1" />
+                Assigned to {team?.find(t => t.id === list.assignedTo)?.firstName || "team member"}
+              </Badge>
+              {list.department && <Badge variant="outline" className="text-xs capitalize">{list.department}</Badge>}
+              {list.date && <span className="text-xs text-muted-foreground">{list.date}</span>}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          {isManager && !list.assignedTo && (
+            <Button variant="default" onClick={() => setAssignOpen(true)} data-testid="button-assign-list">
+              <UserPlus className="w-4 h-4 mr-2" /> Assign
+            </Button>
+          )}
+          {isManager && list.assignedTo && uncompletedCount > 0 && list.status === "active" && (
+            <Button variant="outline" onClick={() => { if (confirm(`Roll over ${uncompletedCount} uncompleted items to department to-do?`)) rolloverMut.mutate(); }} data-testid="button-rollover">
+              <RotateCcw className="w-4 h-4 mr-2" /> Roll Over ({uncompletedCount})
+            </Button>
+          )}
           <Button variant="default" onClick={handleExport} data-testid="button-print-list">
             <Printer className="w-4 h-4 mr-2" /> Print
           </Button>
@@ -291,6 +362,7 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
                     ? `${item.startTime} - ${item.endTime}`
                     : item.startTime
                   : null;
+                const recipeId = item.recipeId || item.job?.recipeId;
                 return (
                   <div
                     key={item.id}
@@ -317,7 +389,12 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
                         )}
                         {item.job?.sopId && (
                           <Badge variant="secondary" className="text-xs">
-                            <Link2 className="w-3 h-3 mr-1" /> SOP linked
+                            <Link2 className="w-3 h-3 mr-1" /> SOP
+                          </Badge>
+                        )}
+                        {recipeId && (
+                          <Badge variant="secondary" className="text-xs">
+                            <ChefHat className="w-3 h-3 mr-1" /> Recipe
                           </Badge>
                         )}
                       </div>
@@ -342,24 +419,123 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
       <AddItemDialog
         listId={listId}
         jobs={jobs || []}
+        recipes={recipes || []}
         open={addItemOpen}
         onOpenChange={setAddItemOpen}
         nextOrder={list.items.length}
       />
+
+      {isManager && (
+        <AssignDialog
+          listId={listId}
+          listTitle={list.title}
+          team={team || []}
+          open={assignOpen}
+          onOpenChange={setAssignOpen}
+        />
+      )}
     </div>
   );
 }
 
-function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
+function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
+  listId: number;
+  listTitle: string;
+  team: TeamMember[];
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [assignedTo, setAssignedTo] = useState("");
+  const [department, setDepartment] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+
+  const assignMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/task-lists/${listId}/assign`, {
+        assignedTo, department, date,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists", listId] });
+      toast({ title: "Task list assigned", description: "A message has been sent to the team member." });
+      onOpenChange(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Assignment failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Assign Task List</DialogTitle>
+          <DialogDescription>Assign "{listTitle}" to a team member. They'll be notified via message.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Assign To</label>
+            <Select value={assignedTo} onValueChange={setAssignedTo}>
+              <SelectTrigger data-testid="select-assign-to">
+                <SelectValue placeholder="Select team member..." />
+              </SelectTrigger>
+              <SelectContent>
+                {team.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.firstName || m.username || "Unknown"} {m.lastName || ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Department</label>
+            <Select value={department} onValueChange={setDepartment}>
+              <SelectTrigger data-testid="select-department">
+                <SelectValue placeholder="Select department..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bakery">Bakery</SelectItem>
+                <SelectItem value="kitchen">Kitchen</SelectItem>
+                <SelectItem value="bar">Bar</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Date</label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="input-assign-date" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => assignMut.mutate()}
+            disabled={!assignedTo || !department || !date || assignMut.isPending}
+            data-testid="button-confirm-assign"
+          >
+            {assignMut.isPending ? "Assigning..." : "Assign & Notify"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }: {
   listId: number;
   jobs: TaskJob[];
+  recipes: Recipe[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
   nextOrder: number;
 }) {
   const { toast } = useToast();
-  const [mode, setMode] = useState<"job" | "manual">("manual");
+  const [mode, setMode] = useState<"job" | "manual" | "recipe">("manual");
   const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
   const [manualTitle, setManualTitle] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -380,6 +556,7 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
   const resetForm = () => {
     setMode("manual");
     setSelectedJobId("");
+    setSelectedRecipeId("");
     setManualTitle("");
     setStartTime("");
     setEndTime("");
@@ -395,10 +572,14 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
     };
     if (mode === "job" && selectedJobId) {
       payload.jobId = parseInt(selectedJobId);
+    } else if (mode === "recipe" && selectedRecipeId) {
+      const recipe = recipes.find(r => r.id === parseInt(selectedRecipeId));
+      payload.recipeId = parseInt(selectedRecipeId);
+      payload.manualTitle = recipe ? recipe.title : "Recipe";
     } else if (mode === "manual" && manualTitle.trim()) {
       payload.manualTitle = manualTitle.trim();
     } else {
-      toast({ title: "Please enter a task or select a job", variant: "destructive" });
+      toast({ title: "Please enter a task, select a job, or choose a recipe", variant: "destructive" });
       return;
     }
     createMut.mutate(payload);
@@ -414,10 +595,10 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Task to List</DialogTitle>
-          <DialogDescription>Choose a saved job or type a custom task.</DialogDescription>
+          <DialogDescription>Choose a saved job, link a recipe, or type a custom task.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant={mode === "manual" ? "default" : "outline"}
               size="sm"
@@ -434,6 +615,14 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
             >
               From Saved Job
             </Button>
+            <Button
+              variant={mode === "recipe" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("recipe")}
+              data-testid="button-mode-recipe"
+            >
+              <ChefHat className="w-4 h-4 mr-1" /> Link Recipe
+            </Button>
           </div>
 
           {mode === "manual" ? (
@@ -446,7 +635,7 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
                 data-testid="input-manual-title"
               />
             </div>
-          ) : (
+          ) : mode === "job" ? (
             <div>
               <label className="text-sm font-medium">Select Job</label>
               {jobs.length === 0 ? (
@@ -460,6 +649,26 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
                     {jobs.map((j) => (
                       <SelectItem key={j.id} value={String(j.id)}>
                         {j.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm font-medium">Select Recipe</label>
+              {recipes.length === 0 ? (
+                <p className="text-sm text-muted-foreground mt-1">No recipes available.</p>
+              ) : (
+                <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId}>
+                  <SelectTrigger data-testid="select-recipe">
+                    <SelectValue placeholder="Choose a recipe..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {recipes.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.title}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -501,11 +710,96 @@ function AddItemDialog({ listId, jobs, open, onOpenChange, nextOrder }: {
   );
 }
 
+function DepartmentTodosPanel() {
+  const [department, setDepartment] = useState("bakery");
+  const { toast } = useToast();
+
+  const { data: todos, isLoading } = useQuery<DepartmentTodo[]>({
+    queryKey: ["/api/department-todos", department],
+    queryFn: () => fetch(`/api/department-todos/${department}`).then(r => r.json()),
+  });
+
+  const completeMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/department-todos/${id}/complete`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/department-todos", department] });
+      toast({ title: "Task completed" });
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Department To-Do</h2>
+          <p className="text-sm text-muted-foreground">Uncompleted tasks rolled over from assigned task lists.</p>
+        </div>
+        <Select value={department} onValueChange={setDepartment}>
+          <SelectTrigger className="w-[160px]" data-testid="select-dept-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="bakery">Bakery</SelectItem>
+            <SelectItem value="kitchen">Kitchen</SelectItem>
+            <SelectItem value="bar">Bar</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isLoading ? (
+        Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+      ) : !todos || todos.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground" data-testid="text-no-dept-todos">
+          <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
+          No pending tasks for the {department} department. All caught up!
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {todos.map((todo) => (
+            <Card key={todo.id} data-testid={`card-dept-todo-${todo.id}`}>
+              <CardContent className="flex items-center gap-3 p-4">
+                <Checkbox
+                  checked={false}
+                  onCheckedChange={() => completeMut.mutate(todo.id)}
+                  data-testid={`checkbox-dept-todo-${todo.id}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">{todo.itemTitle}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {todo.originalDate && (
+                      <span className="text-xs text-muted-foreground">From: {todo.originalDate}</span>
+                    )}
+                    {todo.recipeId && (
+                      <Badge variant="secondary" className="text-xs">
+                        <ChefHat className="w-3 h-3 mr-1" /> Recipe
+                      </Badge>
+                    )}
+                    {todo.sopId && (
+                      <Badge variant="secondary" className="text-xs">
+                        <BookOpen className="w-3 h-3 mr-1" /> SOP
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JobsPanel() {
   const { data: jobs, isLoading } = useQuery<TaskJob[]>({
     queryKey: ["/api/task-jobs"],
   });
   const { data: allSOPs } = useQuery<SOP[]>({ queryKey: ["/api/sops"] });
+  const { data: recipes } = useQuery<Recipe[]>({ queryKey: ["/api/recipes"] });
   const [createOpen, setCreateOpen] = useState(false);
   const { toast } = useToast();
 
@@ -524,9 +818,9 @@ function JobsPanel() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-lg font-semibold">Saved Jobs</h2>
-          <p className="text-sm text-muted-foreground">Reusable activities you can add to any task list. Link to SOPs for printed reference.</p>
+          <p className="text-sm text-muted-foreground">Reusable activities you can add to any task list. Link to SOPs or recipes.</p>
         </div>
-        <CreateJobDialog open={createOpen} onOpenChange={setCreateOpen} sops={allSOPs || []} />
+        <CreateJobDialog open={createOpen} onOpenChange={setCreateOpen} sops={allSOPs || []} recipes={recipes || []} />
       </div>
 
       {isLoading ? (
@@ -539,6 +833,7 @@ function JobsPanel() {
         <div className="grid gap-3">
           {jobs?.map((job) => {
             const linkedSop = allSOPs?.find((s) => s.id === job.sopId);
+            const linkedRecipe = recipes?.find((r) => r.id === job.recipeId);
             return (
               <Card key={job.id} data-testid={`card-job-${job.id}`}>
                 <CardContent className="flex items-center justify-between p-4 gap-2">
@@ -551,11 +846,18 @@ function JobsPanel() {
                       {job.description && (
                         <p className="text-sm text-muted-foreground truncate">{job.description}</p>
                       )}
-                      {linkedSop && (
-                        <Badge variant="secondary" className="text-xs mt-1">
-                          <Link2 className="w-3 h-3 mr-1" /> {linkedSop.title}
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        {linkedSop && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Link2 className="w-3 h-3 mr-1" /> {linkedSop.title}
+                          </Badge>
+                        )}
+                        {linkedRecipe && (
+                          <Badge variant="secondary" className="text-xs">
+                            <ChefHat className="w-3 h-3 mr-1" /> {linkedRecipe.title}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <Button
@@ -577,11 +879,12 @@ function JobsPanel() {
   );
 }
 
-function CreateJobDialog({ open, onOpenChange, sops }: { open: boolean; onOpenChange: (v: boolean) => void; sops: SOP[] }) {
+function CreateJobDialog({ open, onOpenChange, sops, recipes }: { open: boolean; onOpenChange: (v: boolean) => void; sops: SOP[]; recipes: Recipe[] }) {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [sopId, setSopId] = useState<string>("");
+  const [recipeId, setRecipeId] = useState<string>("");
 
   const createMut = useMutation({
     mutationFn: async (data: any) => {
@@ -600,6 +903,7 @@ function CreateJobDialog({ open, onOpenChange, sops }: { open: boolean; onOpenCh
     setName("");
     setDescription("");
     setSopId("");
+    setRecipeId("");
   };
 
   const handleSubmit = () => {
@@ -611,6 +915,7 @@ function CreateJobDialog({ open, onOpenChange, sops }: { open: boolean; onOpenCh
       name: name.trim(),
       description: description.trim() || null,
       sopId: sopId && sopId !== "none" ? parseInt(sopId) : null,
+      recipeId: recipeId && recipeId !== "none" ? parseInt(recipeId) : null,
     });
   };
 
@@ -657,6 +962,22 @@ function CreateJobDialog({ open, onOpenChange, sops }: { open: boolean; onOpenCh
                 {sops.map((s) => (
                   <SelectItem key={s.id} value={String(s.id)}>
                     {s.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Link to Recipe (optional)</label>
+            <Select value={recipeId} onValueChange={setRecipeId}>
+              <SelectTrigger data-testid="select-recipe-job">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {recipes.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.title}
                   </SelectItem>
                 ))}
               </SelectContent>
