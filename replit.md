@@ -35,6 +35,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **KPI Report System:** Provides detailed business metrics with period-over-period comparisons, including revenue, labor cost, food cost, sales vs. production, waste reports, and peak hours staffing. Offers CSV export and drill-down capabilities for detailed analysis.
 *   **Starkade:** An in-house competitive gaming arcade with built-in games, a unified points system, and leaderboards. Access is restricted when clocked in.
 *   **TTIS (Tip Transparency Informational Dashboard):** An owner-only dashboard that allocates Square POS tip data among FOH staff based on scheduled shifts, handling time zones and providing daily/weekly summaries.
+*   **Customer Feedback & QR Code:** A public-facing feedback page at `/feedback` allows customers to rate their visit (1-5 stars) and leave an optional comment and name. The QR code generator at `/admin/feedback` (manager+ access) produces a printable QR code linking to the feedback page, plus an overview dashboard with average rating, distribution, and recent entries. Schema: `customer_feedback` table. API: `POST /api/feedback` (public), `GET /api/feedback` (manager+ auth).
 
 ## External Dependencies
 

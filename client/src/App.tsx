@@ -46,6 +46,8 @@ import TTIS from "@/pages/TTIS";
 import AdminInsights from "@/pages/AdminInsights";
 import Messages from "@/pages/Messages";
 import Starkade from "@/pages/Starkade";
+import CustomerFeedback from "@/pages/CustomerFeedback";
+import FeedbackQRCode from "@/pages/FeedbackQRCode";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -208,6 +210,12 @@ function Router() {
       </Route>
       <Route path="/starkade">
         {() => <ProtectedRoute component={Starkade} />}
+      </Route>
+      <Route path="/feedback">
+        {() => <CustomerFeedback />}
+      </Route>
+      <Route path="/admin/feedback">
+        {() => <ProtectedRoute component={FeedbackQRCode} />}
       </Route>
 
       <Route component={NotFound} />

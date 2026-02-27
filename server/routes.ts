@@ -656,16 +656,17 @@ FORMAT RULES for the content field:
   app.post("/api/feedback", async (req, res) => {
     try {
       const { rating, comment, name, email, visitDate, locationId } = req.body;
-      if (!rating || typeof rating !== "number" || rating < 1 || rating > 5) {
-        return res.status(400).json({ message: "Rating must be between 1 and 5" });
+      if (!rating || typeof rating !== "number" || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be an integer between 1 and 5" });
       }
+      const trimmed = (s: any, max: number) => (typeof s === "string" ? s.trim().slice(0, max) || null : null);
       const feedback = await storage.createCustomerFeedback({
         rating,
-        comment: comment || null,
-        name: name || null,
-        email: email || null,
-        visitDate: visitDate || null,
-        locationId: locationId || null,
+        comment: trimmed(comment, 2000),
+        name: trimmed(name, 100),
+        email: trimmed(email, 200),
+        visitDate: trimmed(visitDate, 10),
+        locationId: typeof locationId === "number" ? locationId : null,
       });
       res.status(201).json(feedback);
     } catch (err: any) {
