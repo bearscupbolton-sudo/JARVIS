@@ -37,6 +37,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Starkade:** An in-house competitive gaming arcade with built-in games, a unified points system, and leaderboards. Access is restricted when clocked in.
 *   **TTIS (Tip Transparency Informational Dashboard):** An owner-only dashboard that allocates Square POS tip data among FOH staff based on scheduled shifts, handling time zones and providing daily/weekly summaries.
 *   **Customer Feedback & QR Code:** A public-facing feedback page at `/feedback` allows customers to rate their visit (1-5 stars) and leave an optional comment and name. The QR code generator at `/admin/feedback` (manager+ access) produces a printable QR code linking to the feedback page, plus an overview dashboard with average rating, distribution, and recent entries. Schema: `customer_feedback` table. API: `POST /api/feedback` (public), `GET /api/feedback` (manager+ auth).
+*   **HR Department (Coming Soon):** A placeholder page at `/hr` (manager+ access) previewing planned HR features: employee records & onboarding, time off & availability, performance & reviews, compliance & certifications, pay & compensation, policies & handbook, and reporting.
 
 ## External Dependencies
 

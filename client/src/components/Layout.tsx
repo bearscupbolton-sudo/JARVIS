@@ -23,6 +23,7 @@ import {
   Cookie,
   Clock,
   Timer,
+  Briefcase,
   TrendingUp,
   BarChart3,
   Settings2,
@@ -116,6 +117,7 @@ const NAV_ITEMS = [
 
 const MANAGER_NAV_ITEMS = [
   { href: "/admin/users", label: "Team", icon: Users },
+  { href: "/hr", label: "HR", icon: Briefcase },
   { href: "/time-review", label: "Time Review", icon: Timer },
   { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
   { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
