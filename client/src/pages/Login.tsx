@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Loader2, KeyRound, UserPlus } from "lucide-react";
-import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
+import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {

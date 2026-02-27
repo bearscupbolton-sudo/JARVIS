@@ -39,7 +39,7 @@ import {
   Check,
   Truck,
 } from "lucide-react";
-import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
+import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocationContext } from "@/hooks/use-location-context";
 import { useQuery } from "@tanstack/react-query";
