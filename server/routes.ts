@@ -4784,5 +4784,172 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
     }
   });
 
+  app.get("/api/notes", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const myNotes = await storage.getNotes(user.id);
+      const sharedNotes = await storage.getSharedNotes(user.id);
+      res.json({ myNotes, sharedNotes });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/notes/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      if (note.userId !== user.id && !note.isShared) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { title, content, isShared, isPinned } = req.body;
+      if (!title || typeof title !== "string") return res.status(400).json({ message: "Title is required" });
+      const note = await storage.createNote({
+        title,
+        content: content || "",
+        isShared: isShared === true,
+        isPinned: isPinned === true,
+        userId: user.id,
+      });
+      res.json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/notes/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      if (note.userId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const allowedFields: Partial<{ title: string; content: string; isShared: boolean; isPinned: boolean }> = {};
+      if (req.body.title !== undefined) allowedFields.title = String(req.body.title);
+      if (req.body.content !== undefined) allowedFields.content = String(req.body.content);
+      if (req.body.isShared !== undefined) allowedFields.isShared = req.body.isShared === true;
+      if (req.body.isPinned !== undefined) allowedFields.isPinned = req.body.isPinned === true;
+      const updated = await storage.updateNote(Number(req.params.id), allowedFields);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/notes/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      if (note.userId !== user.id) return res.status(403).json({ message: "Access denied" });
+      await storage.deleteNote(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes/transcribe", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { audio } = req.body;
+      if (!audio || typeof audio !== "string") return res.status(400).json({ message: "Audio data required" });
+      if (audio.length > 10 * 1024 * 1024) return res.status(400).json({ message: "Audio too large. Maximum 10MB." });
+      const audioBuffer = Buffer.from(audio, "base64");
+      const { buffer, format } = await ensureCompatibleFormat(audioBuffer);
+      const transcript = await speechToText(buffer, format);
+      res.json({ transcript });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes/:id/generate", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      if (note.userId !== user.id && !note.isShared) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { type } = req.body;
+      if (!type || !["recipe", "sop", "letterhead"].includes(type)) {
+        return res.status(400).json({ message: "Type must be recipe, sop, or letterhead" });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const ai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      let systemPrompt = "";
+      if (type === "recipe") {
+        systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a properly structured bakery recipe. Format it with:
+- A clear title
+- Yield amount and unit
+- A categorized ingredient list with quantities and units (use grams/kg where appropriate)
+- Step-by-step instructions numbered sequentially
+- Baker's notes or tips if relevant
+
+Return ONLY the formatted recipe as clean, readable text with clear section headers. Use markdown formatting.`;
+      } else if (type === "sop") {
+        systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a professional Standard Operating Procedure (SOP). Format it with:
+- A clear title and SOP number placeholder
+- Purpose/Scope section
+- Materials/Equipment needed
+- Step-by-step procedure with numbered steps
+- Safety considerations if applicable
+- Quality checkpoints
+- Revision history placeholder
+
+Return ONLY the formatted SOP as clean, professional text. Use markdown formatting.`;
+      } else if (type === "letterhead") {
+        systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a polished, spell-checked, properly worded professional document on Bear's Cup Bakehouse letterhead. Format it with:
+
+BEAR'S CUP BAKEHOUSE
+[Date]
+
+[Professional, well-structured content based on the note]
+
+Clean up grammar, spelling, and tone. Make it professional while keeping the original intent. Return ONLY the formatted document as clean text. Use markdown formatting.`;
+      }
+
+      const response = await withRetry(() => ai.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Note Title: ${note.title}\n\nNote Content:\n${note.content}` },
+        ],
+      }));
+
+      const generatedContent = response.choices[0]?.message?.content || "";
+      await storage.updateNote(Number(req.params.id), {
+        generatedType: type,
+        generatedContent,
+      });
+
+      res.json({ generatedContent, type });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

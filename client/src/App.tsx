@@ -51,6 +51,7 @@ import CustomerFeedback from "@/pages/CustomerFeedback";
 import FeedbackQRCode from "@/pages/FeedbackQRCode";
 import HR from "@/pages/HR";
 import MLL from "@/pages/MLL";
+import Notes from "@/pages/Notes";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -213,6 +214,9 @@ function Router() {
       </Route>
       <Route path="/messages">
         {() => <ProtectedRoute component={Messages} />}
+      </Route>
+      <Route path="/notes">
+        {() => <ProtectedRoute component={Notes} />}
       </Route>
       <Route path="/starkade">
         {() => <ProtectedRoute component={Starkade} />}

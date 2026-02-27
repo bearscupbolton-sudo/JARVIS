@@ -68,6 +68,8 @@ import {
   starkadeGames, starkadeGameSessions,
   type StarkadeGame, type InsertStarkadeGame,
   type StarkadeGameSession, type InsertStarkadeGameSession,
+  notes,
+  type Note, type InsertNote,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -267,6 +269,14 @@ export interface IStorage {
   rolloverUncompletedItems(taskListId: number, department: string): Promise<DepartmentTodo[]>;
   getDepartmentTodos(department: string): Promise<DepartmentTodo[]>;
   completeDepartmentTodo(id: number, userId: string): Promise<DepartmentTodo>;
+
+  // Notes
+  getNotes(userId: string): Promise<Note[]>;
+  getNote(id: number): Promise<Note | undefined>;
+  createNote(note: InsertNote): Promise<Note>;
+  updateNote(id: number, updates: Partial<InsertNote>): Promise<Note>;
+  deleteNote(id: number): Promise<void>;
+  getSharedNotes(userId: string): Promise<Note[]>;
 
   // Direct Messages
   sendMessage(message: InsertDirectMessage, recipientUserIds: string[]): Promise<DirectMessage>;
@@ -2686,6 +2696,33 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(starkadeGameSessions.createdAt))
       .limit(limit);
     return results as any;
+  }
+  async getNotes(userId: string): Promise<Note[]> {
+    return db.select().from(notes).where(eq(notes.userId, userId)).orderBy(desc(notes.updatedAt));
+  }
+
+  async getNote(id: number): Promise<Note | undefined> {
+    const [note] = await db.select().from(notes).where(eq(notes.id, id));
+    return note;
+  }
+
+  async createNote(note: InsertNote): Promise<Note> {
+    const [created] = await db.insert(notes).values(note).returning();
+    return created;
+  }
+
+  async updateNote(id: number, updates: Partial<InsertNote>): Promise<Note> {
+    const [updated] = await db.update(notes).set({ ...updates, updatedAt: new Date() }).where(eq(notes.id, id)).returning();
+    return updated;
+  }
+
+  async deleteNote(id: number): Promise<void> {
+    await db.delete(notes).where(eq(notes.id, id));
+  }
+
+  async getSharedNotes(userId: string): Promise<Note[]> {
+    const allShared = await db.select().from(notes).where(eq(notes.isShared, true)).orderBy(desc(notes.updatedAt));
+    return allShared.filter(n => n.userId !== userId);
   }
 }
 

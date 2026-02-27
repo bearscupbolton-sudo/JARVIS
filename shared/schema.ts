@@ -495,6 +495,25 @@ export type InsertProductionLog = z.infer<typeof insertProductionLogSchema>;
 export type SOP = typeof sops.$inferSelect;
 export type InsertSOP = z.infer<typeof insertSopSchema>;
 
+// === NOTES ===
+export const notes = pgTable("notes", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content").notNull().default(""),
+  userId: text("user_id").notNull(),
+  isShared: boolean("is_shared").notNull().default(false),
+  sharedWith: jsonb("shared_with").$type<string[]>(),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  generatedType: text("generated_type"),
+  generatedContent: text("generated_content"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertNoteSchema = createInsertSchema(notes).omit({ id: true, createdAt: true, updatedAt: true });
+export type Note = typeof notes.$inferSelect;
+export type InsertNote = z.infer<typeof insertNoteSchema>;
+
 // === KIOSK TIMERS ===
 export const kioskTimers = pgTable("kiosk_timers", {
   id: serial("id").primaryKey(),

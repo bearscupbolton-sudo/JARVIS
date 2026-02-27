@@ -1,0 +1,517 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Plus, Mic, MicOff, Trash2, Share2, Pin, PinOff, Search,
+  FileText, ChefHat, ClipboardList, Sparkles, ArrowLeft,
+  MoreVertical, Loader2, Lock,
+} from "lucide-react";
+import type { Note } from "@shared/schema";
+
+function formatDate(date: string | Date | null) {
+  if (!date) return "";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+function NoteEditor({
+  note,
+  onBack,
+}: {
+  note: Note;
+  onBack: () => void;
+}) {
+  const { toast } = useToast();
+  const [title, setTitle] = useState(note.title);
+  const [content, setContent] = useState(note.content);
+  const [isShared, setIsShared] = useState(note.isShared);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showGenerated, setShowGenerated] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState(note.generatedContent || "");
+  const [generatedType, setGeneratedType] = useState(note.generatedType || "");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const updateMutation = useMutation({
+    mutationFn: (updates: Partial<Note>) =>
+      apiRequest("PATCH", `/api/notes/${note.id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: (type: string) =>
+      apiRequest("POST", `/api/notes/${note.id}/generate`, { type }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setGeneratedContent(data.generatedContent);
+      setGeneratedType(data.type);
+      setShowGenerated(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+      toast({ title: "Document generated", description: `Your ${data.type} has been created by Jarvis.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const autoSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      updateMutation.mutate({ title, content, isShared });
+    }, 1000);
+  }, [title, content, isShared]);
+
+  useEffect(() => {
+    autoSave();
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [title, content, isShared]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        setIsTranscribing(true);
+        try {
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve) => {
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1]);
+            };
+            reader.readAsDataURL(blob);
+          });
+          const res = await apiRequest("POST", "/api/notes/transcribe", { audio: base64 });
+          const data = await res.json();
+          if (data.transcript) {
+            setContent(prev => prev ? prev + "\n" + data.transcript : data.transcript);
+            toast({ title: "Voice note added" });
+          }
+        } catch (err: any) {
+          toast({ title: "Transcription failed", description: err.message, variant: "destructive" });
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (err: any) {
+      toast({ title: "Microphone access denied", description: "Please allow microphone access to use voice notes.", variant: "destructive" });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  return (
+    <div className="space-y-4" data-testid="note-editor">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-notes">
+          <ArrowLeft className="w-5 h-5" />
+        </Button>
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onFocus={(e) => {
+            if (title === "Untitled Note") e.target.select();
+          }}
+          autoFocus={title === "Untitled Note"}
+          className="text-lg font-semibold border-none shadow-none focus-visible:ring-0 px-0"
+          placeholder="Note title..."
+          data-testid="input-note-title"
+        />
+        <div className="flex items-center gap-2 ml-auto shrink-0">
+          <div className="flex items-center gap-1.5">
+            <Switch
+              id="shared"
+              checked={isShared}
+              onCheckedChange={setIsShared}
+              data-testid="switch-shared"
+            />
+            <Label htmlFor="shared" className="text-xs text-muted-foreground whitespace-nowrap">
+              {isShared ? <Share2 className="w-3.5 h-3.5 inline" /> : <Lock className="w-3.5 h-3.5 inline" />}
+              {isShared ? " Shared" : " Private"}
+            </Label>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative">
+        <Textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Start typing your note, or tap the mic to dictate..."
+          className="min-h-[300px] resize-y text-sm leading-relaxed"
+          data-testid="textarea-note-content"
+        />
+        <div className="absolute bottom-3 right-3 flex gap-2">
+          {isTranscribing && (
+            <Badge variant="secondary" className="animate-pulse">
+              <Loader2 className="w-3 h-3 animate-spin mr-1" /> Transcribing...
+            </Badge>
+          )}
+          <Button
+            variant={isRecording ? "destructive" : "outline"}
+            size="icon"
+            className="rounded-full h-10 w-10 shadow-md"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isTranscribing}
+            data-testid="button-voice-record"
+          >
+            {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </Button>
+        </div>
+      </div>
+
+      {isRecording && (
+        <div className="flex items-center gap-2 text-destructive text-sm animate-pulse">
+          <div className="w-2 h-2 rounded-full bg-destructive" />
+          Recording... Tap mic to stop
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-2 border-t">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" disabled={generateMutation.isPending || !content.trim()} data-testid="button-generate">
+              {generateMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Sparkles className="w-4 h-4 mr-2" />
+              )}
+              Generate
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => generateMutation.mutate("recipe")} data-testid="menu-generate-recipe">
+              <ChefHat className="w-4 h-4 mr-2" />
+              Recipe
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => generateMutation.mutate("sop")} data-testid="menu-generate-sop">
+              <ClipboardList className="w-4 h-4 mr-2" />
+              SOP
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => generateMutation.mutate("letterhead")} data-testid="menu-generate-letterhead">
+              <FileText className="w-4 h-4 mr-2" />
+              Letter Head
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {(generatedContent || note.generatedContent) && (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setGeneratedContent(generatedContent || note.generatedContent || "");
+              setGeneratedType(generatedType || note.generatedType || "");
+              setShowGenerated(true);
+            }}
+            data-testid="button-view-generated"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            View {generatedType || note.generatedType || "Document"}
+          </Button>
+        )}
+
+        <span className="text-xs text-muted-foreground ml-auto">
+          {updateMutation.isPending ? "Saving..." : `Updated ${formatDate(note.updatedAt)}`}
+        </span>
+      </div>
+
+      <Dialog open={showGenerated} onOpenChange={setShowGenerated}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {generatedType === "recipe" && <ChefHat className="w-5 h-5" />}
+              {generatedType === "sop" && <ClipboardList className="w-5 h-5" />}
+              {generatedType === "letterhead" && <FileText className="w-5 h-5" />}
+              Generated {generatedType === "letterhead" ? "Letter Head" : generatedType?.toUpperCase()}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="prose dark:prose-invert max-w-none text-sm whitespace-pre-wrap" data-testid="text-generated-content">
+            {generatedContent}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              navigator.clipboard.writeText(generatedContent);
+              toast({ title: "Copied to clipboard" });
+            }} data-testid="button-copy-generated">
+              Copy to Clipboard
+            </Button>
+            <Button onClick={() => setShowGenerated(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function NoteCard({
+  note,
+  onClick,
+  onDelete,
+  onTogglePin,
+  isOwner,
+}: {
+  note: Note;
+  onClick: () => void;
+  onDelete: () => void;
+  onTogglePin: () => void;
+  isOwner: boolean;
+}) {
+  return (
+    <Card
+      className="cursor-pointer hover:border-primary/40 transition-colors group"
+      onClick={onClick}
+      data-testid={`card-note-${note.id}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              {note.isPinned && <Pin className="w-3.5 h-3.5 text-primary shrink-0" />}
+              <h3 className="font-medium truncate text-sm" data-testid={`text-note-title-${note.id}`}>
+                {note.title || "Untitled"}
+              </h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+              {note.content || "Empty note"}
+            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[10px] text-muted-foreground">
+                {formatDate(note.updatedAt)}
+              </span>
+              {note.isShared && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  <Share2 className="w-2.5 h-2.5 mr-0.5" /> Shared
+                </Badge>
+              )}
+              {note.generatedType && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                  <Sparkles className="w-2.5 h-2.5 mr-0.5" /> {note.generatedType}
+                </Badge>
+              )}
+            </div>
+          </div>
+          {isOwner && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" data-testid={`button-note-menu-${note.id}`}>
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onClick={onTogglePin} data-testid={`menu-pin-${note.id}`}>
+                  {note.isPinned ? <PinOff className="w-4 h-4 mr-2" /> : <Pin className="w-4 h-4 mr-2" />}
+                  {note.isPinned ? "Unpin" : "Pin"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onDelete} className="text-destructive" data-testid={`menu-delete-${note.id}`}>
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function Notes() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [activeNote, setActiveNote] = useState<Note | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [tab, setTab] = useState("my");
+
+  const { data, isLoading } = useQuery<{ myNotes: Note[]; sharedNotes: Note[] }>({
+    queryKey: ["/api/notes"],
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/notes", { title: "Untitled Note", content: "" }),
+    onSuccess: async (res) => {
+      const note = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+      setActiveNote(note);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/notes/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+      toast({ title: "Note deleted" });
+    },
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: (note: Note) =>
+      apiRequest("PATCH", `/api/notes/${note.id}`, { isPinned: !note.isPinned }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+    },
+  });
+
+  const myNotes = data?.myNotes || [];
+  const sharedNotes = data?.sharedNotes || [];
+
+  const filterNotes = (notes: Note[]) => {
+    if (!searchQuery.trim()) return notes;
+    const q = searchQuery.toLowerCase();
+    return notes.filter(n =>
+      n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)
+    );
+  };
+
+  const sortNotes = (notes: Note[]) => {
+    return [...notes].sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    });
+  };
+
+  const displayMyNotes = sortNotes(filterNotes(myNotes));
+  const displaySharedNotes = sortNotes(filterNotes(sharedNotes));
+
+  if (activeNote) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <NoteEditor
+          key={activeNote.id}
+          note={activeNote}
+          onBack={() => {
+            setActiveNote(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto p-4 space-y-4" data-testid="notes-page">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold" data-testid="text-notes-heading">Notes</h1>
+        <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-new-note">
+          <Plus className="w-4 h-4 mr-2" />
+          New Note
+        </Button>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search notes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+          data-testid="input-search-notes"
+        />
+      </div>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="w-full">
+          <TabsTrigger value="my" className="flex-1" data-testid="tab-my-notes">
+            My Notes ({myNotes.length})
+          </TabsTrigger>
+          <TabsTrigger value="shared" className="flex-1" data-testid="tab-shared-notes">
+            Shared ({sharedNotes.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="my" className="mt-4">
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : displayMyNotes.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <FileText className="w-10 h-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  {searchQuery ? "No notes match your search" : "No notes yet. Create one to get started!"}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-3">
+              {displayMyNotes.map(note => (
+                <NoteCard
+                  key={note.id}
+                  note={note}
+                  onClick={() => setActiveNote(note)}
+                  onDelete={() => deleteMutation.mutate(note.id)}
+                  onTogglePin={() => pinMutation.mutate(note)}
+                  isOwner={true}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="shared" className="mt-4">
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : displaySharedNotes.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <Share2 className="w-10 h-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  {searchQuery ? "No shared notes match your search" : "No shared notes from team members yet."}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-3">
+              {displaySharedNotes.map(note => (
+                <NoteCard
+                  key={note.id}
+                  note={note}
+                  onClick={() => setActiveNote(note)}
+                  onDelete={() => {}}
+                  onTogglePin={() => {}}
+                  isOwner={false}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
