@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -547,16 +547,31 @@ function UserDetailDialog({
                   className="min-h-[80px] text-sm"
                   data-testid={`textarea-welcome-${u.id}`}
                 />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => welcomeMutation.mutate(welcomeMsg)}
-                  disabled={welcomeMutation.isPending}
-                  data-testid={`button-save-welcome-${u.id}`}
-                >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {welcomeMutation.isPending ? "Saving..." : "Save Welcome"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => welcomeMutation.mutate(welcomeMsg)}
+                    disabled={welcomeMutation.isPending}
+                    data-testid={`button-save-welcome-${u.id}`}
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1.5" />
+                    {welcomeMutation.isPending ? "Saving..." : "Save Welcome"}
+                  </Button>
+                  {welcomeMsg && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground"
+                      onClick={() => { setWelcomeMsg(""); welcomeMutation.mutate(""); }}
+                      disabled={welcomeMutation.isPending}
+                      data-testid={`button-clear-welcome-${u.id}`}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
                 <p className="text-[11px] text-muted-foreground">This message appears the first time they see their Jarvis briefing.</p>
               </div>
               <div className="space-y-2 border-t pt-3">
