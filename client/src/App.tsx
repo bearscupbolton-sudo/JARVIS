@@ -52,6 +52,7 @@ import FeedbackQRCode from "@/pages/FeedbackQRCode";
 import HR from "@/pages/HR";
 import MLL from "@/pages/MLL";
 import Notes from "@/pages/Notes";
+import Vendors from "@/pages/Vendors";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -160,6 +161,9 @@ function Router() {
       </Route>
       <Route path="/inventory/count">
         {() => <ProtectedRoute component={InventoryCount} />}
+      </Route>
+      <Route path="/vendors">
+        {() => <ProtectedRoute component={Vendors} />}
       </Route>
       <Route path="/schedule">
         {() => <ProtectedRoute component={Schedule} />}

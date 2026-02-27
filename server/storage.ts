@@ -70,6 +70,11 @@ import {
   type StarkadeGameSession, type InsertStarkadeGameSession,
   notes,
   type Note, type InsertNote,
+  vendors, vendorItems, purchaseOrders, purchaseOrderLines,
+  type Vendor, type InsertVendor,
+  type VendorItem, type InsertVendorItem,
+  type PurchaseOrder, type InsertPurchaseOrder,
+  type PurchaseOrderLine, type InsertPurchaseOrderLine,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -410,6 +415,28 @@ export interface IStorage {
   getGameLeaderboard(gameId: number, limit?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number; bestScore: number }[]>;
   getGlobalLeaderboard(limit?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number }[]>;
   getRecentGameSessions(userId?: string, limit?: number): Promise<(StarkadeGameSession & { gameName: string; gameType: string })[]>;
+
+  // Vendors
+  getVendors(): Promise<Vendor[]>;
+  getVendor(id: number): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor>;
+  deleteVendor(id: number): Promise<void>;
+  getVendorsByOrderDay(day: string): Promise<Vendor[]>;
+
+  // Vendor Items
+  getVendorItems(vendorId: number): Promise<(VendorItem & { inventoryItem: InventoryItem })[]>;
+  createVendorItem(item: InsertVendorItem): Promise<VendorItem>;
+  updateVendorItem(id: number, updates: Partial<InsertVendorItem>): Promise<VendorItem>;
+  deleteVendorItem(id: number): Promise<void>;
+
+  // Purchase Orders
+  getPurchaseOrders(vendorId?: number): Promise<(PurchaseOrder & { vendor: Vendor })[]>;
+  getPurchaseOrder(id: number): Promise<(PurchaseOrder & { vendor: Vendor; lines: PurchaseOrderLine[] }) | undefined>;
+  createPurchaseOrder(order: InsertPurchaseOrder): Promise<PurchaseOrder>;
+  createPurchaseOrderLines(lines: InsertPurchaseOrderLine[]): Promise<PurchaseOrderLine[]>;
+  updatePurchaseOrder(id: number, updates: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder>;
+  getItemsNeedingReorder(vendorId: number): Promise<(VendorItem & { inventoryItem: InventoryItem })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2726,6 +2753,112 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(notes)
       .where(sql`${notes.isShared} = true AND ${notes.userId} != ${userId} AND (${notes.sharedWith} IS NULL OR NOT ${notes.sharedWith}::jsonb @> ${JSON.stringify([userId])}::jsonb)`)
       .orderBy(desc(notes.updatedAt));
+  }
+
+  // === VENDORS ===
+  async getVendors(): Promise<Vendor[]> {
+    return db.select().from(vendors).orderBy(vendors.name);
+  }
+
+  async getVendor(id: number): Promise<Vendor | undefined> {
+    const [v] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return v;
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    const [created] = await db.insert(vendors).values(vendor).returning();
+    return created;
+  }
+
+  async updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor> {
+    const [updated] = await db.update(vendors).set(updates).where(eq(vendors.id, id)).returning();
+    return updated;
+  }
+
+  async deleteVendor(id: number): Promise<void> {
+    await db.delete(vendors).where(eq(vendors.id, id));
+  }
+
+  async getVendorsByOrderDay(day: string): Promise<Vendor[]> {
+    return db.select().from(vendors)
+      .where(and(eq(vendors.isActive, true), sql`${vendors.orderDays} @> ARRAY[${day}]::text[]`));
+  }
+
+  // === VENDOR ITEMS ===
+  async getVendorItems(vendorId: number): Promise<(VendorItem & { inventoryItem: InventoryItem })[]> {
+    const rows = await db.select({
+      vendorItem: vendorItems,
+      inventoryItem: inventoryItems,
+    }).from(vendorItems)
+      .innerJoin(inventoryItems, eq(vendorItems.inventoryItemId, inventoryItems.id))
+      .where(eq(vendorItems.vendorId, vendorId));
+    return rows.map(r => ({ ...r.vendorItem, inventoryItem: r.inventoryItem }));
+  }
+
+  async createVendorItem(item: InsertVendorItem): Promise<VendorItem> {
+    const [created] = await db.insert(vendorItems).values(item).returning();
+    return created;
+  }
+
+  async updateVendorItem(id: number, updates: Partial<InsertVendorItem>): Promise<VendorItem> {
+    const [updated] = await db.update(vendorItems).set(updates).where(eq(vendorItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteVendorItem(id: number): Promise<void> {
+    await db.delete(vendorItems).where(eq(vendorItems.id, id));
+  }
+
+  // === PURCHASE ORDERS ===
+  async getPurchaseOrders(vendorId?: number): Promise<(PurchaseOrder & { vendor: Vendor })[]> {
+    const rows = await db.select({
+      po: purchaseOrders,
+      vendor: vendors,
+    }).from(purchaseOrders)
+      .innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
+      .where(vendorId ? eq(purchaseOrders.vendorId, vendorId) : undefined)
+      .orderBy(desc(purchaseOrders.createdAt));
+    return rows.map(r => ({ ...r.po, vendor: r.vendor }));
+  }
+
+  async getPurchaseOrder(id: number): Promise<(PurchaseOrder & { vendor: Vendor; lines: PurchaseOrderLine[] }) | undefined> {
+    const [row] = await db.select({
+      po: purchaseOrders,
+      vendor: vendors,
+    }).from(purchaseOrders)
+      .innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
+      .where(eq(purchaseOrders.id, id));
+    if (!row) return undefined;
+    const lines = await db.select().from(purchaseOrderLines).where(eq(purchaseOrderLines.purchaseOrderId, id));
+    return { ...row.po, vendor: row.vendor, lines };
+  }
+
+  async createPurchaseOrder(order: InsertPurchaseOrder): Promise<PurchaseOrder> {
+    const [created] = await db.insert(purchaseOrders).values(order).returning();
+    return created;
+  }
+
+  async createPurchaseOrderLines(lines: InsertPurchaseOrderLine[]): Promise<PurchaseOrderLine[]> {
+    if (lines.length === 0) return [];
+    return db.insert(purchaseOrderLines).values(lines).returning();
+  }
+
+  async updatePurchaseOrder(id: number, updates: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder> {
+    const [updated] = await db.update(purchaseOrders).set(updates).where(eq(purchaseOrders.id, id)).returning();
+    return updated;
+  }
+
+  async getItemsNeedingReorder(vendorId: number): Promise<(VendorItem & { inventoryItem: InventoryItem })[]> {
+    const rows = await db.select({
+      vendorItem: vendorItems,
+      inventoryItem: inventoryItems,
+    }).from(vendorItems)
+      .innerJoin(inventoryItems, eq(vendorItems.inventoryItemId, inventoryItems.id))
+      .where(and(
+        eq(vendorItems.vendorId, vendorId),
+        sql`${vendorItems.parLevel} IS NOT NULL AND ${inventoryItems.onHand} < ${vendorItems.parLevel}`
+      ));
+    return rows.map(r => ({ ...r.vendorItem, inventoryItem: r.inventoryItem }));
   }
 }
 

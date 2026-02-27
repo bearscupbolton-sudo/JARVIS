@@ -33,7 +33,8 @@ import {
   Package, Layers, Stamp, Gamepad2,
   Plus, AlertTriangle, CheckCircle2, Eye, EyeOff,
   FileText, Trash2, MapPin, Phone, Cake,
-  Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw
+  Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
+  Truck, ShoppingCart,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote } from "@shared/schema";
@@ -173,7 +174,7 @@ function saveQuickActions(actions: string[]) {
   localStorage.setItem(QA_STORAGE_KEY, JSON.stringify(actions));
 }
 
-type WidgetId = "briefing" | "announcements" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "myTasks" | "messages" | "quickActions" | "whosOn";
+type WidgetId = "briefing" | "announcements" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "myTasks" | "todayOrders" | "messages" | "quickActions" | "whosOn";
 
 type WidgetMeta = {
   id: WidgetId;
@@ -195,6 +196,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
   { id: "myEvents", label: "My Events", icon: Calendar },
   { id: "myEventJobs", label: "My Event Jobs", icon: ClipboardList },
   { id: "myTasks", label: "My Assigned Tasks", icon: ClipboardList },
+  { id: "todayOrders", label: "Today's Orders", icon: ShoppingCart },
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "quickActions", label: "Quick Actions", icon: Star },
   { id: "whosOn", label: "Who's On Today", icon: Users, sidebar: true },
@@ -203,7 +205,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
 const DEFAULT_WIDGET_ORDER: WidgetId[] = [
   "briefing", "announcements", "quickStats", "preShiftNotes",
   "production", "problems", "forwardLook",
-  "mySchedule", "myEvents", "myEventJobs", "myTasks", "messages", "quickActions",
+  "mySchedule", "myEvents", "myEventJobs", "myTasks", "todayOrders", "messages", "quickActions",
 ];
 
 const LAYOUT_STORAGE_KEY = "jarvis-home-layout";
@@ -533,6 +535,7 @@ export default function Home() {
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
   const { data: assignedTasks = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists/assigned"] });
+  const { data: todayVendorOrders = [] } = useQuery<any[]>({ queryKey: ["/api/vendors/today-orders"] });
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
     queryKey: ["/api/home/jarvis-briefing"], staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false,
@@ -1071,6 +1074,33 @@ export default function Home() {
             </CardContent>
           </Card>
         </Link>
+      ) : null
+    ),
+
+    todayOrders: () => (
+      todayVendorOrders.length > 0 ? (
+        <Card data-testid="container-today-orders">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-base font-display flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-primary" />Today's Orders</CardTitle>
+            <Badge variant="outline" className="text-[10px]">{todayVendorOrders.length} vendors</Badge>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-1.5">
+              {todayVendorOrders.map((v: any) => (
+                <Link key={v.id} href="/vendors">
+                  <div className="flex items-center gap-2 p-2 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors" data-testid={`today-order-${v.id}`}>
+                    <Truck className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{v.name}</p>
+                      {v.contactName && <p className="text-xs text-muted-foreground">{v.contactName}</p>}
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : null
     ),
 

@@ -7,6 +7,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, is
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrations/audio/client";
 import { sendPushToUsers, sendPushToUser } from "./push";
+import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, inArray } from "drizzle-orm";
@@ -4614,6 +4615,246 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
       }
       await storage.updateJarvisBriefingFocus(req.params.userId, focus);
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === VENDORS ===
+  app.get("/api/vendors", isAuthenticated, async (req: any, res) => {
+    try {
+      const allVendors = await storage.getVendors();
+      res.json(allVendors);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/vendors/today-orders", isAuthenticated, async (req: any, res) => {
+    try {
+      const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const today = days[new Date().getDay()];
+      const todayVendors = await storage.getVendorsByOrderDay(today);
+      res.json(todayVendors);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/vendors/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const vendor = await storage.getVendor(parseInt(req.params.id));
+      if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+      res.json(vendor);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/vendors", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(1),
+        contactName: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+        email: z.string().nullable().optional(),
+        orderDays: z.array(z.string()).optional(),
+        notes: z.string().nullable().optional(),
+      });
+      const data = schema.parse(req.body);
+      const vendor = await storage.createVendor(data);
+      res.json(vendor);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/vendors/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(1).optional(),
+        contactName: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+        email: z.string().nullable().optional(),
+        orderDays: z.array(z.string()).optional(),
+        notes: z.string().nullable().optional(),
+        isActive: z.boolean().optional(),
+      });
+      const updates = schema.parse(req.body);
+      const vendor = await storage.updateVendor(parseInt(req.params.id), updates);
+      res.json(vendor);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/vendors/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      await storage.deleteVendor(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === VENDOR ITEMS ===
+  app.get("/api/vendors/:id/items", isAuthenticated, async (req: any, res) => {
+    try {
+      const items = await storage.getVendorItems(parseInt(req.params.id));
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/vendors/:id/items", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        inventoryItemId: z.number(),
+        vendorSku: z.string().nullable().optional(),
+        vendorDescription: z.string().nullable().optional(),
+        preferredUnit: z.string().nullable().optional(),
+        parLevel: z.number().nullable().optional(),
+        orderUpToLevel: z.number().nullable().optional(),
+      });
+      const data = schema.parse(req.body);
+      const item = await storage.createVendorItem({ ...data, vendorId: parseInt(req.params.id) });
+      res.json(item);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/vendor-items/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        vendorSku: z.string().nullable().optional(),
+        vendorDescription: z.string().nullable().optional(),
+        preferredUnit: z.string().nullable().optional(),
+        parLevel: z.number().nullable().optional(),
+        orderUpToLevel: z.number().nullable().optional(),
+      });
+      const updates = schema.parse(req.body);
+      const item = await storage.updateVendorItem(parseInt(req.params.id), updates);
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/vendor-items/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      await storage.deleteVendorItem(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PURCHASE ORDERS ===
+  app.get("/api/purchase-orders", isAuthenticated, async (req: any, res) => {
+    try {
+      const vendorId = req.query.vendorId ? parseInt(req.query.vendorId as string) : undefined;
+      const orders = await storage.getPurchaseOrders(vendorId);
+      res.json(orders);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/purchase-orders/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const order = await storage.getPurchaseOrder(parseInt(req.params.id));
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      res.json(order);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/purchase-orders/generate", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { vendorId } = z.object({ vendorId: z.number() }).parse(req.body);
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+
+      const needsReorder = await storage.getItemsNeedingReorder(vendorId);
+      if (needsReorder.length === 0) {
+        return res.json({ message: "All items are above par level", order: null, itemCount: 0 });
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+      const order = await storage.createPurchaseOrder({
+        vendorId,
+        orderDate: today,
+        status: "draft",
+        generatedBy: req.user.id,
+      });
+
+      const lines = needsReorder.map(vi => {
+        const orderUpTo = vi.orderUpToLevel ?? (vi.parLevel! * 1.5);
+        const qty = Math.max(0, orderUpTo - vi.inventoryItem.onHand);
+        return {
+          purchaseOrderId: order.id,
+          inventoryItemId: vi.inventoryItemId,
+          itemName: vi.vendorDescription || vi.inventoryItem.name,
+          quantity: Math.ceil(qty * 100) / 100,
+          unit: vi.preferredUnit || vi.inventoryItem.unit,
+          currentOnHand: vi.inventoryItem.onHand,
+          parLevel: vi.parLevel,
+        };
+      }).filter(l => l.quantity > 0);
+
+      const createdLines = await storage.createPurchaseOrderLines(lines);
+      const fullOrder = await storage.getPurchaseOrder(order.id);
+      res.json(fullOrder);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input" });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/purchase-orders/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        status: z.string().optional(),
+        notes: z.string().nullable().optional(),
+        sentVia: z.string().nullable().optional(),
+        sentAt: z.string().nullable().optional(),
+      });
+      const updates = schema.parse(req.body);
+      const order = await storage.updatePurchaseOrder(parseInt(req.params.id), {
+        ...updates,
+        sentAt: updates.sentAt ? new Date(updates.sentAt) : undefined,
+      } as any);
+      res.json(order);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/purchase-orders/:id/send-sms", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const order = await storage.getPurchaseOrder(parseInt(req.params.id));
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (!order.vendor.phone) return res.status(400).json({ message: "Vendor has no phone number" });
+
+      let msg = `Order from Bear's Cup Bakehouse\nDate: ${order.orderDate}\n\n`;
+      for (const line of order.lines) {
+        msg += `• ${line.itemName}: ${line.quantity} ${line.unit}\n`;
+      }
+      if (order.notes) msg += `\nNotes: ${order.notes}`;
+      msg += `\n\nPlease confirm receipt. Thank you!`;
+
+      const sent = await sendSms(order.vendor.phone, msg);
+      if (sent) {
+        await storage.updatePurchaseOrder(order.id, { status: "sent", sentVia: "sms", sentAt: new Date() } as any);
+        res.json({ success: true, message: "Order sent via SMS" });
+      } else {
+        res.json({ success: false, message: "SMS not configured or failed. Order saved as draft." });
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

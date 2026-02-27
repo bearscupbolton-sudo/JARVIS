@@ -926,3 +926,71 @@ export const insertStarkadeGameSessionSchema = createInsertSchema(starkadeGameSe
 export type StarkadeGameSession = typeof starkadeGameSessions.$inferSelect;
 export type InsertStarkadeGameSession = z.infer<typeof insertStarkadeGameSessionSchema>;
 
+// === VENDORS ===
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  phone: text("phone"),
+  email: text("email"),
+  orderDays: text("order_days").array().notNull().default([]),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true });
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
+
+// === VENDOR ITEMS (links vendors to inventory items with par levels) ===
+export const vendorItems = pgTable("vendor_items", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  inventoryItemId: integer("inventory_item_id").notNull().references(() => inventoryItems.id),
+  vendorSku: text("vendor_sku"),
+  vendorDescription: text("vendor_description"),
+  preferredUnit: text("preferred_unit"),
+  parLevel: doublePrecision("par_level"),
+  orderUpToLevel: doublePrecision("order_up_to_level"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertVendorItemSchema = createInsertSchema(vendorItems).omit({ id: true, createdAt: true });
+export type VendorItem = typeof vendorItems.$inferSelect;
+export type InsertVendorItem = z.infer<typeof insertVendorItemSchema>;
+
+// === PURCHASE ORDERS ===
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  orderDate: text("order_date").notNull(),
+  status: text("status").notNull().default("draft"),
+  generatedBy: text("generated_by"),
+  sentVia: text("sent_via"),
+  sentAt: timestamp("sent_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true });
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+
+// === PURCHASE ORDER LINES ===
+export const purchaseOrderLines = pgTable("purchase_order_lines", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "cascade" }),
+  inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
+  itemName: text("item_name").notNull(),
+  quantity: doublePrecision("quantity").notNull(),
+  unit: text("unit").notNull(),
+  currentOnHand: doublePrecision("current_on_hand"),
+  parLevel: doublePrecision("par_level"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPurchaseOrderLineSchema = createInsertSchema(purchaseOrderLines).omit({ id: true, createdAt: true });
+export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
+export type InsertPurchaseOrderLine = z.infer<typeof insertPurchaseOrderLineSchema>;
+
