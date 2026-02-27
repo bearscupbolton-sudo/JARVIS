@@ -77,7 +77,10 @@ function getNow24() {
 }
 
 function to12hr(time24: string) {
-  const [hh, mm] = time24.split(":").map(Number);
+  if (!time24 || !time24.includes(":")) return "12:00 PM";
+  const parts = time24.split(":").map(Number);
+  const hh = parts[0] ?? 12;
+  const mm = parts[1] ?? 0;
   const ampm = hh >= 12 ? "PM" : "AM";
   const h12 = hh % 12 || 12;
   return `${h12}:${mm.toString().padStart(2, "0")} ${ampm}`;
