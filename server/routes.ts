@@ -931,7 +931,7 @@ FORMAT RULES for the content field:
         dates.push(d.toISOString().split("T")[0]);
       }
 
-      const { inArray } = await import("drizzle-orm");
+      const { inArray, lte, or, isNull } = await import("drizzle-orm");
 
       const allShifts = await db.select().from(shifts)
         .where(and(inArray(shifts.shiftDate, dates), eq(shifts.department, "foh")));
@@ -948,6 +948,27 @@ FORMAT RULES for the content field:
       }
       const staffMap = new Map(fohStaff.map(s => [s.id, s]));
 
+      const weekBoundsStart = easternDayBounds(dates[0]).start;
+      const weekBoundsEnd = easternDayBounds(dates[6]).end;
+      const allTimeEntries = fohUserIds.length > 0
+        ? await db.select().from(timeEntries)
+            .where(and(
+              inArray(timeEntries.userId, fohUserIds),
+              lte(timeEntries.clockIn, weekBoundsEnd),
+              or(isNull(timeEntries.clockOut), sql`${timeEntries.clockOut} >= ${weekBoundsStart}`),
+            ))
+        : [];
+
+      const allBreakIds = allTimeEntries.map(te => te.id);
+      const allBreaks = allBreakIds.length > 0
+        ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, allBreakIds))
+        : [];
+      const breaksByEntry = new Map<number, typeof allBreaks>();
+      for (const b of allBreaks) {
+        if (!breaksByEntry.has(b.timeEntryId)) breaksByEntry.set(b.timeEntryId, []);
+        breaksByEntry.get(b.timeEntryId)!.push(b);
+      }
+
       const weeklyStaff = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
 
       const daySummaries: Array<{
@@ -963,32 +984,35 @@ FORMAT RULES for the content field:
       let weekSquareError: string | null = null;
 
       for (const date of dates) {
-        const dayShifts = allShifts.filter(s => s.shiftDate === date);
-        const dayUserIds = Array.from(new Set(dayShifts.map(s => s.userId)));
-
-        const shiftsWithNames = dayShifts.map(s => {
-          const staff = staffMap.get(s.userId);
-          return {
-            ...s,
-            staffName: staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown",
-            username: staff?.username || "Unknown",
-          };
+        const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
+        const dayTimeEntries = allTimeEntries.filter(te => {
+          const clockOut = te.clockOut || new Date();
+          return te.clockIn <= dayEndUtc && clockOut >= dayStartUtc;
         });
+        const clockedInUserIds = Array.from(new Set(dayTimeEntries.map(te => te.userId)));
+        const dayFohShiftUserIds = Array.from(new Set(allShifts.filter(s => s.shiftDate === date).map(s => s.userId)));
 
-        for (const shift of shiftsWithNames) {
-          if (!weeklyStaff.has(shift.userId)) {
-            weeklyStaff.set(shift.userId, {
-              name: shift.staffName,
-              username: shift.username,
-              totalMinutes: 0,
-              tipsCents: 0,
-              tipCount: 0,
-            });
+        for (const te of dayTimeEntries) {
+          const staff = staffMap.get(te.userId);
+          const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
+          const username = staff?.username || "Unknown";
+
+          if (!weeklyStaff.has(te.userId)) {
+            weeklyStaff.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0 });
           }
-          const shiftStartMin = parseTimeToMinutes(shift.startTime);
-          const shiftEndMin = parseTimeToMinutes(shift.endTime);
-          const mins = shiftEndMin - shiftStartMin;
-          weeklyStaff.get(shift.userId)!.totalMinutes += Math.max(0, mins > 0 ? mins : mins + 1440);
+          const clockOut = te.clockOut || new Date();
+          const overlapStart = Math.max(te.clockIn.getTime(), dayStartUtc.getTime());
+          const overlapEnd = Math.min(clockOut.getTime(), dayEndUtc.getTime());
+          let netMs = Math.max(0, overlapEnd - overlapStart);
+          const entryBreaks = breaksByEntry.get(te.id) || [];
+          for (const b of entryBreaks) {
+            if (b.endAt) {
+              const bStart = Math.max(b.startAt.getTime(), dayStartUtc.getTime());
+              const bEnd = Math.min(b.endAt.getTime(), dayEndUtc.getTime());
+              if (bEnd > bStart) netMs -= (bEnd - bStart);
+            }
+          }
+          weeklyStaff.get(te.userId)!.totalMinutes += Math.max(0, netMs / 60000);
         }
 
         let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
@@ -1002,32 +1026,31 @@ FORMAT RULES for the content field:
           let tipTime: Date | null = null;
           try { tipTime = new Date(tip.createdAt); } catch { continue; }
 
-          const tipLocalStr = tipTime.toLocaleString("en-US", { timeZone: "America/New_York" });
-          const tipLocal = new Date(tipLocalStr);
-          const tipMins = tipLocal.getHours() * 60 + tipLocal.getMinutes();
+          const tipMs = tipTime.getTime();
 
           const onDutyStaff: string[] = [];
-          for (const shift of shiftsWithNames) {
-            const shiftStartMins = parseTimeToMinutes(shift.startTime);
-            const shiftEndMins = parseTimeToMinutes(shift.endTime);
-
-            if (shiftEndMins > shiftStartMins) {
-              if (tipMins >= shiftStartMins && tipMins < shiftEndMins) {
-                if (!onDutyStaff.includes(shift.userId)) onDutyStaff.push(shift.userId);
-              }
-            } else {
-              if (tipMins >= shiftStartMins || tipMins < shiftEndMins) {
-                if (!onDutyStaff.includes(shift.userId)) onDutyStaff.push(shift.userId);
-              }
+          for (const te of dayTimeEntries) {
+            const clockOut = te.clockOut || new Date();
+            if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
+              if (!onDutyStaff.includes(te.userId)) onDutyStaff.push(te.userId);
             }
           }
 
+          if (onDutyStaff.length === 0 && clockedInUserIds.length > 0) {
+            onDutyStaff.push(...clockedInUserIds);
+          }
+
           if (onDutyStaff.length === 0) {
-            onDutyStaff.push(...dayUserIds);
+            onDutyStaff.push(...dayFohShiftUserIds);
           }
 
           const splitAmount = onDutyStaff.length > 0 ? Math.round(tip.tipAmountCents / onDutyStaff.length) : 0;
           for (const uid of onDutyStaff) {
+            if (!weeklyStaff.has(uid)) {
+              const staff = staffMap.get(uid);
+              const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
+              weeklyStaff.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+            }
             const entry = weeklyStaff.get(uid);
             if (entry) {
               entry.tipsCents += splitAmount;
@@ -1043,8 +1066,8 @@ FORMAT RULES for the content field:
           date,
           totalTips: tipData.totalTipsCents / 100,
           tippedOrders: tipData.tips.length,
-          fohStaffCount: dayUserIds.length,
-          staffNames: dayUserIds.map(uid => weeklyStaff.get(uid)?.name || "Unknown"),
+          fohStaffCount: clockedInUserIds.length,
+          staffNames: clockedInUserIds.map(uid => weeklyStaff.get(uid)?.name || "Unknown"),
         });
       }
 
@@ -1073,17 +1096,30 @@ FORMAT RULES for the content field:
     }
   });
 
+  function toEastern(d: Date): Date {
+    return new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  }
+  function easternDayBounds(dateStr: string): { start: Date; end: Date } {
+    const base = new Date(dateStr + "T00:00:00");
+    const offsetStr = base.toLocaleString("en-US", { timeZone: "America/New_York" });
+    const eastern = new Date(offsetStr);
+    const diffMs = base.getTime() - eastern.getTime();
+    const start = new Date(base.getTime() + diffMs);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    return { start, end };
+  }
+
   app.get("/api/ttis", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const { inArray, lte, or, isNull } = await import("drizzle-orm");
 
       const fohShifts = await db.select().from(shifts)
         .where(and(eq(shifts.shiftDate, date), eq(shifts.department, "foh")));
-
       const fohUserIds = Array.from(new Set(fohShifts.map(s => s.userId)));
+
       let fohStaff: any[] = [];
       if (fohUserIds.length > 0) {
-        const { inArray } = await import("drizzle-orm");
         fohStaff = await db.select({
           id: users.id,
           username: users.username,
@@ -1091,15 +1127,53 @@ FORMAT RULES for the content field:
           lastName: users.lastName,
         }).from(users).where(inArray(users.id, fohUserIds));
       }
-
       const staffMap = new Map(fohStaff.map(s => [s.id, s]));
-      const shiftsWithNames = fohShifts.map(s => ({
-        ...s,
-        staffName: staffMap.get(s.userId)
-          ? `${staffMap.get(s.userId)!.firstName || ""} ${staffMap.get(s.userId)!.lastName || ""}`.trim() || staffMap.get(s.userId)!.username
-          : "Unknown",
-        username: staffMap.get(s.userId)?.username || "Unknown",
-      }));
+
+      const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
+      const dayTimeEntries = fohUserIds.length > 0
+        ? await db.select().from(timeEntries)
+            .where(and(
+              inArray(timeEntries.userId, fohUserIds),
+              lte(timeEntries.clockIn, dayEndUtc),
+              or(isNull(timeEntries.clockOut), sql`${timeEntries.clockOut} >= ${dayStartUtc}`),
+            ))
+        : [];
+
+      const dayBreakIds = dayTimeEntries.map(te => te.id);
+      const dayBreaks = dayBreakIds.length > 0
+        ? await db.select().from(breakEntries).where(inArray(breakEntries.timeEntryId, dayBreakIds))
+        : [];
+      const breaksByEntry = new Map<number, typeof dayBreaks>();
+      for (const b of dayBreaks) {
+        if (!breaksByEntry.has(b.timeEntryId)) breaksByEntry.set(b.timeEntryId, []);
+        breaksByEntry.get(b.timeEntryId)!.push(b);
+      }
+
+      const clockedInUserIds = Array.from(new Set(dayTimeEntries.map(te => te.userId)));
+
+      const staffTotals = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
+      for (const te of dayTimeEntries) {
+        const staff = staffMap.get(te.userId);
+        const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
+        const username = staff?.username || "Unknown";
+
+        if (!staffTotals.has(te.userId)) {
+          staffTotals.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+        }
+        const clockOut = te.clockOut || new Date();
+        const overlapStart = Math.max(te.clockIn.getTime(), dayStartUtc.getTime());
+        const overlapEnd = Math.min(clockOut.getTime(), dayEndUtc.getTime());
+        let netMs = Math.max(0, overlapEnd - overlapStart);
+        const entryBreaks = breaksByEntry.get(te.id) || [];
+        for (const b of entryBreaks) {
+          if (b.endAt) {
+            const bStart = Math.max(b.startAt.getTime(), dayStartUtc.getTime());
+            const bEnd = Math.min(b.endAt.getTime(), dayEndUtc.getTime());
+            if (bEnd > bStart) netMs -= (bEnd - bStart);
+          }
+        }
+        staffTotals.get(te.userId)!.totalMinutes += Math.max(0, netMs / 60000);
+      }
 
       let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
       let squareError: string | null = null;
@@ -1107,23 +1181,6 @@ FORMAT RULES for the content field:
         tipData = await fetchSquareTips(date);
       } catch (err: any) {
         squareError = err.message || "Failed to fetch tips from Square";
-      }
-
-      const staffTotals = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
-      for (const shift of shiftsWithNames) {
-        if (!staffTotals.has(shift.userId)) {
-          staffTotals.set(shift.userId, {
-            name: shift.staffName,
-            username: shift.username,
-            totalMinutes: 0,
-            tipsCents: 0,
-            tipCount: 0,
-          });
-        }
-        const shiftStartMin = parseTimeToMinutes(shift.startTime);
-        const shiftEndMin = parseTimeToMinutes(shift.endTime);
-        const mins = shiftEndMin - shiftStartMin;
-        staffTotals.get(shift.userId)!.totalMinutes += Math.max(0, mins > 0 ? mins : mins + 1440);
       }
 
       const allocations: Array<{
@@ -1136,42 +1193,33 @@ FORMAT RULES for the content field:
 
       for (const tip of tipData.tips) {
         let tipTime: Date | null = null;
-        try {
-          tipTime = new Date(tip.createdAt);
-        } catch { continue; }
+        try { tipTime = new Date(tip.createdAt); } catch { continue; }
 
-        const tipLocalStr = tipTime.toLocaleString("en-US", { timeZone: "America/New_York" });
-        const tipLocal = new Date(tipLocalStr);
-        const tipMins = tipLocal.getHours() * 60 + tipLocal.getMinutes();
+        const tipMs = tipTime.getTime();
 
         const onDutyStaff: string[] = [];
-        for (const shift of shiftsWithNames) {
-          const shiftStartMins = parseTimeToMinutes(shift.startTime);
-          const shiftEndMins = parseTimeToMinutes(shift.endTime);
-
-          if (shiftEndMins > shiftStartMins) {
-            if (tipMins >= shiftStartMins && tipMins < shiftEndMins) {
-              if (!onDutyStaff.includes(shift.userId)) {
-                onDutyStaff.push(shift.userId);
-              }
-            }
-          } else {
-            if (tipMins >= shiftStartMins || tipMins < shiftEndMins) {
-              if (!onDutyStaff.includes(shift.userId)) {
-                onDutyStaff.push(shift.userId);
-              }
-            }
+        for (const te of dayTimeEntries) {
+          const clockOut = te.clockOut || new Date();
+          if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
+            if (!onDutyStaff.includes(te.userId)) onDutyStaff.push(te.userId);
           }
         }
 
+        if (onDutyStaff.length === 0 && clockedInUserIds.length > 0) {
+          onDutyStaff.push(...clockedInUserIds);
+        }
+
         if (onDutyStaff.length === 0) {
-          const allFohIds = Array.from(new Set(shiftsWithNames.map(s => s.userId)));
-          onDutyStaff.push(...allFohIds);
+          onDutyStaff.push(...fohUserIds);
         }
 
         const splitAmount = onDutyStaff.length > 0 ? Math.round(tip.tipAmountCents / onDutyStaff.length) : 0;
-
         for (const uid of onDutyStaff) {
+          if (!staffTotals.has(uid)) {
+            const staff = staffMap.get(uid);
+            const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
+            staffTotals.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+          }
           const entry = staffTotals.get(uid);
           if (entry) {
             entry.tipsCents += splitAmount;
@@ -1202,7 +1250,7 @@ FORMAT RULES for the content field:
         totalTips: tipData.totalTipsCents / 100,
         totalOrders: tipData.orderCount,
         tippedOrders: tipData.tips.length,
-        fohStaffCount: fohUserIds.length,
+        fohStaffCount: clockedInUserIds.length,
         staffBreakdown,
         allocations,
         squareError,
