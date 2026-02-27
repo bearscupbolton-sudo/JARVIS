@@ -387,9 +387,9 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
                             <Clock className="w-3 h-3" /> {timeStr}
                           </span>
                         )}
-                        {item.job?.sopId && (
+                        {(item.sopId || item.job?.sopId) && (
                           <Badge variant="secondary" className="text-xs">
-                            <Link2 className="w-3 h-3 mr-1" /> SOP
+                            <BookOpen className="w-3 h-3 mr-1" /> SOP
                           </Badge>
                         )}
                         {recipeId && (
@@ -420,6 +420,7 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
         listId={listId}
         jobs={jobs || []}
         recipes={recipes || []}
+        sops={allSOPs || []}
         open={addItemOpen}
         onOpenChange={setAddItemOpen}
         nextOrder={list.items.length}
@@ -524,18 +525,20 @@ function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
   );
 }
 
-function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }: {
+function AddItemDialog({ listId, jobs, recipes, sops, open, onOpenChange, nextOrder }: {
   listId: number;
   jobs: TaskJob[];
   recipes: Recipe[];
+  sops: SOP[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
   nextOrder: number;
 }) {
   const { toast } = useToast();
-  const [mode, setMode] = useState<"job" | "manual" | "recipe">("manual");
+  const [mode, setMode] = useState<"job" | "manual" | "recipe" | "sop">("manual");
   const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
+  const [selectedSopId, setSelectedSopId] = useState<string>("");
   const [manualTitle, setManualTitle] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -557,6 +560,7 @@ function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }:
     setMode("manual");
     setSelectedJobId("");
     setSelectedRecipeId("");
+    setSelectedSopId("");
     setManualTitle("");
     setStartTime("");
     setEndTime("");
@@ -576,10 +580,14 @@ function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }:
       const recipe = recipes.find(r => r.id === parseInt(selectedRecipeId));
       payload.recipeId = parseInt(selectedRecipeId);
       payload.manualTitle = recipe ? recipe.title : "Recipe";
+    } else if (mode === "sop" && selectedSopId) {
+      const sop = sops.find(s => s.id === parseInt(selectedSopId));
+      payload.sopId = parseInt(selectedSopId);
+      payload.manualTitle = sop ? sop.title : "SOP";
     } else if (mode === "manual" && manualTitle.trim()) {
       payload.manualTitle = manualTitle.trim();
     } else {
-      toast({ title: "Please enter a task, select a job, or choose a recipe", variant: "destructive" });
+      toast({ title: "Please enter a task, select a job, choose a recipe, or select an SOP", variant: "destructive" });
       return;
     }
     createMut.mutate(payload);
@@ -595,7 +603,7 @@ function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }:
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Task to List</DialogTitle>
-          <DialogDescription>Choose a saved job, link a recipe, or type a custom task.</DialogDescription>
+          <DialogDescription>Choose a saved job, link a recipe, link an SOP, or type a custom task.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex items-center gap-2 flex-wrap">
@@ -623,6 +631,14 @@ function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }:
             >
               <ChefHat className="w-4 h-4 mr-1" /> Link Recipe
             </Button>
+            <Button
+              variant={mode === "sop" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("sop")}
+              data-testid="button-mode-sop"
+            >
+              <BookOpen className="w-4 h-4 mr-1" /> Link SOP
+            </Button>
           </div>
 
           {mode === "manual" ? (
@@ -649,6 +665,26 @@ function AddItemDialog({ listId, jobs, recipes, open, onOpenChange, nextOrder }:
                     {jobs.map((j) => (
                       <SelectItem key={j.id} value={String(j.id)}>
                         {j.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : mode === "sop" ? (
+            <div>
+              <label className="text-sm font-medium">Select SOP</label>
+              {sops.length === 0 ? (
+                <p className="text-sm text-muted-foreground mt-1">No SOPs available.</p>
+              ) : (
+                <Select value={selectedSopId} onValueChange={setSelectedSopId}>
+                  <SelectTrigger data-testid="select-sop">
+                    <SelectValue placeholder="Choose an SOP..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sops.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.title}
                       </SelectItem>
                     ))}
                   </SelectContent>

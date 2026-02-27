@@ -14,7 +14,7 @@ import {
   ArrowLeft, CheckCircle2, Clock, ChefHat, BookOpen,
   Link2, Play, Timer, ClipboardList
 } from "lucide-react";
-import type { TaskJob, TaskList, TaskListItem, Recipe } from "@shared/schema";
+import type { TaskJob, TaskList, TaskListItem, Recipe, SOP } from "@shared/schema";
 
 type TaskListWithItems = TaskList & {
   items: (TaskListItem & { job?: TaskJob | null })[];
@@ -49,12 +49,19 @@ export default function AssignedTaskList() {
   });
 
   const { data: recipes } = useQuery<Recipe[]>({ queryKey: ["/api/recipes"] });
+  const { data: allSOPs } = useQuery<SOP[]>({ queryKey: ["/api/sops"] });
 
   const recipeMap = useMemo(() => {
     const map = new Map<number, Recipe>();
     recipes?.forEach(r => map.set(r.id, r));
     return map;
   }, [recipes]);
+
+  const sopMap = useMemo(() => {
+    const map = new Map<number, SOP>();
+    allSOPs?.forEach(s => map.set(s.id, s));
+    return map;
+  }, [allSOPs]);
 
   const startItemMut = useMutation({
     mutationFn: async (itemId: number) => {
@@ -171,6 +178,8 @@ export default function AssignedTaskList() {
           const title = item.job?.name || item.manualTitle || "Untitled";
           const recipeId = item.recipeId || item.job?.recipeId;
           const recipe = recipeId ? recipeMap.get(recipeId) : null;
+          const sopId = item.sopId || item.job?.sopId;
+          const sop = sopId ? sopMap.get(sopId) : null;
           const timeStr = item.startTime
             ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
             : null;
@@ -214,9 +223,9 @@ export default function AssignedTaskList() {
                           <ChefHat className="w-3 h-3 mr-1" /> {recipe.title}
                         </Badge>
                       )}
-                      {item.job?.sopId && (
+                      {sopId && sop && (
                         <Badge variant="secondary" className="text-xs">
-                          <BookOpen className="w-3 h-3 mr-1" /> SOP
+                          <BookOpen className="w-3 h-3 mr-1" /> {sop.title}
                         </Badge>
                       )}
                       {isStarted && elapsed !== null && (
@@ -242,7 +251,21 @@ export default function AssignedTaskList() {
                         <Play className="w-3 h-3 mr-1" /> Begin Recipe
                       </Button>
                     )}
-                    {!recipeId && !item.completed && !item.startedAt && (
+                    {sopId && !item.completed && (
+                      <Link href="/sops">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            if (!item.startedAt) startItemMut.mutate(item.id);
+                          }}
+                          data-testid={`button-view-sop-${item.id}`}
+                        >
+                          <BookOpen className="w-3 h-3 mr-1" /> View SOP
+                        </Button>
+                      </Link>
+                    )}
+                    {!recipeId && !sopId && !item.completed && !item.startedAt && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -252,7 +275,7 @@ export default function AssignedTaskList() {
                         <Play className="w-3 h-3 mr-1" /> Start
                       </Button>
                     )}
-                    {!recipeId && isStarted && (
+                    {!recipeId && !sopId && isStarted && (
                       <Button
                         size="sm"
                         variant="default"

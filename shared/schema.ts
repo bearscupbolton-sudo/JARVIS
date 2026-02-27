@@ -571,6 +571,7 @@ export const taskListItems = pgTable("task_list_items", {
   listId: integer("list_id").notNull().references(() => taskLists.id, { onDelete: "cascade" }),
   jobId: integer("job_id").references(() => taskJobs.id),
   recipeId: integer("recipe_id"),
+  sopId: integer("sop_id").references(() => sops.id),
   manualTitle: text("manual_title"),
   startTime: text("start_time"),
   endTime: text("end_time"),
