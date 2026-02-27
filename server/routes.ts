@@ -4967,6 +4967,146 @@ Clean up grammar, spelling, and tone. Make it professional while keeping the ori
     }
   });
 
+  app.post("/api/notes/:id/generate/save", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      if (note.userId !== user.id && !note.isShared) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { type } = req.body;
+      if (!type || !["recipe", "sop"].includes(type)) {
+        return res.status(400).json({ message: "Type must be recipe or sop" });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const ai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      if (type === "recipe") {
+        const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a structured recipe. Return ONLY valid JSON (no markdown code blocks, no extra text) with this exact structure:
+{
+  "title": "Recipe Name",
+  "description": "Brief description",
+  "yieldAmount": 10,
+  "yieldUnit": "pieces",
+  "category": "Pastry",
+  "department": "bakery",
+  "ingredients": [
+    { "name": "All-Purpose Flour", "quantity": 500, "unit": "g" },
+    { "name": "Butter", "quantity": 250, "unit": "g" }
+  ],
+  "instructions": [
+    { "step": 1, "text": "Mix dry ingredients together." },
+    { "step": 2, "text": "Add butter and combine." }
+  ]
+}
+
+Rules:
+- Use metric units (g, kg, ml, L) for ingredients when possible
+- department must be one of: "bakery", "kitchen", "bar"
+- category examples: "Bread", "Pastry", "Cake", "Viennoiserie", "Cookie", "Savory", "Beverage"
+- yieldUnit examples: "pieces", "loaves", "kg", "portions", "cookies", "servings"
+- Include all ingredients mentioned in the note
+- Break instructions into clear, numbered steps`;
+
+        const response = await withRetry(() => ai.chat.completions.create({
+          model: "gpt-4o-mini",
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Note Title: ${note.title}\n\nNote Content:\n${note.content}` },
+          ],
+        }));
+
+        const raw = response.choices[0]?.message?.content || "";
+        let parsed;
+        try {
+          const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          parsed = JSON.parse(cleaned);
+        } catch {
+          return res.status(422).json({ message: "AI returned invalid recipe format. Try again." });
+        }
+
+        if (!parsed.title || !parsed.ingredients || !parsed.instructions) {
+          return res.status(422).json({ message: "AI response missing required fields. Try again." });
+        }
+
+        const recipe = await storage.createRecipe({
+          title: parsed.title,
+          description: parsed.description || null,
+          yieldAmount: parsed.yieldAmount || 1,
+          yieldUnit: parsed.yieldUnit || "batch",
+          category: parsed.category || "Other",
+          department: parsed.department || "bakery",
+          ingredients: parsed.ingredients,
+          instructions: parsed.instructions,
+        });
+
+        await storage.updateNote(Number(req.params.id), {
+          generatedType: type,
+          generatedContent: `Recipe "${recipe.title}" created (ID: ${recipe.id})`,
+        });
+
+        res.json({ saved: true, type: "recipe", id: recipe.id, title: recipe.title });
+      } else if (type === "sop") {
+        const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a professional Standard Operating Procedure. Return ONLY valid JSON (no markdown code blocks, no extra text) with this exact structure:
+{
+  "title": "SOP Title",
+  "content": "Full SOP content in markdown format with sections for Purpose, Scope, Materials, Procedure (numbered steps), Safety, and Quality Checkpoints.",
+  "category": "Operations"
+}
+
+Rules:
+- category examples: "Safety", "Cleaning", "Equipment", "Operations", "Food Handling", "Opening", "Closing", "Production"
+- content should be well-formatted markdown with headers, numbered lists, and bullet points
+- Be thorough and professional`;
+
+        const response = await withRetry(() => ai.chat.completions.create({
+          model: "gpt-4o-mini",
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Note Title: ${note.title}\n\nNote Content:\n${note.content}` },
+          ],
+        }));
+
+        const raw = response.choices[0]?.message?.content || "";
+        let parsed;
+        try {
+          const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          parsed = JSON.parse(cleaned);
+        } catch {
+          return res.status(422).json({ message: "AI returned invalid SOP format. Try again." });
+        }
+
+        if (!parsed.title || !parsed.content) {
+          return res.status(422).json({ message: "AI response missing required fields. Try again." });
+        }
+
+        const sop = await storage.createSOP({
+          title: parsed.title,
+          content: parsed.content,
+          category: parsed.category || "Operations",
+        });
+
+        await storage.updateNote(Number(req.params.id), {
+          generatedType: type,
+          generatedContent: `SOP "${sop.title}" created (ID: ${sop.id})`,
+        });
+
+        res.json({ saved: true, type: "sop", id: sop.id, title: sop.title });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   (async () => {
     try {
       const existingGames = await storage.getStarkadeGames();

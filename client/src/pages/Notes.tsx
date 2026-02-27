@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -68,6 +69,29 @@ function NoteEditor({
     },
     onError: (err: any) => {
       toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const [, setLocation] = useLocation();
+
+  const saveToSystemMutation = useMutation({
+    mutationFn: async (type: string) => {
+      const res = await apiRequest("POST", `/api/notes/${note.id}/generate/save`, { type });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+      if (data.type === "recipe") {
+        queryClient.invalidateQueries({ queryKey: ["/api/recipes"] });
+        toast({ title: "Recipe created!", description: `"${data.title}" has been saved to your recipes.` });
+      } else if (data.type === "sop") {
+        queryClient.invalidateQueries({ queryKey: ["/api/sops"] });
+        toast({ title: "SOP created!", description: `"${data.title}" has been saved to your SOPs.` });
+      }
+      setShowGenerated(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -215,11 +239,19 @@ function NoteEditor({
           <DropdownMenuContent>
             <DropdownMenuItem onClick={() => generateMutation.mutate("recipe")} data-testid="menu-generate-recipe">
               <ChefHat className="w-4 h-4 mr-2" />
-              Recipe
+              Preview Recipe
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => saveToSystemMutation.mutate("recipe")} disabled={saveToSystemMutation.isPending} data-testid="menu-build-recipe">
+              <ChefHat className="w-4 h-4 mr-2" />
+              Build Recipe
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => generateMutation.mutate("sop")} data-testid="menu-generate-sop">
               <ClipboardList className="w-4 h-4 mr-2" />
-              SOP
+              Preview SOP
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => saveToSystemMutation.mutate("sop")} disabled={saveToSystemMutation.isPending} data-testid="menu-build-sop">
+              <ClipboardList className="w-4 h-4 mr-2" />
+              Build SOP
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => generateMutation.mutate("letterhead")} data-testid="menu-generate-letterhead">
               <FileText className="w-4 h-4 mr-2" />
@@ -261,14 +293,36 @@ function NoteEditor({
           <div className="prose dark:prose-invert max-w-none text-sm whitespace-pre-wrap" data-testid="text-generated-content">
             {generatedContent}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => {
               navigator.clipboard.writeText(generatedContent);
               toast({ title: "Copied to clipboard" });
             }} data-testid="button-copy-generated">
               Copy to Clipboard
             </Button>
-            <Button onClick={() => setShowGenerated(false)}>Close</Button>
+            {generatedType === "recipe" && (
+              <Button
+                onClick={() => saveToSystemMutation.mutate("recipe")}
+                disabled={saveToSystemMutation.isPending}
+                className="gap-2"
+                data-testid="button-save-as-recipe"
+              >
+                {saveToSystemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChefHat className="w-4 h-4" />}
+                {saveToSystemMutation.isPending ? "Building Recipe..." : "Save to Recipes"}
+              </Button>
+            )}
+            {generatedType === "sop" && (
+              <Button
+                onClick={() => saveToSystemMutation.mutate("sop")}
+                disabled={saveToSystemMutation.isPending}
+                className="gap-2"
+                data-testid="button-save-as-sop"
+              >
+                {saveToSystemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />}
+                {saveToSystemMutation.isPending ? "Building SOP..." : "Save to SOPs"}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setShowGenerated(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
