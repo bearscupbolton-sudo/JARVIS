@@ -903,6 +903,64 @@ FORMAT RULES for the content field:
     }
   });
 
+  // === SOLDOUT LOGS ===
+  app.get("/api/soldout-logs", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
+      const logs = await storage.getSoldoutLogs(date, locationId);
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/soldout-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const { itemName, date, soldOutAt, notes, locationId } = req.body;
+      if (!itemName || !date || !soldOutAt) {
+        return res.status(400).json({ message: "itemName, date, and soldOutAt are required" });
+      }
+      const log = await storage.createSoldoutLog({
+        itemName,
+        date,
+        soldOutAt,
+        reportedBy: req.appUser?.firstName || req.appUser?.username || "Unknown",
+        notes: notes || null,
+        locationId: locationId || null,
+      });
+      res.json(log);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/soldout-logs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { soldOutAt, notes } = req.body;
+      const updates: any = {};
+      if (soldOutAt !== undefined) updates.soldOutAt = soldOutAt;
+      if (notes !== undefined) updates.notes = notes;
+      const log = await storage.updateSoldoutLog(id, updates);
+      if (!log) return res.status(404).json({ message: "Not found" });
+      res.json(log);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/soldout-logs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const ok = await storage.deleteSoldoutLog(id);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // === TTIS (Tip Transparency Informational Dashboard) ===
 
   function parseTimeToMinutes(timeStr: string): number {

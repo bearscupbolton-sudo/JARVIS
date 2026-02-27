@@ -234,6 +234,22 @@ export const insertBakeoffLogSchema = createInsertSchema(bakeoffLogs).omit({ id:
 export type BakeoffLog = typeof bakeoffLogs.$inferSelect;
 export type InsertBakeoffLog = z.infer<typeof insertBakeoffLogSchema>;
 
+// === SOLDOUT LOGS ===
+export const soldoutLogs = pgTable("soldout_logs", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  itemName: text("item_name").notNull(),
+  soldOutAt: text("sold_out_at").notNull(),
+  reportedBy: text("reported_by"),
+  locationId: integer("location_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSoldoutLogSchema = createInsertSchema(soldoutLogs).omit({ id: true, createdAt: true });
+export type SoldoutLog = typeof soldoutLogs.$inferSelect;
+export type InsertSoldoutLog = z.infer<typeof insertSoldoutLogSchema>;
+
 // === INVENTORY ITEMS (Master List) ===
 export const inventoryItems = pgTable("inventory_items", {
   id: serial("id").primaryKey(),

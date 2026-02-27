@@ -29,6 +29,8 @@ import {
   type PastryTotal, type InsertPastryTotal,
   type ShapingLog, type InsertShapingLog,
   type BakeoffLog, type InsertBakeoffLog,
+  soldoutLogs,
+  type SoldoutLog, type InsertSoldoutLog,
   type InventoryItem, type InsertInventoryItem,
   type Invoice, type InsertInvoice,
   type InvoiceLine, type InsertInvoiceLine,
@@ -149,6 +151,12 @@ export interface IStorage {
   getBakeoffLogs(date: string): Promise<BakeoffLog[]>;
   createBakeoffLog(log: InsertBakeoffLog): Promise<BakeoffLog>;
   deleteBakeoffLog(id: number): Promise<boolean>;
+
+  // Soldout Logs
+  getSoldoutLogs(date: string, locationId?: number): Promise<SoldoutLog[]>;
+  createSoldoutLog(log: InsertSoldoutLog): Promise<SoldoutLog>;
+  deleteSoldoutLog(id: number): Promise<boolean>;
+  updateSoldoutLog(id: number, updates: Partial<InsertSoldoutLog>): Promise<SoldoutLog | null>;
 
   // Kiosk Timers
   getActiveTimers(): Promise<KioskTimer[]>;
@@ -715,6 +723,30 @@ export class DatabaseStorage implements IStorage {
   async deleteBakeoffLog(id: number): Promise<boolean> {
     const result = await db.delete(bakeoffLogs).where(eq(bakeoffLogs.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Soldout Logs
+  async getSoldoutLogs(date: string, locationId?: number): Promise<SoldoutLog[]> {
+    const conditions = [eq(soldoutLogs.date, date)];
+    if (locationId !== undefined) {
+      conditions.push(eq(soldoutLogs.locationId, locationId));
+    }
+    return await db.select().from(soldoutLogs).where(and(...conditions)).orderBy(desc(soldoutLogs.createdAt));
+  }
+
+  async createSoldoutLog(insertLog: InsertSoldoutLog): Promise<SoldoutLog> {
+    const [log] = await db.insert(soldoutLogs).values(insertLog).returning();
+    return log;
+  }
+
+  async deleteSoldoutLog(id: number): Promise<boolean> {
+    const result = await db.delete(soldoutLogs).where(eq(soldoutLogs.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async updateSoldoutLog(id: number, updates: Partial<InsertSoldoutLog>): Promise<SoldoutLog | null> {
+    const [log] = await db.update(soldoutLogs).set(updates).where(eq(soldoutLogs.id, id)).returning();
+    return log || null;
   }
 
   async getActiveTimers(): Promise<KioskTimer[]> {
