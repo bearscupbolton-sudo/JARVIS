@@ -9,17 +9,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, Mic, MicOff, Trash2, Share2, Pin, PinOff, Search,
   FileText, ChefHat, ClipboardList, Sparkles, ArrowLeft,
-  MoreVertical, Loader2, Lock,
+  MoreVertical, Loader2, Lock, Users, UserPlus, X,
 } from "lucide-react";
 import type { Note } from "@shared/schema";
+
+type CollaboratorUser = { id: string; firstName: string | null; lastName: string | null; username: string | null; profileImageUrl: string | null };
 
 function formatDate(date: string | Date | null) {
   if (!date) return "";
@@ -31,14 +35,20 @@ function formatDate(date: string | Date | null) {
 function NoteEditor({
   note,
   onBack,
+  isOwner,
 }: {
   note: Note;
   onBack: () => void;
+  isOwner: boolean;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [isShared, setIsShared] = useState(note.isShared);
+  const [sharedWith, setSharedWith] = useState<string[]>((note.sharedWith as string[]) || []);
+  const [showCollabDialog, setShowCollabDialog] = useState(false);
+  const [collabSearch, setCollabSearch] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [showGenerated, setShowGenerated] = useState(false);
@@ -47,6 +57,11 @@ function NoteEditor({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const { data: allUsers } = useQuery<CollaboratorUser[]>({
+    queryKey: ["/api/notes/collaborator-users"],
+    enabled: isOwner,
+  });
 
   const updateMutation = useMutation({
     mutationFn: (updates: Partial<Note>) =>
@@ -98,16 +113,21 @@ function NoteEditor({
   const autoSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      updateMutation.mutate({ title, content, isShared });
+      const updates: any = { title, content };
+      if (isOwner) {
+        updates.isShared = isShared;
+        updates.sharedWith = sharedWith;
+      }
+      updateMutation.mutate(updates);
     }, 1000);
-  }, [title, content, isShared]);
+  }, [title, content, isShared, sharedWith, isOwner]);
 
   useEffect(() => {
     autoSave();
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [title, content, isShared]);
+  }, [title, content, isShared, sharedWith, isOwner]);
 
   const startRecording = async () => {
     try {
@@ -175,18 +195,37 @@ function NoteEditor({
           data-testid="input-note-title"
         />
         <div className="flex items-center gap-2 ml-auto shrink-0">
-          <div className="flex items-center gap-1.5">
-            <Switch
-              id="shared"
-              checked={isShared}
-              onCheckedChange={setIsShared}
-              data-testid="switch-shared"
-            />
-            <Label htmlFor="shared" className="text-xs text-muted-foreground whitespace-nowrap">
-              {isShared ? <Share2 className="w-3.5 h-3.5 inline" /> : <Lock className="w-3.5 h-3.5 inline" />}
-              {isShared ? " Shared" : " Private"}
-            </Label>
-          </div>
+          {isOwner && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCollabDialog(true)}
+                className="gap-1.5 h-8 text-xs"
+                data-testid="button-manage-collaborators"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                {sharedWith.length > 0 ? `${sharedWith.length} Collaborator${sharedWith.length > 1 ? "s" : ""}` : "Add People"}
+              </Button>
+              <div className="flex items-center gap-1.5">
+                <Switch
+                  id="shared"
+                  checked={isShared}
+                  onCheckedChange={setIsShared}
+                  data-testid="switch-shared"
+                />
+                <Label htmlFor="shared" className="text-xs text-muted-foreground whitespace-nowrap">
+                  {isShared ? <Share2 className="w-3.5 h-3.5 inline" /> : <Lock className="w-3.5 h-3.5 inline" />}
+                  {isShared ? " Public" : " Private"}
+                </Label>
+              </div>
+            </>
+          )}
+          {!isOwner && (
+            <Badge variant="secondary" className="text-xs gap-1">
+              <Users className="w-3 h-3" /> Collaborator
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -326,6 +365,92 @@ function NoteEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isOwner && (
+        <Dialog open={showCollabDialog} onOpenChange={setShowCollabDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Manage Collaborators
+              </DialogTitle>
+              <DialogDescription>
+                Add team members who can edit this note with you.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              placeholder="Search team members..."
+              value={collabSearch}
+              onChange={(e) => setCollabSearch(e.target.value)}
+              data-testid="input-collab-search"
+            />
+            {sharedWith.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" data-testid="collab-chips">
+                {sharedWith.map(uid => {
+                  const u = allUsers?.find(u => u.id === uid);
+                  const name = u ? (u.firstName || u.username || "User") : "Unknown";
+                  return (
+                    <Badge key={uid} variant="secondary" className="gap-1 pr-1" data-testid={`chip-collab-${uid}`}>
+                      {name}
+                      <button
+                        onClick={() => setSharedWith(prev => prev.filter(id => id !== uid))}
+                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                        data-testid={`button-remove-collab-${uid}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
+            <div className="max-h-[240px] overflow-y-auto space-y-1" data-testid="collab-user-list">
+              {(allUsers || [])
+                .filter(u => u.id !== user?.id)
+                .filter(u => {
+                  if (!collabSearch.trim()) return true;
+                  const q = collabSearch.toLowerCase();
+                  return (u.firstName?.toLowerCase().includes(q) || u.lastName?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q));
+                })
+                .map(u => {
+                  const isSelected = sharedWith.includes(u.id);
+                  const displayName = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.username || "User";
+                  const initials = (u.firstName?.[0] || "") + (u.lastName?.[0] || "");
+                  return (
+                    <div
+                      key={u.id}
+                      className="flex items-center gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
+                      onClick={() => {
+                        if (isSelected) {
+                          setSharedWith(prev => prev.filter(id => id !== u.id));
+                        } else {
+                          setSharedWith(prev => [...prev, u.id]);
+                        }
+                      }}
+                      data-testid={`collab-user-${u.id}`}
+                    >
+                      <Checkbox checked={isSelected} />
+                      <Avatar className="h-7 w-7">
+                        <AvatarFallback className="text-[10px]">{initials || "?"}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm flex-1">{displayName}</span>
+                    </div>
+                  );
+                })}
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setShowCollabDialog(false)} data-testid="button-close-collab-dialog">Done</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {sharedWith.length > 0 && isOwner && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+          <Users className="w-3.5 h-3.5" />
+          <span>Shared with {sharedWith.length} collaborator{sharedWith.length > 1 ? "s" : ""} who can edit this note</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -336,12 +461,14 @@ function NoteCard({
   onDelete,
   onTogglePin,
   isOwner,
+  isCollaborator,
 }: {
   note: Note;
   onClick: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
   isOwner: boolean;
+  isCollaborator?: boolean;
 }) {
   return (
     <Card
@@ -367,7 +494,17 @@ function NoteCard({
               </span>
               {note.isShared && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  <Share2 className="w-2.5 h-2.5 mr-0.5" /> Shared
+                  <Share2 className="w-2.5 h-2.5 mr-0.5" /> Public
+                </Badge>
+              )}
+              {isCollaborator && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary">
+                  <Users className="w-2.5 h-2.5 mr-0.5" /> Collaborator
+                </Badge>
+              )}
+              {!isCollaborator && note.sharedWith && Array.isArray(note.sharedWith) && note.sharedWith.length > 0 && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                  <Users className="w-2.5 h-2.5 mr-0.5" /> {note.sharedWith.length} collaborator{note.sharedWith.length > 1 ? "s" : ""}
                 </Badge>
               )}
               {note.generatedType && (
@@ -377,7 +514,7 @@ function NoteCard({
               )}
             </div>
           </div>
-          {isOwner && (
+          {isOwner && onDelete && onTogglePin && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" data-testid={`button-note-menu-${note.id}`}>
@@ -461,11 +598,13 @@ export default function Notes() {
   const displaySharedNotes = sortNotes(filterNotes(sharedNotes));
 
   if (activeNote) {
+    const noteIsOwned = activeNote.userId === user?.id;
     return (
       <div className="max-w-3xl mx-auto p-4">
         <NoteEditor
           key={activeNote.id}
           note={activeNote}
+          isOwner={noteIsOwned}
           onBack={() => {
             setActiveNote(null);
             queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
@@ -522,16 +661,20 @@ export default function Notes() {
             </Card>
           ) : (
             <div className="grid gap-3">
-              {displayMyNotes.map(note => (
-                <NoteCard
-                  key={note.id}
-                  note={note}
-                  onClick={() => setActiveNote(note)}
-                  onDelete={() => deleteMutation.mutate(note.id)}
-                  onTogglePin={() => pinMutation.mutate(note)}
-                  isOwner={true}
-                />
-              ))}
+              {displayMyNotes.map(note => {
+                const owned = note.userId === user?.id;
+                return (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    onClick={() => setActiveNote(note)}
+                    onDelete={() => owned ? deleteMutation.mutate(note.id) : undefined}
+                    onTogglePin={() => owned ? pinMutation.mutate(note) : undefined}
+                    isOwner={owned}
+                    isCollaborator={!owned}
+                  />
+                );
+              })}
             </div>
           )}
         </TabsContent>

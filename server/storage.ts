@@ -2698,7 +2698,9 @@ export class DatabaseStorage implements IStorage {
     return results as any;
   }
   async getNotes(userId: string): Promise<Note[]> {
-    return db.select().from(notes).where(eq(notes.userId, userId)).orderBy(desc(notes.updatedAt));
+    return db.select().from(notes)
+      .where(sql`${notes.userId} = ${userId} OR (${notes.sharedWith} IS NOT NULL AND ${notes.sharedWith}::jsonb @> ${JSON.stringify([userId])}::jsonb)`)
+      .orderBy(desc(notes.updatedAt));
   }
 
   async getNote(id: number): Promise<Note | undefined> {
@@ -2721,8 +2723,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSharedNotes(userId: string): Promise<Note[]> {
-    const allShared = await db.select().from(notes).where(eq(notes.isShared, true)).orderBy(desc(notes.updatedAt));
-    return allShared.filter(n => n.userId !== userId);
+    return db.select().from(notes)
+      .where(sql`${notes.isShared} = true AND ${notes.userId} != ${userId} AND (${notes.sharedWith} IS NULL OR NOT ${notes.sharedWith}::jsonb @> ${JSON.stringify([userId])}::jsonb)`)
+      .orderBy(desc(notes.updatedAt));
   }
 }
 

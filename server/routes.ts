@@ -4812,13 +4812,23 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
     }
   });
 
+  app.get("/api/notes/collaborator-users", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      res.json(allUsers.map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, username: u.username, profileImageUrl: u.profileImageUrl })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/notes/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const note = await storage.getNote(Number(req.params.id));
       if (!note) return res.status(404).json({ message: "Note not found" });
-      if (note.userId !== user.id && !note.isShared) {
+      const isCollaborator = note.sharedWith && Array.isArray(note.sharedWith) && note.sharedWith.includes(user.id);
+      if (note.userId !== user.id && !note.isShared && !isCollaborator) {
         return res.status(403).json({ message: "Access denied" });
       }
       res.json(note);
@@ -4852,12 +4862,26 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const note = await storage.getNote(Number(req.params.id));
       if (!note) return res.status(404).json({ message: "Note not found" });
-      if (note.userId !== user.id) return res.status(403).json({ message: "Access denied" });
-      const allowedFields: Partial<{ title: string; content: string; isShared: boolean; isPinned: boolean }> = {};
+      const isOwner = note.userId === user.id;
+      const isCollaborator = note.sharedWith && Array.isArray(note.sharedWith) && note.sharedWith.includes(user.id);
+      if (!isOwner && !isCollaborator) return res.status(403).json({ message: "Access denied" });
+      const allowedFields: Partial<{ title: string; content: string; isShared: boolean; isPinned: boolean; sharedWith: string[] }> = {};
       if (req.body.title !== undefined) allowedFields.title = String(req.body.title);
       if (req.body.content !== undefined) allowedFields.content = String(req.body.content);
-      if (req.body.isShared !== undefined) allowedFields.isShared = req.body.isShared === true;
-      if (req.body.isPinned !== undefined) allowedFields.isPinned = req.body.isPinned === true;
+      if (isOwner) {
+        if (req.body.isShared !== undefined) allowedFields.isShared = req.body.isShared === true;
+        if (req.body.isPinned !== undefined) allowedFields.isPinned = req.body.isPinned === true;
+        if (req.body.sharedWith !== undefined) {
+          const requestedIds: string[] = Array.isArray(req.body.sharedWith) ? req.body.sharedWith.filter((id: any) => typeof id === "string") : [];
+          if (requestedIds.length > 0) {
+            const validUsers = await authStorage.getAllUsers();
+            const validIds = new Set(validUsers.map(u => u.id));
+            allowedFields.sharedWith = requestedIds.filter(id => validIds.has(id) && id !== user.id);
+          } else {
+            allowedFields.sharedWith = [];
+          }
+        }
+      }
       const updated = await storage.updateNote(Number(req.params.id), allowedFields);
       res.json(updated);
     } catch (err: any) {
@@ -4899,7 +4923,8 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const note = await storage.getNote(Number(req.params.id));
       if (!note) return res.status(404).json({ message: "Note not found" });
-      if (note.userId !== user.id && !note.isShared) {
+      const isCollabGen = note.sharedWith && Array.isArray(note.sharedWith) && note.sharedWith.includes(user.id);
+      if (note.userId !== user.id && !note.isShared && !isCollabGen) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -4973,7 +4998,8 @@ Clean up grammar, spelling, and tone. Make it professional while keeping the ori
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const note = await storage.getNote(Number(req.params.id));
       if (!note) return res.status(404).json({ message: "Note not found" });
-      if (note.userId !== user.id && !note.isShared) {
+      const isCollabSave = note.sharedWith && Array.isArray(note.sharedWith) && note.sharedWith.includes(user.id);
+      if (note.userId !== user.id && !note.isShared && !isCollabSave) {
         return res.status(403).json({ message: "Access denied" });
       }
 
