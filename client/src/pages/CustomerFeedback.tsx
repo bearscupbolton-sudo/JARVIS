@@ -11,6 +11,7 @@ export default function CustomerFeedback() {
   const [hoveredRating, setHoveredRating] = useState(0);
   const [comment, setComment] = useState("");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
   const submitMutation = useMutation({
@@ -19,6 +20,7 @@ export default function CustomerFeedback() {
         rating,
         comment: comment.trim() || null,
         name: name.trim() || null,
+        email: email.trim() || null,
       });
     },
     onSuccess: () => setSubmitted(true),
@@ -44,6 +46,7 @@ export default function CustomerFeedback() {
               setRating(0);
               setComment("");
               setName("");
+              setEmail("");
             }}
             data-testid="button-submit-another"
           >
@@ -129,6 +132,19 @@ export default function CustomerFeedback() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               data-testid="input-feedback-name"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Email address (optional)
+            </label>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              data-testid="input-feedback-email"
             />
           </div>
 
