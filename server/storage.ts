@@ -272,6 +272,7 @@ export interface IStorage {
   // Lamination Doughs
   getLaminationDoughs(date: string): Promise<LaminationDough[]>;
   getActiveLaminationDoughs(): Promise<LaminationDough[]>;
+  getMaxDoughNumber(): Promise<number>;
   getLaminationDoughById(id: number): Promise<LaminationDough | null>;
   createLaminationDough(dough: InsertLaminationDough): Promise<LaminationDough>;
   updateLaminationDough(id: number, updates: Partial<InsertLaminationDough>): Promise<LaminationDough>;
@@ -1436,6 +1437,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(laminationDoughs)
       .where(sql`${laminationDoughs.status} IN ('turning', 'chilling', 'resting', 'proofing', 'frozen', 'fridge')`)
       .orderBy(laminationDoughs.createdAt);
+  }
+
+  async getMaxDoughNumber(): Promise<number> {
+    const [result] = await db.select({ max: sql<number>`COALESCE(MAX(${laminationDoughs.doughNumber}), 0)` }).from(laminationDoughs);
+    return result?.max ?? 0;
   }
 
   async getLaminationDoughById(id: number): Promise<LaminationDough | null> {
