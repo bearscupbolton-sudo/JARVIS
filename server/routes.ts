@@ -2200,9 +2200,10 @@ Only return the JSON array, no other text.`;
       const timeOffReqs = await storage.getTimeOffRequests();
       const coverageMessages = await storage.getScheduleMessages();
 
-      const enrichedShifts = todayShifts.map(shift => {
-        const shiftUser = userMap.get(shift.userId);
-        const displayName = shiftUser?.username || shiftUser?.firstName || shiftUser?.email || shift.userId;
+      const validShifts = todayShifts.filter(shift => userMap.has(shift.userId));
+      const enrichedShifts = validShifts.map(shift => {
+        const shiftUser = userMap.get(shift.userId)!;
+        const displayName = shiftUser.username || shiftUser.firstName || shiftUser.email || shift.userId;
 
         const hasCallout = timeOffReqs.some(r =>
           r.userId === shift.userId &&
@@ -4779,6 +4780,21 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
     try {
       await storage.deleteStarkadeGame(Number(req.params.id));
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/cleanup-orphan-shifts", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const allUsers = await authStorage.getAllUsers();
+      const userIds = new Set(allUsers.map(u => u.id));
+      const allShifts = await storage.getShifts("2020-01-01", "2030-12-31");
+      const orphanShifts = allShifts.filter(s => !userIds.has(s.userId));
+      for (const shift of orphanShifts) {
+        await storage.deleteShift(shift.id);
+      }
+      res.json({ deleted: orphanShifts.length, orphanUserIds: [...new Set(orphanShifts.map(s => s.userId))] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
