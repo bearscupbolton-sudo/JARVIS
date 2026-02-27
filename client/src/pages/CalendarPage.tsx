@@ -345,21 +345,26 @@ export default function CalendarPage() {
               {selectedIds.length > 0 ? `${selectedIds.length} people tagged` : "Tag team members (optional)"}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-64 p-2 max-h-60 overflow-y-auto" align="start">
-            {teamMembers.map(member => {
-              const isSelected = selectedIds.includes(member.id);
-              return (
-                <button key={member.id} type="button"
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-muted transition-colors ${isSelected ? "bg-primary/10" : ""}`}
-                  onClick={() => toggle(member.id)}
-                  data-testid={`${testPrefix}-tag-user-${member.id}`}
-                >
-                  {isSelected ? <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" /> : <div className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <span className="truncate">{getTeamMemberName(member)}</span>
-                </button>
-              );
-            })}
-            {teamMembers.length === 0 && <p className="text-xs text-muted-foreground text-center py-2">No team members found</p>}
+          <PopoverContent className="w-64 p-0" align="start">
+            <div className="p-2 border-b">
+              <p className="text-xs text-muted-foreground">{teamMembers.length} team members</p>
+            </div>
+            <div className="p-2 max-h-80 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+              {teamMembers.map(member => {
+                const isSelected = selectedIds.includes(member.id);
+                return (
+                  <button key={member.id} type="button"
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-muted transition-colors ${isSelected ? "bg-primary/10" : ""}`}
+                    onClick={() => toggle(member.id)}
+                    data-testid={`${testPrefix}-tag-user-${member.id}`}
+                  >
+                    {isSelected ? <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" /> : <div className="w-3.5 h-3.5 flex-shrink-0" />}
+                    <span className="truncate">{getTeamMemberName(member)}</span>
+                  </button>
+                );
+              })}
+              {teamMembers.length === 0 && <p className="text-xs text-muted-foreground text-center py-2">No team members found</p>}
+            </div>
           </PopoverContent>
         </Popover>
         {selectedIds.length > 0 && (
@@ -755,20 +760,25 @@ export default function CalendarPage() {
                             {newJobUserIds.length > 0 ? `${newJobUserIds.length} assigned` : "Assign people"}
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-64 p-2 max-h-60 overflow-y-auto" align="start">
-                          {teamMembers.map(member => {
-                            const isSelected = newJobUserIds.includes(member.id);
-                            return (
-                              <button key={member.id} type="button"
-                                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-muted transition-colors ${isSelected ? "bg-primary/10" : ""}`}
-                                onClick={() => setNewJobUserIds(prev => isSelected ? prev.filter(id => id !== member.id) : [...prev, member.id])}
-                                data-testid={`job-tag-user-${member.id}`}
-                              >
-                                {isSelected ? <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" /> : <div className="w-3.5 h-3.5 flex-shrink-0" />}
-                                <span className="truncate">{getTeamMemberName(member)}</span>
-                              </button>
-                            );
-                          })}
+                        <PopoverContent className="w-64 p-0" align="start">
+                          <div className="p-2 border-b">
+                            <p className="text-xs text-muted-foreground">{teamMembers.length} team members</p>
+                          </div>
+                          <div className="p-2 max-h-80 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+                            {teamMembers.map(member => {
+                              const isSelected = newJobUserIds.includes(member.id);
+                              return (
+                                <button key={member.id} type="button"
+                                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-muted transition-colors ${isSelected ? "bg-primary/10" : ""}`}
+                                  onClick={() => setNewJobUserIds(prev => isSelected ? prev.filter(id => id !== member.id) : [...prev, member.id])}
+                                  data-testid={`job-tag-user-${member.id}`}
+                                >
+                                  {isSelected ? <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" /> : <div className="w-3.5 h-3.5 flex-shrink-0" />}
+                                  <span className="truncate">{getTeamMemberName(member)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </PopoverContent>
                       </Popover>
                       {newJobUserIds.length > 0 && (
