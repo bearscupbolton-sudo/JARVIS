@@ -4335,6 +4335,15 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
     }
   });
 
+  app.post("/api/home/jarvis-briefing/clear", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.clearBriefingCache(req.appUser.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/users/:userId/jarvis-settings", isAuthenticated, async (req: any, res) => {
     try {
       const { showJarvisBriefing } = req.body;

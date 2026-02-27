@@ -364,6 +364,13 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
   data: JarvisBriefingData; onDismiss: () => void; onRefresh: () => void; isRefreshing: boolean;
 }) {
   const seenMutation = useMutation({ mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/seen"); } });
+  const clearMutation = useMutation({
+    mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/clear"); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/home/jarvis-briefing"] });
+      onDismiss();
+    },
+  });
 
   useEffect(() => { if (data.showWelcome) seenMutation.mutate(); }, [data.showWelcome]);
 
@@ -380,8 +387,8 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} disabled={isRefreshing} data-testid="button-refresh-briefing">
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
               </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onDismiss} data-testid="button-dismiss-briefing">
-                <X className="w-3.5 h-3.5" />
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending} data-testid="button-clear-briefing">
+                Clear
               </Button>
             </div>
           </div>
