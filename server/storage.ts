@@ -75,6 +75,9 @@ import {
   type VendorItem, type InsertVendorItem,
   type PurchaseOrder, type InsertPurchaseOrder,
   type PurchaseOrderLine, type InsertPurchaseOrderLine,
+  lobbyCheckSettings, lobbyCheckLogs,
+  type LobbyCheckSettings, type InsertLobbyCheckSettings,
+  type LobbyCheckLog, type InsertLobbyCheckLog,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -437,6 +440,12 @@ export interface IStorage {
   createPurchaseOrderLines(lines: InsertPurchaseOrderLine[]): Promise<PurchaseOrderLine[]>;
   updatePurchaseOrder(id: number, updates: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder>;
   getItemsNeedingReorder(vendorId: number): Promise<(VendorItem & { inventoryItem: InventoryItem })[]>;
+
+  // Lobby Check
+  getLobbyCheckSettings(locationId?: number): Promise<LobbyCheckSettings | undefined>;
+  upsertLobbyCheckSettings(settings: InsertLobbyCheckSettings): Promise<LobbyCheckSettings>;
+  getLobbyCheckLogs(date: string, locationId?: number): Promise<LobbyCheckLog[]>;
+  createLobbyCheckLog(log: InsertLobbyCheckLog): Promise<LobbyCheckLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2860,6 +2869,39 @@ export class DatabaseStorage implements IStorage {
         sql`${vendorItems.parLevel} IS NOT NULL AND ${inventoryItems.onHand} < ${vendorItems.parLevel}`
       ));
     return rows.map(r => ({ ...r.vendorItem, inventoryItem: r.inventoryItem }));
+  }
+
+  async getLobbyCheckSettings(locationId?: number): Promise<LobbyCheckSettings | undefined> {
+    const conditions = locationId != null
+      ? eq(lobbyCheckSettings.locationId, locationId)
+      : isNull(lobbyCheckSettings.locationId);
+    const [row] = await db.select().from(lobbyCheckSettings).where(conditions);
+    return row;
+  }
+
+  async upsertLobbyCheckSettings(settings: InsertLobbyCheckSettings): Promise<LobbyCheckSettings> {
+    const existing = await this.getLobbyCheckSettings(settings.locationId ?? undefined);
+    if (existing) {
+      const [updated] = await db.update(lobbyCheckSettings)
+        .set({ ...settings, updatedAt: new Date() })
+        .where(eq(lobbyCheckSettings.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(lobbyCheckSettings).values(settings).returning();
+    return created;
+  }
+
+  async getLobbyCheckLogs(date: string, locationId?: number): Promise<LobbyCheckLog[]> {
+    const conditions = locationId != null
+      ? and(eq(lobbyCheckLogs.date, date), eq(lobbyCheckLogs.locationId, locationId))
+      : eq(lobbyCheckLogs.date, date);
+    return await db.select().from(lobbyCheckLogs).where(conditions).orderBy(desc(lobbyCheckLogs.clearedAt));
+  }
+
+  async createLobbyCheckLog(log: InsertLobbyCheckLog): Promise<LobbyCheckLog> {
+    const [created] = await db.insert(lobbyCheckLogs).values(log).returning();
+    return created;
   }
 }
 

@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { LocationProvider } from "@/hooks/use-location-context";
 import { Layout } from "@/components/Layout";
+import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
@@ -252,6 +253,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Router />
+        <LobbyCheckAlert />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

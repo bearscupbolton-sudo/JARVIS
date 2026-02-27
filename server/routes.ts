@@ -3817,6 +3817,77 @@ ${sopsHtml}
     }
   });
 
+  // === LOBBY CHECK ===
+  app.get("/api/lobby-check/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+      const settings = await storage.getLobbyCheckSettings(locationId);
+      res.json(settings || { enabled: false, frequencyMinutes: 30, businessHoursStart: "06:00", businessHoursEnd: "18:00" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/lobby-check/settings", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { enabled, frequencyMinutes, businessHoursStart, businessHoursEnd, locationId } = req.body;
+      const freq = Number(frequencyMinutes);
+      if (!freq || freq < 5 || freq > 480) return res.status(400).json({ message: "Frequency must be between 5 and 480 minutes" });
+      const settings = await storage.upsertLobbyCheckSettings({
+        enabled: !!enabled,
+        frequencyMinutes: freq,
+        businessHoursStart: businessHoursStart || "06:00",
+        businessHoursEnd: businessHoursEnd || "18:00",
+        locationId: locationId || null,
+        updatedBy: user?.id || null,
+      });
+      res.json(settings);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lobby-check/logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+      const logs = await storage.getLobbyCheckLogs(date, locationId);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lobby-check/clear", async (req: any, res) => {
+    try {
+      const { pin, scheduledAt, locationId } = req.body;
+      if (!pin || !scheduledAt) return res.status(400).json({ message: "PIN and scheduledAt are required" });
+      const bcrypt = await import("bcryptjs");
+      const allUsers = await db.select().from(users);
+      let matchedUser = null;
+      for (const u of allUsers) {
+        if (u.pinHash && await bcrypt.compare(pin, u.pinHash)) {
+          matchedUser = u;
+          break;
+        }
+      }
+      if (!matchedUser) return res.status(401).json({ message: "Invalid PIN" });
+      if (matchedUser.locked) return res.status(403).json({ message: "Account locked" });
+      const today = new Date().toISOString().split("T")[0];
+      const log = await storage.createLobbyCheckLog({
+        scheduledAt,
+        clearedBy: matchedUser.id,
+        clearedByName: matchedUser.displayName || matchedUser.username || "Unknown",
+        date: today,
+        locationId: locationId || null,
+      });
+      res.json({ success: true, log, userName: matchedUser.displayName || matchedUser.username });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === KIOSK CLOCK-IN (PIN-based, no session required) ===
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {

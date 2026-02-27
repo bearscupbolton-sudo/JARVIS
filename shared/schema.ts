@@ -994,3 +994,34 @@ export const insertPurchaseOrderLineSchema = createInsertSchema(purchaseOrderLin
 export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
 export type InsertPurchaseOrderLine = z.infer<typeof insertPurchaseOrderLineSchema>;
 
+// === LOBBY CHECK SETTINGS ===
+export const lobbyCheckSettings = pgTable("lobby_check_settings", {
+  id: serial("id").primaryKey(),
+  enabled: boolean("enabled").default(true).notNull(),
+  frequencyMinutes: integer("frequency_minutes").default(30).notNull(),
+  businessHoursStart: text("business_hours_start").default("06:00").notNull(),
+  businessHoursEnd: text("business_hours_end").default("18:00").notNull(),
+  locationId: integer("location_id"),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertLobbyCheckSettingsSchema = createInsertSchema(lobbyCheckSettings).omit({ id: true, updatedAt: true });
+export type LobbyCheckSettings = typeof lobbyCheckSettings.$inferSelect;
+export type InsertLobbyCheckSettings = z.infer<typeof insertLobbyCheckSettingsSchema>;
+
+// === LOBBY CHECK LOGS ===
+export const lobbyCheckLogs = pgTable("lobby_check_logs", {
+  id: serial("id").primaryKey(),
+  scheduledAt: text("scheduled_at").notNull(),
+  clearedAt: timestamp("cleared_at").defaultNow(),
+  clearedBy: text("cleared_by").notNull(),
+  clearedByName: text("cleared_by_name"),
+  locationId: integer("location_id"),
+  date: text("date").notNull(),
+});
+
+export const insertLobbyCheckLogSchema = createInsertSchema(lobbyCheckLogs).omit({ id: true, clearedAt: true });
+export type LobbyCheckLog = typeof lobbyCheckLogs.$inferSelect;
+export type InsertLobbyCheckLog = z.infer<typeof insertLobbyCheckLogSchema>;
+

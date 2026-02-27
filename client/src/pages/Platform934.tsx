@@ -12,12 +12,15 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   CheckCircle2, Circle, Clock, AlertTriangle,
   ChevronRight, Zap, ArrowRight, XCircle,
-  Plus, Send,
+  Plus, Send, Settings2, ShieldCheck,
 } from "lucide-react";
-import type { TaskList, TaskListItem, DepartmentTodo, SoldoutLog } from "@shared/schema";
+import type { TaskList, TaskListItem, DepartmentTodo, SoldoutLog, LobbyCheckSettings, LobbyCheckLog } from "@shared/schema";
 
 type TaskListWithItems = TaskList & { items?: TaskListItem[] };
 
@@ -28,6 +31,8 @@ export default function Platform934() {
   const [soldoutItem, setSoldoutItem] = useState("");
   const [soldoutTime, setSoldoutTime] = useState(format(new Date(), "HH:mm"));
   const [showSoldoutDialog, setShowSoldoutDialog] = useState(false);
+  const [showLobbySettings, setShowLobbySettings] = useState(false);
+  const isManager = user?.role === "owner" || user?.role === "manager";
 
   const { data: taskLists = [], isLoading: loadingTasks } = useQuery<TaskListWithItems[]>({
     queryKey: ["/api/task-lists"],
@@ -43,6 +48,27 @@ export default function Platform934() {
 
   const { data: soldoutLogs = [], isLoading: loadingSoldout } = useQuery<SoldoutLog[]>({
     queryKey: ["/api/soldout-logs"],
+  });
+
+  const { data: lobbySettings } = useQuery<LobbyCheckSettings>({
+    queryKey: ["/api/lobby-check/settings"],
+  });
+
+  const { data: lobbyLogs = [] } = useQuery<LobbyCheckLog[]>({
+    queryKey: ["/api/lobby-check/logs"],
+  });
+
+  const todayLobbyLogs = useMemo(() =>
+    lobbyLogs.filter(l => l.date === today),
+    [lobbyLogs, today]
+  );
+
+  const lobbySettingsMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("PUT", "/api/lobby-check/settings", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lobby-check/settings"] });
+      toast({ title: "Settings Updated", description: "Lobby check settings saved." });
+    },
   });
 
   const fohTaskLists = useMemo(() =>
@@ -287,6 +313,127 @@ export default function Platform934() {
             </CardContent>
           </Card>
         )}
+
+        <Card data-testid="container-lobby-check">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-base font-display flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-amber-500" />
+              Lobby Checks
+              {todayLobbyLogs.length > 0 && (
+                <Badge variant="secondary" className="text-[10px]">{todayLobbyLogs.length} cleared</Badge>
+              )}
+            </CardTitle>
+            {isManager && (
+              <Dialog open={showLobbySettings} onOpenChange={setShowLobbySettings}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-lobby-settings">
+                    <Settings2 className="w-3 h-3 mr-1" />Settings
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Lobby Check Settings</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 pt-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Enabled</Label>
+                      <Switch
+                        checked={lobbySettings?.enabled ?? false}
+                        onCheckedChange={(checked) =>
+                          lobbySettingsMutation.mutate({
+                            ...lobbySettings,
+                            enabled: checked,
+                          })
+                        }
+                        data-testid="switch-lobby-enabled"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Frequency</Label>
+                      <Select
+                        value={String(lobbySettings?.frequencyMinutes ?? 30)}
+                        onValueChange={(v) =>
+                          lobbySettingsMutation.mutate({
+                            ...lobbySettings,
+                            frequencyMinutes: Number(v),
+                          })
+                        }
+                      >
+                        <SelectTrigger data-testid="select-lobby-frequency">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="15">Every 15 minutes</SelectItem>
+                          <SelectItem value="30">Every 30 minutes</SelectItem>
+                          <SelectItem value="45">Every 45 minutes</SelectItem>
+                          <SelectItem value="60">Every 60 minutes</SelectItem>
+                          <SelectItem value="90">Every 90 minutes</SelectItem>
+                          <SelectItem value="120">Every 2 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label>Business Hours Start</Label>
+                        <Input
+                          type="time"
+                          value={lobbySettings?.businessHoursStart ?? "06:00"}
+                          onChange={(e) =>
+                            lobbySettingsMutation.mutate({
+                              ...lobbySettings,
+                              businessHoursStart: e.target.value,
+                            })
+                          }
+                          data-testid="input-lobby-start"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Business Hours End</Label>
+                        <Input
+                          type="time"
+                          value={lobbySettings?.businessHoursEnd ?? "18:00"}
+                          onChange={(e) =>
+                            lobbySettingsMutation.mutate({
+                              ...lobbySettings,
+                              businessHoursEnd: e.target.value,
+                            })
+                          }
+                          data-testid="input-lobby-end"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+          </CardHeader>
+          <CardContent className="pt-0">
+            {!lobbySettings?.enabled ? (
+              <p className="text-sm text-muted-foreground py-3 text-center">
+                Lobby checks are not enabled.{isManager ? " Click Settings to configure." : ""}
+              </p>
+            ) : todayLobbyLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-3 text-center">No lobby checks cleared yet today.</p>
+            ) : (
+              <div className="space-y-1">
+                {todayLobbyLogs.map(log => (
+                  <div key={log.id} className="flex items-center gap-3 p-2 rounded-md bg-green-500/5 border border-green-500/10" data-testid={`lobby-log-${log.id}`}>
+                    <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+                    <span className="text-sm flex-1">
+                      <span className="font-medium">{log.clearedByName}</span>
+                      <span className="text-muted-foreground"> cleared {log.scheduledAt} check</span>
+                    </span>
+                    {log.clearedAt && (
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(log.clearedAt), "h:mm a")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card data-testid="container-soldout">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
