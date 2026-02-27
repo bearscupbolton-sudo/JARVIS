@@ -52,7 +52,7 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
-import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig } from "@shared/schema";
+import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig, PastryTotal } from "@shared/schema";
 
 const DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
@@ -179,6 +179,11 @@ export default function LaminationStudio() {
   const [trashDough, setTrashDough] = useState<LaminationDough | null>(null);
   const [trashReason, setTrashReason] = useState("");
 
+  const [showQuickLog, setShowQuickLog] = useState(false);
+  const [quickLogItem, setQuickLogItem] = useState("");
+  const [quickLogQty, setQuickLogQty] = useState("");
+  const [quickLogCustom, setQuickLogCustom] = useState(false);
+
   const [, setTick] = useState(0);
 
   const { data: activeDoughs, isLoading: isLoadingActive } = useQuery<LaminationDough[]>({
@@ -216,6 +221,9 @@ export default function LaminationStudio() {
   });
   const { data: doughTypeConfigsList } = useQuery<DoughTypeConfig[]>({
     queryKey: ["/api/dough-type-configs"],
+  });
+  const { data: quickLogTotals } = useQuery<PastryTotal[]>({
+    queryKey: [`/api/pastry-totals?date=${today}`],
   });
 
   const getPassportForPastryName = (name: string): PastryPassport | undefined => {
@@ -352,6 +360,42 @@ export default function LaminationStudio() {
       invalidateAllLamination();
     },
   });
+
+  const quickLogMutation = useMutation({
+    mutationFn: async (data: { itemName: string; quantity: number }) => {
+      const now = new Date();
+      const dateStr = now.toISOString().split("T")[0];
+      const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      const res = await apiRequest("POST", "/api/bakeoff-logs", {
+        itemName: data.itemName,
+        quantity: data.quantity,
+        date: dateStr,
+        bakedAt: timeStr,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bakeoff-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/home"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/live-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/insights"] });
+      setShowQuickLog(false);
+      setQuickLogItem("");
+      setQuickLogQty("");
+      setQuickLogCustom(false);
+      toast({ title: "Bake-off logged", description: "Item has been recorded." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Log failed", description: err.message || "Something went wrong", variant: "destructive" });
+    },
+  });
+
+  const quickLogItemNames = (() => {
+    const names = new Set<string>();
+    quickLogTotals?.forEach(t => names.add(t.itemName));
+    allPastryItems?.forEach(i => names.add(i.name));
+    return Array.from(names).sort();
+  })();
 
   const resetNewDoughDialog = useCallback(() => {
     setShowNewDough(false);
@@ -877,14 +921,25 @@ export default function LaminationStudio() {
             {format(new Date(), "EEEE, MMMM d")}
           </p>
         </div>
-        <Button
-          onClick={() => setShowNewDough(true)}
-          className="gap-2"
-          data-testid="button-start-new-dough"
-        >
-          <Plus className="w-4 h-4" />
-          Start New Dough
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => setShowQuickLog(true)}
+            className="gap-2"
+            data-testid="button-quick-log"
+          >
+            <Flame className="w-4 h-4" />
+            Quick Log
+          </Button>
+          <Button
+            onClick={() => setShowNewDough(true)}
+            className="gap-2"
+            data-testid="button-start-new-dough"
+          >
+            <Plus className="w-4 h-4" />
+            Start New Dough
+          </Button>
+        </div>
       </div>
 
       <div>
@@ -1929,6 +1984,87 @@ export default function LaminationStudio() {
           </div>
         </div>
       )}
+
+      <Dialog open={showQuickLog} onOpenChange={(open) => { if (!open) { setShowQuickLog(false); setQuickLogItem(""); setQuickLogQty(""); setQuickLogCustom(false); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl flex items-center gap-2">
+              <Flame className="w-5 h-5" />
+              Quick Log
+            </DialogTitle>
+            <DialogDescription>
+              Log a non-laminated bake-off (muffins, cookies, bread, etc.)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Item</label>
+                {quickLogItemNames.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => { setQuickLogCustom(!quickLogCustom); setQuickLogItem(""); }}
+                    data-testid="button-toggle-custom-item"
+                  >
+                    {quickLogCustom ? "Choose from list" : "Custom item"}
+                  </button>
+                )}
+              </div>
+              {quickLogItemNames.length > 0 && !quickLogCustom ? (
+                <Select value={quickLogItem} onValueChange={setQuickLogItem}>
+                  <SelectTrigger data-testid="select-quick-log-item">
+                    <SelectValue placeholder="Select item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {quickLogItemNames.map(name => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  placeholder="Item name"
+                  value={quickLogItem}
+                  onChange={(e) => setQuickLogItem(e.target.value)}
+                  data-testid="input-quick-log-item"
+                />
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Quantity</label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="How many?"
+                value={quickLogQty}
+                onChange={(e) => setQuickLogQty(e.target.value)}
+                data-testid="input-quick-log-qty"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowQuickLog(false); setQuickLogItem(""); setQuickLogQty(""); setQuickLogCustom(false); }}
+              data-testid="button-quick-log-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const qty = parseInt(quickLogQty);
+                if (!quickLogItem.trim() || isNaN(qty) || qty <= 0) return;
+                quickLogMutation.mutate({ itemName: quickLogItem.trim(), quantity: qty });
+              }}
+              disabled={!quickLogItem.trim() || !quickLogQty || parseInt(quickLogQty) <= 0 || quickLogMutation.isPending}
+              data-testid="button-quick-log-submit"
+            >
+              {quickLogMutation.isPending ? "Logging..." : "Log"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showNewDough} onOpenChange={(open) => { if (!open) resetNewDoughDialog(); }}>
         <DialogContent className="sm:max-w-md">

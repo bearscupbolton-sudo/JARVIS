@@ -175,13 +175,26 @@ export default function Bakery() {
           <h1 className="text-3xl font-display font-bold">Bakery</h1>
           <p className="text-muted-foreground">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
         </div>
-        <Link href="/recipes">
-          <Button variant="outline" data-testid="button-view-recipes">
-            <ChefHat className="w-4 h-4 mr-2" />
-            Recipes
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/lamination">
+            <Button variant="default" data-testid="button-go-to-studio">
+              <Flame className="w-4 h-4 mr-2" />
+              Lamination Studio
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
+          <Link href="/recipes">
+            <Button variant="outline" data-testid="button-view-recipes">
+              <ChefHat className="w-4 h-4 mr-2" />
+              Recipes
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground" data-testid="text-studio-note">
+        Primary production logging happens in <Link href="/lamination" className="font-medium text-primary underline underline-offset-2">Lamination Studio</Link> — bake-offs are logged automatically when doughs finish. Use the Quick Log button there for non-laminated items like muffins or cookies.
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">

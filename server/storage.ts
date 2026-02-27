@@ -318,7 +318,7 @@ export interface IStorage {
   }>;
   getActivityTrends(days?: number): Promise<{ date: string; logins: number; pageViews: number; messages: number; sessions: number; production: number; bakeoffs: number }[]>;
   getUserActivityStats(days?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; role: string | null; logins: number; pageViews: number; messagesSent: number; sessions: number; lastActive: Date | null }[]>;
-  getProductionInsights(days?: number): Promise<{ topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[]; dailyProduction: { date: string; quantity: number; sessions: number }[] }>;
+  getProductionInsights(days?: number): Promise<{ topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[]; dailyProduction: { date: string; quantity: number; sessions: number; bakeoffQty: number }[]; topBakeoffItems: { itemName: string; totalQuantity: number; logCount: number }[] }>;
   getLaminationInsights(days?: number): Promise<{ statusCounts: Record<string, number>; doughsByType: { doughType: string; count: number }[]; dailyDoughs: { date: string; created: number; baked: number }[]; topCreators: { userId: string; firstName: string | null; lastName: string | null; count: number }[] }>;
   getHourlyHeatmap(days?: number): Promise<{ hour: number; day: number; count: number }[]>;
   getUserDrilldown(userId: string, days?: number): Promise<{
@@ -1926,11 +1926,13 @@ export class DatabaseStorage implements IStorage {
   async getProductionInsights(days: number = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
+    const sinceStr = since.toISOString().split("T")[0];
 
-    const [prodLogs, allRecipes, sessions] = await Promise.all([
+    const [prodLogs, allRecipes, sessions, bakes] = await Promise.all([
       db.select().from(productionLogs).where(gte(productionLogs.date, since)),
       db.select({ id: recipes.id, title: recipes.title }).from(recipes),
       db.select().from(recipeSessions).where(gte(recipeSessions.startedAt, since)),
+      db.select().from(bakeoffLogs).where(gte(bakeoffLogs.date, sinceStr)),
     ]);
 
     const recipeMap = new Map(allRecipes.map(r => [r.id, r.title]));
@@ -1952,19 +1954,44 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => (b.quantity + b.sessionCount) - (a.quantity + a.sessionCount))
       .slice(0, 15);
 
-    const dailyMap = new Map<string, { quantity: number; sessions: number }>();
+    const byBakeoffItem = new Map<string, { totalQuantity: number; logCount: number }>();
+    for (const b of bakes) {
+      const existing = byBakeoffItem.get(b.itemName) || { totalQuantity: 0, logCount: 0 };
+      existing.totalQuantity += b.quantity || 0;
+      existing.logCount++;
+      byBakeoffItem.set(b.itemName, existing);
+    }
+
+    const topBakeoffItems = Array.from(byBakeoffItem.entries())
+      .map(([itemName, data]) => ({ itemName, ...data }))
+      .sort((a, b) => b.totalQuantity - a.totalQuantity)
+      .slice(0, 15);
+
+    const dailyMap = new Map<string, { quantity: number; sessions: number; bakeoffQty: number }>();
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dailyMap.set(d.toISOString().split("T")[0], { quantity: 0, sessions: 0, bakeoffQty: 0 });
+    }
     for (const p of prodLogs) {
       const d = p.date?.toISOString().split("T")[0];
       if (!d) continue;
-      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0 };
+      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0, bakeoffQty: 0 };
       entry.quantity += p.yieldProduced || 0;
       dailyMap.set(d, entry);
     }
     for (const s of sessions) {
       const d = s.startedAt?.toISOString().split("T")[0];
       if (!d) continue;
-      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0 };
+      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0, bakeoffQty: 0 };
       entry.sessions++;
+      dailyMap.set(d, entry);
+    }
+    for (const b of bakes) {
+      const d = b.date;
+      if (!d) continue;
+      const entry = dailyMap.get(d) || { quantity: 0, sessions: 0, bakeoffQty: 0 };
+      entry.bakeoffQty += b.quantity || 0;
       dailyMap.set(d, entry);
     }
 
@@ -1972,7 +1999,7 @@ export class DatabaseStorage implements IStorage {
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    return { topRecipes, dailyProduction };
+    return { topRecipes, dailyProduction, topBakeoffItems };
   }
 
   async getLaminationInsights(days: number = 30) {
@@ -2204,10 +2231,11 @@ export class DatabaseStorage implements IStorage {
     since.setDate(since.getDate() - days);
     const sinceStr = since.toISOString().split("T")[0];
 
-    const [sales, prodLogs, doughs] = await Promise.all([
+    const [sales, prodLogs, doughs, bakes] = await Promise.all([
       db.select().from(squareSales).where(gte(squareSales.date, sinceStr)),
       db.select().from(productionLogs).where(gte(productionLogs.date, since)),
       db.select().from(laminationDoughs).where(gte(laminationDoughs.createdAt, since)),
+      db.select().from(bakeoffLogs).where(gte(bakeoffLogs.date, sinceStr)),
     ]);
 
     const dateMap = new Map<string, { salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number }>();
@@ -2229,6 +2257,13 @@ export class DatabaseStorage implements IStorage {
       if (!d) continue;
       const entry = dateMap.get(d) || { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 };
       entry.productionQty += p.yieldProduced || 0;
+      dateMap.set(d, entry);
+    }
+    for (const b of bakes) {
+      const d = b.date;
+      if (!d) continue;
+      const entry = dateMap.get(d) || { salesQty: 0, salesRevenue: 0, productionQty: 0, doughsCreated: 0 };
+      entry.productionQty += b.quantity || 0;
       dateMap.set(d, entry);
     }
     for (const d of doughs) {

@@ -46,7 +46,8 @@ type UserDrilldown = {
 
 type ProductionData = {
   topRecipes: { recipeId: number; title: string; quantity: number; sessionCount: number }[];
-  dailyProduction: { date: string; quantity: number; sessions: number }[];
+  dailyProduction: { date: string; quantity: number; sessions: number; bakeoffQty: number }[];
+  topBakeoffItems: { itemName: string; totalQuantity: number; logCount: number }[];
 };
 
 type SalesVsProduction = { date: string; salesQty: number; salesRevenue: number; productionQty: number; doughsCreated: number };
@@ -634,6 +635,30 @@ export default function AdminInsights() {
                 </Card>
               )}
 
+              {production.topBakeoffItems.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">Top Bake-off Items</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72" data-testid="chart-top-bakeoff-items">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={production.topBakeoffItems.slice(0, 10)} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="itemName" type="category" tick={{ fontSize: 11 }} width={120} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="totalQuantity" name="Quantity Baked" fill="#10b981" radius={[0, 4, 4, 0]} />
+                          <Bar dataKey="logCount" name="Log Entries" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">Includes all bake-off logs — both lamination auto-logs and quick-logged items.</p>
+                  </CardContent>
+                </Card>
+              )}
+
               {production.dailyProduction.length > 0 && (
                 <Card>
                   <CardHeader className="pb-2">
@@ -648,11 +673,13 @@ export default function AdminInsights() {
                           <YAxis tick={{ fontSize: 11 }} />
                           <Tooltip labelFormatter={(v) => formatShortDate(v as string)} />
                           <Legend />
-                          <Area type="monotone" dataKey="quantity" name="Total Yield" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
-                          <Area type="monotone" dataKey="sessions" name="Sessions" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
+                          <Area type="monotone" dataKey="bakeoffQty" name="Bake-off Output" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+                          <Area type="monotone" dataKey="quantity" name="Recipe Yield" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.2} />
+                          <Area type="monotone" dataKey="sessions" name="Sessions" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
+                    <p className="text-xs text-muted-foreground mt-2">Bake-off Output includes both lamination and quick-logged items. Recipe Yield is from recipe sessions.</p>
                   </CardContent>
                 </Card>
               )}
@@ -687,7 +714,7 @@ export default function AdminInsights() {
                 </Card>
               )}
 
-              {production.topRecipes.length === 0 && production.dailyProduction.length === 0 && (
+              {production.topRecipes.length === 0 && production.topBakeoffItems.length === 0 && production.dailyProduction.length === 0 && (
                 <EmptyState icon={ChefHat} text="No production data in this time range." />
               )}
             </>
