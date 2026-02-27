@@ -237,7 +237,7 @@ export default function BeginRecipe() {
                   <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                     {inst.step}
                   </div>
-                  <p className="flex-1 leading-relaxed">{inst.text}</p>
+                  <p className="flex-1 leading-relaxed min-w-0">{inst.text}</p>
                 </div>
               ))}
             </CardContent>

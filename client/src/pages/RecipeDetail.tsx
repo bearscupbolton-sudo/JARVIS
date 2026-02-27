@@ -642,18 +642,13 @@ export default function RecipeDetail() {
               {instructions.length === 0 ? (
                 <p className="text-muted-foreground italic">No instructions provided.</p>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {instructions.sort((a, b) => a.step - b.step).map((inst) => (
-                    <div key={inst.step} className="flex gap-4 group">
-                      <div className="flex flex-col items-center">
-                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-background">
-                          {inst.step}
-                        </div>
-                        <div className="w-px h-full bg-border group-last:hidden mt-2" />
+                    <div key={inst.step} className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">
+                        {inst.step}
                       </div>
-                      <div className="pb-8 pt-1">
-                        <p className="text-foreground leading-relaxed">{inst.text}</p>
-                      </div>
+                      <p className="flex-1 text-foreground leading-relaxed min-w-0">{inst.text}</p>
                     </div>
                   ))}
                 </div>
