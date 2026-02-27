@@ -14,6 +14,7 @@ import Dashboard from "@/pages/Dashboard";
 import Bakery from "@/pages/Bakery";
 import Coffee from "@/pages/Coffee";
 import Kitchen from "@/pages/Kitchen";
+import Platform934 from "@/pages/Platform934";
 import Recipes from "@/pages/Recipes";
 import RecipeDetail from "@/pages/RecipeDetail";
 import BeginRecipe from "@/pages/BeginRecipe";
@@ -119,6 +120,9 @@ function Router() {
       </Route>
       <Route path="/kitchen">
         {() => <ProtectedRoute component={Kitchen} />}
+      </Route>
+      <Route path="/platform">
+        {() => <ProtectedRoute component={Platform934} />}
       </Route>
       <Route path="/recipes">
         {() => <ProtectedRoute component={Recipes} />}

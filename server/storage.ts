@@ -1930,6 +1930,7 @@ export class DatabaseStorage implements IStorage {
       "/bakery": "Bakery",
       "/coffee": "Coffee",
       "/kitchen": "Kitchen",
+      "/platform": "Platform 9¾",
       "/recipes": "Recipes",
       "/pastry-passports": "Pastry Passports",
       "/lamination": "Lamination Studio",

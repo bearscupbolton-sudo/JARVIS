@@ -42,6 +42,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Starkade:** An in-house competitive gaming arcade with built-in games, a unified points system, and leaderboards.
 *   **TTIS (Tip Transparency Informational Dashboard):** An owner-only dashboard that allocates Square POS tip data among FOH staff based on actual clock-in/out times.
 *   **Customer Feedback & QR Code:** A public-facing feedback page allowing customers to rate their visit and leave comments, with a QR code generator for easy access.
+*   **Platform 9¾ (FOH Command Center):** A visually distinctive FOH-specific task hub at `/platform`. Shows FOH-filtered task lists, assigned tasks, department carryover todos, and today's 86'd items with quick-add. Features a styled amber/gold header and progress bar. Appears in the sidebar near the top (after Home/Messages) with unique gradient styling, and replaces the Time Off stat on the Home page.
 *   **Vendor Management & Auto-Order Generation:** Full vendor CRUD with contact info, order days (Mon–Sun), and linked inventory items with par levels and order-up-to levels. Auto-generates purchase orders based on current stock vs. par levels. Orders can be previewed, edited, and texted to vendor sales reps via Twilio SMS. Includes order history tracking, a "Today's Orders" Home page widget, and sidebar navigation. Tables: `vendors`, `vendor_items`, `purchase_orders`, `purchase_order_lines`.
 
 ## External Dependencies

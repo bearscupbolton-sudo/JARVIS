@@ -34,7 +34,7 @@ import {
   Plus, AlertTriangle, CheckCircle2, Eye, EyeOff,
   FileText, Trash2, MapPin, Phone, Cake,
   Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
-  Truck, ShoppingCart,
+  Truck, ShoppingCart, Zap,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote } from "@shared/schema";
@@ -146,6 +146,7 @@ const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/profile", label: "My Profile", icon: UserCircle },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
+  { href: "/platform", label: "Platform 9¾", icon: Zap },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
   { href: "/lamination", label: "Lamination Studio", icon: Layers },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
@@ -747,11 +748,11 @@ export default function Home() {
                 </CardContent>
               </Card>
             </Link>
-            <Link href="/schedule">
-              <Card className="cursor-pointer hover-elevate" data-testid="stat-time-off">
+            <Link href="/platform">
+              <Card className="cursor-pointer hover-elevate border-amber-300/30 dark:border-amber-700/30 bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20" data-testid="stat-platform934">
                 <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><AlertCircle className="w-4 h-4 text-primary" /></div>
-                  <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData.managerData.pendingTimeOffCount}</p><p className="text-[10px] text-muted-foreground">Time Off</p></div>
+                  <div className="w-9 h-9 rounded-md bg-amber-500/15 flex items-center justify-center flex-shrink-0"><Zap className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
+                  <div className="flex-1"><p className="text-sm font-bold text-amber-800 dark:text-amber-300">Platform 9¾</p><p className="text-[10px] text-amber-600/70 dark:text-amber-400/60">FOH Hub</p></div>
                 </CardContent>
               </Card>
             </Link>
