@@ -15,7 +15,7 @@ import {
   Zap, Brain, Timer, Type, Trophy, Crown,
   Gamepad2, Lock, Loader2, Play, ArrowLeft,
   Sparkles, Plus, Star, Medal, Clock,
-  RotateCcw, Check, X, Send, Crosshair, Bug,
+  RotateCcw, Check, X, Send, Crosshair, Bug, Trash2,
 } from "lucide-react";
 import type { StarkadeGame } from "@shared/schema";
 import SnakeGame from "@/components/starkade/SnakeGame";
@@ -569,6 +569,21 @@ export default function Starkade() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (gameId: number) => {
+      await apiRequest("DELETE", `/api/starkade/games/${gameId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/starkade/games"] });
+      toast({ title: "Game deleted" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isManager = user?.role === "owner" || user?.role === "manager";
+
   const handleGameComplete = (score: number, points: number, meta: any) => {
     setGameFinished({ score, points, meta });
     if (activeGame) {
@@ -721,6 +736,17 @@ export default function Starkade() {
                           <Play className="w-3 h-3" />{game.playCount} plays
                         </span>
                         <div className="flex gap-2">
+                          {isManager && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${game.name}"? This cannot be undone.`)) deleteMutation.mutate(game.id); }}
+                              data-testid={`button-delete-game-${game.id}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
