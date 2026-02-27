@@ -22,6 +22,7 @@ import {
   type SOP, type InsertSOP,
   type Problem, type InsertProblem,
   type CalendarEvent, type InsertEvent,
+  eventJobs, type EventJob, type InsertEventJob,
   type Announcement, type InsertAnnouncement,
   type PendingChange, type InsertPendingChange,
   type PastryTotal, type InsertPastryTotal,
@@ -108,6 +109,13 @@ export interface IStorage {
   createEvent(event: InsertEvent): Promise<CalendarEvent>;
   updateEvent(id: number, updates: Partial<InsertEvent>): Promise<CalendarEvent>;
   deleteEvent(id: number): Promise<void>;
+
+  // Event Jobs
+  getJobsByEvent(eventId: number): Promise<EventJob[]>;
+  getJobsForUser(userId: number): Promise<(EventJob & { eventTitle: string; eventDate: Date })[]>;
+  createEventJob(job: InsertEventJob): Promise<EventJob>;
+  updateEventJob(id: number, updates: Partial<InsertEventJob>): Promise<EventJob>;
+  deleteEventJob(id: number): Promise<void>;
 
   // Announcements
   getAnnouncements(): Promise<Announcement[]>;
@@ -551,7 +559,53 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEvent(id: number): Promise<void> {
+    await db.delete(eventJobs).where(eq(eventJobs.eventId, id));
     await db.delete(events).where(eq(events.id, id));
+  }
+
+  async getJobsByEvent(eventId: number): Promise<EventJob[]> {
+    return await db.select().from(eventJobs).where(eq(eventJobs.eventId, eventId)).orderBy(eventJobs.createdAt);
+  }
+
+  async getJobsForUser(userId: number): Promise<(EventJob & { eventTitle: string; eventDate: Date })[]> {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const rows = await db
+      .select({
+        id: eventJobs.id,
+        eventId: eventJobs.eventId,
+        title: eventJobs.title,
+        description: eventJobs.description,
+        assignedUserIds: eventJobs.assignedUserIds,
+        completed: eventJobs.completed,
+        createdAt: eventJobs.createdAt,
+        eventTitle: events.title,
+        eventDate: events.date,
+      })
+      .from(eventJobs)
+      .innerJoin(events, eq(eventJobs.eventId, events.id))
+      .where(
+        and(
+          gte(events.date, now),
+          sql`${eventJobs.assignedUserIds} @> ARRAY[${userId}]::integer[]`
+        )
+      )
+      .orderBy(events.date);
+    return rows;
+  }
+
+  async createEventJob(job: InsertEventJob): Promise<EventJob> {
+    const [created] = await db.insert(eventJobs).values(job).returning();
+    return created;
+  }
+
+  async updateEventJob(id: number, updates: Partial<InsertEventJob>): Promise<EventJob> {
+    const [updated] = await db.update(eventJobs).set(updates).where(eq(eventJobs.id, id)).returning();
+    return updated;
+  }
+
+  async deleteEventJob(id: number): Promise<void> {
+    await db.delete(eventJobs).where(eq(eventJobs.id, id));
   }
 
   // Announcements

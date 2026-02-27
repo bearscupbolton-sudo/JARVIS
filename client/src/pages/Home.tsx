@@ -742,6 +742,40 @@ export default function Home() {
           </Link>
         )}
 
+        {homeData?.myEventJobs && homeData.myEventJobs.length > 0 && (
+          <Link href="/calendar">
+          <Card className="cursor-pointer hover-elevate" data-testid="container-my-event-jobs">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-amber-500/10 flex items-center justify-center">
+                  <ClipboardList className="w-4 h-4 text-amber-500" />
+                </div>
+                Your Event Jobs
+              </CardTitle>
+              <Badge variant="outline" className="text-xs">{homeData.myEventJobs.filter((j: any) => !j.completed).length} pending</Badge>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-2">
+                {homeData.myEventJobs.filter((j: any) => !j.completed).slice(0, 5).map((job: any) => (
+                  <div key={job.id} className="flex items-start gap-3 p-3 rounded-md border border-border" data-testid={`home-job-${job.id}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{job.title}</p>
+                      {job.description && <p className="text-xs text-muted-foreground mt-0.5">{job.description}</p>}
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <Calendar className="w-3 h-3" />
+                        <span>{job.eventTitle}</span>
+                        <span>·</span>
+                        <span>{format(new Date(job.eventDate), "EEE, MMM d")}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          </Link>
+        )}
+
         {/* Out of the Oven Today */}
         <Link href="/dashboard">
         <Card className="cursor-pointer hover-elevate" data-testid="container-home-bakeoff">

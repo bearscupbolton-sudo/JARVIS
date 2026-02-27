@@ -592,6 +592,66 @@ FORMAT RULES for the content field:
     res.status(204).send();
   });
 
+  // === EVENT JOBS ===
+  app.get("/api/events/:id/jobs", isAuthenticated, async (req, res) => {
+    const jobs = await storage.getJobsByEvent(Number(req.params.id));
+    res.json(jobs);
+  });
+
+  app.post("/api/events/:id/jobs", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const eventId = Number(req.params.id);
+      const event = await storage.getEvent(eventId);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+      const { title, description, assignedUserIds } = req.body;
+      if (!title || typeof title !== "string" || !title.trim()) {
+        return res.status(400).json({ message: "Job title is required" });
+      }
+      const job = await storage.createEventJob({
+        eventId,
+        title: title.trim(),
+        description: description || null,
+        assignedUserIds: Array.isArray(assignedUserIds) && assignedUserIds.length > 0 ? assignedUserIds : null,
+        completed: false,
+      });
+      res.status(201).json(job);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/event-jobs/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const allowed: Record<string, any> = {};
+      if (typeof req.body.completed === "boolean") allowed.completed = req.body.completed;
+      if (typeof req.body.title === "string") allowed.title = req.body.title.trim();
+      if (req.body.description !== undefined) allowed.description = req.body.description || null;
+      if (Array.isArray(req.body.assignedUserIds)) allowed.assignedUserIds = req.body.assignedUserIds;
+      const job = await storage.updateEventJob(Number(req.params.id), allowed);
+      res.json(job);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/event-jobs/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    await storage.deleteEventJob(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  app.get("/api/my-event-jobs", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const numericId = typeof user.id === "string" ? parseInt(user.id, 10) : user.id;
+      if (isNaN(numericId)) return res.json([]);
+      const jobs = await storage.getJobsForUser(numericId);
+      res.json(jobs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === ANNOUNCEMENTS ===
   app.get(api.announcements.list.path, async (req, res) => {
     const announcements = await storage.getAnnouncements();
@@ -3254,6 +3314,8 @@ ${sopsHtml}
       weekEnd.setDate(weekEnd.getDate() + 7);
       const weekEndStr = weekEnd.toISOString().split("T")[0];
 
+      const numericUserId = typeof user.id === "string" ? parseInt(user.id, 10) : user.id;
+
       const [
         unreadCount,
         myShifts,
@@ -3261,6 +3323,7 @@ ${sopsHtml}
         bakeoffToday,
         recentAnnouncements,
         myTaggedEvents,
+        myEventJobs,
       ] = await Promise.all([
         storage.getUnreadCount(user.id),
         storage.getShifts(today, weekEndStr),
@@ -3268,6 +3331,7 @@ ${sopsHtml}
         storage.getBakeoffLogs(today),
         storage.getAnnouncements(),
         storage.getEventsForUser(user.id),
+        !isNaN(numericUserId) ? storage.getJobsForUser(numericUserId) : Promise.resolve([]),
       ]);
 
       const myUpcomingShifts = myShifts
@@ -3303,6 +3367,7 @@ ${sopsHtml}
         pinnedAnnouncements,
         managerData,
         myTaggedEvents,
+        myEventJobs,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

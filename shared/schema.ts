@@ -122,6 +122,20 @@ export const insertEventSchema = createInsertSchema(events).omit({ id: true, cre
 export type CalendarEvent = typeof events.$inferSelect;
 export type InsertEvent = z.infer<typeof insertEventSchema>;
 
+export const eventJobs = pgTable("event_jobs", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  assignedUserIds: integer("assigned_user_ids").array(),
+  completed: boolean("completed").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEventJobSchema = createInsertSchema(eventJobs).omit({ id: true, createdAt: true });
+export type EventJob = typeof eventJobs.$inferSelect;
+export type InsertEventJob = z.infer<typeof insertEventJobSchema>;
+
 // === ANNOUNCEMENTS (Message Board) ===
 export const announcements = pgTable("announcements", {
   id: serial("id").primaryKey(),
