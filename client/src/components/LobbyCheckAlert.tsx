@@ -73,11 +73,29 @@ export default function LobbyCheckAlert() {
     },
   });
 
+  const initialLoadRef = useRef(true);
+  const dismissedTimesRef = useRef<Set<string>>(new Set());
+
   const checkIfAlertNeeded = useCallback(() => {
     if (!settings || !settings.enabled) return;
     if (!isWithinBusinessHours(settings.businessHoursStart, settings.businessHoursEnd)) return;
 
     const currentScheduled = getNextScheduledTime(settings.frequencyMinutes, settings.businessHoursStart);
+
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false;
+      const now = new Date();
+      const [sh, sm] = currentScheduled.split(":").map(Number);
+      const scheduledMinutes = sh * 60 + sm;
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      if (currentMinutes - scheduledMinutes > 2) {
+        dismissedTimesRef.current.add(currentScheduled);
+        return;
+      }
+    }
+
+    if (dismissedTimesRef.current.has(currentScheduled)) return;
+
     const alreadyCleared = logs.some(
       (l) => l.scheduledAt === currentScheduled && l.date === today
     );
@@ -164,6 +182,21 @@ export default function LobbyCheckAlert() {
                 )}
                 Clear Lobby Check
               </Button>
+              {user && (user.role === "owner" || user.role === "manager") && (
+                <Button
+                  variant="ghost"
+                  className="w-full text-xs text-muted-foreground"
+                  onClick={() => {
+                    dismissedTimesRef.current.add(scheduledTime);
+                    setAlertVisible(false);
+                    setPin("");
+                    setError("");
+                  }}
+                  data-testid="button-skip-lobby"
+                >
+                  Skip this check
+                </Button>
+              )}
             </div>
           </div>
         </div>
