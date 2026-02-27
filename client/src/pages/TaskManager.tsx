@@ -502,6 +502,7 @@ function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
                 <SelectItem value="bakery">Bakery</SelectItem>
                 <SelectItem value="kitchen">Kitchen</SelectItem>
                 <SelectItem value="bar">Bar</SelectItem>
+                <SelectItem value="foh">FOH</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -556,6 +557,19 @@ function AddItemDialog({ listId, jobs, recipes, sops, open, onOpenChange, nextOr
     },
   });
 
+  const addSopMut = useMutation({
+    mutationFn: async (data: { sopId: number; startOrder: number }) => {
+      const res = await apiRequest("POST", `/api/task-lists/${listId}/add-sop`, data);
+      return res.json();
+    },
+    onSuccess: (data: { sopTitle: string; stepCount: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists", listId] });
+      toast({ title: `SOP added: ${data.sopTitle}`, description: `${data.stepCount} steps created` });
+      resetForm();
+      onOpenChange(false);
+    },
+  });
+
   const resetForm = () => {
     setMode("manual");
     setSelectedJobId("");
@@ -581,9 +595,8 @@ function AddItemDialog({ listId, jobs, recipes, sops, open, onOpenChange, nextOr
       payload.recipeId = parseInt(selectedRecipeId);
       payload.manualTitle = recipe ? recipe.title : "Recipe";
     } else if (mode === "sop" && selectedSopId) {
-      const sop = sops.find(s => s.id === parseInt(selectedSopId));
-      payload.sopId = parseInt(selectedSopId);
-      payload.manualTitle = sop ? sop.title : "SOP";
+      addSopMut.mutate({ sopId: parseInt(selectedSopId), startOrder: nextOrder });
+      return;
     } else if (mode === "manual" && manualTitle.trim()) {
       payload.manualTitle = manualTitle.trim();
     } else {
@@ -736,8 +749,8 @@ function AddItemDialog({ listId, jobs, recipes, sops, open, onOpenChange, nextOr
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={createMut.isPending} data-testid="button-submit-item">
-              {createMut.isPending ? "Adding..." : "Add Task"}
+            <Button onClick={handleSubmit} disabled={createMut.isPending || addSopMut.isPending} data-testid="button-submit-item">
+              {createMut.isPending || addSopMut.isPending ? "Adding..." : mode === "sop" ? "Add SOP Steps" : "Add Task"}
             </Button>
           </div>
         </div>
@@ -781,6 +794,7 @@ function DepartmentTodosPanel() {
             <SelectItem value="bakery">Bakery</SelectItem>
             <SelectItem value="kitchen">Kitchen</SelectItem>
             <SelectItem value="bar">Bar</SelectItem>
+            <SelectItem value="foh">FOH</SelectItem>
           </SelectContent>
         </Select>
       </div>

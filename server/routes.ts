@@ -2684,6 +2684,52 @@ Respond with JSON:
     }
   });
 
+  app.post("/api/task-lists/:listId/add-sop", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const listId = Number(req.params.listId);
+      const { sopId, startOrder } = req.body;
+      if (!sopId) return res.status(400).json({ message: "sopId is required" });
+
+      const sop = await storage.getSOP(sopId);
+      if (!sop) return res.status(404).json({ message: "SOP not found" });
+
+      const lines = sop.content.split("\n").map(l => l.trim()).filter(Boolean);
+      const steps: string[] = [];
+      for (const line of lines) {
+        const cleaned = line
+          .replace(/^#{1,6}\s+/, "")
+          .replace(/^\d+[\.\)]\s*/, "")
+          .replace(/^[-*•]\s*/, "")
+          .replace(/^\[.\]\s*/, "")
+          .replace(/^\*\*(.*?)\*\*$/, "$1")
+          .trim();
+        if (cleaned.length > 0 && cleaned.length < 300) {
+          steps.push(cleaned);
+        }
+      }
+
+      if (steps.length === 0) {
+        steps.push(sop.title);
+      }
+
+      const items = [];
+      for (let i = 0; i < steps.length; i++) {
+        const item = await storage.createTaskListItem({
+          listId,
+          sopId: sop.id,
+          manualTitle: steps[i],
+          sortOrder: (startOrder || 0) + i,
+          completed: false,
+        });
+        items.push(item);
+      }
+
+      res.status(201).json({ items, sopTitle: sop.title, stepCount: items.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/task-list-items/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const updateSchema = z.object({

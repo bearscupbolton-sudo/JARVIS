@@ -180,6 +180,8 @@ export default function AssignedTaskList() {
           const recipe = recipeId ? recipeMap.get(recipeId) : null;
           const sopId = item.sopId || item.job?.sopId;
           const sop = sopId ? sopMap.get(sopId) : null;
+          const prevItem = idx > 0 ? list.items[idx - 1] : null;
+          const isNewSopGroup = sopId && (!prevItem || prevItem.sopId !== item.sopId);
           const timeStr = item.startTime
             ? item.endTime ? `${item.startTime} - ${item.endTime}` : item.startTime
             : null;
@@ -189,12 +191,19 @@ export default function AssignedTaskList() {
             : null;
 
           return (
+            <div key={item.id}>
+              {isNewSopGroup && sop && (
+                <div className="flex items-center gap-2 mb-2 mt-4 px-1" data-testid={`sop-group-header-${sopId}`}>
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold text-primary">SOP: {sop.title}</span>
+                </div>
+              )}
             <Card
-              key={item.id}
               className={cn(
                 "transition-all",
                 item.completed && "opacity-60",
-                isStarted && "border-primary/40 bg-primary/5"
+                isStarted && "border-primary/40 bg-primary/5",
+                sopId && "ml-4 border-l-2 border-l-primary/30"
               )}
               data-testid={`card-assigned-item-${item.id}`}
             >
@@ -289,6 +298,7 @@ export default function AssignedTaskList() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           );
         })}
       </div>
