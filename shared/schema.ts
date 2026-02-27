@@ -1025,3 +1025,32 @@ export const insertLobbyCheckLogSchema = createInsertSchema(lobbyCheckLogs).omit
 export type LobbyCheckLog = typeof lobbyCheckLogs.$inferSelect;
 export type InsertLobbyCheckLog = z.infer<typeof insertLobbyCheckLogSchema>;
 
+// === BAGEL SESSIONS ===
+export const bagelSessions = pgTable("bagel_sessions", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  troughCount: integer("trough_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBagelSessionSchema = createInsertSchema(bagelSessions).omit({ id: true, createdAt: true });
+export type BagelSession = typeof bagelSessions.$inferSelect;
+export type InsertBagelSession = z.infer<typeof insertBagelSessionSchema>;
+
+// === BAGEL OVEN LOADS ===
+export const bagelOvenLoads = pgTable("bagel_oven_loads", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => bagelSessions.id, { onDelete: "cascade" }),
+  deckNumber: integer("deck_number").notNull(),
+  bagelType: text("bagel_type").notNull(),
+  bagelCount: integer("bagel_count").default(20).notNull(),
+  startedAt: timestamp("started_at").defaultNow(),
+  durationSeconds: integer("duration_seconds").default(1080).notNull(),
+  status: text("status").default("baking").notNull(),
+  finishedAt: timestamp("finished_at"),
+});
+
+export const insertBagelOvenLoadSchema = createInsertSchema(bagelOvenLoads).omit({ id: true, startedAt: true, finishedAt: true });
+export type BagelOvenLoad = typeof bagelOvenLoads.$inferSelect;
+export type InsertBagelOvenLoad = z.infer<typeof insertBagelOvenLoadSchema>;
+

@@ -3817,6 +3817,83 @@ ${sopsHtml}
     }
   });
 
+  // === BAGEL BROS ===
+  let bagelBrosAlertActive = false;
+
+  app.get("/api/bagel-bros/session", isAuthenticated, async (req, res) => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const session = await storage.getOrCreateBagelSession(today);
+      const loads = await storage.getOvenLoads(session.id);
+      res.json({ session, loads });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/bagel-bros/dump-board", isAuthenticated, async (req, res) => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const session = await storage.getOrCreateBagelSession(today);
+      const updated = await storage.addToTrough(session.id, 20);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/bagel-bros/load-oven", isAuthenticated, async (req, res) => {
+    try {
+      const { bagelType, deckNumber, bagelCount, durationSeconds } = req.body;
+      if (!bagelType || !deckNumber) return res.status(400).json({ message: "bagelType and deckNumber are required" });
+      const today = new Date().toISOString().split("T")[0];
+      const session = await storage.getOrCreateBagelSession(today);
+      const load = await storage.createOvenLoad({
+        sessionId: session.id,
+        deckNumber,
+        bagelType,
+        bagelCount: bagelCount || 20,
+        durationSeconds: durationSeconds || 1080,
+        status: "baking",
+      });
+      res.json(load);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/bagel-bros/finish-bake/:id", isAuthenticated, async (req, res) => {
+    try {
+      const load = await storage.finishOvenLoad(Number(req.params.id));
+      const today = new Date().toISOString().split("T")[0];
+      const now = new Date();
+      const bakedAt = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      await storage.createBakeoffLog({
+        date: today,
+        itemName: `Bagel - ${load.bagelType.charAt(0).toUpperCase() + load.bagelType.slice(1)}`,
+        quantity: load.bagelCount,
+        bakedAt,
+      });
+      res.json({ success: true, load });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/bagel-bros/send-alert", isAuthenticated, async (_req, res) => {
+    bagelBrosAlertActive = true;
+    res.json({ success: true });
+  });
+
+  app.get("/api/bagel-bros/alert", isAuthenticated, async (_req, res) => {
+    res.json({ active: bagelBrosAlertActive });
+  });
+
+  app.post("/api/bagel-bros/dismiss-alert", isAuthenticated, async (_req, res) => {
+    bagelBrosAlertActive = false;
+    res.json({ success: true });
+  });
+
   // === LOBBY CHECK ===
   app.get("/api/lobby-check/settings", isAuthenticated, async (req: any, res) => {
     try {

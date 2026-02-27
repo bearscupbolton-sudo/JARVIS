@@ -55,6 +55,7 @@ import HR from "@/pages/HR";
 import MLL from "@/pages/MLL";
 import Notes from "@/pages/Notes";
 import Vendors from "@/pages/Vendors";
+import BagelBros from "@/pages/BagelBros";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -241,6 +242,9 @@ function Router() {
       </Route>
       <Route path="/mll">
         {() => <ProtectedRoute component={MLL} />}
+      </Route>
+      <Route path="/bagel-bros">
+        {() => <ProtectedRoute component={BagelBros} noLayout />}
       </Route>
 
       <Route component={NotFound} />

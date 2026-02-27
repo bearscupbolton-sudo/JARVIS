@@ -40,6 +40,7 @@ import {
   Truck,
   StickyNote,
   Zap,
+  CircleDot,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -78,6 +79,7 @@ const ALL_SHORTCUT_OPTIONS: NavItem[] = [
   { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
   { href: "/starkade", label: "Starkade", icon: Gamepad2 },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
+  { href: "/bagel-bros", label: "Bagel Bros", icon: CircleDot },
   { href: "/profile", label: "My Profile", icon: UserCircle },
 ];
 
@@ -122,6 +124,7 @@ const NAV_ITEMS = [
   { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
   { href: "/starkade", label: "Starkade", icon: Gamepad2 },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
+  { href: "/bagel-bros", label: "Bagel Bros", icon: CircleDot },
 ];
 
 const MANAGER_NAV_ITEMS = [

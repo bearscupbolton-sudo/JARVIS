@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import {
   CheckCircle2, Circle, Clock, AlertTriangle,
   ChevronRight, Zap, ArrowRight, XCircle,
-  Plus, Send, Settings2, ShieldCheck,
+  Plus, Send, Settings2, ShieldCheck, Megaphone,
 } from "lucide-react";
 import type { TaskList, TaskListItem, DepartmentTodo, SoldoutLog, LobbyCheckSettings, LobbyCheckLog } from "@shared/schema";
 
@@ -432,6 +432,23 @@ export default function Platform934() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-red-500/30 bg-red-950/10" data-testid="container-foh-backup">
+          <CardContent className="pt-5 pb-4">
+            <Button
+              className="w-full h-14 text-lg font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl gap-3"
+              onClick={() => {
+                apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
+                  toast({ title: "Alert Sent!", description: "Bagel Bros crew has been notified" });
+                });
+              }}
+              data-testid="button-foh-backup-alert"
+            >
+              <Megaphone className="w-6 h-6" />
+              FOH Needs Backup / Refuerzo al Frente
+            </Button>
           </CardContent>
         </Card>
 

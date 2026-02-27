@@ -78,6 +78,9 @@ import {
   lobbyCheckSettings, lobbyCheckLogs,
   type LobbyCheckSettings, type InsertLobbyCheckSettings,
   type LobbyCheckLog, type InsertLobbyCheckLog,
+  bagelSessions, bagelOvenLoads,
+  type BagelSession, type InsertBagelSession,
+  type BagelOvenLoad, type InsertBagelOvenLoad,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -446,6 +449,13 @@ export interface IStorage {
   upsertLobbyCheckSettings(settings: InsertLobbyCheckSettings): Promise<LobbyCheckSettings>;
   getLobbyCheckLogs(date: string, locationId?: number): Promise<LobbyCheckLog[]>;
   createLobbyCheckLog(log: InsertLobbyCheckLog): Promise<LobbyCheckLog>;
+
+  // Bagel Bros
+  getOrCreateBagelSession(date: string): Promise<BagelSession>;
+  addToTrough(sessionId: number, count: number): Promise<BagelSession>;
+  createOvenLoad(data: InsertBagelOvenLoad): Promise<BagelOvenLoad>;
+  getOvenLoads(sessionId: number): Promise<BagelOvenLoad[]>;
+  finishOvenLoad(id: number): Promise<BagelOvenLoad>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1962,6 +1972,7 @@ export class DatabaseStorage implements IStorage {
       "/admin/square": "Square Settings",
       "/admin/insights": "Admin Insights",
       "/profile": "Profile",
+      "/bagel-bros": "Bagel Bros",
     };
 
     return Array.from(pathMap.entries())
@@ -2287,6 +2298,7 @@ export class DatabaseStorage implements IStorage {
       "/pastry-goals": "Pastry Goals", "/live-inventory": "Live Inventory",
       "/admin/ttis": "TTIS", "/profile": "Profile",
       "/calendar": "Calendar", "/inventory": "Inventory",
+      "/bagel-bros": "Bagel Bros", "/platform": "Platform 9¾",
     };
 
     const [logs, sessions, doughs, msgs] = await Promise.all([
@@ -2902,6 +2914,40 @@ export class DatabaseStorage implements IStorage {
   async createLobbyCheckLog(log: InsertLobbyCheckLog): Promise<LobbyCheckLog> {
     const [created] = await db.insert(lobbyCheckLogs).values(log).returning();
     return created;
+  }
+
+  async getOrCreateBagelSession(date: string): Promise<BagelSession> {
+    const [existing] = await db.select().from(bagelSessions).where(eq(bagelSessions.date, date));
+    if (existing) return existing;
+    const [created] = await db.insert(bagelSessions).values({ date, troughCount: 0 }).returning();
+    return created;
+  }
+
+  async addToTrough(sessionId: number, count: number): Promise<BagelSession> {
+    const [updated] = await db.update(bagelSessions)
+      .set({ troughCount: sql`${bagelSessions.troughCount} + ${count}` })
+      .where(eq(bagelSessions.id, sessionId))
+      .returning();
+    return updated;
+  }
+
+  async createOvenLoad(data: InsertBagelOvenLoad): Promise<BagelOvenLoad> {
+    const [created] = await db.insert(bagelOvenLoads).values({ ...data, startedAt: new Date() }).returning();
+    return created;
+  }
+
+  async getOvenLoads(sessionId: number): Promise<BagelOvenLoad[]> {
+    return await db.select().from(bagelOvenLoads)
+      .where(eq(bagelOvenLoads.sessionId, sessionId))
+      .orderBy(desc(bagelOvenLoads.startedAt));
+  }
+
+  async finishOvenLoad(id: number): Promise<BagelOvenLoad> {
+    const [updated] = await db.update(bagelOvenLoads)
+      .set({ status: "done", finishedAt: new Date() })
+      .where(eq(bagelOvenLoads.id, id))
+      .returning();
+    return updated;
   }
 }
 
