@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, Mic, MicOff, Trash2, Share2, Pin, PinOff, Search,
   FileText, ChefHat, ClipboardList, Sparkles, ArrowLeft,
-  MoreVertical, Loader2, Lock, Users, UserPlus, X,
+  MoreVertical, Loader2, Lock, Users, UserPlus, X, CalendarPlus,
 } from "lucide-react";
 import type { Note } from "@shared/schema";
 
@@ -102,6 +102,9 @@ function NoteEditor({
       } else if (data.type === "sop") {
         queryClient.invalidateQueries({ queryKey: ["/api/sops"] });
         toast({ title: "SOP created!", description: `"${data.title}" has been saved to your SOPs.` });
+      } else if (data.type === "event") {
+        queryClient.invalidateQueries({ queryKey: ["/api/events"] });
+        toast({ title: `${data.count} event(s) created!`, description: `Added to your calendar: ${data.title}` });
       }
       setShowGenerated(false);
     },
@@ -292,6 +295,14 @@ function NoteEditor({
               <ClipboardList className="w-4 h-4 mr-2" />
               Build SOP
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => generateMutation.mutate("event")} data-testid="menu-generate-event">
+              <CalendarPlus className="w-4 h-4 mr-2" />
+              Preview Events
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => saveToSystemMutation.mutate("event")} disabled={saveToSystemMutation.isPending} data-testid="menu-build-event">
+              <CalendarPlus className="w-4 h-4 mr-2" />
+              Build Events
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => generateMutation.mutate("letterhead")} data-testid="menu-generate-letterhead">
               <FileText className="w-4 h-4 mr-2" />
               Letter Head
@@ -325,8 +336,9 @@ function NoteEditor({
             <DialogTitle className="flex items-center gap-2">
               {generatedType === "recipe" && <ChefHat className="w-5 h-5" />}
               {generatedType === "sop" && <ClipboardList className="w-5 h-5" />}
+              {generatedType === "event" && <CalendarPlus className="w-5 h-5" />}
               {generatedType === "letterhead" && <FileText className="w-5 h-5" />}
-              Generated {generatedType === "letterhead" ? "Letter Head" : generatedType?.toUpperCase()}
+              Generated {generatedType === "letterhead" ? "Letter Head" : generatedType === "event" ? "Calendar Events" : generatedType?.toUpperCase()}
             </DialogTitle>
           </DialogHeader>
           <div className="prose dark:prose-invert max-w-none text-sm whitespace-pre-wrap" data-testid="text-generated-content">
@@ -359,6 +371,17 @@ function NoteEditor({
               >
                 {saveToSystemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />}
                 {saveToSystemMutation.isPending ? "Building SOP..." : "Save to SOPs"}
+              </Button>
+            )}
+            {generatedType === "event" && (
+              <Button
+                onClick={() => saveToSystemMutation.mutate("event")}
+                disabled={saveToSystemMutation.isPending}
+                className="gap-2"
+                data-testid="button-save-as-event"
+              >
+                {saveToSystemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarPlus className="w-4 h-4" />}
+                {saveToSystemMutation.isPending ? "Creating Events..." : "Save to Calendar"}
               </Button>
             )}
             <Button variant="ghost" onClick={() => setShowGenerated(false)}>Close</Button>

@@ -36,7 +36,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Jarvis Briefing:** An AI-generated, personalized briefing on the Home page, tailored to the user's role, bakery state, and time of day.
 *   **Multi-Location Support:** Facilitates operations across multiple bakery locations, tagging operational data by `locationId`.
 *   **Task Manager (Assignable Task Lists):** A full task management system with three tabs: Task Lists, Jobs Library, and Department To-Do. Supports assigning tasks, tracking progress, and performance metrics.
-*   **Notes:** A full-featured notes system supporting personal and shared (collaborative) notes with voice dictation. Features AI-powered generation of Recipes, SOPs, or Letter Head documents from note content.
+*   **Notes:** A full-featured notes system supporting personal and shared (collaborative) notes with voice dictation. Features AI-powered generation of Recipes, SOPs, Calendar Events (all types: meeting, delivery, deadline, event, schedule — supports multiple events from one note), or Letter Head documents from note content. Collaborators can be invited to edit notes. Generate offers Preview (view formatted text) and Build (create real records in the database) modes.
 *   **Admin Insights Dashboard:** An owner-only dashboard with analytics across various categories, including Overview, Team, Production, Lamination, Messages, Features, KPI Report, and Performance.
 *   **KPI Report System:** Provides detailed business metrics with period-over-period comparisons, including revenue, labor cost, food cost, sales vs. production, waste reports, and peak hours staffing.
 *   **Starkade:** An in-house competitive gaming arcade with built-in games, a unified points system, and leaderboards.

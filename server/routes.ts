@@ -4929,8 +4929,8 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
       }
 
       const { type } = req.body;
-      if (!type || !["recipe", "sop", "letterhead"].includes(type)) {
-        return res.status(400).json({ message: "Type must be recipe, sop, or letterhead" });
+      if (!type || !["recipe", "sop", "letterhead", "event"].includes(type)) {
+        return res.status(400).json({ message: "Type must be recipe, sop, letterhead, or event" });
       }
 
       const OpenAI = (await import("openai")).default;
@@ -4960,6 +4960,18 @@ Return ONLY the formatted recipe as clean, readable text with clear section head
 - Revision history placeholder
 
 Return ONLY the formatted SOP as clean, professional text. Use markdown formatting.`;
+      } else if (type === "event") {
+        systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into one or more calendar events. Format each event clearly with:
+- Event Title
+- Event Type (meeting, delivery, deadline, event, or schedule)
+- Date and Time (include start and end if applicable)
+- Description/Details
+- Location/Address if mentioned
+- Contact information if mentioned
+- People to tag/involve if mentioned
+
+If the note describes multiple events, list each one separately with clear headers (Event 1, Event 2, etc.).
+Return ONLY the formatted events as clean, readable text. Use markdown formatting.`;
       } else if (type === "letterhead") {
         systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into a polished, spell-checked, properly worded professional document on Bear's Cup Bakehouse letterhead. Format it with:
 
@@ -5004,8 +5016,8 @@ Clean up grammar, spelling, and tone. Make it professional while keeping the ori
       }
 
       const { type } = req.body;
-      if (!type || !["recipe", "sop"].includes(type)) {
-        return res.status(400).json({ message: "Type must be recipe or sop" });
+      if (!type || !["recipe", "sop", "event"].includes(type)) {
+        return res.status(400).json({ message: "Type must be recipe, sop, or event" });
       }
 
       const OpenAI = (await import("openai")).default;
@@ -5127,6 +5139,91 @@ Rules:
         });
 
         res.json({ saved: true, type: "sop", id: sop.id, title: sop.title });
+      } else if (type === "event") {
+        const today = new Date().toISOString().split("T")[0];
+        const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Convert the following note into one or more calendar events. Return ONLY valid JSON (no markdown code blocks, no extra text) with this exact structure:
+{
+  "events": [
+    {
+      "title": "Event Title",
+      "description": "Event description/details",
+      "eventType": "event",
+      "date": "2026-03-15T09:00:00",
+      "endDate": "2026-03-15T17:00:00",
+      "startTime": "09:00",
+      "endTime": "17:00",
+      "address": "123 Main St (or null if not mentioned)",
+      "contactName": "John Doe (or null if not mentioned)",
+      "contactPhone": "555-1234 (or null if not mentioned)",
+      "contactEmail": "john@example.com (or null if not mentioned)"
+    }
+  ]
+}
+
+Rules:
+- eventType must be one of: "meeting", "delivery", "deadline", "event", "schedule"
+- date and endDate must be valid ISO 8601 datetime strings
+- If no specific date is mentioned, use reasonable dates starting from ${today}
+- startTime and endTime should be in HH:MM 24-hour format (or null if not applicable)
+- If the note contains multiple events, include all of them in the events array
+- Use "event" as the default eventType if the type is unclear
+- Include all relevant details from the note in the description`;
+
+        const response = await withRetry(() => ai.chat.completions.create({
+          model: "gpt-4o-mini",
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Note Title: ${note.title}\n\nNote Content:\n${note.content}` },
+          ],
+        }));
+
+        const raw = response.choices[0]?.message?.content || "";
+        let parsed;
+        try {
+          const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          parsed = JSON.parse(cleaned);
+        } catch {
+          return res.status(422).json({ message: "AI returned invalid event format. Try again." });
+        }
+
+        const eventsArr = parsed.events || (parsed.title ? [parsed] : []);
+        if (!eventsArr.length) {
+          return res.status(422).json({ message: "AI could not extract any events from this note. Try again." });
+        }
+
+        const validTypes = ["meeting", "delivery", "deadline", "event", "schedule"];
+        const createdEvents = [];
+        for (const ev of eventsArr) {
+          if (!ev.title || !ev.date) continue;
+          const parsedDate = new Date(ev.date);
+          if (isNaN(parsedDate.getTime())) continue;
+          const parsedEndDate = ev.endDate ? new Date(ev.endDate) : null;
+          if (parsedEndDate && isNaN(parsedEndDate.getTime())) continue;
+          const event = await storage.createEvent({
+            title: ev.title,
+            description: ev.description || null,
+            eventType: validTypes.includes(ev.eventType) ? ev.eventType : "event",
+            date: parsedDate,
+            endDate: parsedEndDate,
+            startTime: ev.startTime || null,
+            endTime: ev.endTime || null,
+            address: ev.address || null,
+            contactName: ev.contactName || null,
+            contactPhone: ev.contactPhone || null,
+            contactEmail: ev.contactEmail || null,
+            taggedUserIds: null,
+          });
+          createdEvents.push(event);
+        }
+
+        const titles = createdEvents.map(e => e.title).join(", ");
+        await storage.updateNote(Number(req.params.id), {
+          generatedType: type,
+          generatedContent: `${createdEvents.length} event(s) created: ${titles}`,
+        });
+
+        res.json({ saved: true, type: "event", count: createdEvents.length, events: createdEvents.map(e => ({ id: e.id, title: e.title })), title: titles });
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
