@@ -49,6 +49,7 @@ import Starkade from "@/pages/Starkade";
 import CustomerFeedback from "@/pages/CustomerFeedback";
 import FeedbackQRCode from "@/pages/FeedbackQRCode";
 import HR from "@/pages/HR";
+import MLL from "@/pages/MLL";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -220,6 +221,9 @@ function Router() {
       </Route>
       <Route path="/hr">
         {() => <ProtectedRoute component={HR} />}
+      </Route>
+      <Route path="/mll">
+        {() => <ProtectedRoute component={MLL} />}
       </Route>
 
       <Route component={NotFound} />
