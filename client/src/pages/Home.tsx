@@ -3,25 +3,43 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import {
+  useProblems, useCreateProblem, useUpdateProblem, useDeleteProblem,
+  useEvents, useCreateEvent, useDeleteEvent,
+} from "@/hooks/use-dashboard";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
   Mail, MailOpen, Calendar, Clock, Users, Flame,
-  Megaphone, ArrowRight,
+  ArrowRight,
   AlertCircle, Pin, ChefHat, ClipboardList,
   BookOpen, Mic, ListChecks, UserCircle, CalendarDays,
   MessageSquare,
   LogIn, LogOut, Coffee,
   RefreshCw, X, Pencil, Check, Star,
-  LayoutDashboard, Croissant, UtensilsCrossed,
-  Package, Layers, Stamp, Gamepad2
+  Croissant, UtensilsCrossed,
+  Package, Layers, Stamp, Gamepad2,
+  Plus, AlertTriangle, CheckCircle2, Eye, EyeOff,
+  FileText, Trash2, MapPin, Phone, Cake, Target
 } from "lucide-react";
-import bearLogoPath from "@assets/IMG_0207_1770933242469.jpeg";
-import { format, isToday, isTomorrow } from "date-fns";
-import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent } from "@shared/schema";
+import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
+import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote } from "@shared/schema";
+import { insertPreShiftNoteSchema } from "@shared/schema";
+
+const BearLogoIcon = ({ className }: { className?: string }) => (
+  <img src="/bear-logo.png" alt="Jarvis" className={`rounded-sm object-contain ${className || ""}`} />
+);
 
 function formatTimeDisplay(time: string | null): string {
   if (!time) return "";
@@ -33,6 +51,16 @@ function formatTimeDisplay(time: string | null): string {
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const ampm = h < 12 ? "AM" : "PM";
   return `${hour12}:${m} ${ampm}`;
+}
+
+const TIME_OPTIONS: string[] = [];
+for (let h = 0; h < 24; h++) {
+  for (const m of [0, 30]) {
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const ampm = h < 12 ? "AM" : "PM";
+    const min = m === 0 ? "00" : "30";
+    TIME_OPTIONS.push(`${hour12}:${min} ${ampm}`);
+  }
 }
 
 type InboxMessage = DirectMessage & {
@@ -61,11 +89,37 @@ type JarvisBriefingData = {
   disabled: boolean;
 };
 
+type EnrichedShift = Shift & {
+  displayName: string;
+  hasCallout: boolean;
+  hasCoverageRequest: boolean;
+  calloutType: string | null;
+};
+
+type BirthdayEntry = { userId: string; name: string; birthday: string };
+
+const SEVERITY_CONFIG: Record<string, { color: string; label: string }> = {
+  critical: { color: "destructive", label: "Critical" },
+  high: { color: "destructive", label: "High" },
+  medium: { color: "secondary", label: "Medium" },
+  low: { color: "outline", label: "Low" },
+};
+
+const EVENT_TYPE_ICONS: Record<string, string> = {
+  meeting: "M", delivery: "D", deadline: "!", event: "E", schedule: "S", birthday: "B",
+};
+
 function formatShiftDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   if (isToday(d)) return "Today";
   if (isTomorrow(d)) return "Tomorrow";
   return format(d, "EEE, MMM d");
+}
+
+function formatDayLabel(date: Date): string {
+  if (isToday(date)) return "Today";
+  if (isTomorrow(date)) return "Tomorrow";
+  return format(date, "EEE, MMM d");
 }
 
 function senderName(sender: InboxMessage["sender"]): string {
@@ -75,15 +129,10 @@ function senderName(sender: InboxMessage["sender"]): string {
 
 type ActiveTimeEntry = TimeEntry & { breaks: BreakEntry[] };
 
-const BearLogoIcon = ({ className }: { className?: string }) => (
-  <img src="/bear-logo.png" alt="Jarvis" className={`rounded-sm object-contain ${className || ""}`} />
-);
-
 type QuickActionItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
 
 const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/calendar", label: "Event Calendar", icon: Calendar },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/recipes", label: "Recipes", icon: ChefHat },
   { href: "/tasks", label: "Task Manager", icon: ListChecks },
   { href: "/sops", label: "SOPs", icon: BookOpen },
@@ -103,7 +152,7 @@ const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/messages", label: "Messages", icon: MessageSquare },
 ];
 
-const DEFAULT_QUICK_ACTIONS = ["/calendar", "/dashboard", "/recipes", "/tasks", "/sops", "/schedule", "/assistant", "/kiosk"];
+const DEFAULT_QUICK_ACTIONS = ["/calendar", "/recipes", "/tasks", "/sops", "/schedule", "/assistant", "/kiosk", "/bakery"];
 const QA_STORAGE_KEY = "jarvis-home-quick-actions";
 
 function loadQuickActions(): string[] {
@@ -111,7 +160,7 @@ function loadQuickActions(): string[] {
     const stored = localStorage.getItem(QA_STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.filter((h: string) => h !== "/dashboard");
     }
   } catch {}
   return DEFAULT_QUICK_ACTIONS;
@@ -120,6 +169,11 @@ function loadQuickActions(): string[] {
 function saveQuickActions(actions: string[]) {
   localStorage.setItem(QA_STORAGE_KEY, JSON.stringify(actions));
 }
+
+const preShiftNoteFormSchema = insertPreShiftNoteSchema.pick({ content: true }).extend({
+  content: z.string().min(1, "Note content is required"),
+});
+type PreShiftNoteFormValues = z.infer<typeof preShiftNoteFormSchema>;
 
 function ClockBar() {
   const { toast } = useToast();
@@ -136,46 +190,26 @@ function ClockBar() {
   }, []);
 
   const clockInMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/time/clock-in");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
-      toast({ title: "Clocked In", description: "Your shift has started." });
-    },
+    mutationFn: async () => { await apiRequest("POST", "/api/time/clock-in"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/time/active"] }); toast({ title: "Clocked In", description: "Your shift has started." }); },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const clockOutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/time/clock-out");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
-      toast({ title: "Clocked Out", description: "Great work today!" });
-    },
+    mutationFn: async () => { await apiRequest("POST", "/api/time/clock-out"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/time/active"] }); toast({ title: "Clocked Out", description: "Great work today!" }); },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const breakStartMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/time/break/start");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
-      toast({ title: "Break Started", description: "Enjoy your break!" });
-    },
+    mutationFn: async () => { await apiRequest("POST", "/api/time/break/start"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/time/active"] }); toast({ title: "Break Started", description: "Enjoy your break!" }); },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const breakEndMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/time/break/end");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/time/active"] });
-      toast({ title: "Break Ended", description: "Welcome back!" });
-    },
+    mutationFn: async () => { await apiRequest("POST", "/api/time/break/end"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/time/active"] }); toast({ title: "Break Ended", description: "Welcome back!" }); },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -209,26 +243,15 @@ function ClockBar() {
   return (
     <div
       className={`flex items-center justify-between gap-3 flex-wrap rounded-md px-4 py-2.5 ${
-        isClockedIn
-          ? onBreak
-            ? "bg-amber-500/10 border border-amber-500/20"
-            : "bg-emerald-500/10 border border-emerald-500/20"
-          : "bg-muted/50 border border-border"
+        isClockedIn ? onBreak ? "bg-amber-500/10 border border-amber-500/20" : "bg-emerald-500/10 border border-emerald-500/20" : "bg-muted/50 border border-border"
       }`}
       data-testid="container-clock-bar"
     >
       <div className="flex items-center gap-3 min-w-0">
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-          isClockedIn ? onBreak ? "bg-amber-500 animate-pulse" : "bg-emerald-500" : "bg-muted-foreground/40"
-        }`} />
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isClockedIn ? onBreak ? "bg-amber-500 animate-pulse" : "bg-emerald-500" : "bg-muted-foreground/40"}`} />
         <div className="flex flex-col min-w-0">
           <span className="text-sm font-medium truncate" data-testid="text-clock-status">
-            {isClockedIn
-              ? onBreak
-                ? "On Break"
-                : `Clocked in since ${clockInTime}`
-              : "Not clocked in"
-            }
+            {isClockedIn ? onBreak ? "On Break" : `Clocked in since ${clockInTime}` : "Not clocked in"}
           </span>
           {isClockedIn && (
             <span className="text-xs text-muted-foreground font-mono" data-testid="text-clock-elapsed">
@@ -241,50 +264,22 @@ function ClockBar() {
         {isClockedIn && (
           <>
             {onBreak ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => breakEndMutation.mutate()}
-                disabled={breakEndMutation.isPending}
-                data-testid="button-end-break"
-              >
-                <Coffee className="w-3.5 h-3.5 mr-1.5" />
-                End Break
+              <Button size="sm" variant="outline" onClick={() => breakEndMutation.mutate()} disabled={breakEndMutation.isPending} data-testid="button-end-break">
+                <Coffee className="w-3.5 h-3.5 mr-1.5" />End Break
               </Button>
             ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => breakStartMutation.mutate()}
-                disabled={breakStartMutation.isPending}
-                data-testid="button-start-break"
-              >
-                <Coffee className="w-3.5 h-3.5 mr-1.5" />
-                Break
+              <Button size="sm" variant="outline" onClick={() => breakStartMutation.mutate()} disabled={breakStartMutation.isPending} data-testid="button-start-break">
+                <Coffee className="w-3.5 h-3.5 mr-1.5" />Break
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => clockOutMutation.mutate()}
-              disabled={clockOutMutation.isPending}
-              data-testid="button-clock-out"
-            >
-              <LogOut className="w-3.5 h-3.5 mr-1.5" />
-              Clock Out
+            <Button size="sm" variant="default" onClick={() => clockOutMutation.mutate()} disabled={clockOutMutation.isPending} data-testid="button-clock-out">
+              <LogOut className="w-3.5 h-3.5 mr-1.5" />Clock Out
             </Button>
           </>
         )}
         {!isClockedIn && (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={() => clockInMutation.mutate()}
-            disabled={clockInMutation.isPending}
-            data-testid="button-clock-in"
-          >
-            <LogIn className="w-3.5 h-3.5 mr-1.5" />
-            Clock In
+          <Button size="sm" variant="default" onClick={() => clockInMutation.mutate()} disabled={clockInMutation.isPending} data-testid="button-clock-in">
+            <LogIn className="w-3.5 h-3.5 mr-1.5" />Clock In
           </Button>
         )}
       </div>
@@ -293,67 +288,34 @@ function ClockBar() {
 }
 
 function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
-  data: JarvisBriefingData;
-  onDismiss: () => void;
-  onRefresh: () => void;
-  isRefreshing: boolean;
+  data: JarvisBriefingData; onDismiss: () => void; onRefresh: () => void; isRefreshing: boolean;
 }) {
-  const seenMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/home/jarvis-briefing/seen");
-    },
-  });
+  const seenMutation = useMutation({ mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/seen"); } });
 
-  useEffect(() => {
-    if (data.showWelcome) {
-      seenMutation.mutate();
-    }
-  }, [data.showWelcome]);
+  useEffect(() => { if (data.showWelcome) seenMutation.mutate(); }, [data.showWelcome]);
 
   if (data.disabled || !data.briefingText) return null;
 
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4" data-testid="container-jarvis-briefing">
       <div className="flex items-start gap-3">
-        <img
-          src="/bear-logo.png"
-          alt="Jarvis"
-          className="w-10 h-10 rounded-full flex-shrink-0 border-2 border-primary/30"
-          data-testid="img-jarvis-avatar"
-        />
+        <img src="/bear-logo.png" alt="Jarvis" className="w-10 h-10 rounded-full flex-shrink-0 border-2 border-primary/30" data-testid="img-jarvis-avatar" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-sm font-semibold text-primary" data-testid="text-jarvis-label">Jarvis</span>
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                data-testid="button-refresh-briefing"
-              >
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} disabled={isRefreshing} data-testid="button-refresh-briefing">
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={onDismiss}
-                data-testid="button-dismiss-briefing"
-              >
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onDismiss} data-testid="button-dismiss-briefing">
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
           {data.showWelcome && data.welcomeMessage && (
-            <p className="text-sm font-medium mb-2 text-foreground" data-testid="text-welcome-message">
-              {data.welcomeMessage}
-            </p>
+            <p className="text-sm font-medium mb-2 text-foreground" data-testid="text-welcome-message">{data.welcomeMessage}</p>
           )}
-          <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-briefing-content">
-            {data.briefingText}
-          </p>
+          <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-briefing-content">{data.briefingText}</p>
         </div>
       </div>
     </div>
@@ -362,25 +324,72 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
 
 export default function Home() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isManager = user?.role === "manager" || user?.role === "owner";
   const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [quickActions, setQuickActions] = useState<string[]>(loadQuickActions);
   const [editingQA, setEditingQA] = useState(false);
   const [qaDraft, setQaDraft] = useState<string[]>([]);
 
-  const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({
-    queryKey: ["/api/home"],
-    refetchInterval: 30000,
-  });
+  const [lookAheadDays, setLookAheadDays] = useState(5);
+  const [showProblemForm, setShowProblemForm] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
-  const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({
-    queryKey: ["/api/messages/inbox"],
-  });
+  const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
+  const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
 
+  const todayDate = new Date().toISOString().split("T")[0];
+
+  const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
+  const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
-    queryKey: ["/api/home/jarvis-briefing"],
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    queryKey: ["/api/home/jarvis-briefing"], staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false,
+  });
+
+  const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
+  const { data: eventsData, isLoading: loadingEvents } = useEvents(lookAheadDays);
+  const { data: birthdaysData = [] } = useQuery<BirthdayEntry[]>({ queryKey: ["/api/team/birthdays"] });
+  const { data: preShiftNotes = [], isLoading: loadingNotes } = useQuery<(PreShiftNote & { authorName?: string })[]>({
+    queryKey: [`/api/pre-shift-notes?date=${todayDate}`],
+  });
+  const { data: todayShifts = [], isLoading: loadingShifts } = useQuery<EnrichedShift[]>({
+    queryKey: [`/api/shifts/today?date=${todayDate}`], refetchInterval: 60000,
+  });
+  const { data: pastryTotals = [] } = useQuery<PastryTotal[]>({
+    queryKey: [`/api/pastry-totals?date=${todayDate}`],
+  });
+  const { data: bakeoffLogs = [] } = useQuery<BakeoffLog[]>({
+    queryKey: [`/api/bakeoff-logs?date=${todayDate}`], refetchInterval: 30000,
+  });
+
+  const createProblem = useCreateProblem();
+  const updateProblem = useUpdateProblem();
+  const deleteProblem = useDeleteProblem();
+  const createEvent = useCreateEvent();
+  const deleteEvent = useDeleteEvent();
+
+  const createNoteMutation = useMutation({
+    mutationFn: async (data: { content: string; date: string; locationId?: number | null }) => {
+      const res = await apiRequest("POST", "/api/pre-shift-notes", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") });
+      toast({ title: "Note added", description: "Pre-shift note posted." });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/pre-shift-notes/${id}`); },
+    onSuccess: () => { queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") }); },
+  });
+
+  const noteForm = useForm<PreShiftNoteFormValues>({
+    resolver: zodResolver(preShiftNoteFormSchema),
+    defaultValues: { content: "" },
   });
 
   const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
@@ -393,458 +402,763 @@ export default function Home() {
     return "Good evening";
   }, []);
 
-  const bakeoffEntries = homeData?.bakeoffSummary
-    ? Object.entries(homeData.bakeoffSummary).sort((a, b) => a[0].localeCompare(b[0]))
-    : [];
+  const problems: Problem[] = problemsData || [];
+  const calendarEvents: CalendarEvent[] = eventsData || [];
+  const activeProblems = problems.filter(p => !p.completed);
+  const completedProblems = problems.filter(p => p.completed);
+
+  const birthdayCalEvents: CalendarEvent[] = useMemo(() => {
+    const now = new Date();
+    return birthdaysData.map((b) => {
+      const bDate = new Date(b.birthday + "T00:00:00");
+      const eventDate = new Date(now.getFullYear(), getMonth(bDate), getDate(bDate), 9, 0, 0);
+      let hash = 0;
+      for (let i = 0; i < b.userId.length; i++) hash = ((hash << 5) - hash + b.userId.charCodeAt(i)) | 0;
+      return {
+        id: -(Math.abs(hash) + getDate(bDate) * 100 + getMonth(bDate)),
+        title: `${b.name}'s Birthday`, description: null, date: eventDate, endDate: null,
+        eventType: "birthday", contactName: null, contactPhone: null, contactEmail: null,
+        address: null, startTime: null, endTime: null, createdBy: null, createdAt: null,
+      } as CalendarEvent;
+    });
+  }, [birthdaysData]);
+
+  const allForwardEvents = [...calendarEvents, ...birthdayCalEvents];
+  const lookAheadData = Array.from({ length: lookAheadDays }, (_, i) => {
+    const date = addDays(new Date(), i);
+    date.setHours(0, 0, 0, 0);
+    return { date, label: formatDayLabel(date), events: allForwardEvents.filter(e => isSameDay(new Date(e.date), date)) };
+  });
+
+  const bakeoffSummary = useMemo(() => {
+    const map = new Map<string, number>();
+    bakeoffLogs.forEach(log => map.set(log.itemName, (map.get(log.itemName) || 0) + log.quantity));
+    return map;
+  }, [bakeoffLogs]);
+
+  const productionGrid = useMemo(() => {
+    const allItems = new Set<string>();
+    pastryTotals.forEach(p => allItems.add(p.itemName));
+    bakeoffLogs.forEach(l => allItems.add(l.itemName));
+    return Array.from(allItems).sort().map(name => ({
+      name,
+      target: pastryTotals.find(p => p.itemName === name)?.targetCount || 0,
+      baked: bakeoffSummary.get(name) || 0,
+    }));
+  }, [pastryTotals, bakeoffSummary]);
 
   const resolvedQA = useMemo(() =>
-    quickActions
-      .map(href => ALL_QUICK_ACTIONS.find(a => a.href === href))
-      .filter(Boolean) as QuickActionItem[],
+    quickActions.map(href => ALL_QUICK_ACTIONS.find(a => a.href === href)).filter(Boolean) as QuickActionItem[],
     [quickActions]
   );
 
   const startEditingQA = () => { setQaDraft([...quickActions]); setEditingQA(true); };
-  const toggleQADraft = (href: string) => {
-    setQaDraft(prev => prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href]);
-  };
+  const toggleQADraft = (href: string) => { setQaDraft(prev => prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href]); };
   const saveQAEdits = () => { setQuickActions(qaDraft); saveQuickActions(qaDraft); setEditingQA(false); };
   const cancelQAEdits = () => { setQaDraft([]); setEditingQA(false); };
 
+  async function handleAddProblem() {
+    if (!problemForm.title.trim()) return;
+    await createProblem.mutateAsync({
+      title: problemForm.title, description: problemForm.description || null,
+      severity: problemForm.severity, location: problemForm.location || null,
+      reportedBy: problemForm.reportedBy || null, notes: problemForm.notes || null, completed: false,
+    });
+    setProblemForm({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
+    setShowProblemForm(false);
+  }
+
+  async function handleAddEvent() {
+    if (!eventForm.title.trim()) return;
+    await createEvent.mutateAsync({
+      title: eventForm.title, description: eventForm.description || null,
+      date: new Date(eventForm.date + "T09:00:00").toISOString() as any, endDate: null,
+      eventType: eventForm.eventType, contactName: eventForm.contactName || null,
+      contactPhone: eventForm.contactPhone || null, contactEmail: eventForm.contactEmail || null,
+      address: eventForm.address || null, startTime: eventForm.startTime || null, endTime: eventForm.endTime || null,
+    });
+    setEventForm({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
+    setShowEventForm(false);
+  }
+
+  async function handleAddNote(values: PreShiftNoteFormValues) {
+    await createNoteMutation.mutateAsync({ content: values.content, date: todayDate, locationId: null });
+    noteForm.reset();
+    setShowNoteForm(false);
+  }
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-home">
-      <div className="flex flex-col gap-1" data-testid="container-welcome-home">
-        <h1 className="text-3xl font-display font-bold" data-testid="text-home-greeting">
-          {greeting}, {user?.firstName || user?.username || "Baker"}
-        </h1>
-        <p className="text-muted-foreground font-mono text-sm" data-testid="text-home-date">
-          {format(new Date(), "EEEE, MMMM do, yyyy")}
-        </p>
-      </div>
-
-      <ClockBar />
-
-      {!briefingDismissed && briefingData && (
-        <JarvisBriefingCard
-          data={briefingData}
-          onDismiss={() => setBriefingDismissed(true)}
-          onRefresh={() => refetchBriefing()}
-          isRefreshing={refreshingBriefing}
-        />
-      )}
-      {loadingBriefing && !briefingData && (
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-          <div className="flex items-start gap-3">
-            <Skeleton className="w-10 h-10 rounded-full" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-            </div>
+    <div className="animate-in fade-in duration-500" data-testid="container-home">
+      <div className="flex flex-col xl:flex-row gap-6">
+        {/* === MAIN COLUMN === */}
+        <div className="flex-1 min-w-0 space-y-5">
+          {/* Greeting */}
+          <div className="flex flex-col gap-1" data-testid="container-welcome-home">
+            <h1 className="text-3xl font-display font-bold" data-testid="text-home-greeting">
+              {greeting}, {user?.firstName || user?.username || "Baker"}
+            </h1>
+            <p className="text-muted-foreground font-mono text-sm" data-testid="text-home-date">
+              {format(new Date(), "EEEE, MMMM do, yyyy")}
+            </p>
           </div>
-        </div>
-      )}
 
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">
-        <a
-          href="#inbox-section"
-          onClick={(e) => { e.preventDefault(); document.getElementById("inbox-section")?.scrollIntoView({ behavior: "smooth" }); }}
-          className="block"
-        >
-          <Card className="cursor-pointer hover-elevate" data-testid="stat-unread">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Mail className="w-5 h-5 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-2xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Unread</p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            </CardContent>
-          </Card>
-        </a>
-        <Link href="/schedule">
-          <Card className="cursor-pointer hover-elevate" data-testid="stat-shifts">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Calendar className="w-5 h-5 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-2xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Upcoming Shifts</p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            </CardContent>
-          </Card>
-        </Link>
-        {isManager && homeData?.managerData && (
-          <>
-            <Link href="/schedule">
-              <Card className="cursor-pointer hover-elevate" data-testid="stat-staff-today">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Users className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-2xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p>
-                    <p className="text-xs text-muted-foreground">Staff Today</p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                </CardContent>
-              </Card>
-            </Link>
-            <Link href="/schedule">
-              <Card className="cursor-pointer hover-elevate" data-testid="stat-time-off">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <AlertCircle className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-2xl font-bold font-mono">{homeData.managerData.pendingTimeOffCount}</p>
-                    <p className="text-xs text-muted-foreground">Time Off Pending</p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                </CardContent>
-              </Card>
-            </Link>
-          </>
-        )}
-      </div>
+          <ClockBar />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Messages Summary Card */}
-        <Link href="/messages">
-        <Card className="lg:col-span-2 cursor-pointer hover-elevate" id="inbox-section" data-testid="container-inbox">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <MessageSquare className="w-4 h-4 text-primary" />
+          {/* Jarvis Briefing */}
+          {!briefingDismissed && briefingData && (
+            <JarvisBriefingCard data={briefingData} onDismiss={() => setBriefingDismissed(true)} onRefresh={() => refetchBriefing()} isRefreshing={refreshingBriefing} />
+          )}
+          {loadingBriefing && !briefingData && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <div className="flex items-start gap-3">
+                <Skeleton className="w-10 h-10 rounded-full" />
+                <div className="flex-1 space-y-2"><Skeleton className="h-4 w-16" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-3/4" /></div>
               </div>
-              Messages
-              {unreadMessages.length > 0 && (
-                <Badge variant="destructive" data-testid="badge-unread-count">{unreadMessages.length}</Badge>
-              )}
-            </CardTitle>
-            <span className="flex items-center gap-1 text-sm text-muted-foreground">
-              View All <ArrowRight className="w-3 h-3" />
-            </span>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loadingInbox ? (
-              <div className="space-y-2">
-                <Skeleton className="h-12 rounded-md" />
-                <Skeleton className="h-12 rounded-md" />
-              </div>
-            ) : inboxMessages.length === 0 ? (
-              <div className="text-center py-4 text-muted-foreground">
-                <MailOpen className="w-8 h-8 mx-auto mb-1.5 opacity-40" />
-                <p className="text-sm">No messages yet</p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {unreadMessages.slice(0, 3).map(msg => (
-                  <div key={msg.id} className="flex items-center gap-3 p-2.5 rounded-md bg-primary/5 border border-border" data-testid={`home-message-${msg.id}`}>
-                    <Mail className="w-4 h-4 text-primary flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <span className="font-semibold text-sm truncate block">{msg.subject}</span>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                      </p>
-                    </div>
-                    {msg.priority === "urgent" && <Badge variant="destructive" className="text-[10px]">Urgent</Badge>}
-                  </div>
-                ))}
-                {unreadMessages.length === 0 && inboxMessages.slice(0, 2).map(msg => (
-                  <div key={msg.id} className="flex items-center gap-3 p-2.5 rounded-md border border-border" data-testid={`home-message-${msg.id}`}>
-                    <MailOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm truncate block">{msg.subject}</span>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {senderName(msg.sender)} {msg.createdAt && `\u00B7 ${format(new Date(msg.createdAt), "MMM d, h:mm a")}`}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {inboxMessages.length > 3 && (
-                  <p className="text-xs text-muted-foreground text-center pt-1">
-                    {inboxMessages.length - (unreadMessages.length > 0 ? Math.min(unreadMessages.length, 3) : 2)} more messages
-                  </p>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </Link>
+            </div>
+          )}
 
-        {/* Quick Actions - Customizable */}
-        <Card className="lg:col-span-2" data-testid="container-quick-actions">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <Star className="w-4 h-4 text-primary" />
-              </div>
-              Quick Actions
-              {!editingQA && (
-                <button
-                  onClick={startEditingQA}
-                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-                  data-testid="button-edit-quick-actions"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-              )}
-              {editingQA && (
-                <div className="ml-auto flex items-center gap-2">
-                  <button
-                    onClick={saveQAEdits}
-                    className="text-green-500 hover:text-green-400 transition-colors"
-                    data-testid="button-save-quick-actions"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={cancelQAEdits}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    data-testid="button-cancel-quick-actions"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {!editingQA ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {resolvedQA.map((item) => (
-                  <Link key={item.href} href={item.href}>
-                    <div className="flex flex-col items-center gap-2 p-4 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid={`quick-action-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-6 h-6 text-primary" />
-                      <span className="text-xs font-medium">{item.label}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {ALL_QUICK_ACTIONS.map((item) => {
-                  const selected = qaDraft.includes(item.href);
-                  return (
-                    <div
-                      key={item.href}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-md border cursor-pointer transition-all text-center ${
-                        selected
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
-                      onClick={() => toggleQADraft(item.href)}
-                      data-testid={`qa-option-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                      <item.icon className={`w-6 h-6 ${selected ? "text-primary" : ""}`} />
-                      <span className="text-xs font-medium">{item.label}</span>
-                      {selected && <Check className="w-3.5 h-3.5 text-primary" />}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* My Schedule Card */}
-        <Link href="/schedule">
-        <Card className="cursor-pointer hover-elevate" data-testid="container-my-schedule">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <CalendarDays className="w-4 h-4 text-primary" />
-              </div>
-              My Schedule
-            </CardTitle>
-            <span className="flex items-center gap-1 text-sm text-muted-foreground">
-              View All <ArrowRight className="w-3 h-3" />
-            </span>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loadingHome ? (
-              <div className="space-y-2">
-                <Skeleton className="h-12 rounded-md" />
-                <Skeleton className="h-12 rounded-md" />
-              </div>
-            ) : !homeData?.myUpcomingShifts?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No upcoming shifts this week.</p>
-            ) : (
-              <div className="space-y-2">
-                {homeData.myUpcomingShifts.slice(0, 5).map(shift => (
-                  <div key={shift.id} className="flex items-center gap-3 p-3 rounded-md border border-border" data-testid={`home-shift-${shift.id}`}>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm">{formatShiftDate(shift.shiftDate)}</span>
-                        <Badge variant="secondary">{shift.department}</Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {shift.startTime} - {shift.endTime}
-                        </span>
-                        {shift.position && <span>{shift.position}</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </Link>
-
-        {/* Your Upcoming Events */}
-        {homeData?.myTaggedEvents && homeData.myTaggedEvents.length > 0 && (
-          <Link href="/calendar">
-          <Card className="cursor-pointer hover-elevate" data-testid="container-my-events">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-purple-500/10 flex items-center justify-center">
-                  <Calendar className="w-4 h-4 text-purple-500" />
-                </div>
-                Your Events
-              </CardTitle>
-              <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                Calendar <ArrowRight className="w-3 h-3" />
-              </span>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-2">
-                {homeData.myTaggedEvents.slice(0, 5).map(event => (
-                  <div key={event.id} className="flex items-center gap-3 p-3 rounded-md border border-border" data-testid={`home-event-${event.id}`}>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm">{event.title}</span>
-                        <Badge variant="secondary" className="capitalize">{event.eventType}</Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                        <span>{format(new Date(event.date), "EEE, MMM d")}</span>
-                        {event.startTime && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatTimeDisplay(event.startTime)}{event.endTime ? ` - ${formatTimeDisplay(event.endTime)}` : ""}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-          </Link>
-        )}
-
-        {homeData?.myEventJobs && homeData.myEventJobs.length > 0 && (
-          <Link href="/calendar">
-          <Card className="cursor-pointer hover-elevate" data-testid="container-my-event-jobs">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-amber-500/10 flex items-center justify-center">
-                  <ClipboardList className="w-4 h-4 text-amber-500" />
-                </div>
-                Your Event Jobs
-              </CardTitle>
-              <Badge variant="outline" className="text-xs">{homeData.myEventJobs.filter((j: any) => !j.completed).length} pending</Badge>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-2">
-                {homeData.myEventJobs.filter((j: any) => !j.completed).slice(0, 5).map((job: any) => (
-                  <div key={job.id} className="flex items-start gap-3 p-3 rounded-md border border-border" data-testid={`home-job-${job.id}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{job.title}</p>
-                      {job.description && <p className="text-xs text-muted-foreground mt-0.5">{job.description}</p>}
-                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                        <Calendar className="w-3 h-3" />
-                        <span>{job.eventTitle}</span>
-                        <span>·</span>
-                        <span>{format(new Date(job.eventDate), "EEE, MMM d")}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-          </Link>
-        )}
-
-        {/* Out of the Oven Today */}
-        <Link href="/dashboard">
-        <Card className="cursor-pointer hover-elevate" data-testid="container-home-bakeoff">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <Flame className="w-4 h-4 text-primary" />
-              </div>
-              Out of the Oven
-            </CardTitle>
-            <span className="flex items-center gap-1 text-sm text-muted-foreground">
-              Dashboard <ArrowRight className="w-3 h-3" />
-            </span>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loadingHome ? (
-              <Skeleton className="h-16 rounded-md" />
-            ) : bakeoffEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Nothing baked yet today.</p>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {bakeoffEntries.map(([name, qty]) => (
-                  <div key={name} className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2">
-                    <span className="text-2xl font-bold font-mono" data-testid={`home-bakeoff-count-${name}`}>{qty}</span>
-                    <span className="text-sm" data-testid={`home-bakeoff-name-${name}`}>{name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </Link>
-
-        {/* Pinned Announcements */}
-        {homeData?.pinnedAnnouncements && homeData.pinnedAnnouncements.length > 0 && (
-          <Link href="/dashboard">
-          <Card className="lg:col-span-2 cursor-pointer hover-elevate" data-testid="container-pinned-announcements">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                  <Megaphone className="w-4 h-4 text-primary" />
-                </div>
-                Pinned Announcements
-              </CardTitle>
-              <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                Dashboard <ArrowRight className="w-3 h-3" />
-              </span>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-2">
+          {/* Pinned Announcements Banner */}
+          {homeData?.pinnedAnnouncements && homeData.pinnedAnnouncements.length > 0 && (
+            <div className="space-y-1.5" data-testid="container-pinned-announcements">
               {homeData.pinnedAnnouncements.map(ann => (
-                <div key={ann.id} className="flex items-start gap-3 p-3 rounded-md border border-border" data-testid={`home-announcement-${ann.id}`}>
-                  <Pin className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm">{ann.title}</p>
-                    <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{ann.content}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {ann.authorName && `By ${ann.authorName}`}
-                      {ann.createdAt && ` \u00B7 ${format(new Date(ann.createdAt), "MMM d")}`}
-                    </p>
-                  </div>
+                <div key={ann.id} className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid={`home-announcement-${ann.id}`}>
+                  <Pin className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                  <span className="text-sm font-medium truncate">{ann.title}</span>
+                  <span className="text-xs text-muted-foreground truncate hidden sm:inline">— {ann.content}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">
+            <Link href="/messages">
+              <Card className="cursor-pointer hover-elevate" data-testid="stat-unread">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Mail className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Unread</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/schedule">
+              <Card className="cursor-pointer hover-elevate" data-testid="stat-shifts">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Calendar className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Shifts</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            {isManager && homeData?.managerData && (
+              <>
+                <Link href="/schedule">
+                  <Card className="cursor-pointer hover-elevate" data-testid="stat-staff-today">
+                    <CardContent className="p-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Users className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p>
+                        <p className="text-[10px] text-muted-foreground">Staff Today</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+                <Link href="/schedule">
+                  <Card className="cursor-pointer hover-elevate" data-testid="stat-time-off">
+                    <CardContent className="p-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <AlertCircle className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xl font-bold font-mono">{homeData.managerData.pendingTimeOffCount}</p>
+                        <p className="text-[10px] text-muted-foreground">Time Off</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </>
+            )}
+          </div>
+
+          {/* Pre-Shift Notes */}
+          <Card data-testid="container-preshift-notes">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                Pre-Shift Notes
+              </CardTitle>
+              {isManager && (
+                <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
+                  <DialogTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>Add Pre-Shift Note</DialogTitle></DialogHeader>
+                    <Form {...noteForm}>
+                      <form onSubmit={noteForm.handleSubmit(handleAddNote)} className="space-y-4">
+                        <FormField control={noteForm.control} name="content" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Note</FormLabel>
+                            <FormControl><Textarea placeholder="What does the team need to know today?" data-testid="input-preshift-content" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">
+                          {createNoteMutation.isPending ? "Posting..." : "Post Note"}
+                        </Button>
+                      </form>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </CardHeader>
+            <CardContent className="pt-0">
+              {loadingNotes ? (
+                <Skeleton className="h-10 rounded-md" />
+              ) : preShiftNotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-3">No notes for today.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {preShiftNotes.map(note => (
+                    <div key={note.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border" data-testid={`card-preshift-note-${note.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm">{note.content}</p>
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                          {note.authorName && <span>{note.authorName}</span>}
+                          {note.createdAt && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{format(new Date(note.createdAt), "h:mm a")}</span>}
+                        </div>
+                      </div>
+                      {isManager && (
+                        <Button size="icon" variant="ghost" className="flex-shrink-0 h-6 w-6" onClick={() => deleteNoteMutation.mutate(note.id)} data-testid={`button-delete-preshift-note-${note.id}`}>
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
-          </Link>
-        )}
 
+          {/* Production Grid: Out of the Oven + Pastry Goals merged */}
+          <Card data-testid="container-production-grid">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Flame className="w-4 h-4 text-primary" />
+                Production Today
+              </CardTitle>
+              <Link href="/bakery">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                  Bakery <ArrowRight className="w-3 h-3" />
+                </span>
+              </Link>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {productionGrid.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-3">Nothing baked yet today.</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                  {productionGrid.map(item => {
+                    const pct = item.target > 0 ? Math.min(100, Math.round((item.baked / item.target) * 100)) : 0;
+                    const complete = item.target > 0 && item.baked >= item.target;
+                    return (
+                      <div key={item.name} className={`rounded-md border p-2 ${complete ? "border-emerald-500/30 bg-emerald-500/5" : "border-border"}`} data-testid={`production-item-${item.name}`}>
+                        <p className="text-xs font-medium truncate" title={item.name}>{item.name}</p>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className="text-lg font-bold font-mono">{item.baked}</span>
+                          {item.target > 0 && (
+                            <span className="text-xs text-muted-foreground">/ {item.target}</span>
+                          )}
+                        </div>
+                        {item.target > 0 && (
+                          <div className="h-1 bg-muted rounded-full mt-1 overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${complete ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${pct}%` }} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Problems + Forward Look side by side on larger screens */}
+          <div className="grid lg:grid-cols-2 gap-5">
+            {/* Problems That Need Attention */}
+            <Card data-testid="container-problems">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-base font-display flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-destructive" />
+                  Problems
+                </CardTitle>
+                <div className="flex items-center gap-1">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowCompleted(!showCompleted)} data-testid="button-toggle-completed">
+                    {showCompleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                  <Dialog open={showProblemForm} onOpenChange={setShowProblemForm}>
+                    <DialogTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-problem"><Plus className="w-4 h-4" /></Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>Report a Problem</DialogTitle></DialogHeader>
+                      <div className="space-y-3">
+                        <Input placeholder="What's the problem?" value={problemForm.title} onChange={e => setProblemForm(p => ({ ...p, title: e.target.value }))} data-testid="input-problem-title" />
+                        <Textarea placeholder="Details (optional)" value={problemForm.description} onChange={e => setProblemForm(p => ({ ...p, description: e.target.value }))} data-testid="input-problem-description" />
+                        <div className="grid grid-cols-2 gap-3">
+                          <Select value={problemForm.severity} onValueChange={v => setProblemForm(p => ({ ...p, severity: v }))}>
+                            <SelectTrigger data-testid="select-problem-severity"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="critical">Critical</SelectItem>
+                              <SelectItem value="high">High</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="low">Low</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input placeholder="Location" value={problemForm.location} onChange={e => setProblemForm(p => ({ ...p, location: e.target.value }))} data-testid="input-problem-location" />
+                        </div>
+                        <Input placeholder="Reported by" value={problemForm.reportedBy} onChange={e => setProblemForm(p => ({ ...p, reportedBy: e.target.value }))} data-testid="input-problem-reporter" />
+                        <Textarea placeholder="Notes (optional)" value={problemForm.notes} onChange={e => setProblemForm(p => ({ ...p, notes: e.target.value }))} data-testid="input-problem-notes" />
+                        <Button className="w-full" onClick={handleAddProblem} disabled={createProblem.isPending} data-testid="button-submit-problem">
+                          {createProblem.isPending ? "Saving..." : "Report Problem"}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {loadingProblems ? (
+                  <div className="space-y-2"><Skeleton className="h-14 rounded-md" /><Skeleton className="h-14 rounded-md" /></div>
+                ) : activeProblems.length === 0 && !showCompleted ? (
+                  <p className="text-sm text-muted-foreground text-center py-3" data-testid="text-no-problems">All clear!</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {activeProblems.map(problem => (
+                      <div key={problem.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border" data-testid={`card-problem-${problem.id}`}>
+                        <button className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border-2 border-muted-foreground/30 transition-colors" onClick={() => updateProblem.mutate({ id: problem.id, completed: true })} data-testid={`button-complete-problem-${problem.id}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium text-sm">{problem.title}</span>
+                            <Badge variant={SEVERITY_CONFIG[problem.severity]?.color as any || "secondary"} className="text-[10px]" data-testid={`badge-severity-${problem.id}`}>
+                              {SEVERITY_CONFIG[problem.severity]?.label || problem.severity}
+                            </Badge>
+                          </div>
+                          {problem.description && <p className="text-xs text-muted-foreground mt-0.5">{problem.description}</p>}
+                          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground flex-wrap">
+                            {problem.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{problem.location}</span>}
+                            {problem.reportedBy && <span>by {problem.reportedBy}</span>}
+                          </div>
+                        </div>
+                        <Button size="icon" variant="ghost" className="flex-shrink-0 h-6 w-6" onClick={() => deleteProblem.mutate(problem.id)} data-testid={`button-delete-problem-${problem.id}`}>
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ))}
+                    {showCompleted && completedProblems.length > 0 && (
+                      <>
+                        <p className="text-[10px] text-muted-foreground font-medium pt-1">Completed</p>
+                        {completedProblems.map(problem => (
+                          <div key={problem.id} className="flex items-start gap-2 p-2 rounded-md border border-border opacity-50" data-testid={`card-problem-completed-${problem.id}`}>
+                            <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" />
+                            <span className="font-medium text-sm line-through flex-1">{problem.title}</span>
+                            <Button size="icon" variant="ghost" className="flex-shrink-0 h-6 w-6" onClick={() => deleteProblem.mutate(problem.id)}>
+                              <Trash2 className="w-3 h-3 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Forward Look */}
+            <Card data-testid="container-forward5">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-base font-display flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-primary" />
+                  Forward {lookAheadDays}
+                </CardTitle>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs toggle-elevate ${lookAheadDays === 5 ? "toggle-elevated" : ""}`} onClick={() => setLookAheadDays(5)} data-testid="button-lookahead-5">5</Button>
+                  <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs toggle-elevate ${lookAheadDays === 30 ? "toggle-elevated" : ""}`} onClick={() => setLookAheadDays(30)} data-testid="button-lookahead-30">30</Button>
+                  <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
+                    <DialogTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-event"><Plus className="w-4 h-4" /></Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[90vh] overflow-y-auto">
+                      <DialogHeader><DialogTitle>Add Event</DialogTitle></DialogHeader>
+                      <div className="space-y-3">
+                        <Input placeholder="Event title" value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} data-testid="input-event-title" />
+                        <Textarea placeholder="Description (optional)" value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} data-testid="input-event-description" />
+                        <div className="grid grid-cols-2 gap-3">
+                          <Input type="date" value={eventForm.date} onChange={e => setEventForm(p => ({ ...p, date: e.target.value }))} data-testid="input-event-date" />
+                          <Select value={eventForm.eventType} onValueChange={v => setEventForm(p => ({ ...p, eventType: v }))}>
+                            <SelectTrigger data-testid="select-event-type"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="meeting">Meeting</SelectItem>
+                              <SelectItem value="delivery">Delivery</SelectItem>
+                              <SelectItem value="deadline">Deadline</SelectItem>
+                              <SelectItem value="event">Event</SelectItem>
+                              <SelectItem value="schedule">Schedule</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+                            <Select value={eventForm.startTime} onValueChange={v => setEventForm(p => ({ ...p, startTime: v }))}>
+                              <SelectTrigger data-testid="select-event-start-time"><SelectValue placeholder="Select time" /></SelectTrigger>
+                              <SelectContent className="max-h-60">{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">End Time</label>
+                            <Select value={eventForm.endTime} onValueChange={v => setEventForm(p => ({ ...p, endTime: v }))}>
+                              <SelectTrigger data-testid="select-event-end-time"><SelectValue placeholder="Select time" /></SelectTrigger>
+                              <SelectContent className="max-h-60">{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <Input placeholder="Contact name (optional)" value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-event-contact-name" />
+                        <div className="grid grid-cols-2 gap-3">
+                          <Input placeholder="Phone (optional)" value={eventForm.contactPhone} onChange={e => setEventForm(p => ({ ...p, contactPhone: e.target.value }))} data-testid="input-event-contact-phone" />
+                          <Input placeholder="Email (optional)" type="email" value={eventForm.contactEmail} onChange={e => setEventForm(p => ({ ...p, contactEmail: e.target.value }))} data-testid="input-event-contact-email" />
+                        </div>
+                        <Input placeholder="Address (optional)" value={eventForm.address} onChange={e => setEventForm(p => ({ ...p, address: e.target.value }))} data-testid="input-event-address" />
+                        <Button className="w-full" onClick={handleAddEvent} disabled={createEvent.isPending} data-testid="button-submit-event">
+                          {createEvent.isPending ? "Saving..." : "Add Event"}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {loadingEvents ? (
+                  <div className="space-y-2"><Skeleton className="h-10 rounded-md" /><Skeleton className="h-10 rounded-md" /></div>
+                ) : (
+                  <div className={`space-y-0.5 ${lookAheadDays === 30 ? "max-h-80 overflow-y-auto pr-1" : ""}`}>
+                    {lookAheadData.map((day, idx) => {
+                      if (lookAheadDays === 30 && day.events.length === 0) return null;
+                      return (
+                        <div key={idx} data-testid={`container-day-${idx}`}>
+                          <div className={`flex items-center gap-2 py-1.5 ${idx > 0 ? "border-t border-border" : ""}`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${isToday(day.date) ? "text-foreground" : "text-muted-foreground"}`}>{day.label}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">{format(day.date, "M/d")}</span>
+                          </div>
+                          {day.events.length === 0 ? (
+                            <p className="text-[10px] text-muted-foreground py-0.5 pl-3">No events</p>
+                          ) : (
+                            <div className="space-y-0.5 pl-1">
+                              {day.events.map(event => {
+                                const isBirthday = event.eventType === "birthday";
+                                return (
+                                  <div key={event.id} className={`flex items-center gap-1.5 py-1 px-1.5 rounded cursor-pointer hover-elevate ${isBirthday ? "bg-pink-500/10" : ""}`} onClick={() => setSelectedEvent(event)} data-testid={`card-event-${event.id}`}>
+                                    <div className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${isBirthday ? "bg-pink-500/20 text-pink-500" : "bg-primary/10 text-primary"}`}>
+                                      {isBirthday ? <Cake className="w-3 h-3" /> : (EVENT_TYPE_ICONS[event.eventType] || "E")}
+                                    </div>
+                                    <span className="text-sm flex-1 min-w-0 truncate">{event.title}</span>
+                                    {event.startTime && <span className="text-[10px] text-muted-foreground flex-shrink-0">{formatTimeDisplay(event.startTime)}</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Event Detail Dialog */}
+          <Dialog open={!!selectedEvent} onOpenChange={(open) => { if (!open) setSelectedEvent(null); }}>
+            <DialogContent>
+              {selectedEvent && (
+                <>
+                  <DialogHeader>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded flex items-center justify-center text-xs font-bold flex-shrink-0 ${selectedEvent.eventType === "birthday" ? "bg-pink-500/20 text-pink-500" : "bg-primary/10 text-primary"}`}>
+                        {selectedEvent.eventType === "birthday" ? <Cake className="w-3.5 h-3.5" /> : (EVENT_TYPE_ICONS[selectedEvent.eventType] || "E")}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <DialogTitle data-testid="text-event-detail-title">{selectedEvent.title}</DialogTitle>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <Badge variant="outline" data-testid="badge-event-detail-type">{selectedEvent.eventType}</Badge>
+                          <span className="text-xs text-muted-foreground" data-testid="text-event-detail-date">{format(new Date(selectedEvent.date), "EEEE, MMMM d, yyyy")}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </DialogHeader>
+                  <div className="space-y-3 mt-2">
+                    {(selectedEvent.startTime || selectedEvent.endTime) && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span data-testid="text-event-detail-time">{formatTimeDisplay(selectedEvent.startTime)}{selectedEvent.endTime ? ` – ${formatTimeDisplay(selectedEvent.endTime)}` : ""}</span>
+                      </div>
+                    )}
+                    {selectedEvent.description && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Description</p>
+                        <p className="text-sm" data-testid="text-event-detail-description">{selectedEvent.description}</p>
+                      </div>
+                    )}
+                    {selectedEvent.address && (
+                      <div className="flex items-start gap-2 text-sm">
+                        <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                        <span data-testid="text-event-detail-address">{selectedEvent.address}</span>
+                      </div>
+                    )}
+                    {(selectedEvent.contactName || selectedEvent.contactPhone || selectedEvent.contactEmail) && (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Contact</p>
+                        <div className="space-y-1">
+                          {selectedEvent.contactName && <p className="text-sm font-medium" data-testid="text-event-detail-contact-name">{selectedEvent.contactName}</p>}
+                          {selectedEvent.contactPhone && (
+                            <div className="flex items-center gap-2 text-sm"><Phone className="w-3.5 h-3.5 text-muted-foreground" /><a href={`tel:${selectedEvent.contactPhone}`} className="underline" data-testid="link-event-detail-phone">{selectedEvent.contactPhone}</a></div>
+                          )}
+                          {selectedEvent.contactEmail && (
+                            <div className="flex items-center gap-2 text-sm"><Mail className="w-3.5 h-3.5 text-muted-foreground" /><a href={`mailto:${selectedEvent.contactEmail}`} className="underline" data-testid="link-event-detail-email">{selectedEvent.contactEmail}</a></div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {selectedEvent.id > 0 && (
+                      <div className="flex justify-end pt-2 border-t border-border">
+                        <Button variant="destructive" size="sm" onClick={() => { deleteEvent.mutate(selectedEvent.id); setSelectedEvent(null); }} data-testid="button-delete-event-detail">
+                          <Trash2 className="w-4 h-4 mr-1" />Delete Event
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* My Schedule + Events + Jobs row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <Link href="/schedule">
+              <Card className="cursor-pointer hover-elevate" data-testid="container-my-schedule">
+                <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                  <CardTitle className="text-base font-display flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-primary" />
+                    My Schedule
+                  </CardTitle>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {loadingHome ? (
+                    <Skeleton className="h-10 rounded-md" />
+                  ) : !homeData?.myUpcomingShifts?.length ? (
+                    <p className="text-sm text-muted-foreground text-center py-3">No upcoming shifts.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {homeData.myUpcomingShifts.slice(0, 4).map(shift => (
+                        <div key={shift.id} className="flex items-center gap-2 p-2 rounded-md border border-border" data-testid={`home-shift-${shift.id}`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-sm">{formatShiftDate(shift.shiftDate)}</span>
+                              <Badge variant="secondary" className="text-[10px]">{shift.department}</Badge>
+                            </div>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />{shift.startTime} - {shift.endTime}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
+
+            {homeData?.myTaggedEvents && homeData.myTaggedEvents.length > 0 && (
+              <Link href="/calendar">
+                <Card className="cursor-pointer hover-elevate" data-testid="container-my-events">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-base font-display flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-purple-500" />
+                      Your Events
+                    </CardTitle>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-1.5">
+                      {homeData.myTaggedEvents.slice(0, 4).map(event => (
+                        <div key={event.id} className="flex items-center gap-2 p-2 rounded-md border border-border" data-testid={`home-event-${event.id}`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5"><span className="font-medium text-sm">{event.title}</span><Badge variant="secondary" className="text-[10px] capitalize">{event.eventType}</Badge></div>
+                            <span className="text-xs text-muted-foreground">{format(new Date(event.date), "EEE, MMM d")}{event.startTime ? ` · ${formatTimeDisplay(event.startTime)}` : ""}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
+
+            {homeData?.myEventJobs && homeData.myEventJobs.filter((j: any) => !j.completed).length > 0 && (
+              <Link href="/calendar">
+                <Card className="cursor-pointer hover-elevate" data-testid="container-my-event-jobs">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-base font-display flex items-center gap-2">
+                      <ClipboardList className="w-4 h-4 text-amber-500" />
+                      Your Event Jobs
+                    </CardTitle>
+                    <Badge variant="outline" className="text-[10px]">{homeData.myEventJobs.filter((j: any) => !j.completed).length} pending</Badge>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-1.5">
+                      {homeData.myEventJobs.filter((j: any) => !j.completed).slice(0, 4).map((job: any) => (
+                        <div key={job.id} className="flex items-start gap-2 p-2 rounded-md border border-border" data-testid={`home-job-${job.id}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm">{job.title}</p>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" />{job.eventTitle} · {format(new Date(job.eventDate), "EEE, MMM d")}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
+
+            {/* Messages compact */}
+            <Link href="/messages">
+              <Card className="cursor-pointer hover-elevate" id="inbox-section" data-testid="container-inbox">
+                <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                  <CardTitle className="text-base font-display flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-primary" />
+                    Messages
+                    {unreadMessages.length > 0 && <Badge variant="destructive" className="text-[10px]" data-testid="badge-unread-count">{unreadMessages.length}</Badge>}
+                  </CardTitle>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {loadingInbox ? (
+                    <Skeleton className="h-10 rounded-md" />
+                  ) : inboxMessages.length === 0 ? (
+                    <div className="text-center py-3 text-muted-foreground"><MailOpen className="w-6 h-6 mx-auto mb-1 opacity-40" /><p className="text-xs">No messages</p></div>
+                  ) : (
+                    <div className="space-y-1">
+                      {(unreadMessages.length > 0 ? unreadMessages.slice(0, 3) : inboxMessages.slice(0, 2)).map(msg => (
+                        <div key={msg.id} className={`flex items-center gap-2 p-2 rounded-md border border-border ${!msg.recipient.read ? "bg-primary/5" : ""}`} data-testid={`home-message-${msg.id}`}>
+                          {msg.recipient.read ? <MailOpen className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" /> : <Mail className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm truncate block font-medium">{msg.subject}</span>
+                            <p className="text-[10px] text-muted-foreground truncate">{senderName(msg.sender)}</p>
+                          </div>
+                          {msg.priority === "urgent" && <Badge variant="destructive" className="text-[8px]">Urgent</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
+
+          {/* Quick Actions */}
+          <Card data-testid="container-quick-actions">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Star className="w-4 h-4 text-primary" />
+                Quick Actions
+                {!editingQA && (
+                  <button onClick={startEditingQA} className="ml-auto text-muted-foreground hover:text-foreground transition-colors" data-testid="button-edit-quick-actions">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {editingQA && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <button onClick={saveQAEdits} className="text-green-500 hover:text-green-400 transition-colors" data-testid="button-save-quick-actions"><Check className="w-4 h-4" /></button>
+                    <button onClick={cancelQAEdits} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="button-cancel-quick-actions"><X className="w-4 h-4" /></button>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {!editingQA ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {resolvedQA.map((item) => (
+                    <Link key={item.href} href={item.href}>
+                      <div className="flex flex-col items-center gap-1.5 p-3 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid={`quick-action-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <item.icon className="w-5 h-5 text-primary" />
+                        <span className="text-[10px] font-medium">{item.label}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {ALL_QUICK_ACTIONS.map((item) => {
+                    const selected = qaDraft.includes(item.href);
+                    return (
+                      <div key={item.href} className={`flex flex-col items-center gap-1.5 p-3 rounded-md border cursor-pointer transition-all text-center ${selected ? "border-primary bg-primary/10" : "border-border text-muted-foreground hover:bg-muted"}`} onClick={() => toggleQADraft(item.href)} data-testid={`qa-option-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <item.icon className={`w-5 h-5 ${selected ? "text-primary" : ""}`} />
+                        <span className="text-[10px] font-medium">{item.label}</span>
+                        {selected && <Check className="w-3 h-3 text-primary" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* === RIGHT SIDEBAR: Who's On Today === */}
+        <div className="xl:w-64 flex-shrink-0">
+          <Card className="xl:sticky xl:top-4" data-testid="container-whos-on">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                Who's On
+              </CardTitle>
+              <Link href="/schedule">
+                <Badge variant="secondary" className="text-[10px] cursor-pointer hover:bg-secondary/80">{todayShifts.filter(s => !(s as any).hasCallout).length} on</Badge>
+              </Link>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {loadingShifts ? (
+                <div className="space-y-1.5"><Skeleton className="h-8 rounded" /><Skeleton className="h-8 rounded" /><Skeleton className="h-8 rounded" /></div>
+              ) : todayShifts.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-3">No shifts today.</p>
+              ) : (
+                <div className="space-y-0.5 max-h-[500px] overflow-y-auto">
+                  {todayShifts.map(shift => {
+                    const s = shift as EnrichedShift;
+                    return (
+                      <Link key={s.id} href="/schedule">
+                        <div className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-muted/50 transition-colors ${s.hasCallout ? "opacity-40 line-through" : ""}`} data-testid={`whos-on-${s.id}`}>
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.hasCallout ? "bg-destructive" : s.hasCoverageRequest ? "bg-amber-500" : "bg-emerald-500"}`} />
+                          <span className="text-sm font-medium truncate flex-1">{s.displayName}</span>
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0 font-mono">{formatTimeDisplay(s.startTime)}</span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
-
     </div>
   );
 }

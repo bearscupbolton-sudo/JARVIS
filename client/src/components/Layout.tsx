@@ -1,7 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { 
-  LayoutDashboard, 
   ChefHat, 
   ClipboardList, 
   BookOpen, 
@@ -56,7 +55,6 @@ const BearLogoIcon = ({ className }: { className?: string }) => (
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
 
 const ALL_SHORTCUT_OPTIONS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
@@ -98,7 +96,6 @@ function saveShortcuts(shortcuts: string[]) {
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },

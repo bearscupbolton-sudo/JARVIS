@@ -3357,7 +3357,7 @@ ${sopsHtml}
         storage.getTimeOffRequests(user.id),
         storage.getBakeoffLogs(today),
         storage.getAnnouncements(),
-        storage.getEventsForUser(user.id),
+        !isNaN(numericUserId) ? storage.getEventsForUser(numericUserId) : Promise.resolve([]),
         !isNaN(numericUserId) ? storage.getJobsForUser(numericUserId) : Promise.resolve([]),
       ]);
 
