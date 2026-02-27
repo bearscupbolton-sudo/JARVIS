@@ -15,15 +15,21 @@ import {
   Zap, Brain, Timer, Type, Trophy, Crown,
   Gamepad2, Lock, Loader2, Play, ArrowLeft,
   Sparkles, Plus, Star, Medal, Clock,
-  RotateCcw, Check, X, Send,
+  RotateCcw, Check, X, Send, Crosshair, Bug,
 } from "lucide-react";
 import type { StarkadeGame } from "@shared/schema";
+import SnakeGame from "@/components/starkade/SnakeGame";
+import PacManGame from "@/components/starkade/PacManGame";
+import AsteroidsGame from "@/components/starkade/AsteroidsGame";
 
 const GAME_ICONS: Record<string, any> = {
   reaction: Zap,
   memory: Brain,
   quiz: Timer,
   word: Type,
+  snake: Bug,
+  pacman: Gamepad2,
+  asteroids: Crosshair,
 };
 
 const GAME_COLORS: Record<string, string> = {
@@ -31,6 +37,9 @@ const GAME_COLORS: Record<string, string> = {
   memory: "text-purple-500",
   quiz: "text-blue-500",
   word: "text-green-500",
+  snake: "text-emerald-500",
+  pacman: "text-yellow-400",
+  asteroids: "text-cyan-500",
 };
 
 // === REACTION TIME GAME ===
@@ -455,7 +464,10 @@ function GameRenderer({ game, onComplete, onBack }: { game: StarkadeGame; onComp
     memory: MemoryGame,
     quiz: QuizGame,
     word: WordGame,
-  }[game.type];
+    snake: SnakeGame,
+    pacman: PacManGame,
+    asteroids: AsteroidsGame,
+  }[game.type] as any;
 
   if (!GameComponent) {
     return <div className="text-center py-12 text-muted-foreground">Unknown game type</div>;

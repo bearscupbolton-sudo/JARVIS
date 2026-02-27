@@ -13,7 +13,6 @@ type Pos = { x: number; y: number };
 export default function SnakeGame({ game, onComplete }: { game: StarkadeGame; onComplete: (score: number, points: number, meta: any) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameOver, setGameOver] = useState(false);
-  const [score, setScore] = useState(0);
   const [started, setStarted] = useState(false);
   const stateRef = useRef({
     snake: [{ x: 10, y: 10 }] as Pos[],
@@ -106,7 +105,6 @@ export default function SnakeGame({ game, onComplete }: { game: StarkadeGame; on
 
     if (head.x === s.food.x && head.y === s.food.y) {
       s.score += 10;
-      setScore(s.score);
       s.food = spawnFood(s.snake);
       if (s.speed > 60) s.speed -= 2;
     } else {
@@ -184,13 +182,13 @@ export default function SnakeGame({ game, onComplete }: { game: StarkadeGame; on
         style={{ imageRendering: "pixelated", maxWidth: W, aspectRatio: `${COLS}/${ROWS}` }}
         data-testid="canvas-snake"
       />
-      <div className="grid grid-cols-3 gap-1 w-36 md:hidden">
+      <div className="grid grid-cols-3 gap-1 w-40 md:hidden">
         <div />
-        <button onClick={() => handleTouchDir("up")} className="bg-muted rounded p-3 text-lg active:bg-primary/20" data-testid="btn-up">▲</button>
+        <button onClick={() => handleTouchDir("up")} className="bg-muted rounded p-3 text-sm font-bold active:bg-primary/20" data-testid="btn-up">UP</button>
         <div />
-        <button onClick={() => handleTouchDir("left")} className="bg-muted rounded p-3 text-lg active:bg-primary/20" data-testid="btn-left">◀</button>
-        <button onClick={() => handleTouchDir("down")} className="bg-muted rounded p-3 text-lg active:bg-primary/20" data-testid="btn-down">▼</button>
-        <button onClick={() => handleTouchDir("right")} className="bg-muted rounded p-3 text-lg active:bg-primary/20" data-testid="btn-right">▶</button>
+        <button onClick={() => handleTouchDir("left")} className="bg-muted rounded p-3 text-sm font-bold active:bg-primary/20" data-testid="btn-left">LEFT</button>
+        <button onClick={() => handleTouchDir("down")} className="bg-muted rounded p-3 text-sm font-bold active:bg-primary/20" data-testid="btn-down">DOWN</button>
+        <button onClick={() => handleTouchDir("right")} className="bg-muted rounded p-3 text-sm font-bold active:bg-primary/20" data-testid="btn-right">RIGHT</button>
       </div>
     </div>
   );

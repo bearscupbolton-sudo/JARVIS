@@ -4967,5 +4967,46 @@ Clean up grammar, spelling, and tone. Make it professional while keeping the ori
     }
   });
 
+  (async () => {
+    try {
+      const existingGames = await storage.getStarkadeGames();
+      const existingTypes = new Set(existingGames.map(g => g.type));
+      const classicGames = [
+        {
+          name: "Snake",
+          type: "snake",
+          source: "built_in",
+          status: "active",
+          description: "Classic snake — eat food, grow longer, don't hit the walls or yourself!",
+          config: { speed: 120 },
+        },
+        {
+          name: "Pac-Man",
+          type: "pacman",
+          source: "built_in",
+          status: "active",
+          description: "Navigate the maze, eat all the dots, and avoid the ghosts!",
+          config: { lives: 3 },
+        },
+        {
+          name: "Asteroids",
+          type: "asteroids",
+          source: "built_in",
+          status: "active",
+          description: "Pilot your ship through an asteroid field — rotate, thrust, and shoot to survive!",
+          config: { lives: 3 },
+        },
+      ];
+      for (const game of classicGames) {
+        if (!existingTypes.has(game.type)) {
+          await storage.createStarkadeGame(game as any);
+          console.log(`[Starkade] Seeded classic game: ${game.name}`);
+        }
+      }
+    } catch (err) {
+      console.error("[Starkade] Failed to seed classic games:", err);
+    }
+  })();
+
   return httpServer;
 }
