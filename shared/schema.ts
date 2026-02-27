@@ -136,6 +136,22 @@ export const insertEventJobSchema = createInsertSchema(eventJobs).omit({ id: tru
 export type EventJob = typeof eventJobs.$inferSelect;
 export type InsertEventJob = z.infer<typeof insertEventJobSchema>;
 
+// === CUSTOMER FEEDBACK ===
+export const customerFeedback = pgTable("customer_feedback", {
+  id: serial("id").primaryKey(),
+  rating: integer("rating").notNull(),
+  comment: text("comment"),
+  name: text("name"),
+  email: text("email"),
+  visitDate: text("visit_date"),
+  locationId: integer("location_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCustomerFeedbackSchema = createInsertSchema(customerFeedback).omit({ id: true, createdAt: true });
+export type CustomerFeedback = typeof customerFeedback.$inferSelect;
+export type InsertCustomerFeedback = z.infer<typeof insertCustomerFeedbackSchema>;
+
 // === ANNOUNCEMENTS (Message Board) ===
 export const announcements = pgTable("announcements", {
   id: serial("id").primaryKey(),

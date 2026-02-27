@@ -23,6 +23,7 @@ import {
   type Problem, type InsertProblem,
   type CalendarEvent, type InsertEvent,
   eventJobs, type EventJob, type InsertEventJob,
+  customerFeedback, type CustomerFeedback, type InsertCustomerFeedback,
   type Announcement, type InsertAnnouncement,
   type PendingChange, type InsertPendingChange,
   type PastryTotal, type InsertPastryTotal,
@@ -116,6 +117,10 @@ export interface IStorage {
   createEventJob(job: InsertEventJob): Promise<EventJob>;
   updateEventJob(id: number, updates: Partial<InsertEventJob>): Promise<EventJob>;
   deleteEventJob(id: number): Promise<void>;
+
+  // Customer Feedback
+  getCustomerFeedback(): Promise<CustomerFeedback[]>;
+  createCustomerFeedback(feedback: InsertCustomerFeedback): Promise<CustomerFeedback>;
 
   // Announcements
   getAnnouncements(): Promise<Announcement[]>;
@@ -606,6 +611,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEventJob(id: number): Promise<void> {
     await db.delete(eventJobs).where(eq(eventJobs.id, id));
+  }
+
+  async getCustomerFeedback(): Promise<CustomerFeedback[]> {
+    return await db.select().from(customerFeedback).orderBy(desc(customerFeedback.createdAt));
+  }
+
+  async createCustomerFeedback(feedback: InsertCustomerFeedback): Promise<CustomerFeedback> {
+    const [created] = await db.insert(customerFeedback).values(feedback).returning();
+    return created;
   }
 
   // Announcements

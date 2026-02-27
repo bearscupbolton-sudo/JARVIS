@@ -652,6 +652,32 @@ FORMAT RULES for the content field:
     }
   });
 
+  // === CUSTOMER FEEDBACK (PUBLIC) ===
+  app.post("/api/feedback", async (req, res) => {
+    try {
+      const { rating, comment, name, email, visitDate, locationId } = req.body;
+      if (!rating || typeof rating !== "number" || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be between 1 and 5" });
+      }
+      const feedback = await storage.createCustomerFeedback({
+        rating,
+        comment: comment || null,
+        name: name || null,
+        email: email || null,
+        visitDate: visitDate || null,
+        locationId: locationId || null,
+      });
+      res.status(201).json(feedback);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/feedback", isAuthenticated, isManager, async (_req, res) => {
+    const feedback = await storage.getCustomerFeedback();
+    res.json(feedback);
+  });
+
   // === ANNOUNCEMENTS ===
   app.get(api.announcements.list.path, async (req, res) => {
     const announcements = await storage.getAnnouncements();
