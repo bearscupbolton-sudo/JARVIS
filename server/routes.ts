@@ -3509,6 +3509,7 @@ ${sopsHtml}
       const schema = z.object({
         name: z.string().min(1),
         doughType: z.string().min(1),
+        department: z.string().optional(),
         isActive: z.boolean().optional(),
       });
       const data = schema.parse(req.body);
@@ -3526,6 +3527,7 @@ ${sopsHtml}
       const schema = z.object({
         name: z.string().min(1).optional(),
         doughType: z.string().min(1).optional(),
+        department: z.string().optional(),
         isActive: z.boolean().optional(),
       });
       const updates = schema.parse(req.body);

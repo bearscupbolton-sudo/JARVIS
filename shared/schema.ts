@@ -736,6 +736,7 @@ export const pastryItems = pgTable("pastry_items", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   doughType: text("dough_type").notNull(),
+  department: text("department").default("bakery"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });

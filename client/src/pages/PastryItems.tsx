@@ -40,6 +40,7 @@ import {
 import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
 const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Cake", "Bread", "Other"];
+const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "bar"];
 
 const CATEGORY_ICONS: Record<string, any> = {
   "Croissant": Croissant,
@@ -56,6 +57,8 @@ export default function PastryItems() {
   const [editItem, setEditItem] = useState<PastryItem | null>(null);
   const [name, setName] = useState("");
   const [doughType, setDoughType] = useState("");
+  const [department, setDepartment] = useState("bakery");
+  const [filterDept, setFilterDept] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [fatConfigType, setFatConfigType] = useState<string | null>(null);
   const [fatRatio, setFatRatio] = useState("");
@@ -92,7 +95,7 @@ export default function PastryItems() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; doughType: string }) =>
+    mutationFn: (data: { name: string; doughType: string; department: string }) =>
       apiRequest("POST", "/api/pastry-items", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pastry-items"] });
@@ -160,21 +163,23 @@ export default function PastryItems() {
     setEditItem(null);
     setName("");
     setDoughType("");
+    setDepartment("bakery");
   }
 
   function openEdit(item: PastryItem) {
     setEditItem(item);
     setName(item.name);
     setDoughType(item.doughType);
+    setDepartment(item.department || "bakery");
     setShowAdd(true);
   }
 
   function handleSubmit() {
     if (!name.trim() || !doughType) return;
     if (editItem) {
-      updateMutation.mutate({ id: editItem.id, updates: { name: name.trim(), doughType } });
+      updateMutation.mutate({ id: editItem.id, updates: { name: name.trim(), doughType, department } });
     } else {
-      createMutation.mutate({ name: name.trim(), doughType });
+      createMutation.mutate({ name: name.trim(), doughType, department });
     }
   }
 
@@ -182,9 +187,10 @@ export default function PastryItems() {
     updateMutation.mutate({ id: item.id, updates: { isActive: !item.isActive } });
   }
 
-  const filtered = items?.filter(i => filterType === "all" || i.doughType === filterType) || [];
+  const deptFiltered = items?.filter(i => filterDept === "all" || (i.department || "bakery") === filterDept) || [];
+  const filtered = deptFiltered.filter(i => filterType === "all" || i.doughType === filterType);
 
-  const allCategories = Array.from(new Set(items?.map(i => i.doughType) || [])).sort();
+  const allCategories = Array.from(new Set(deptFiltered.map(i => i.doughType))).sort();
   const filterCategories = allCategories.length > 0 ? allCategories : CATEGORY_OPTIONS;
 
   const groupedItems = (filterType === "all" ? allCategories : [filterType])
@@ -213,15 +219,29 @@ export default function PastryItems() {
       </div>
 
       <div className="flex gap-2 flex-wrap">
+        {["all", ...DEPARTMENT_OPTIONS].map((dept) => (
+          <Button
+            key={dept}
+            variant={filterDept === dept ? "default" : "outline"}
+            size="sm"
+            onClick={() => { setFilterDept(dept); setFilterType("all"); }}
+            data-testid={`filter-dept-${dept}`}
+          >
+            {dept === "all" ? "All Departments" : dept.charAt(0).toUpperCase() + dept.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
         {["all", ...filterCategories].map((type) => (
           <Button
             key={type}
-            variant={filterType === type ? "default" : "outline"}
+            variant={filterType === type ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setFilterType(type)}
             data-testid={`filter-${type.toLowerCase()}`}
           >
-            {type === "all" ? "All" : type}
+            {type === "all" ? "All Categories" : type}
           </Button>
         ))}
       </div>
@@ -435,6 +455,21 @@ export default function PastryItems() {
                 onChange={(e) => setName(e.target.value)}
                 data-testid="input-pastry-name"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Department</label>
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger data-testid="select-department">
+                  <SelectValue placeholder="Select department..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEPARTMENT_OPTIONS.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d.charAt(0).toUpperCase() + d.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Category</label>
