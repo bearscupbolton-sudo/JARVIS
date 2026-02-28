@@ -80,7 +80,7 @@ function NoteEditor({
       setGeneratedType(data.type);
       setShowGenerated(true);
       queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
-      toast({ title: "Document generated", description: `Your ${data.type} has been created by Jarvis.` });
+      toast({ title: "Document generated", description: `Your ${data.type} has been created.` });
     },
     onError: (err: any) => {
       toast({ title: "Generation failed", description: err.message, variant: "destructive" });

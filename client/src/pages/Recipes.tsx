@@ -260,7 +260,7 @@ function CreateRecipeDialog() {
         })));
       }
 
-      toast({ title: "Jarvis parsed your recipe", description: "Review and edit the details below before saving." });
+      toast({ title: "Recipe scanned successfully", description: "Review and edit the details below before saving." });
     } catch (error: any) {
       toast({ title: "Could not parse recipe", description: error.message || "Please try a clearer photo.", variant: "destructive" });
     } finally {
@@ -305,8 +305,8 @@ function CreateRecipeDialog() {
           <div className="flex items-center gap-3 mb-3">
             <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 rounded-sm object-contain" />
             <div>
-              <p className="font-semibold text-sm">Scan with Jarvis</p>
-              <p className="text-xs text-muted-foreground">Upload a photo of a recipe and Jarvis will parse it for you</p>
+              <p className="font-semibold text-sm">Scan Recipe</p>
+              <p className="text-xs text-muted-foreground">Upload a photo of a recipe and it will be parsed for you</p>
             </div>
           </div>
 
@@ -317,7 +317,7 @@ function CreateRecipeDialog() {
                 <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-md">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                    Jarvis is reading your recipe...
+                    Reading your recipe...
                   </div>
                 </div>
               ) : (

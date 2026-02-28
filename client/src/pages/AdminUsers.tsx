@@ -564,7 +564,7 @@ function UserDetailDialog({
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
-                  Jarvis Welcome Message
+                  Welcome Message
                 </Label>
                 <Textarea
                   placeholder={`Write a personalized welcome for ${u.firstName || displayName}...`}
@@ -598,12 +598,12 @@ function UserDetailDialog({
                     </Button>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">This message appears the first time they see their Jarvis briefing.</p>
+                <p className="text-[11px] text-muted-foreground">This message appears the first time they see their daily briefing.</p>
               </div>
               <div className="space-y-2 border-t pt-3">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
-                  Jarvis Briefing Focus
+                  Briefing Focus
                 </Label>
                 <Select
                   value={briefingFocus}
@@ -623,7 +623,7 @@ function UserDetailDialog({
                     <SelectItem value="management">Management</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">Controls what Jarvis highlights in their daily briefing. FOH sees pastry availability and customer-facing info. BOH sees dough status, production, and recipes.</p>
+                <p className="text-[11px] text-muted-foreground">Controls what the briefing highlights. FOH sees pastry availability and customer-facing info. BOH sees dough status, production, and recipes.</p>
               </div>
             </div>
           )}

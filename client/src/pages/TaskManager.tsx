@@ -44,7 +44,7 @@ export default function TaskManager() {
     <div className="space-y-8 animate-in fade-in duration-500" data-testid="container-task-manager">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-3xl font-display font-bold" data-testid="text-task-manager-title">Jarvis Task Manager</h1>
+          <h1 className="text-3xl font-display font-bold" data-testid="text-task-manager-title">Task Manager</h1>
           <p className="text-muted-foreground">Create task lists, manage jobs, and track department to-dos.</p>
         </div>
       </div>

@@ -691,7 +691,7 @@ export default function Starkade() {
         <TabsList className="w-full grid grid-cols-3">
           <TabsTrigger value="games" data-testid="tab-games"><Gamepad2 className="w-4 h-4 mr-1.5" />Games</TabsTrigger>
           <TabsTrigger value="leaderboard" data-testid="tab-leaderboard"><Trophy className="w-4 h-4 mr-1.5" />Leaderboard</TabsTrigger>
-          <TabsTrigger value="create" data-testid="tab-create"><Sparkles className="w-4 h-4 mr-1.5" />Jarvis Gen</TabsTrigger>
+          <TabsTrigger value="create" data-testid="tab-create"><Sparkles className="w-4 h-4 mr-1.5" />AI Gen</TabsTrigger>
         </TabsList>
 
         {/* === GAMES TAB === */}
@@ -703,7 +703,7 @@ export default function Starkade() {
               <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Gamepad2 className="w-12 h-12 opacity-30 mb-3" />
                 <p className="font-medium">No games yet</p>
-                <p className="text-sm">Create one with the Jarvis Game Generator!</p>
+                <p className="text-sm">Create one with the AI Game Generator!</p>
               </CardContent>
             </Card>
           ) : (
@@ -896,9 +896,9 @@ export default function Starkade() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <img src="/bear-logo.png" alt="Jarvis" className="w-6 h-6 rounded-sm object-contain" />
-                Jarvis Game Generator
+                AI Game Generator
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Describe a game idea and Jarvis will build it for you</p>
+              <p className="text-sm text-muted-foreground">Describe a game idea and it will be built for you</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">

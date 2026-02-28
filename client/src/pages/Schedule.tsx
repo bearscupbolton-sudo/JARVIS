@@ -1604,7 +1604,7 @@ export default function Schedule() {
           {uploadPreview && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Jarvis found {uploadPreview.length} shift(s). Review and confirm to add them to the schedule.
+                Found {uploadPreview.length} shift(s). Review and confirm to add them to the schedule.
               </p>
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {uploadPreview.map((s: any, i: number) => {

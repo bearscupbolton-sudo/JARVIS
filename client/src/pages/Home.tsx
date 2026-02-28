@@ -186,7 +186,7 @@ type WidgetMeta = {
 };
 
 const WIDGET_REGISTRY: WidgetMeta[] = [
-  { id: "briefing", label: "Jarvis Briefing", icon: Star },
+  { id: "briefing", label: "Daily Briefing", icon: Star },
   { id: "announcements", label: "Pinned Announcements", icon: Pin },
   { id: "quickStats", label: "Quick Stats", icon: AlertCircle },
   { id: "preShiftNotes", label: "Pre-Shift Notes", icon: FileText },

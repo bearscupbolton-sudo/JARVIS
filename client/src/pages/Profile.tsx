@@ -137,7 +137,7 @@ export default function Profile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       queryClient.invalidateQueries({ queryKey: ["/api/home/jarvis-briefing"] });
-      toast({ title: showJarvisBriefing ? "Jarvis briefing enabled" : "Jarvis briefing disabled" });
+      toast({ title: showJarvisBriefing ? "Daily briefing enabled" : "Daily briefing disabled" });
     },
     onError: (error: Error) => {
       toast({ title: error.message, variant: "destructive" });
@@ -360,7 +360,7 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <img src="/bear-logo.png" alt="Jarvis" className="w-4 h-4 rounded-full" />
               <div>
-                <p className="text-sm font-medium">Jarvis Briefing</p>
+                <p className="text-sm font-medium">Daily Briefing</p>
                 <p className="text-xs text-muted-foreground">Show personalized AI briefing on home page</p>
               </div>
             </div>

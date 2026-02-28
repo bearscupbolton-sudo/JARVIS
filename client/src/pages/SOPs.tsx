@@ -228,7 +228,7 @@ function CreateSOPDialog() {
       if (parsed.category) form.setValue("category", parsed.category);
       if (parsed.content) form.setValue("content", parsed.content);
 
-      toast({ title: "Jarvis read your SOP", description: "Review and edit the details below before saving." });
+      toast({ title: "SOP scanned successfully", description: "Review and edit the details below before saving." });
     } catch (error: any) {
       toast({ title: "Could not read SOP", description: error.message || "Please try a clearer photo.", variant: "destructive" });
     } finally {
@@ -276,8 +276,8 @@ function CreateSOPDialog() {
           <div className="flex items-center gap-3 mb-3">
             <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 rounded-sm object-contain" />
             <div>
-              <p className="font-semibold text-sm">Scan with Jarvis</p>
-              <p className="text-xs text-muted-foreground">Upload a screenshot or photo and Jarvis will convert it into a clean SOP</p>
+              <p className="font-semibold text-sm">Scan SOP</p>
+              <p className="text-xs text-muted-foreground">Upload a screenshot or photo and it will be converted into a clean SOP</p>
             </div>
           </div>
 
@@ -288,7 +288,7 @@ function CreateSOPDialog() {
                 <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-md">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                    Jarvis is reading your SOP...
+                    Reading your SOP...
                   </div>
                 </div>
               ) : (

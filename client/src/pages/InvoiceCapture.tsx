@@ -300,7 +300,7 @@ export default function InvoiceCapture() {
                 <p className="text-sm text-muted-foreground max-w-md">
                   {stagedImages.length > 0
                     ? "Add more photos if the invoice has multiple pages, or scan now."
-                    : "Take a photo or upload images of a vendor invoice. Jarvis will read them and extract all the details automatically."}
+                    : "Take a photo or upload images of a vendor invoice. They will be read and all the details extracted automatically."}
                 </p>
               </div>
 
@@ -381,7 +381,7 @@ export default function InvoiceCapture() {
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-primary" />
               <div className="text-center">
-                <h2 className="text-lg font-semibold mb-1">Jarvis is reading {stagedImages.length > 1 ? `${stagedImages.length} photos` : "the invoice"}...</h2>
+                <h2 className="text-lg font-semibold mb-1">Reading {stagedImages.length > 1 ? `${stagedImages.length} photos` : "the invoice"}...</h2>
                 <p className="text-sm text-muted-foreground">Extracting vendor, dates, line items, and prices</p>
               </div>
               {stagedImages.length > 0 && (
