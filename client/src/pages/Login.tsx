@@ -52,7 +52,7 @@ function LoginForm() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.setQueryData(["/api/auth/user"], data);
       const allowed = ["/bagel-bros", "/platform", "/bakery", "/clock"];
       const page = data?.defaultPage && allowed.includes(data.defaultPage) ? data.defaultPage : "/";
       setLocation(page);
@@ -169,8 +169,8 @@ function SetupOwner() {
       });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: (data: any) => {
+      queryClient.setQueryData(["/api/auth/user"], data);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/has-users"] });
       setLocation("/");
     },
