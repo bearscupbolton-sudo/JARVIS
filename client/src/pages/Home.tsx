@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   useProblems, useCreateProblem, useUpdateProblem, useDeleteProblem,
   useEvents, useCreateEvent, useDeleteEvent,
@@ -15,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { useForm } from "react-hook-form";
@@ -249,6 +250,7 @@ function saveLayout(config: LayoutConfig) {
 
 const preShiftNoteFormSchema = insertPreShiftNoteSchema.pick({ content: true }).extend({
   content: z.string().min(1, "Note content is required"),
+  date: z.string().min(1, "Date is required"),
 });
 type PreShiftNoteFormValues = z.infer<typeof preShiftNoteFormSchema>;
 
@@ -527,6 +529,7 @@ export default function Home() {
   const [showEventForm, setShowEventForm] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
+  const [showAckedNotes, setShowAckedNotes] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
@@ -545,7 +548,7 @@ export default function Home() {
   const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
   const { data: eventsData, isLoading: loadingEvents } = useEvents(lookAheadDays);
   const { data: birthdaysData = [] } = useQuery<BirthdayEntry[]>({ queryKey: ["/api/team/birthdays"] });
-  const { data: preShiftNotes = [], isLoading: loadingNotes } = useQuery<(PreShiftNote & { authorName?: string })[]>({
+  const { data: preShiftNotes = [], isLoading: loadingNotes } = useQuery<(PreShiftNote & { authorName?: string; acked?: boolean; ackCount?: number })[]>({
     queryKey: [`/api/pre-shift-notes?date=${todayDate}`],
   });
   const { data: todayShifts = [], isLoading: loadingShifts } = useQuery<EnrichedShift[]>({
@@ -580,9 +583,14 @@ export default function Home() {
     onSuccess: () => { queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") }); },
   });
 
+  const ackNoteMutation = useMutation({
+    mutationFn: async (id: number) => { await apiRequest("POST", `/api/pre-shift-notes/${id}/ack`); },
+    onSuccess: () => { queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") }); },
+  });
+
   const noteForm = useForm<PreShiftNoteFormValues>({
     resolver: zodResolver(preShiftNoteFormSchema),
-    defaultValues: { content: "" },
+    defaultValues: { content: "", date: todayDate },
   });
 
   const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
@@ -684,8 +692,8 @@ export default function Home() {
   }
 
   async function handleAddNote(values: PreShiftNoteFormValues) {
-    await createNoteMutation.mutateAsync({ content: values.content, date: todayDate, locationId: null });
-    noteForm.reset();
+    await createNoteMutation.mutateAsync({ content: values.content, date: values.date, locationId: null });
+    noteForm.reset({ content: "", date: todayDate });
     setShowNoteForm(false);
   }
 
@@ -761,51 +769,78 @@ export default function Home() {
       </div>
     ),
 
-    preShiftNotes: () => (
-      <Card data-testid="container-preshift-notes">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base font-display flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />Pre-Shift Notes</CardTitle>
-          {isManager && (
-            <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
-              <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button></DialogTrigger>
-              <DialogContent>
-                <DialogHeader><DialogTitle>Add Pre-Shift Note</DialogTitle></DialogHeader>
-                <Form {...noteForm}>
-                  <form onSubmit={noteForm.handleSubmit(handleAddNote)} className="space-y-4">
-                    <FormField control={noteForm.control} name="content" render={({ field }) => (
-                      <FormItem><FormLabel>Note</FormLabel><FormControl><Textarea placeholder="What does the team need to know today?" data-testid="input-preshift-content" {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">{createNoteMutation.isPending ? "Posting..." : "Post Note"}</Button>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
-          )}
-        </CardHeader>
-        <CardContent className="pt-0">
-          {loadingNotes ? <Skeleton className="h-10 rounded-md" /> : preShiftNotes.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-3">No notes for today.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {preShiftNotes.map(note => (
-                <div key={note.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border" data-testid={`card-preshift-note-${note.id}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm">{note.content}</p>
-                    <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                      {note.authorName && <span>{note.authorName}</span>}
-                      {note.createdAt && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{format(new Date(note.createdAt), "h:mm a")}</span>}
+    preShiftNotes: () => {
+      const unackedNotes = preShiftNotes.filter(n => !n.acked);
+      const ackedNotes = preShiftNotes.filter(n => n.acked);
+      const visibleNotes = showAckedNotes ? preShiftNotes : unackedNotes;
+
+      return (
+        <Card data-testid="container-preshift-notes">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-base font-display flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />Pre-Shift Notes</CardTitle>
+            <div className="flex items-center gap-1">
+              {ackedNotes.length > 0 && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => setShowAckedNotes(!showAckedNotes)} data-testid="button-toggle-acked-notes">
+                  {showAckedNotes ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+                  {showAckedNotes ? "Hide read" : `${ackedNotes.length} read`}
+                </Button>
+              )}
+              {isManager && (
+                <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
+                  <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button></DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>Add Pre-Shift Note</DialogTitle><DialogDescription>Post a note for the team. You can schedule notes for future days.</DialogDescription></DialogHeader>
+                    <Form {...noteForm}>
+                      <form onSubmit={noteForm.handleSubmit(handleAddNote)} className="space-y-4">
+                        <FormField control={noteForm.control} name="date" render={({ field }) => (
+                          <FormItem><FormLabel>Date</FormLabel><FormControl><Input type="date" data-testid="input-preshift-date" {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <FormField control={noteForm.control} name="content" render={({ field }) => (
+                          <FormItem><FormLabel>Note</FormLabel><FormControl><Textarea placeholder="What does the team need to know?" data-testid="input-preshift-content" {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">{createNoteMutation.isPending ? "Posting..." : "Post Note"}</Button>
+                      </form>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {loadingNotes ? <Skeleton className="h-10 rounded-md" /> : visibleNotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-3">
+                {preShiftNotes.length === 0 ? "No notes for today." : "All notes acknowledged."}
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {visibleNotes.map(note => (
+                  <div key={note.id} className={cn("flex items-start gap-2 p-2.5 rounded-md border", note.acked ? "border-border/50 opacity-60" : "border-border")} data-testid={`card-preshift-note-${note.id}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm">{note.content}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                        {note.authorName && <span>{note.authorName}</span>}
+                        {note.createdAt && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{format(new Date(note.createdAt), "h:mm a")}</span>}
+                        {note.acked && <span className="flex items-center gap-1 text-green-600"><Check className="w-3 h-3" />Read</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!note.acked && (
+                        <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => ackNoteMutation.mutate(note.id)} disabled={ackNoteMutation.isPending} data-testid={`button-ack-preshift-note-${note.id}`}>
+                          <Check className="w-3 h-3 mr-1" />Got it
+                        </Button>
+                      )}
+                      {isManager && (
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => deleteNoteMutation.mutate(note.id)} data-testid={`button-delete-preshift-note-${note.id}`}><Trash2 className="w-3 h-3 text-muted-foreground" /></Button>
+                      )}
                     </div>
                   </div>
-                  {isManager && (
-                    <Button size="icon" variant="ghost" className="flex-shrink-0 h-6 w-6" onClick={() => deleteNoteMutation.mutate(note.id)} data-testid={`button-delete-preshift-note-${note.id}`}><Trash2 className="w-3 h-3 text-muted-foreground" /></Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    ),
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      );
+    },
 
     production: () => (
       <Card data-testid="container-production-grid">

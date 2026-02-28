@@ -2,7 +2,7 @@ import {
   recipes, recipeVersions, productionLogs, sops, problems, events, announcements, pendingChanges,
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
-  shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes,
+  shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes, preShiftNoteAcks,
   squareSales,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
@@ -236,6 +236,8 @@ export interface IStorage {
   createPreShiftNote(note: InsertPreShiftNote): Promise<PreShiftNote>;
   updatePreShiftNote(id: number, updates: Partial<InsertPreShiftNote>): Promise<PreShiftNote>;
   deletePreShiftNote(id: number): Promise<void>;
+  ackPreShiftNote(noteId: number, userId: string): Promise<void>;
+  getPreShiftNoteAcks(noteIds: number[]): Promise<{ noteId: number; userId: string }[]>;
 
   // Pastry Passports
   getPastryPassports(): Promise<PastryPassport[]>;
@@ -1141,6 +1143,21 @@ export class DatabaseStorage implements IStorage {
 
   async deletePreShiftNote(id: number): Promise<void> {
     await db.delete(preShiftNotes).where(eq(preShiftNotes.id, id));
+  }
+
+  async ackPreShiftNote(noteId: number, userId: string): Promise<void> {
+    const existing = await db.select().from(preShiftNoteAcks)
+      .where(and(eq(preShiftNoteAcks.noteId, noteId), eq(preShiftNoteAcks.userId, userId)));
+    if (existing.length === 0) {
+      await db.insert(preShiftNoteAcks).values({ noteId, userId });
+    }
+  }
+
+  async getPreShiftNoteAcks(noteIds: number[]): Promise<{ noteId: number; userId: string }[]> {
+    if (noteIds.length === 0) return [];
+    return await db.select({ noteId: preShiftNoteAcks.noteId, userId: preShiftNoteAcks.userId })
+      .from(preShiftNoteAcks)
+      .where(inArray(preShiftNoteAcks.noteId, noteIds));
   }
 
   // Pastry Passports

@@ -2153,10 +2153,25 @@ Only return the JSON array, no other text.`;
   });
 
   // === PRE-SHIFT NOTES ===
-  app.get("/api/pre-shift-notes", isAuthenticated, async (req, res) => {
-    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-    const notes = await storage.getPreShiftNotes(date);
-    res.json(notes);
+  app.get("/api/pre-shift-notes", isAuthenticated, async (req: any, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const user = await getUserFromReq(req);
+      const notes = await storage.getPreShiftNotes(date);
+
+      const noteIds = notes.map(n => n.id);
+      const acks = await storage.getPreShiftNoteAcks(noteIds);
+
+      const notesWithAcks = notes.map(n => ({
+        ...n,
+        acked: user ? acks.some(a => a.noteId === n.id && a.userId === user.id) : false,
+        ackCount: acks.filter(a => a.noteId === n.id).length,
+      }));
+
+      res.json(notesWithAcks);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/pre-shift-notes", isAuthenticated, isManager, async (req: any, res) => {
@@ -2173,6 +2188,17 @@ Only return the JSON array, no other text.`;
         return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
+    }
+  });
+
+  app.post("/api/pre-shift-notes/:id/ack", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      await storage.ackPreShiftNote(Number(req.params.id), user.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

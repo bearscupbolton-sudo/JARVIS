@@ -423,6 +423,16 @@ export const insertPreShiftNoteSchema = createInsertSchema(preShiftNotes).omit({
 export type PreShiftNote = typeof preShiftNotes.$inferSelect;
 export type InsertPreShiftNote = z.infer<typeof insertPreShiftNoteSchema>;
 
+export const preShiftNoteAcks = pgTable("pre_shift_note_acks", {
+  id: serial("id").primaryKey(),
+  noteId: integer("note_id").notNull().references(() => preShiftNotes.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  ackedAt: timestamp("acked_at").defaultNow(),
+});
+
+export const insertPreShiftNoteAckSchema = createInsertSchema(preShiftNoteAcks).omit({ id: true, ackedAt: true });
+export type PreShiftNoteAck = typeof preShiftNoteAcks.$inferSelect;
+
 // === PASTRY PASSPORTS ===
 export const pastryPassports = pgTable("pastry_passports", {
   id: serial("id").primaryKey(),
