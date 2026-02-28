@@ -159,9 +159,6 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
           if (catalogId) {
             pastryName = variationToItem.get(catalogId) || itemIdToName.get(catalogId);
           }
-          if (!pastryName && lineItem.name) {
-            pastryName = lineItem.name;
-          }
           if (!pastryName) continue;
 
           const qty = parseInt(lineItem.quantity || "1", 10);

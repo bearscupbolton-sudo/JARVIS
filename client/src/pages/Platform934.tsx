@@ -16,11 +16,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
-  CheckCircle2, Circle, Clock, AlertTriangle,
-  ChevronRight, Zap, ArrowRight, XCircle,
+  CheckCircle2, Clock, ChevronRight, Zap, XCircle,
   Plus, Send, Settings2, ShieldCheck, Megaphone,
 } from "lucide-react";
-import type { TaskList, TaskListItem, DepartmentTodo, SoldoutLog, LobbyCheckSettings, LobbyCheckLog } from "@shared/schema";
+import type { TaskList, TaskListItem, SoldoutLog, LobbyCheckSettings, LobbyCheckLog, PastryItem } from "@shared/schema";
 
 type TaskListWithItems = TaskList & { items?: TaskListItem[] };
 
@@ -42,10 +41,6 @@ export default function Platform934() {
     queryKey: ["/api/task-lists/assigned"],
   });
 
-  const { data: fohTodos = [], isLoading: loadingTodos } = useQuery<DepartmentTodo[]>({
-    queryKey: ["/api/department-todos", "foh"],
-  });
-
   const { data: soldoutLogs = [], isLoading: loadingSoldout } = useQuery<SoldoutLog[]>({
     queryKey: ["/api/soldout-logs"],
   });
@@ -56,6 +51,10 @@ export default function Platform934() {
 
   const { data: lobbyLogs = [] } = useQuery<LobbyCheckLog[]>({
     queryKey: ["/api/lobby-check/logs"],
+  });
+
+  const { data: pastryItems = [] } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items"],
   });
 
   const todayLobbyLogs = useMemo(() =>
@@ -86,18 +85,15 @@ export default function Platform934() {
     [soldoutLogs, today]
   );
 
-  const pendingTodos = useMemo(() =>
-    fohTodos.filter(t => t.status === "pending"),
-    [fohTodos]
+  const todayAssigned = useMemo(() =>
+    taskLists.filter(tl => tl.date === today && tl.department === "foh" && (tl.assignedTo || tl.department)).length,
+    [taskLists, today]
   );
 
-  const completeTodoMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/department-todos/${id}/complete`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/department-todos", "foh"] });
-      toast({ title: "Done!", description: "Task completed." });
-    },
-  });
+  const todayCompleted = useMemo(() =>
+    taskLists.filter(tl => tl.date === today && tl.department === "foh" && tl.status === "completed").length,
+    [taskLists, today]
+  );
 
   const completeItemMutation = useMutation({
     mutationFn: ({ listId, itemId }: { listId: number; itemId: number }) =>
@@ -124,100 +120,78 @@ export default function Platform934() {
   );
   const progressPercent = totalFohItems > 0 ? Math.round((completedFohItems / totalFohItems) * 100) : 0;
 
-  const isLoading = loadingTasks || loadingTodos || loadingSoldout;
+  const isLoading = loadingTasks || loadingSoldout;
 
   return (
-    <div className="min-h-screen" data-testid="page-platform934">
-      <div className="relative overflow-hidden bg-gradient-to-br from-amber-900 via-amber-800 to-yellow-900 dark:from-amber-950 dark:via-amber-900 dark:to-yellow-950 text-white">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 left-0 w-full h-full"
-            style={{
-              backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(255,255,255,0.03) 20px, rgba(255,255,255,0.03) 40px)`,
-            }}
-          />
-        </div>
-        <div className="absolute top-4 right-6 text-amber-400/20 text-[120px] font-bold font-display leading-none select-none pointer-events-none">
+    <div className="min-h-screen flex flex-col bg-background" data-testid="page-platform934">
+      <div className="relative overflow-hidden bg-gradient-to-r from-amber-900 via-amber-800 to-amber-900 dark:from-amber-950 dark:via-amber-900 dark:to-amber-950 text-white">
+        <div className="absolute top-2 right-4 text-amber-400/10 text-[80px] font-bold font-display leading-none select-none pointer-events-none">
           9¾
         </div>
-        <div className="relative p-6 md:p-8">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-400/30">
-              <Zap className="w-5 h-5 text-amber-300" />
+        <div className="relative px-5 py-4 md:px-8 md:py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-400/30">
+                <Zap className="w-4 h-4 text-amber-300" />
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-display font-bold tracking-tight" data-testid="text-platform-title">
+                  Platform 9¾
+                </h1>
+                <p className="text-amber-200/60 text-xs tracking-wide">FOH Command Center</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-display font-bold tracking-tight" data-testid="text-platform-title">
-                Platform 9¾
-              </h1>
-              <p className="text-amber-200/70 text-sm">FOH Command Center</p>
+            <div className="flex items-center gap-4">
+              <div className="text-center px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-400/20">
+                <p className="text-lg font-bold font-mono" data-testid="stat-assigned-completed">{todayAssigned}/{todayCompleted}</p>
+                <p className="text-[9px] text-amber-200/50 uppercase tracking-wider">Assigned / Done</p>
+              </div>
+              <div className="text-center px-3 py-1 rounded-lg bg-red-500/10 border border-red-400/20">
+                <p className="text-lg font-bold font-mono text-red-300" data-testid="stat-soldout">{todaySoldouts.length}</p>
+                <p className="text-[9px] text-red-200/50 uppercase tracking-wider">86'd</p>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 mt-5">
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-amber-200/60 uppercase tracking-wider">Today's Progress</span>
-                <span className="text-sm font-mono font-bold text-amber-200">{progressPercent}%</span>
-              </div>
-              <div className="h-2 bg-amber-950/50 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 rounded-full transition-all duration-700"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-amber-200/50 uppercase tracking-wider">Task Progress</span>
+              <span className="text-xs font-mono font-bold text-amber-200">{completedFohItems}/{totalFohItems}</span>
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold font-mono">{completedFohItems}/{totalFohItems}</p>
-              <p className="text-[10px] text-amber-200/50 uppercase">Tasks Done</p>
+            <div className="h-1.5 bg-amber-950/50 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 rounded-full transition-all duration-700"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="p-4 md:p-6 space-y-5 max-w-4xl mx-auto">
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="border-amber-200/20 dark:border-amber-800/30">
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold font-mono" data-testid="stat-foh-lists">{fohTaskLists.length}</p>
-              <p className="text-[10px] text-muted-foreground uppercase">Task Lists</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200/20 dark:border-amber-800/30">
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold font-mono" data-testid="stat-foh-todos">{pendingTodos.length}</p>
-              <p className="text-[10px] text-muted-foreground uppercase">Dept Todos</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200/20 dark:border-amber-800/30">
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold font-mono text-destructive" data-testid="stat-soldout">{todaySoldouts.length}</p>
-              <p className="text-[10px] text-muted-foreground uppercase">86'd Today</p>
-            </CardContent>
-          </Card>
-        </div>
-
+      <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4 max-w-4xl mx-auto w-full">
         {myFohTasks.length > 0 && (
-          <Card data-testid="container-my-foh-tasks">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-500" />
+          <Card className="border-amber-200/20 dark:border-amber-800/30" data-testid="container-my-foh-tasks">
+            <CardHeader className="px-4 py-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
                 My Assigned Tasks
-                <Badge variant="outline" className="ml-auto text-[10px]">{myFohTasks.length} lists</Badge>
+                <Badge variant="outline" className="ml-auto text-[10px] font-mono">{myFohTasks.length}</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 space-y-2">
+            <CardContent className="px-4 pt-0 pb-3 space-y-1.5">
               {myFohTasks.map(list => (
                 <Link key={list.id} href={`/tasks/assigned/${list.id}`}>
-                  <div className="flex items-center gap-3 p-3 rounded-md border border-border hover:bg-muted/50 transition-colors cursor-pointer" data-testid={`my-foh-task-${list.id}`}>
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg border border-border hover:bg-muted/50 transition-colors cursor-pointer" data-testid={`my-foh-task-${list.id}`}>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{list.title}</p>
-                      {list.date && <p className="text-xs text-muted-foreground">{list.date}</p>}
+                      {list.date && <p className="text-[11px] text-muted-foreground">{list.date}</p>}
                     </div>
                     {list.items && (
-                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                      <span className="text-xs font-mono text-muted-foreground">
                         {list.items.filter(i => i.completed).length}/{list.items.length}
-                      </Badge>
+                      </span>
                     )}
-                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                   </div>
                 </Link>
               ))}
@@ -226,44 +200,39 @@ export default function Platform934() {
         )}
 
         <Card data-testid="container-foh-tasks">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-amber-500" />
+          <CardHeader className="px-4 py-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
               FOH Task Lists
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className="px-4 pt-0 pb-3">
             {isLoading ? (
               <div className="space-y-2">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
               </div>
             ) : fohTaskLists.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No active FOH task lists today.</p>
+              <p className="text-sm text-muted-foreground py-3 text-center">No active FOH task lists.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {fohTaskLists.map(list => {
                   const items = list.items || [];
                   const done = items.filter(i => i.completed).length;
                   const total = items.length;
                   return (
-                    <div key={list.id} className="border border-border rounded-md overflow-hidden" data-testid={`foh-task-list-${list.id}`}>
-                      <Link href={`/tasks`}>
-                        <div className="flex items-center gap-3 p-3 hover:bg-muted/30 transition-colors cursor-pointer">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm">{list.title}</p>
-                            <p className="text-xs text-muted-foreground">{list.date || "No date"}</p>
-                          </div>
-                          <Badge variant={done === total && total > 0 ? "default" : "secondary"} className="text-[10px]">
-                            {done}/{total}
-                          </Badge>
-                          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div key={list.id} className="border border-border rounded-lg overflow-hidden" data-testid={`foh-task-list-${list.id}`}>
+                      <div className="flex items-center gap-3 p-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">{list.title}</p>
                         </div>
-                      </Link>
+                        <span className="text-xs font-mono text-muted-foreground">{done}/{total}</span>
+                        {done === total && total > 0 && <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />}
+                      </div>
                       {items.filter(i => !i.completed).slice(0, 3).map(item => (
                         <div
                           key={item.id}
-                          className="flex items-center gap-3 px-4 py-2 border-t border-border/50 bg-muted/10"
+                          className="flex items-center gap-3 px-3 py-1.5 border-t border-border/50 bg-muted/5"
                           data-testid={`foh-task-item-${item.id}`}
                         >
                           <Checkbox
@@ -273,7 +242,7 @@ export default function Platform934() {
                           />
                           <span className="text-sm flex-1">{item.manualTitle || `Job #${item.jobId}`}</span>
                           {item.startTime && (
-                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                               <Clock className="w-3 h-3" />{item.startTime}
                             </span>
                           )}
@@ -287,250 +256,223 @@ export default function Platform934() {
           </CardContent>
         </Card>
 
-        {pendingTodos.length > 0 && (
-          <Card data-testid="container-foh-todos">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                Department Carryover
-                <Badge variant="outline" className="ml-auto text-[10px]">{pendingTodos.length}</Badge>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card data-testid="container-lobby-check">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 px-4 py-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                Lobby Checks
+                {todayLobbyLogs.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px] font-mono">{todayLobbyLogs.length}</Badge>
+                )}
               </CardTitle>
+              {isManager && (
+                <Dialog open={showLobbySettings} onOpenChange={setShowLobbySettings}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" data-testid="button-lobby-settings">
+                      <Settings2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Lobby Check Settings</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Enabled</Label>
+                        <Switch
+                          checked={lobbySettings?.enabled ?? false}
+                          onCheckedChange={(checked) =>
+                            lobbySettingsMutation.mutate({
+                              ...lobbySettings,
+                              enabled: checked,
+                            })
+                          }
+                          data-testid="switch-lobby-enabled"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Frequency</Label>
+                        <Select
+                          value={String(lobbySettings?.frequencyMinutes ?? 30)}
+                          onValueChange={(v) =>
+                            lobbySettingsMutation.mutate({
+                              ...lobbySettings,
+                              frequencyMinutes: Number(v),
+                            })
+                          }
+                        >
+                          <SelectTrigger data-testid="select-lobby-frequency">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="15">Every 15 min</SelectItem>
+                            <SelectItem value="30">Every 30 min</SelectItem>
+                            <SelectItem value="45">Every 45 min</SelectItem>
+                            <SelectItem value="60">Every 60 min</SelectItem>
+                            <SelectItem value="90">Every 90 min</SelectItem>
+                            <SelectItem value="120">Every 2 hours</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Start</Label>
+                          <Input
+                            type="time"
+                            value={lobbySettings?.businessHoursStart ?? "06:00"}
+                            onChange={(e) =>
+                              lobbySettingsMutation.mutate({
+                                ...lobbySettings,
+                                businessHoursStart: e.target.value,
+                              })
+                            }
+                            data-testid="input-lobby-start"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>End</Label>
+                          <Input
+                            type="time"
+                            value={lobbySettings?.businessHoursEnd ?? "18:00"}
+                            onChange={(e) =>
+                              lobbySettingsMutation.mutate({
+                                ...lobbySettings,
+                                businessHoursEnd: e.target.value,
+                              })
+                            }
+                            data-testid="input-lobby-end"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
             </CardHeader>
-            <CardContent className="pt-0 space-y-1">
-              {pendingTodos.map(todo => (
-                <div key={todo.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/30" data-testid={`foh-todo-${todo.id}`}>
-                  <Checkbox
-                    checked={false}
-                    onCheckedChange={() => completeTodoMutation.mutate(todo.id)}
-                    data-testid={`checkbox-todo-${todo.id}`}
-                  />
-                  <span className="text-sm flex-1">{todo.itemTitle}</span>
-                  {todo.originalDate && (
-                    <span className="text-[10px] text-muted-foreground">from {todo.originalDate}</span>
-                  )}
+            <CardContent className="px-4 pt-0 pb-3">
+              {!lobbySettings?.enabled ? (
+                <p className="text-xs text-muted-foreground py-2 text-center">
+                  Not enabled.{isManager ? " Tap settings to configure." : ""}
+                </p>
+              ) : todayLobbyLogs.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2 text-center">No checks cleared yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {todayLobbyLogs.slice(0, 4).map(log => (
+                    <div key={log.id} className="flex items-center gap-2 py-1.5 text-sm" data-testid={`lobby-log-${log.id}`}>
+                      <ShieldCheck className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                      <span className="flex-1 truncate"><span className="font-medium">{log.clearedByName}</span></span>
+                      {log.clearedAt && (
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          {format(new Date(log.clearedAt), "h:mm a")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
-        )}
 
-        <Card data-testid="container-lobby-check">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-amber-500" />
-              Lobby Checks
-              {todayLobbyLogs.length > 0 && (
-                <Badge variant="secondary" className="text-[10px]">{todayLobbyLogs.length} cleared</Badge>
-              )}
-            </CardTitle>
-            {isManager && (
-              <Dialog open={showLobbySettings} onOpenChange={setShowLobbySettings}>
+          <Card data-testid="container-soldout">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 px-4 py-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <XCircle className="w-3.5 h-3.5 text-destructive" />
+                86'd Today
+                {todaySoldouts.length > 0 && (
+                  <Badge variant="destructive" className="text-[10px] font-mono">{todaySoldouts.length}</Badge>
+                )}
+              </CardTitle>
+              <Dialog open={showSoldoutDialog} onOpenChange={setShowSoldoutDialog}>
                 <DialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-lobby-settings">
-                    <Settings2 className="w-3 h-3 mr-1" />Settings
+                  <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" data-testid="button-add-soldout">
+                    <Plus className="w-3 h-3" />86
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Lobby Check Settings</DialogTitle>
+                    <DialogTitle>Mark Item as 86'd</DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Enabled</Label>
-                      <Switch
-                        checked={lobbySettings?.enabled ?? false}
-                        onCheckedChange={(checked) =>
-                          lobbySettingsMutation.mutate({
-                            ...lobbySettings,
-                            enabled: checked,
-                          })
-                        }
-                        data-testid="switch-lobby-enabled"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Frequency</Label>
-                      <Select
-                        value={String(lobbySettings?.frequencyMinutes ?? 30)}
-                        onValueChange={(v) =>
-                          lobbySettingsMutation.mutate({
-                            ...lobbySettings,
-                            frequencyMinutes: Number(v),
-                          })
-                        }
-                      >
-                        <SelectTrigger data-testid="select-lobby-frequency">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="15">Every 15 minutes</SelectItem>
-                          <SelectItem value="30">Every 30 minutes</SelectItem>
-                          <SelectItem value="45">Every 45 minutes</SelectItem>
-                          <SelectItem value="60">Every 60 minutes</SelectItem>
-                          <SelectItem value="90">Every 90 minutes</SelectItem>
-                          <SelectItem value="120">Every 2 hours</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label>Business Hours Start</Label>
-                        <Input
-                          type="time"
-                          value={lobbySettings?.businessHoursStart ?? "06:00"}
-                          onChange={(e) =>
-                            lobbySettingsMutation.mutate({
-                              ...lobbySettings,
-                              businessHoursStart: e.target.value,
-                            })
-                          }
-                          data-testid="input-lobby-start"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Business Hours End</Label>
-                        <Input
-                          type="time"
-                          value={lobbySettings?.businessHoursEnd ?? "18:00"}
-                          onChange={(e) =>
-                            lobbySettingsMutation.mutate({
-                              ...lobbySettings,
-                              businessHoursEnd: e.target.value,
-                            })
-                          }
-                          data-testid="input-lobby-end"
-                        />
-                      </div>
-                    </div>
+                  <div className="space-y-3 pt-2">
+                    <Select value={soldoutItem} onValueChange={setSoldoutItem}>
+                      <SelectTrigger data-testid="select-soldout-item">
+                        <SelectValue placeholder="Select pastry item" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pastryItems.filter(p => p.isActive).map(p => (
+                          <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="time"
+                      value={soldoutTime}
+                      onChange={e => setSoldoutTime(e.target.value)}
+                      data-testid="input-soldout-time"
+                    />
+                    <Button
+                      className="w-full"
+                      disabled={!soldoutItem.trim() || soldoutMutation.isPending}
+                      onClick={() => soldoutMutation.mutate({
+                        itemName: soldoutItem.trim(),
+                        date: today,
+                        soldOutAt: soldoutTime,
+                        reportedBy: user?.id,
+                      })}
+                      data-testid="button-submit-soldout"
+                    >
+                      Mark 86'd
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
-            )}
-          </CardHeader>
-          <CardContent className="pt-0">
-            {!lobbySettings?.enabled ? (
-              <p className="text-sm text-muted-foreground py-3 text-center">
-                Lobby checks are not enabled.{isManager ? " Click Settings to configure." : ""}
-              </p>
-            ) : todayLobbyLogs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-3 text-center">No lobby checks cleared yet today.</p>
-            ) : (
-              <div className="space-y-1">
-                {todayLobbyLogs.map(log => (
-                  <div key={log.id} className="flex items-center gap-3 p-2 rounded-md bg-green-500/5 border border-green-500/10" data-testid={`lobby-log-${log.id}`}>
-                    <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
-                    <span className="text-sm flex-1">
-                      <span className="font-medium">{log.clearedByName}</span>
-                      <span className="text-muted-foreground"> cleared {log.scheduledAt} check</span>
-                    </span>
-                    {log.clearedAt && (
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(log.clearedAt), "h:mm a")}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="relative" data-testid="container-foh-backup">
-          <div className="absolute inset-0 rounded-2xl bg-red-500/20 animate-pulse" />
-          <button
-            className="relative w-full rounded-2xl border-4 border-red-500 bg-gradient-to-b from-red-600 via-red-700 to-red-900 shadow-[0_0_30px_rgba(239,68,68,0.4),0_0_60px_rgba(239,68,68,0.2)] hover:shadow-[0_0_40px_rgba(239,68,68,0.6),0_0_80px_rgba(239,68,68,0.3)] active:scale-[0.97] transition-all duration-200 p-8 md:p-10 cursor-pointer group"
-            onClick={() => {
-              apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
-                toast({ title: "ALERT SENT!", description: "Bagel Bros crew has been notified" });
-              });
-            }}
-            data-testid="button-foh-backup-alert"
-          >
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-red-500/30 border-4 border-red-400/50 flex items-center justify-center group-hover:bg-red-500/50 transition-colors animate-[pulse_1.5s_ease-in-out_infinite]">
-                <Megaphone className="w-10 h-10 md:w-12 md:h-12 text-white drop-shadow-lg" />
-              </div>
-              <div className="text-center">
-                <p className="text-2xl md:text-3xl font-black text-white tracking-wide drop-shadow-lg uppercase">
-                  FOH Needs Backup
-                </p>
-                <p className="text-xl md:text-2xl font-bold text-red-200/90 mt-1 tracking-wide">
-                  Refuerzo al Frente
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-red-200/60 text-sm">
-                <Send className="w-4 h-4" />
-                <span>Tap to alert Bagel Bros crew</span>
-              </div>
-            </div>
-          </button>
-        </div>
-
-        <Card data-testid="container-soldout">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2">
-              <XCircle className="w-4 h-4 text-destructive" />
-              86'd Today
-              {todaySoldouts.length > 0 && (
-                <Badge variant="destructive" className="text-[10px]">{todaySoldouts.length}</Badge>
-              )}
-            </CardTitle>
-            <Dialog open={showSoldoutDialog} onOpenChange={setShowSoldoutDialog}>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-add-soldout">
-                  <Plus className="w-3 h-3 mr-1" />86 Item
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Mark Item as 86'd</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3 pt-2">
-                  <Input
-                    placeholder="Item name"
-                    value={soldoutItem}
-                    onChange={e => setSoldoutItem(e.target.value)}
-                    data-testid="input-soldout-item"
-                  />
-                  <Input
-                    type="time"
-                    value={soldoutTime}
-                    onChange={e => setSoldoutTime(e.target.value)}
-                    data-testid="input-soldout-time"
-                  />
-                  <Button
-                    className="w-full"
-                    disabled={!soldoutItem.trim() || soldoutMutation.isPending}
-                    onClick={() => soldoutMutation.mutate({
-                      itemName: soldoutItem.trim(),
-                      date: today,
-                      soldOutAt: soldoutTime,
-                      reportedBy: user?.id,
-                    })}
-                    data-testid="button-submit-soldout"
-                  >
-                    <Send className="w-4 h-4 mr-2" />Mark 86'd
-                  </Button>
+            </CardHeader>
+            <CardContent className="px-4 pt-0 pb-3">
+              {todaySoldouts.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2 text-center">Nothing 86'd yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {todaySoldouts.map(log => (
+                    <div key={log.id} className="flex items-center gap-2 py-1.5 text-sm" data-testid={`soldout-${log.id}`}>
+                      <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                      <span className="font-medium flex-1 truncate">{log.itemName}</span>
+                      <span className="text-[11px] text-muted-foreground font-mono">{log.soldOutAt}</span>
+                    </div>
+                  ))}
                 </div>
-              </DialogContent>
-            </Dialog>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {todaySoldouts.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-3 text-center">Nothing 86'd yet today</p>
-            ) : (
-              <div className="space-y-1">
-                {todaySoldouts.map(log => (
-                  <div key={log.id} className="flex items-center gap-3 p-2 rounded-md bg-destructive/5 border border-destructive/10" data-testid={`soldout-${log.id}`}>
-                    <XCircle className="w-4 h-4 text-destructive shrink-0" />
-                    <span className="text-sm font-medium flex-1">{log.itemName}</span>
-                    <span className="text-xs text-muted-foreground">{log.soldOutAt}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="shrink-0 p-4 md:p-5" data-testid="container-foh-backup">
+        <button
+          className="relative w-full rounded-2xl border-2 border-red-500/80 bg-gradient-to-b from-red-600 via-red-700 to-red-900 shadow-[0_0_20px_rgba(239,68,68,0.3),0_0_40px_rgba(239,68,68,0.15)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5),0_0_60px_rgba(239,68,68,0.25)] active:scale-[0.98] transition-all duration-200 cursor-pointer group"
+          style={{ minHeight: "28vh" }}
+          onClick={() => {
+            apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
+              toast({ title: "ALERT SENT!", description: "Bagel Bros crew has been notified" });
+            });
+          }}
+          data-testid="button-foh-backup-alert"
+        >
+          <div className="flex flex-col items-center justify-center gap-3 py-6">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-red-500/25 border-2 border-red-400/40 flex items-center justify-center group-hover:bg-red-500/40 transition-colors animate-[pulse_2s_ease-in-out_infinite]">
+              <Megaphone className="w-8 h-8 md:w-10 md:h-10 text-white drop-shadow-lg" />
+            </div>
+            <div className="text-center">
+              <p className="text-xl md:text-2xl font-black text-white tracking-wide drop-shadow-lg uppercase">
+                FOH Needs Backup
+              </p>
+              <p className="text-lg md:text-xl font-bold text-red-200/80 mt-0.5 tracking-wide">
+                Refuerzo al Frente
+              </p>
+            </div>
+            <p className="text-red-200/40 text-xs tracking-wider uppercase">Tap to alert crew</p>
+          </div>
+        </button>
       </div>
     </div>
   );
