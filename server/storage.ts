@@ -84,6 +84,8 @@ import {
   appSettings,
   devFeedback,
   type DevFeedback, type InsertDevFeedback,
+  employeeSkills,
+  type EmployeeSkill, type InsertEmployeeSkill,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -472,6 +474,15 @@ export interface IStorage {
   getDevFeedback(filters?: { status?: string; type?: string }): Promise<DevFeedback[]>;
   updateDevFeedback(id: number, updates: Partial<DevFeedback>): Promise<DevFeedback>;
   deleteDevFeedback(id: number): Promise<void>;
+
+  // Employee Skills
+  getEmployeeSkills(userId: string): Promise<EmployeeSkill[]>;
+  getAllEmployeeSkills(): Promise<EmployeeSkill[]>;
+  upsertEmployeeSkill(skill: InsertEmployeeSkill): Promise<EmployeeSkill>;
+  deleteEmployeeSkill(id: number): Promise<void>;
+
+  // Inventory Deduction
+  deductInventoryItem(itemId: number, quantity: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3030,6 +3041,40 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDevFeedback(id: number): Promise<void> {
     await db.delete(devFeedback).where(eq(devFeedback.id, id));
+  }
+
+  // Employee Skills
+  async getEmployeeSkills(userId: string): Promise<EmployeeSkill[]> {
+    return await db.select().from(employeeSkills).where(eq(employeeSkills.userId, userId)).orderBy(employeeSkills.skillArea);
+  }
+
+  async getAllEmployeeSkills(): Promise<EmployeeSkill[]> {
+    return await db.select().from(employeeSkills).orderBy(employeeSkills.userId, employeeSkills.skillArea);
+  }
+
+  async upsertEmployeeSkill(skill: InsertEmployeeSkill): Promise<EmployeeSkill> {
+    const existing = await db.select().from(employeeSkills)
+      .where(and(eq(employeeSkills.userId, skill.userId), eq(employeeSkills.skillArea, skill.skillArea)));
+    if (existing.length > 0) {
+      const [updated] = await db.update(employeeSkills)
+        .set({ proficiency: skill.proficiency, notes: skill.notes, assessedBy: skill.assessedBy, lastAssessedAt: new Date() })
+        .where(eq(employeeSkills.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(employeeSkills).values(skill).returning();
+    return created;
+  }
+
+  async deleteEmployeeSkill(id: number): Promise<void> {
+    await db.delete(employeeSkills).where(eq(employeeSkills.id, id));
+  }
+
+  // Inventory Deduction
+  async deductInventoryItem(itemId: number, quantity: number): Promise<void> {
+    await db.update(inventoryItems)
+      .set({ onHand: sql`GREATEST(0, COALESCE(${inventoryItems.onHand}, 0) - ${quantity})` })
+      .where(eq(inventoryItems.id, itemId));
   }
 }
 

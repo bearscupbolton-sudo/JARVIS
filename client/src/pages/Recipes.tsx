@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,27 +17,35 @@ import {
   Loader2,
   ImageIcon,
   X,
-  Layers
+  Layers,
+  Link2,
+  Unlink
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertRecipeSchema, type InsertRecipe } from "@shared/schema";
+import { insertRecipeSchema, type InsertRecipe, type InventoryItem } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 
-const RECIPE_CATEGORIES = [
-  "Bread",
-  "Viennoiserie",
-  "Component",
-  "Gluten Free",
-  "Cookies",
-  "Muffin/Cake",
-  "Mother",
+const DEPARTMENT_CATEGORIES: Record<string, string[]> = {
+  bakery: ["Bread", "Viennoiserie", "Component", "Gluten Free", "Cookies", "Muffin/Cake", "Mother", "Pastry", "Cake", "Laminated", "Cookie"],
+  bar: ["Espresso Drinks", "Cold Brew", "Cold Foam", "Syrups & Sauces", "Seasonal", "Tea", "Specialty", "Blended"],
+  kitchen: ["Soup", "Salad", "Sandwich", "Prep", "Sauce", "Entree", "Side", "Dressing"],
+};
+
+const ALL_CATEGORIES = Array.from(new Set(Object.values(DEPARTMENT_CATEGORIES).flat()));
+
+const INGREDIENT_UNITS = [
+  "g", "kg", "oz", "lb", "ml", "L", "tsp", "tbsp", "cup",
+  "each", "sheets", "loaves", "pieces",
+  "shots", "pumps", "splash", "drizzle",
 ] as const;
 
 const DEPARTMENTS = [
@@ -55,8 +64,9 @@ export default function Recipes() {
 
   const deptRecipes = recipes?.filter(r => departmentFilter === "all" || (r as any).department === departmentFilter || (!((r as any).department) && departmentFilter === "bakery"));
 
+  const deptCats = departmentFilter === "all" ? ALL_CATEGORIES : (DEPARTMENT_CATEGORIES[departmentFilter] || []);
   const existingCategories = Array.from(new Set(deptRecipes?.map(r => r.category) || []));
-  const allCategories = Array.from(new Set([...RECIPE_CATEGORIES, ...existingCategories]));
+  const allCategories = Array.from(new Set([...deptCats, ...existingCategories]));
   const categories = ["All", ...allCategories];
 
   const filteredRecipes = deptRecipes?.filter(recipe => {
@@ -193,12 +203,17 @@ function CreateRecipeDialog() {
       description: "",
       category: "",
       department: "bakery",
+      servingSize: "",
+      prepTime: undefined,
       yieldAmount: 1,
       yieldUnit: "kg",
       ingredients: [],
       instructions: []
     }
   });
+
+  const watchedDepartment = form.watch("department") || "bakery";
+  const categoryOptions = DEPARTMENT_CATEGORIES[watchedDepartment] || ALL_CATEGORIES;
 
   const { fields: ingredientFields, append: appendIngredient, remove: removeIngredient, replace: replaceIngredients } = useFieldArray({
     control: form.control,
@@ -208,6 +223,10 @@ function CreateRecipeDialog() {
   const { fields: instructionFields, append: appendInstruction, remove: removeInstruction, replace: replaceInstructions } = useFieldArray({
     control: form.control,
     name: "instructions" as any
+  });
+
+  const { data: inventoryItems = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/inventory-items"],
   });
 
   if (user?.locked) return null;
@@ -240,7 +259,7 @@ function CreateRecipeDialog() {
 
       if (parsed.title) form.setValue("title", parsed.title);
       if (parsed.description) form.setValue("description", parsed.description);
-      if (parsed.category && RECIPE_CATEGORIES.includes(parsed.category)) {
+      if (parsed.category && ALL_CATEGORIES.includes(parsed.category)) {
         form.setValue("category", parsed.category);
       }
       if (parsed.yieldAmount) form.setValue("yieldAmount", Number(parsed.yieldAmount) || 1);
@@ -408,8 +427,8 @@ function CreateRecipeDialog() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {RECIPE_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat} value={cat} data-testid={`select-category-${cat.toLowerCase().replace(/\//g, "-")}`}>
+                        {categoryOptions.map((cat) => (
+                          <SelectItem key={cat} value={cat} data-testid={`select-category-${cat.toLowerCase().replace(/[\s\/&]/g, "-")}`}>
                             {cat}
                           </SelectItem>
                         ))}
@@ -434,6 +453,42 @@ function CreateRecipeDialog() {
                 </FormItem>
               )}
             />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="servingSize"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Serving Size (optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value || ""} placeholder="e.g. 12oz, 16oz, 1 batch" data-testid="input-recipe-serving-size" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="prepTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Prep Time in Minutes (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={e => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                        placeholder="e.g. 30"
+                        data-testid="input-recipe-prep-time"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-6">
               <FormField
@@ -527,41 +582,57 @@ function CreateRecipeDialog() {
                       </div>
                     )}
                     {grp.items.map(({ field, index }) => (
-                      <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                        <div className="col-span-5">
-                          <Input 
-                            placeholder="Name" 
-                            {...form.register(`ingredients.${index}.name` as any)} 
-                            data-testid={`input-ingredient-name-${index}`}
-                          />
+                      <div key={field.id} className="space-y-1">
+                        <div className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-5">
+                            <Input 
+                              placeholder="Name" 
+                              {...form.register(`ingredients.${index}.name` as any)} 
+                              data-testid={`input-ingredient-name-${index}`}
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <Input 
+                              type="number" 
+                              placeholder="Qty" 
+                              step="0.01"
+                              {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
+                              data-testid={`input-ingredient-qty-${index}`}
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <Select
+                              value={form.watch(`ingredients.${index}.unit` as any) || "g"}
+                              onValueChange={(val) => form.setValue(`ingredients.${index}.unit` as any, val)}
+                            >
+                              <SelectTrigger data-testid={`select-ingredient-unit-${index}`}>
+                                <SelectValue placeholder="Unit" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {INGREDIENT_UNITS.map(u => (
+                                  <SelectItem key={u} value={u}>{u}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-1">
+                            <Button 
+                              type="button" 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => removeIngredient(index)}
+                              className="text-destructive"
+                            >
+                              <Plus className="w-4 h-4 rotate-45" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="col-span-3">
-                          <Input 
-                            type="number" 
-                            placeholder="Qty" 
-                            step="0.01"
-                            {...form.register(`ingredients.${index}.quantity` as any, { valueAsNumber: true })} 
-                            data-testid={`input-ingredient-qty-${index}`}
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <Input 
-                            placeholder="Unit" 
-                            {...form.register(`ingredients.${index}.unit` as any)} 
-                            data-testid={`input-ingredient-unit-${index}`}
-                          />
-                        </div>
-                        <div className="col-span-1">
-                          <Button 
-                            type="button" 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => removeIngredient(index)}
-                            className="text-destructive"
-                          >
-                            <Plus className="w-4 h-4 rotate-45" />
-                          </Button>
-                        </div>
+                        <InventoryLinkPicker
+                          inventoryItems={inventoryItems}
+                          selectedId={form.watch(`ingredients.${index}.inventoryItemId` as any) as number | null | undefined}
+                          onSelect={(itemId) => form.setValue(`ingredients.${index}.inventoryItemId` as any, itemId)}
+                          testIdPrefix={`create-ingredient-${index}`}
+                        />
                       </div>
                     ))}
                   </div>
@@ -630,5 +701,88 @@ function CreateRecipeDialog() {
         </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function InventoryLinkPicker({
+  inventoryItems,
+  selectedId,
+  onSelect,
+  testIdPrefix,
+}: {
+  inventoryItems: InventoryItem[];
+  selectedId: number | null | undefined;
+  onSelect: (itemId: number | null) => void;
+  testIdPrefix: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const linkedItem = selectedId ? inventoryItems.find(i => i.id === selectedId) : null;
+
+  const filtered = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(search.toLowerCase()) ||
+    item.aliases?.some(a => a.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  if (linkedItem) {
+    return (
+      <div className="flex items-center gap-1.5 pl-1">
+        <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
+        <Badge variant="secondary" className="text-[10px] gap-1">
+          {linkedItem.name}
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="ml-0.5 hover:text-destructive"
+            data-testid={`${testIdPrefix}-unlink`}
+          >
+            <Unlink className="w-3 h-3" />
+          </button>
+        </Badge>
+      </div>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors pl-1"
+          data-testid={`${testIdPrefix}-link-inventory`}
+        >
+          <Link2 className="w-3 h-3" />
+          Link to Inventory
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2" align="start">
+        <Input
+          placeholder="Search inventory..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="mb-2"
+          data-testid={`${testIdPrefix}-inventory-search`}
+        />
+        <div className="max-h-48 overflow-y-auto space-y-0.5">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-2">No items found</p>
+          ) : (
+            filtered.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className="w-full text-left px-2 py-1.5 text-sm rounded-md hover-elevate transition-colors"
+                onClick={() => { onSelect(item.id); setOpen(false); setSearch(""); }}
+                data-testid={`${testIdPrefix}-inventory-option-${item.id}`}
+              >
+                <div className="font-medium text-xs">{item.name}</div>
+                <div className="text-[10px] text-muted-foreground">{item.category} · {item.unit}</div>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

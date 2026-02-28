@@ -13,9 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers, PlayCircle, RotateCcw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers, PlayCircle, RotateCcw, Link2, Unlink } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Ingredient, type Instruction, type RecipeVersion } from "@shared/schema";
+import { type Ingredient, type Instruction, type RecipeVersion, type InventoryItem } from "@shared/schema";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 
@@ -28,10 +29,19 @@ const FLOUR_KEYWORDS = [
   "rye flour", "spelt flour", "einkorn",
 ];
 
-const RECIPE_CATEGORIES = [
-  "Bread", "Viennoiserie", "Component", "Gluten Free",
-  "Cookies", "Muffin/Cake", "Mother",
-];
+const DEPARTMENT_CATEGORIES: Record<string, string[]> = {
+  bakery: ["Bread", "Viennoiserie", "Component", "Gluten Free", "Cookies", "Muffin/Cake", "Mother", "Pastry", "Cake", "Laminated", "Cookie"],
+  bar: ["Espresso Drinks", "Cold Brew", "Cold Foam", "Syrups & Sauces", "Seasonal", "Tea", "Specialty", "Blended"],
+  kitchen: ["Soup", "Salad", "Sandwich", "Prep", "Sauce", "Entree", "Side", "Dressing"],
+};
+
+const ALL_CATEGORIES = Array.from(new Set(Object.values(DEPARTMENT_CATEGORIES).flat()));
+
+const INGREDIENT_UNITS = [
+  "g", "kg", "oz", "lb", "ml", "L", "tsp", "tbsp", "cup",
+  "each", "sheets", "loaves", "pieces",
+  "shots", "pumps", "splash", "drizzle",
+] as const;
 
 function isFlourIngredient(name: string): boolean {
   const lower = name.toLowerCase();
@@ -479,10 +489,18 @@ export default function RecipeDetail() {
           </div>
           <h1 className="text-4xl font-display font-bold text-foreground mb-2" data-testid="text-recipe-title">{recipe.title}</h1>
           <p className="text-lg text-muted-foreground">{recipe.description}</p>
-          <div className="mt-2 text-sm font-mono text-muted-foreground">
-            Yield: <span className="font-bold text-foreground">{(recipe.yieldAmount * scaleFactor).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> {recipe.yieldUnit}
-            {scaleFactor !== 1 && (
-              <span className="ml-2 text-xs text-muted-foreground">(base: {recipe.yieldAmount} {recipe.yieldUnit})</span>
+          <div className="mt-2 text-sm font-mono text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              Yield: <span className="font-bold text-foreground">{(recipe.yieldAmount * scaleFactor).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> {recipe.yieldUnit}
+              {scaleFactor !== 1 && (
+                <span className="ml-2 text-xs text-muted-foreground">(base: {recipe.yieldAmount} {recipe.yieldUnit})</span>
+              )}
+            </span>
+            {(recipe as any).servingSize && (
+              <span data-testid="text-serving-size">Serving: <span className="font-bold text-foreground">{(recipe as any).servingSize}</span></span>
+            )}
+            {(recipe as any).prepTime && (
+              <span data-testid="text-prep-time">Prep: <span className="font-bold text-foreground">{(recipe as any).prepTime} min</span></span>
             )}
           </div>
         </div>
@@ -680,6 +698,10 @@ function EditRecipeDialog({
   const { mutate: updateRecipe, isPending } = useUpdateRecipe();
   const { toast } = useToast();
 
+  const { data: inventoryItems = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/inventory-items"],
+  });
+
   const baseIngredients = (recipe.ingredients as Ingredient[]) || [];
   const baseInstructions = (recipe.instructions as Instruction[]) || [];
 
@@ -687,11 +709,15 @@ function EditRecipeDialog({
   const [description, setDescription] = useState(recipe.description || "");
   const [category, setCategory] = useState(recipe.category);
   const [department, setDepartment] = useState((recipe as any).department || "bakery");
+  const [servingSize, setServingSize] = useState((recipe as any).servingSize || "");
+  const [prepTime, setPrepTime] = useState<number | undefined>((recipe as any).prepTime ?? undefined);
   const [yieldAmount, setYieldAmount] = useState(recipe.yieldAmount);
   const [yieldUnit, setYieldUnit] = useState(recipe.yieldUnit);
   const [ingredients, setIngredients] = useState<Ingredient[]>(baseIngredients.map(i => ({ ...i })));
   const [instructions, setInstructions] = useState<Instruction[]>(baseInstructions.map(i => ({ ...i })));
   const [changeReason, setChangeReason] = useState("");
+
+  const categoryOptions = DEPARTMENT_CATEGORIES[department] || ALL_CATEGORIES;
 
   useEffect(() => {
     if (open) {
@@ -699,6 +725,8 @@ function EditRecipeDialog({
       setDescription(recipe.description || "");
       setCategory(recipe.category);
       setDepartment((recipe as any).department || "bakery");
+      setServingSize((recipe as any).servingSize || "");
+      setPrepTime((recipe as any).prepTime ?? undefined);
       setYieldAmount(recipe.yieldAmount);
       setYieldUnit(recipe.yieldUnit);
       setIngredients((recipe.ingredients as Ingredient[])?.map(i => ({ ...i })) || []);
@@ -747,6 +775,8 @@ function EditRecipeDialog({
       description: description.trim() || undefined,
       category,
       department,
+      servingSize: servingSize.trim() || undefined,
+      prepTime: prepTime ?? undefined,
       yieldAmount,
       yieldUnit,
       ingredients: validIngredients,
@@ -811,7 +841,7 @@ function EditRecipeDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RECIPE_CATEGORIES.map(cat => (
+                  {categoryOptions.map(cat => (
                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
                 </SelectContent>
@@ -827,6 +857,28 @@ function EditRecipeDialog({
               placeholder="Brief description..."
               data-testid="input-edit-recipe-description"
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Serving Size (optional)</Label>
+              <Input
+                value={servingSize}
+                onChange={(e) => setServingSize(e.target.value)}
+                placeholder="e.g. 12oz, 16oz, 1 batch"
+                data-testid="input-edit-serving-size"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Prep Time in Minutes (optional)</Label>
+              <Input
+                type="number"
+                value={prepTime ?? ""}
+                onChange={(e) => setPrepTime(e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder="e.g. 30"
+                data-testid="input-edit-prep-time"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -902,35 +954,51 @@ function EditRecipeDialog({
                     </div>
                   )}
                   {grp.items.map(({ ing, idx }) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center" data-testid={`edit-ingredient-row-${idx}`}>
-                      <div className="col-span-5">
-                        <Input
-                          placeholder="Name"
-                          value={ing.name}
-                          onChange={(e) => updateIngredient(idx, "name", e.target.value)}
-                        />
+                    <div key={idx} className="space-y-1" data-testid={`edit-ingredient-row-${idx}`}>
+                      <div className="grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-5">
+                          <Input
+                            placeholder="Name"
+                            value={ing.name}
+                            onChange={(e) => updateIngredient(idx, "name", e.target.value)}
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <Input
+                            type="number"
+                            placeholder="Qty"
+                            step="0.01"
+                            value={ing.quantity}
+                            onChange={(e) => updateIngredient(idx, "quantity", parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <Select
+                            value={ing.unit || "g"}
+                            onValueChange={(val) => updateIngredient(idx, "unit", val)}
+                          >
+                            <SelectTrigger data-testid={`select-edit-ingredient-unit-${idx}`}>
+                              <SelectValue placeholder="Unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {INGREDIENT_UNITS.map(u => (
+                                <SelectItem key={u} value={u}>{u}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-1">
+                          <Button type="button" variant="ghost" size="icon" onClick={() => removeIngredient(idx)} className="text-destructive">
+                            <Plus className="w-4 h-4 rotate-45" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="col-span-3">
-                        <Input
-                          type="number"
-                          placeholder="Qty"
-                          step="0.01"
-                          value={ing.quantity}
-                          onChange={(e) => updateIngredient(idx, "quantity", parseFloat(e.target.value) || 0)}
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <Input
-                          placeholder="Unit"
-                          value={ing.unit}
-                          onChange={(e) => updateIngredient(idx, "unit", e.target.value)}
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <Button type="button" variant="ghost" size="icon" onClick={() => removeIngredient(idx)} className="text-destructive">
-                          <Plus className="w-4 h-4 rotate-45" />
-                        </Button>
-                      </div>
+                      <InventoryLinkPicker
+                        inventoryItems={inventoryItems}
+                        selectedId={ing.inventoryItemId}
+                        onSelect={(itemId) => updateIngredient(idx, "inventoryItemId", itemId as any)}
+                        testIdPrefix={`edit-ingredient-${idx}`}
+                      />
                     </div>
                   ))}
                 </div>
@@ -989,6 +1057,89 @@ function EditRecipeDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function InventoryLinkPicker({
+  inventoryItems,
+  selectedId,
+  onSelect,
+  testIdPrefix,
+}: {
+  inventoryItems: InventoryItem[];
+  selectedId: number | null | undefined;
+  onSelect: (itemId: number | null) => void;
+  testIdPrefix: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const linkedItem = selectedId ? inventoryItems.find(i => i.id === selectedId) : null;
+
+  const filtered = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(search.toLowerCase()) ||
+    item.aliases?.some(a => a.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  if (linkedItem) {
+    return (
+      <div className="flex items-center gap-1.5 pl-1">
+        <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
+        <Badge variant="secondary" className="text-[10px] gap-1">
+          {linkedItem.name}
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="ml-0.5 hover:text-destructive"
+            data-testid={`${testIdPrefix}-unlink`}
+          >
+            <Unlink className="w-3 h-3" />
+          </button>
+        </Badge>
+      </div>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors pl-1"
+          data-testid={`${testIdPrefix}-link-inventory`}
+        >
+          <Link2 className="w-3 h-3" />
+          Link to Inventory
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2" align="start">
+        <Input
+          placeholder="Search inventory..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="mb-2"
+          data-testid={`${testIdPrefix}-inventory-search`}
+        />
+        <div className="max-h-48 overflow-y-auto space-y-0.5">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-2">No items found</p>
+          ) : (
+            filtered.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className="w-full text-left px-2 py-1.5 text-sm rounded-md hover-elevate transition-colors"
+                onClick={() => { onSelect(item.id); setOpen(false); setSearch(""); }}
+                data-testid={`${testIdPrefix}-inventory-option-${item.id}`}
+              >
+                <div className="font-medium text-xs">{item.name}</div>
+                <div className="text-[10px] text-muted-foreground">{item.category} · {item.unit}</div>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

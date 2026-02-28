@@ -274,6 +274,7 @@ Guidelines:
         assistMode: z.string().default("off"),
         startedAt: z.string().optional(),
         completedAt: z.string().optional(),
+        taskListItemId: z.number().int().optional(),
       });
       const parsed = schema.parse(req.body);
       const session = await storage.createRecipeSession({
@@ -282,6 +283,44 @@ Guidelines:
         startedAt: parsed.startedAt ? new Date(parsed.startedAt) : new Date(),
         completedAt: parsed.completedAt ? new Date(parsed.completedAt) : new Date(),
       });
+
+      // Inventory deduction: reduce onHand for linked ingredients
+      if (parsed.scaledIngredients && Array.isArray(parsed.scaledIngredients)) {
+        const allInventory = await storage.getInventoryItems();
+        for (const ing of parsed.scaledIngredients) {
+          let itemId = ing.inventoryItemId;
+          if (!itemId && ing.name) {
+            const match = allInventory.find((inv: any) => {
+              const nameMatch = inv.name.toLowerCase() === ing.name.toLowerCase();
+              const aliasMatch = inv.aliases && Array.isArray(inv.aliases) &&
+                inv.aliases.some((a: string) => a.toLowerCase() === ing.name.toLowerCase());
+              return nameMatch || aliasMatch;
+            });
+            if (match) itemId = match.id;
+          }
+          if (itemId && ing.quantity > 0) {
+            try {
+              await storage.deductInventoryItem(itemId, ing.quantity);
+            } catch (e) {
+              console.error(`[Inventory] Failed to deduct ${ing.name}:`, e);
+            }
+          }
+        }
+      }
+
+      // Auto-complete linked task list item if taskListItemId provided
+      if (parsed.taskListItemId) {
+        try {
+          await storage.updateTaskListItem(parsed.taskListItemId, {
+            completed: true,
+            completedAt: new Date(),
+            completedBy: req.appUser.id,
+          });
+        } catch (e) {
+          console.error("[Task] Failed to auto-complete task item:", e);
+        }
+      }
+
       res.status(201).json(session);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -5739,6 +5778,213 @@ Rules:
         res.json({ saved: true, type: "event", count: createdEvents.length, events: createdEvents.map(e => ({ id: e.id, title: e.title })), title: titles });
       }
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EMPLOYEE SKILLS ===
+  app.get("/api/users/:id/skills", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const skills = await storage.getEmployeeSkills(req.params.id);
+      res.json(skills);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:id/skills", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const { skills } = req.body;
+      if (!Array.isArray(skills)) return res.status(400).json({ message: "Skills must be an array" });
+      const results = [];
+      for (const skill of skills) {
+        if (!skill.skillArea || !skill.proficiency) continue;
+        const result = await storage.upsertEmployeeSkill({
+          userId: req.params.id,
+          skillArea: skill.skillArea,
+          proficiency: Math.min(5, Math.max(1, skill.proficiency)),
+          notes: skill.notes || null,
+          assessedBy: (req as any).appUser.id,
+          lastAssessedAt: new Date(),
+        });
+        results.push(result);
+      }
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === JARVIS TASK LIST GENERATION (Beta) ===
+  app.post("/api/task-lists/generate", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { department, date, locationId } = req.body;
+      if (!department || !date) {
+        return res.status(400).json({ message: "Department and date are required" });
+      }
+
+      const allRecipes = await storage.getRecipes();
+      const deptRecipes = allRecipes.filter((r: any) => r.department === department);
+
+      const inventory = await storage.getInventoryItems();
+      const lowStock = inventory.filter((i: any) => i.onHand !== null && i.onHand < 10).slice(0, 20);
+
+      const todayShifts = await storage.getShifts(date, date, locationId);
+      const deptShifts = todayShifts;
+
+      const allSkills = await storage.getAllEmployeeSkills();
+      const scheduledUserIds = Array.from(new Set(deptShifts.map((s: any) => s.userId))) as string[];
+      const scheduledSkills = allSkills.filter((s: any) => scheduledUserIds.includes(s.userId));
+
+      const scheduledUsers = await db.select().from(users).where(inArray(users.id, scheduledUserIds.filter(Boolean) as string[]));
+      const userMap: Record<string, string> = {};
+      scheduledUsers.forEach((u: any) => { userMap[u.id] = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.username || "Team Member"; });
+
+      const pastryTotalsData = await storage.getPastryTotals(date, locationId);
+
+      const yesterday = new Date(date + "T12:00:00");
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      const allProductionLogs = await storage.getProductionLogs();
+      const recentLogs = allProductionLogs
+        .filter((l: any) => {
+          const logDate = l.date ? new Date(l.date).toISOString().split("T")[0] : null;
+          return logDate === date || logDate === yesterdayStr;
+        })
+        .slice(0, 30)
+        .map((l: any) => ({
+          recipeTitle: l.recipe?.title || "Unknown",
+          yieldProduced: l.yieldProduced,
+          date: l.date ? new Date(l.date).toISOString().split("T")[0] : null,
+          notes: l.notes,
+        }));
+
+      const context = {
+        department,
+        date,
+        recipes: deptRecipes.map((r: any) => ({ id: r.id, title: r.title, category: r.category, prepTime: r.prepTime, yieldAmount: r.yieldAmount, yieldUnit: r.yieldUnit })),
+        lowStockItems: lowStock.map((i: any) => ({ name: i.name, onHand: i.onHand, unit: i.unit })),
+        scheduledTeam: scheduledUserIds.map((uid: any) => ({
+          userId: uid,
+          name: userMap[uid] || "Unknown",
+          skills: scheduledSkills.filter((s: any) => s.userId === uid).map((s: any) => ({ area: s.skillArea, level: s.proficiency })),
+        })),
+        pastryTotals: pastryTotalsData.map((pt: any) => ({ item: pt.itemName, target: pt.targetCount, forecasted: pt.forecastedCount })),
+        recentProduction: recentLogs,
+      };
+
+      const OpenAI = (await import("openai")).default;
+      const ai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const aiResponse = await withRetry(() => ai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are Jarvis, the AI operations manager for Bear's Cup Bakehouse. Generate a daily task list for the ${department} department on ${date}.
+
+You have the following context:
+- Available recipes: ${JSON.stringify(context.recipes)}
+- Low stock items: ${JSON.stringify(context.lowStockItems)}
+- Scheduled team: ${JSON.stringify(context.scheduledTeam)}
+- Today's pastry targets: ${JSON.stringify(context.pastryTotals)}
+- Recent production (today + yesterday): ${JSON.stringify(context.recentProduction)}
+
+Return JSON with:
+{
+  "title": "A descriptive title for the task list (e.g., 'Bakery Morning Prep - Feb 28')",
+  "description": "Brief description of the day's focus",
+  "items": [
+    {
+      "title": "Task title",
+      "recipeId": null or recipe ID number if this is a recipe task,
+      "assignTo": null or userId string to assign to based on skills,
+      "startTime": "HH:MM" or null,
+      "endTime": "HH:MM" or null,
+      "sortOrder": 0,
+      "reasoning": "Brief explanation of why this task and assignment"
+    }
+  ]
+}
+
+Guidelines:
+- Use pastry targets to determine what needs to be produced today
+- Consider recent production logs to avoid duplicating what was already made
+- Prioritize recipes that use low-stock ingredients (use them before they expire)
+- Assign tasks to team members based on their skill proficiencies
+- Order tasks logically (prep work first, then production, then cleanup)
+- Include 5-15 tasks depending on team size
+- Balance workload across the team
+- Include estimated times based on recipe prepTime when available`
+          },
+          {
+            role: "user",
+            content: `Generate the daily ${department} task list for ${date}.`
+          }
+        ],
+      }));
+
+      const content = aiResponse.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(500).json({ message: "AI returned no content" });
+      }
+
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ message: "AI response was not valid JSON" });
+      }
+
+      const generated = JSON.parse(jsonMatch[0]);
+
+      const taskList = await storage.createTaskList({
+        title: generated.title || `${department} Tasks - ${date}`,
+        description: generated.description || null,
+        department,
+        date,
+        status: "active",
+        createdBy: req.appUser.id,
+        autoGenerated: true,
+      });
+
+      const createdItems = [];
+      for (const item of (generated.items || [])) {
+        const created = await storage.createTaskListItem({
+          listId: taskList.id,
+          manualTitle: item.title,
+          recipeId: item.recipeId || null,
+          sortOrder: item.sortOrder || 0,
+          startTime: item.startTime || null,
+          endTime: item.endTime || null,
+          completed: false,
+        });
+        createdItems.push({ ...created, reasoning: item.reasoning, assignTo: item.assignTo });
+      }
+
+      if (generated.items?.some((i: any) => i.assignTo)) {
+        for (const item of generated.items) {
+          if (item.assignTo && scheduledUserIds.includes(item.assignTo)) {
+            // Assignment is noted but applied at the list level or can be extended
+          }
+        }
+      }
+
+      res.json({
+        taskList,
+        items: createdItems,
+        context: {
+          recipesConsidered: deptRecipes.length,
+          teamSize: scheduledUserIds.length,
+          lowStockCount: lowStock.length,
+          pastryTargets: pastryTotalsData.length,
+          recentProductionLogs: recentLogs.length,
+        },
+      });
+    } catch (err: any) {
+      console.error("[Jarvis TaskGen] Error:", err);
       res.status(500).json({ message: err.message });
     }
   });

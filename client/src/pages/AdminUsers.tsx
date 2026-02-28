@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2 } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -542,7 +542,7 @@ function UserDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle data-testid="text-detail-name">{fullName}</DialogTitle>
           <DialogDescription>@{u.username}</DialogDescription>
@@ -784,6 +784,10 @@ function UserDetailDialog({
             </div>
           )}
 
+          {!isCurrentUser && isManagerOrAbove && (
+            <EmployeeSkillsSection userId={u.id} userName={u.firstName || displayName} />
+          )}
+
           {!isCurrentUser && isOwner && (
             <div className="border-t pt-4">
               <button
@@ -841,6 +845,215 @@ function UserDetailDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const SKILL_AREAS = [
+  { value: "bread", label: "Bread" },
+  { value: "pastry", label: "Pastry" },
+  { value: "lamination", label: "Lamination" },
+  { value: "espresso", label: "Espresso" },
+  { value: "cold_drinks", label: "Cold Drinks" },
+  { value: "prep", label: "Prep" },
+  { value: "plating", label: "Plating" },
+  { value: "opening", label: "Opening" },
+  { value: "closing", label: "Closing" },
+];
+
+const PROFICIENCY_LABELS: Record<number, string> = {
+  1: "Learning",
+  2: "Developing",
+  3: "Competent",
+  4: "Proficient",
+  5: "Expert",
+};
+
+function EmployeeSkillsSection({ userId, userName }: { userId: string; userName: string }) {
+  const { toast } = useToast();
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [editingSkills, setEditingSkills] = useState<Record<string, { proficiency: number; notes: string }>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const { data: skills, isLoading: skillsLoading } = useQuery<any[]>({
+    queryKey: ["/api/users", userId, "skills"],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}/skills`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load skills");
+      return res.json();
+    },
+    enabled: skillsOpen,
+  });
+
+  const skillsMutation = useMutation({
+    mutationFn: async (skillsData: { skillArea: string; proficiency: number; notes: string | null }[]) => {
+      await apiRequest("PUT", `/api/users/${userId}/skills`, { skills: skillsData });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", userId, "skills"] });
+      toast({ title: "Skills updated" });
+      setHasChanges(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save skills", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const initEditing = () => {
+    if (skills) {
+      const map: Record<string, { proficiency: number; notes: string }> = {};
+      for (const s of skills) {
+        map[s.skillArea] = { proficiency: s.proficiency, notes: s.notes || "" };
+      }
+      setEditingSkills(map);
+    }
+  };
+
+  const handleToggleOpen = () => {
+    const next = !skillsOpen;
+    setSkillsOpen(next);
+    if (next && skills) {
+      initEditing();
+    }
+  };
+
+  const getSkillValue = (area: string) => {
+    if (editingSkills[area]) return editingSkills[area];
+    const found = skills?.find((s: any) => s.skillArea === area);
+    if (found) return { proficiency: found.proficiency, notes: found.notes || "" };
+    return null;
+  };
+
+  const setSkillProficiency = (area: string, proficiency: number) => {
+    setEditingSkills(prev => ({
+      ...prev,
+      [area]: { proficiency, notes: prev[area]?.notes || "" },
+    }));
+    setHasChanges(true);
+  };
+
+  const setSkillNotes = (area: string, notes: string) => {
+    const current = getSkillValue(area);
+    setEditingSkills(prev => ({
+      ...prev,
+      [area]: { proficiency: current?.proficiency || 3, notes },
+    }));
+    setHasChanges(true);
+  };
+
+  const handleSave = () => {
+    const skillsData = Object.entries(editingSkills)
+      .filter(([_, v]) => v.proficiency > 0)
+      .map(([area, v]) => ({
+        skillArea: area,
+        proficiency: v.proficiency,
+        notes: v.notes || null,
+      }));
+    skillsMutation.mutate(skillsData);
+  };
+
+  const ratedCount = skills?.length || Object.keys(editingSkills).filter(k => editingSkills[k]?.proficiency > 0).length;
+
+  return (
+    <div className="border-t pt-4">
+      <button
+        type="button"
+        className="flex items-center gap-2 w-full text-left text-sm font-medium text-foreground hover:text-primary transition-colors"
+        onClick={handleToggleOpen}
+        data-testid={`button-skills-toggle-${userId}`}
+      >
+        <Star className="w-4 h-4 text-muted-foreground" />
+        Skills & Strengths
+        {skillsOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+        {ratedCount > 0 && (
+          <Badge variant="secondary" className="text-[10px] ml-1">
+            {ratedCount}/{SKILL_AREAS.length}
+          </Badge>
+        )}
+      </button>
+      {skillsOpen && (
+        <div className="mt-3 space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Rate {userName}&apos;s proficiency in each area (1-5 scale).
+          </p>
+          {skillsLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading skills...
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {SKILL_AREAS.map((area) => {
+                  const val = getSkillValue(area.value);
+                  const proficiency = val?.proficiency || 0;
+                  return (
+                    <div key={area.value} className="space-y-1" data-testid={`skill-area-${area.value}-${userId}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{area.label}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {proficiency > 0 ? PROFICIENCY_LABELS[proficiency] : "Not rated"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            className="p-0.5"
+                            onClick={() => setSkillProficiency(area.value, level)}
+                            data-testid={`button-skill-${area.value}-${level}-${userId}`}
+                          >
+                            <Star
+                              className={`w-4 h-4 transition-colors ${
+                                level <= proficiency
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "text-muted-foreground/30"
+                              }`}
+                            />
+                          </button>
+                        ))}
+                        {proficiency > 0 && (
+                          <button
+                            type="button"
+                            className="ml-1 p-0.5"
+                            onClick={() => {
+                              setEditingSkills(prev => {
+                                const copy = { ...prev };
+                                delete copy[area.value];
+                                return copy;
+                              });
+                              setHasChanges(true);
+                            }}
+                            data-testid={`button-skill-clear-${area.value}-${userId}`}
+                          >
+                            <X className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {hasChanges && (
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={skillsMutation.isPending}
+                  data-testid={`button-save-skills-${userId}`}
+                >
+                  {skillsMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  Save Skills
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
