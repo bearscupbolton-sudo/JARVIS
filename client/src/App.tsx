@@ -8,6 +8,7 @@ import { LocationProvider } from "@/hooks/use-location-context";
 import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
+import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
@@ -262,6 +263,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Router />
+        <GlobalAckOverlay />
         <LobbyCheckAlert />
         <DevFeedbackOverlay />
         <Toaster />

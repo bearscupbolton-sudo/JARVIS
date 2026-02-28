@@ -1,8 +1,10 @@
 import type { Express, RequestHandler } from "express";
 import type { User } from "@shared/models/auth";
-import { createTeamMemberSchema } from "@shared/models/auth";
+import { createTeamMemberSchema, users } from "@shared/models/auth";
 import { authStorage } from "./storage";
 import { isAuthenticated } from "./replitAuth";
+import { db } from "../../db";
+import { eq } from "drizzle-orm";
 
 export const isOwner: RequestHandler = async (req: any, res, next) => {
   try {
@@ -50,6 +52,17 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.post("/api/auth/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.appUser.id;
+      await db.update(users).set({ globalAckRequired: false, globalAckMessage: null }).where(eq(users.id, userId));
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error acknowledging:", error);
+      res.status(500).json({ message: "Failed to acknowledge" });
     }
   });
 

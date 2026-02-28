@@ -44,6 +44,8 @@ export const users = pgTable("users", {
   hourlyRate: doublePrecision("hourly_rate"),
   sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
   defaultPage: varchar("default_page"),
+  globalAckRequired: boolean("global_ack_required").default(false).notNull(),
+  globalAckMessage: text("global_ack_message"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
