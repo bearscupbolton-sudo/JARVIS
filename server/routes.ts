@@ -739,7 +739,11 @@ FORMAT RULES for the content field:
     res.json({ count: changes.length });
   });
 
-  app.post("/api/pending-changes/:id/approve", isAuthenticated, isOwner, async (req: any, res) => {
+  app.post("/api/pending-changes/:id/approve", isAuthenticated, async (req: any, res) => {
+    const approver = req.appUser as any;
+    if (approver.role !== "owner" && !approver.isGeneralManager) {
+      return res.status(403).json({ message: "Owner or General Manager access required" });
+    }
     try {
       const changeId = Number(req.params.id);
       const change = await storage.getPendingChange(changeId);
@@ -773,7 +777,11 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.post("/api/pending-changes/:id/reject", isAuthenticated, isOwner, async (req: any, res) => {
+  app.post("/api/pending-changes/:id/reject", isAuthenticated, async (req: any, res) => {
+    const rejecter = req.appUser as any;
+    if (rejecter.role !== "owner" && !rejecter.isGeneralManager) {
+      return res.status(403).json({ message: "Owner or General Manager access required" });
+    }
     try {
       const changeId = Number(req.params.id);
       const change = await storage.getPendingChange(changeId);
@@ -976,7 +984,11 @@ FORMAT RULES for the content field:
     return hours * 60 + mins;
   }
 
-  app.get("/api/ttis/week", isAuthenticated, isOwner, async (req: any, res) => {
+  app.get("/api/ttis/week", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && !user.isGeneralManager) {
+      return res.status(403).json({ message: "Owner or General Manager access required" });
+    }
     try {
       const startDate = req.query.startDate as string;
       if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
@@ -1168,7 +1180,11 @@ FORMAT RULES for the content field:
     return { start, end };
   }
 
-  app.get("/api/ttis", isAuthenticated, isOwner, async (req: any, res) => {
+  app.get("/api/ttis", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && !user.isGeneralManager) {
+      return res.status(403).json({ message: "Owner or General Manager access required" });
+    }
     try {
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
       const { inArray, lte, or, isNull } = await import("drizzle-orm");
@@ -1863,8 +1879,8 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.patch("/api/shifts/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager) {
-        return res.status(403).json({ message: "Only shift managers or owners can approve shift pickups" });
+      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only shift managers, general managers, or owners can approve shift pickups" });
       }
       const shiftId = Number(req.params.id);
       const shift = await storage.getShiftById(shiftId);
@@ -1892,8 +1908,8 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
   app.patch("/api/shifts/:id/deny", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager) {
-        return res.status(403).json({ message: "Only shift managers or owners can deny shift pickups" });
+      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only shift managers, general managers, or owners can deny shift pickups" });
       }
       const shiftId = Number(req.params.id);
       const shift = await storage.getShiftById(shiftId);
@@ -1950,11 +1966,33 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
     res.status(204).send();
   });
 
+  app.delete("/api/shifts/clear", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only shift managers, general managers, or owners can clear schedules" });
+      }
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "startDate must be before or equal to endDate" });
+      }
+      const deleted = await storage.deleteShiftsByDateRange(startDate as string, endDate as string);
+      storage.logActivity({ userId: user.id, action: "clear_schedule", metadata: { startDate, endDate, deletedCount: deleted } }).catch(() => {});
+      res.json({ deleted });
+    } catch (error: any) {
+      console.error("Error clearing schedule:", error);
+      res.status(500).json({ message: "Failed to clear schedule" });
+    }
+  });
+
   app.post("/api/shifts/import", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager) {
-        return res.status(403).json({ message: "Only shift managers or owners can import schedules" });
+      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only shift managers, general managers, or owners can import schedules" });
       }
       const { csvContent, imageBase64, imageMimeType, weekStartDate } = req.body;
       if (!csvContent && !imageBase64) {
@@ -2041,8 +2079,8 @@ Only return the JSON array, no other text.`;
   app.post("/api/shifts/bulk", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager) {
-        return res.status(403).json({ message: "Only shift managers or owners can bulk create shifts" });
+      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only shift managers, general managers, or owners can bulk create shifts" });
       }
       const { shifts: shiftList } = req.body;
       console.log("[Bulk Shifts] Received", shiftList?.length, "shifts. Sample:", JSON.stringify(shiftList?.[0]));
@@ -4827,7 +4865,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
     }
   });
 
-  app.put("/api/users/:userId/welcome-message", isAuthenticated, isManager, async (req: any, res) => {
+  app.put("/api/users/:userId/welcome-message", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { message } = req.body;
       await storage.setJarvisWelcomeMessage(req.params.userId, message || null);
@@ -4838,7 +4876,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
     }
   });
 
-  app.put("/api/users/:userId/briefing-focus", isAuthenticated, isManager, async (req: any, res) => {
+  app.put("/api/users/:userId/briefing-focus", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { focus } = req.body;
       const validFocuses = ["all", "foh", "boh", "management"];

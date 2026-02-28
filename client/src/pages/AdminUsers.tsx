@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -424,6 +424,19 @@ function UserDetailDialog({
     },
   });
 
+  const generalManagerMutation = useMutation({
+    mutationFn: async (isGeneralManager: boolean) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/general-manager`, { isGeneralManager });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "General manager status updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   const welcomeMutation = useMutation({
     mutationFn: async (message: string) => {
       await apiRequest("PUT", `/api/users/${u.id}/welcome-message`, { message: message || null });
@@ -546,7 +559,7 @@ function UserDetailDialog({
             )}
           </div>
 
-          {!isCurrentUser && isManagerOrAbove && (
+          {!isCurrentUser && isOwner && (
             <div className="border-t pt-4 space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -674,6 +687,23 @@ function UserDetailDialog({
                     onCheckedChange={(checked) => shiftManagerMutation.mutate(checked)}
                     disabled={shiftManagerMutation.isPending}
                     data-testid={`switch-shift-manager-${u.id}`}
+                  />
+                </div>
+              )}
+              {u.role === "manager" && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-muted-foreground" />
+                    <div>
+                      <Label className="text-sm font-medium">General Manager</Label>
+                      <p className="text-[11px] text-muted-foreground">Full approval access and TTIS visibility</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={!!(u as any).isGeneralManager}
+                    onCheckedChange={(checked) => generalManagerMutation.mutate(checked)}
+                    disabled={generalManagerMutation.isPending}
+                    data-testid={`switch-general-manager-${u.id}`}
                   />
                 </div>
               )}

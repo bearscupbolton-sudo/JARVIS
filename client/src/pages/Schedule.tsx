@@ -27,7 +27,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
-  HandMetal, Upload, FileSpreadsheet
+  HandMetal, Upload, FileSpreadsheet, AlertTriangle
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
 
@@ -132,8 +132,13 @@ export default function Schedule() {
   const [isUploading, setIsUploading] = useState(false);
   const isOwner = user?.role === "owner";
   const isShiftManager = (user as any)?.isShiftManager;
-  const canManagePickups = isOwner || isShiftManager;
+  const isGeneralManager = !!(user as any)?.isGeneralManager;
+  const canManagePickups = isOwner || isShiftManager || isGeneralManager;
   const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "pickups" | "locations">("schedule");
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearRange, setClearRange] = useState<"week" | "custom">("week");
+  const [clearStartDate, setClearStartDate] = useState("");
+  const [clearEndDate, setClearEndDate] = useState("");
   const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery">("all");
 
   const shiftForm = useForm<ShiftFormValues>({
@@ -278,6 +283,19 @@ export default function Schedule() {
       toast({ title: "Schedule imported successfully" });
     },
     onError: (e: Error) => toast({ title: "Failed to import schedule", description: e.message, variant: "destructive" }),
+  });
+
+  const clearScheduleMutation = useMutation({
+    mutationFn: async ({ startDate, endDate }: { startDate: string; endDate: string }) => {
+      const res = await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setClearDialogOpen(false);
+      toast({ title: `Schedule cleared`, description: `${data.deleted} shift(s) removed` });
+    },
+    onError: (e: Error) => toast({ title: "Failed to clear schedule", description: e.message, variant: "destructive" }),
   });
 
   const createTimeOffMutation = useMutation({
@@ -561,20 +579,36 @@ export default function Schedule() {
             </div>
             <div className="flex items-center gap-2">
               {canManagePickups && (
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls,.txt,.jpg,.jpeg,.png,.heic,.webp,image/*"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    data-testid="input-upload-schedule"
-                    disabled={isUploading}
-                  />
-                  <Button variant="outline" disabled={isUploading} data-testid="button-upload-schedule">
-                    {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                    Upload Schedule
+                <>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".csv,.xlsx,.xls,.txt,.jpg,.jpeg,.png,.heic,.webp,image/*"
+                      onChange={handleFileUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      data-testid="input-upload-schedule"
+                      disabled={isUploading}
+                    />
+                    <Button variant="outline" disabled={isUploading} data-testid="button-upload-schedule">
+                      {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                      Upload Schedule
+                    </Button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                    onClick={() => {
+                      setClearRange("week");
+                      setClearStartDate(format(weekStart, "yyyy-MM-dd"));
+                      setClearEndDate(format(weekEnd, "yyyy-MM-dd"));
+                      setClearDialogOpen(true);
+                    }}
+                    data-testid="button-clear-schedule"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Clear
                   </Button>
-                </div>
+                </>
               )}
               {isManagerOrOwner && (
                 <Button onClick={() => openAddShift()} data-testid="button-add-shift">
@@ -1634,6 +1668,89 @@ export default function Schedule() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-4 h-4" /> Clear Schedule
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">This will permanently remove all shifts in the selected date range. This cannot be undone.</p>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={clearRange === "week" ? "default" : "outline"}
+                onClick={() => {
+                  setClearRange("week");
+                  setClearStartDate(format(weekStart, "yyyy-MM-dd"));
+                  setClearEndDate(format(weekEnd, "yyyy-MM-dd"));
+                }}
+                data-testid="button-clear-this-week"
+              >
+                This Week
+              </Button>
+              <Button
+                size="sm"
+                variant={clearRange === "custom" ? "default" : "outline"}
+                onClick={() => setClearRange("custom")}
+                data-testid="button-clear-custom"
+              >
+                Custom Range
+              </Button>
+            </div>
+            {clearRange === "custom" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Start</Label>
+                  <Input
+                    type="date"
+                    value={clearStartDate}
+                    onChange={(e) => setClearStartDate(e.target.value)}
+                    data-testid="input-clear-start-date"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">End</Label>
+                  <Input
+                    type="date"
+                    value={clearEndDate}
+                    onChange={(e) => setClearEndDate(e.target.value)}
+                    data-testid="input-clear-end-date"
+                  />
+                </div>
+              </div>
+            )}
+            <p className="text-xs font-medium">
+              Clearing: {clearStartDate && clearEndDate ? `${format(new Date(clearStartDate + "T12:00:00"), "MMM d")} – ${format(new Date(clearEndDate + "T12:00:00"), "MMM d, yyyy")}` : "Select dates"}
+            </p>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={() => {
+                if (clearStartDate && clearEndDate) {
+                  clearScheduleMutation.mutate({ startDate: clearStartDate, endDate: clearEndDate });
+                }
+              }}
+              disabled={!clearStartDate || !clearEndDate || clearScheduleMutation.isPending}
+              data-testid="button-confirm-clear-schedule"
+            >
+              {clearScheduleMutation.isPending ? "Clearing..." : "Clear All Shifts"}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setClearDialogOpen(false)}
+              data-testid="button-cancel-clear-schedule"
+            >
+              Cancel
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

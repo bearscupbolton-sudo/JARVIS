@@ -25,11 +25,12 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Pastry Passport & Master Pastry List:** Integrates `pastry_passports` with a `pastry_items` master list for pre-filling details and visual indications.
 *   **COGS System:** Calculates real-time per-pastry production costs by integrating invoice data, inventory item costs, and recipe ingredient costs.
 *   **Invoice Capture (Multi-Image):** Supports uploading multiple images for invoice scanning, processed simultaneously with an AI vision model.
-*   **Schedule & Shift Management:** Provides 24-hour shift scheduling with "assigned," "open," and "pending" statuses. Supports AI-driven schedule generation.
+*   **Schedule & Shift Management:** Provides 24-hour shift scheduling with "assigned," "open," and "pending" statuses. Supports AI-driven schedule generation. Shift managers and general managers can clear schedules in block chunks (by week or custom date range) via `DELETE /api/shifts/clear?startDate=&endDate=`.
 *   **Events & Calendar:** Manages events with team member tagging, displaying personalized events on the Home page.
 *   **Event Jobs:** Allows creation, assignment, and tracking of jobs/tasks associated with events.
 *   **Time Card System:** Includes a persistent Clock Bar, a PIN-based Kiosk Clock, personal time card management, and a "Time Review" module.
-*   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware. Security policy: revenue/profit data is owner-only; cost data is manager+; Live Inventory is owner-only.
+*   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions. Roles include `owner`, `manager`, and `member`, with permissions enforced by middleware. Security policy: revenue/profit data is owner-only; cost data is manager+; Live Inventory is owner-only. Jarvis Welcome Message and Briefing Focus settings in Team Management are owner-only (not visible to managers).
+*   **General Manager Designation:** A manager-only toggle (`isGeneralManager` on `users` table) that grants full approval capabilities (pending recipe/SOP changes) and access to TTIS. Set by owners via Team Management. Endpoint: `PATCH /api/admin/users/:id/general-manager`.
 *   **Per-User Sidebar Visibility:** Owners can customize sidebar item visibility for each team member.
 *   **Per-User Default Landing Page:** Owners can set a default landing page per team member via Team Management. On login, users are redirected to their assigned page (e.g., `/bagel-bros`, `/platform`, `/bakery`, `/clock`) instead of Home. Stored as `defaultPage` on the `users` table; null defaults to Home (`/`). Endpoint: `PATCH /api/admin/users/:id/default-page`.
 *   **AI Integration (Jarvis):** Integrates with OpenAI-compatible APIs for an AI assistant providing text chat, audio (STT/TTS), image generation, and invoice scanning.

@@ -182,6 +182,26 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/general-manager", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { isGeneralManager } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (targetUser.role !== "manager") {
+        return res.status(400).json({ message: "General manager designation is only for managers" });
+      }
+      const user = await authStorage.updateUserProfile(targetId, { isGeneralManager: !!isGeneralManager });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating general manager status:", error);
+      res.status(500).json({ message: "Failed to update general manager status" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/hourly-rate", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { hourlyRate } = req.body;

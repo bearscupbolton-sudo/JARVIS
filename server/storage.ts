@@ -205,6 +205,7 @@ export interface IStorage {
   createShift(shift: InsertShift): Promise<Shift>;
   updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
+  deleteShiftsByDateRange(startDate: string, endDate: string, locationId?: number): Promise<number>;
 
   // Time Off Requests
   getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]>;
@@ -1014,6 +1015,13 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShift(id: number): Promise<void> {
     await db.delete(shifts).where(eq(shifts.id, id));
+  }
+
+  async deleteShiftsByDateRange(startDate: string, endDate: string, locationId?: number): Promise<number> {
+    const conditions: any[] = [gte(shifts.shiftDate, startDate), lte(shifts.shiftDate, endDate)];
+    if (locationId) conditions.push(eq(shifts.locationId, locationId));
+    const deleted = await db.delete(shifts).where(and(...conditions)).returning();
+    return deleted.length;
   }
 
   // Time Off Requests

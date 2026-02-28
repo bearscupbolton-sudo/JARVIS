@@ -134,9 +134,12 @@ const MANAGER_NAV_ITEMS = [
   { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
 ];
 
-const OWNER_NAV_ITEMS = [
+const GM_NAV_ITEMS = [
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
+];
+
+const OWNER_ONLY_NAV_ITEMS = [
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
   { href: "/admin/insights", label: "Insights", icon: Eye },
   { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
@@ -150,6 +153,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [editingShortcuts, setEditingShortcuts] = React.useState(false);
   const [editDraft, setEditDraft] = React.useState<string[]>([]);
   const isOwner = user?.role === "owner";
+  const isGeneralManager = !!(user as any)?.isGeneralManager;
   const sidebarPerms: string[] | null = (user as any)?.sidebarPermissions ?? null;
   const canSeeSidebarItem = (href: string) => isOwner || sidebarPerms === null || sidebarPerms.includes(href);
 
@@ -175,7 +179,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { data: pendingCount } = useQuery<{ count: number }>({
     queryKey: ["/api/pending-changes/count"],
-    enabled: isOwner,
+    enabled: isOwner || isGeneralManager,
     refetchInterval: 30000,
   });
 
@@ -421,7 +425,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            {isOwner && OWNER_NAV_ITEMS.map((item) => {
+            {(isOwner || isGeneralManager) && GM_NAV_ITEMS.map((item) => {
               const isActive = location === item.href;
               return (
                 <Link key={item.href} href={item.href}>
@@ -442,6 +446,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         {pendingCount.count}
                       </Badge>
                     )}
+                  </div>
+                </Link>
+              );
+            })}
+            {isOwner && OWNER_ONLY_NAV_ITEMS.map((item) => {
+              const isActive = location === item.href;
+              return (
+                <Link key={item.href} href={item.href}>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
+                      isActive 
+                        ? "bg-primary text-primary-foreground shadow-md" 
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    onClick={() => setMobileOpen(false)}
+                    data-testid={`nav-${item.label.toLowerCase()}`}
+                  >
+                    <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
+                    <span className="font-medium">{item.label}</span>
                   </div>
                 </Link>
               );
