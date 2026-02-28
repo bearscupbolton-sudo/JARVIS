@@ -2644,7 +2644,14 @@ Respond with JSON:
   // === TASK LISTS ===
   app.get("/api/task-lists", isAuthenticated, async (req, res) => {
     const lists = await storage.getTaskLists();
-    res.json(lists);
+    const enriched = await Promise.all(lists.map(async (list) => {
+      const full = await storage.getTaskList(list.id);
+      const items = full?.items || [];
+      const totalItems = items.length;
+      const completedItems = items.filter(i => i.completed).length;
+      return { ...list, totalItems, completedItems };
+    }));
+    res.json(enriched);
   });
 
   app.get("/api/task-lists/assigned", isAuthenticated, async (req: any, res) => {

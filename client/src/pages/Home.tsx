@@ -147,7 +147,6 @@ const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/profile", label: "My Profile", icon: UserCircle },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
-  { href: "/platform", label: "Platform 9¾", icon: Zap },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
   { href: "/lamination", label: "Lamination Studio", icon: Layers },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
@@ -197,7 +196,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
   { id: "mySchedule", label: "My Schedule", icon: CalendarDays },
   { id: "myEvents", label: "My Events", icon: Calendar },
   { id: "myEventJobs", label: "My Event Jobs", icon: ClipboardList },
-  { id: "myTasks", label: "My Assigned Tasks", icon: ClipboardList },
+  { id: "myTasks", label: "Task Lists", icon: ClipboardList },
   { id: "todayOrders", label: "Today's Orders", icon: ShoppingCart },
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "quickActions", label: "Quick Actions", icon: Star },
@@ -537,8 +536,12 @@ export default function Home() {
 
   const todayDate = new Date().toISOString().split("T")[0];
 
+  const [taskDeptFilter, setTaskDeptFilter] = useState("all");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<"open" | "completed">("open");
+
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
   const { data: assignedTasks = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists/assigned"] });
+  const { data: allTaskLists = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists"] });
   const { data: todayVendorOrders = [] } = useQuery<any[]>({ queryKey: ["/api/vendors/today-orders"] });
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
@@ -753,14 +756,6 @@ export default function Home() {
                 <CardContent className="p-3 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><Users className="w-4 h-4 text-primary" /></div>
                   <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p><p className="text-[10px] text-muted-foreground">Staff Today</p></div>
-                </CardContent>
-              </Card>
-            </Link>
-            <Link href="/platform">
-              <Card className="cursor-pointer hover-elevate border-amber-300/30 dark:border-amber-700/30 bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20" data-testid="stat-platform934">
-                <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-md bg-amber-500/15 flex items-center justify-center flex-shrink-0"><Zap className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
-                  <div className="flex-1"><p className="text-sm font-bold text-amber-800 dark:text-amber-300">Platform 9¾</p><p className="text-[10px] text-amber-600/70 dark:text-amber-400/60">FOH Hub</p></div>
                 </CardContent>
               </Card>
             </Link>
@@ -1140,34 +1135,82 @@ export default function Home() {
       ) : null
     ),
 
-    myTasks: () => (
-      assignedTasks.length > 0 ? (
+    myTasks: () => {
+      const filteredTasks = allTaskLists.filter((t: any) => {
+        const statusMatch = taskStatusFilter === "open"
+          ? (t.status === "active" || !t.status || t.status === "draft")
+          : t.status === "completed";
+        const deptMatch = taskDeptFilter === "all" || t.department === taskDeptFilter;
+        return statusMatch && deptMatch;
+      });
+
+      return (
         <Card data-testid="container-my-tasks">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-primary" />My Assigned Tasks</CardTitle>
-            <Badge variant="outline" className="text-[10px]">{assignedTasks.filter((t: any) => t.status === "active").length} active</Badge>
+            <CardTitle className="text-base font-display flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-primary" />Task Lists
+            </CardTitle>
+            <Link href="/tasks"><span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Manage <ArrowRight className="w-3 h-3" /></span></Link>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-1.5">
-              {assignedTasks.filter((t: any) => t.status === "active").slice(0, 4).map((task: any) => (
-                <Link key={task.id} href={`/tasks/assigned/${task.id}`}>
-                  <div className="flex items-center gap-2 p-2 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors" data-testid={`home-task-${task.id}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{task.title}</p>
-                      <div className="flex items-center gap-1.5">
-                        {task.department && <Badge variant="secondary" className="text-[10px] capitalize">{task.department}</Badge>}
-                        {task.date && <span className="text-xs text-muted-foreground">{task.date}</span>}
+          <CardContent className="pt-0 space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex rounded-md border border-border overflow-hidden">
+                <button
+                  onClick={() => setTaskStatusFilter("open")}
+                  className={cn("px-3 py-1 text-xs font-medium transition-colors", taskStatusFilter === "open" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+                  data-testid="button-task-filter-open"
+                >Open</button>
+                <button
+                  onClick={() => setTaskStatusFilter("completed")}
+                  className={cn("px-3 py-1 text-xs font-medium transition-colors border-l border-border", taskStatusFilter === "completed" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+                  data-testid="button-task-filter-completed"
+                >Completed</button>
+              </div>
+              <div className="flex gap-1 flex-wrap">
+                {["all", "foh", "bakery", "kitchen", "bar"].map(dept => (
+                  <button
+                    key={dept}
+                    onClick={() => setTaskDeptFilter(dept)}
+                    className={cn("px-2 py-0.5 text-[10px] rounded-full font-medium transition-colors capitalize border", taskDeptFilter === dept ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted")}
+                    data-testid={`button-task-dept-${dept}`}
+                  >{dept === "all" ? "All" : dept.toUpperCase()}</button>
+                ))}
+              </div>
+            </div>
+            {filteredTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-3">No {taskStatusFilter} task lists{taskDeptFilter !== "all" ? ` for ${taskDeptFilter.toUpperCase()}` : ""}.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                {filteredTasks.map((task: any) => (
+                  <Link key={task.id} href={task.assignedTo || task.department ? `/tasks/assigned/${task.id}` : `/tasks`}>
+                    <div className="flex items-center gap-2 p-2 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors" data-testid={`home-task-${task.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{task.title}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {task.department && <Badge variant="secondary" className="text-[10px] capitalize">{task.department}</Badge>}
+                          {task.assignedTo ? (
+                            <Badge variant="outline" className="text-[10px]">Assigned</Badge>
+                          ) : task.department && task.date ? (
+                            <Badge variant="outline" className="text-[10px] bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">Dept</Badge>
+                          ) : null}
+                          {task.date && <span className="text-[10px] text-muted-foreground">{task.date}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {task.totalItems > 0 && (
+                          <span className="text-[10px] text-muted-foreground font-mono">{task.completedItems}/{task.totalItems}</span>
+                        )}
+                        <ArrowRight className="w-4 h-4 text-muted-foreground" />
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  </div>
-                </Link>
-              ))}
-            </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
-      ) : null
-    ),
+      );
+    },
 
     messages: () => (
       <Link href="/messages">
@@ -1246,7 +1289,7 @@ export default function Home() {
     whosOn: () => null,
   };
 
-  const pairedWidgets = new Set<WidgetId>(["problems", "forwardLook", "mySchedule", "myEvents", "myEventJobs", "myTasks", "messages"]);
+  const pairedWidgets = new Set<WidgetId>(["problems", "forwardLook", "mySchedule", "myEvents", "myEventJobs", "messages"]);
 
   const renderWidgetSequence = () => {
     const elements: React.ReactNode[] = [];

@@ -124,7 +124,7 @@ function Router() {
         {() => <ProtectedRoute component={Kitchen} />}
       </Route>
       <Route path="/platform">
-        {() => <ProtectedRoute component={Platform934} />}
+        {() => <ProtectedRoute component={Platform934} noLayout />}
       </Route>
       <Route path="/recipes">
         {() => <ProtectedRoute component={Recipes} />}

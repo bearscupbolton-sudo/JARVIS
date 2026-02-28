@@ -435,22 +435,36 @@ export default function Platform934() {
           </CardContent>
         </Card>
 
-        <Card className="border-red-500/30 bg-red-950/10" data-testid="container-foh-backup">
-          <CardContent className="pt-5 pb-4">
-            <Button
-              className="w-full h-14 text-lg font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl gap-3"
-              onClick={() => {
-                apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
-                  toast({ title: "Alert Sent!", description: "Bagel Bros crew has been notified" });
-                });
-              }}
-              data-testid="button-foh-backup-alert"
-            >
-              <Megaphone className="w-6 h-6" />
-              FOH Needs Backup / Refuerzo al Frente
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="relative" data-testid="container-foh-backup">
+          <div className="absolute inset-0 rounded-2xl bg-red-500/20 animate-pulse" />
+          <button
+            className="relative w-full rounded-2xl border-4 border-red-500 bg-gradient-to-b from-red-600 via-red-700 to-red-900 shadow-[0_0_30px_rgba(239,68,68,0.4),0_0_60px_rgba(239,68,68,0.2)] hover:shadow-[0_0_40px_rgba(239,68,68,0.6),0_0_80px_rgba(239,68,68,0.3)] active:scale-[0.97] transition-all duration-200 p-8 md:p-10 cursor-pointer group"
+            onClick={() => {
+              apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
+                toast({ title: "ALERT SENT!", description: "Bagel Bros crew has been notified" });
+              });
+            }}
+            data-testid="button-foh-backup-alert"
+          >
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-red-500/30 border-4 border-red-400/50 flex items-center justify-center group-hover:bg-red-500/50 transition-colors animate-[pulse_1.5s_ease-in-out_infinite]">
+                <Megaphone className="w-10 h-10 md:w-12 md:h-12 text-white drop-shadow-lg" />
+              </div>
+              <div className="text-center">
+                <p className="text-2xl md:text-3xl font-black text-white tracking-wide drop-shadow-lg uppercase">
+                  FOH Needs Backup
+                </p>
+                <p className="text-xl md:text-2xl font-bold text-red-200/90 mt-1 tracking-wide">
+                  Refuerzo al Frente
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-red-200/60 text-sm">
+                <Send className="w-4 h-4" />
+                <span>Tap to alert Bagel Bros crew</span>
+              </div>
+            </div>
+          </button>
+        </div>
 
         <Card data-testid="container-soldout">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

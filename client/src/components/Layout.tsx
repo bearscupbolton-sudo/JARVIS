@@ -61,7 +61,6 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 
 const ALL_SHORTCUT_OPTIONS: NavItem[] = [
   { href: "/notes", label: "Notes", icon: StickyNote },
-  { href: "/platform", label: "Platform 9¾", icon: Zap },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
@@ -106,7 +105,6 @@ const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/notes", label: "Notes", icon: StickyNote },
-  { href: "/platform", label: "Platform 9¾", icon: Zap },
   { href: "/bakery", label: "Bakery", icon: Croissant },
   { href: "/coffee", label: "Coffee", icon: Coffee },
   { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
@@ -134,7 +132,6 @@ const MANAGER_NAV_ITEMS = [
   { href: "/time-review", label: "Time Review", icon: Timer },
   { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
   { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
-  { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
 ];
 
 const OWNER_NAV_ITEMS = [
@@ -142,6 +139,7 @@ const OWNER_NAV_ITEMS = [
   { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
   { href: "/admin/insights", label: "Insights", icon: Eye },
+  { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -288,28 +286,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           );
         })}
 
-        {canSeeSidebarItem("/platform") && (
-          <Link href="/platform">
-            <div
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 cursor-pointer group relative overflow-hidden",
-                location.startsWith("/platform")
-                  ? "bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-lg shadow-amber-500/20"
-                  : "bg-gradient-to-r from-amber-900/20 to-amber-800/10 dark:from-amber-800/20 dark:to-amber-700/10 text-amber-700 dark:text-amber-300 hover:from-amber-900/30 hover:to-amber-800/20 dark:hover:from-amber-800/30 dark:hover:to-amber-700/20 border border-amber-300/20 dark:border-amber-700/30"
-              )}
-              onClick={() => setMobileOpen(false)}
-              data-testid="link-platform934"
-            >
-              <Zap className={cn("w-5 h-5", location.startsWith("/platform") ? "text-amber-100" : "text-amber-500 dark:text-amber-400")} />
-              <span className="font-semibold text-sm tracking-wide">Platform 9¾</span>
-              <span className={cn(
-                "ml-auto text-[9px] font-bold uppercase tracking-widest",
-                location.startsWith("/platform") ? "text-amber-200" : "text-amber-500/50 dark:text-amber-400/40"
-              )}>FOH</span>
-            </div>
-          </Link>
-        )}
-
         {!editingShortcuts && shortcutItems.length > 0 && (
           <>
             <div className="pt-3 pb-1 px-2 flex items-center justify-between">
@@ -400,7 +376,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="pt-3 pb-1 px-2">
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Navigation</p>
         </div>
-        {NAV_ITEMS.slice(2).filter(item => item.href !== "/platform" && canSeeSidebarItem(item.href)).map((item) => {
+        {NAV_ITEMS.slice(2).filter(item => canSeeSidebarItem(item.href)).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href}>
