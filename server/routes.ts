@@ -5114,7 +5114,59 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
       if (!vendor) return res.status(404).json({ message: "Vendor not found" });
 
       const needsReorder = await storage.getItemsNeedingReorder(vendorId);
-      if (needsReorder.length === 0) {
+
+      const pendingLines = needsReorder.map(vi => {
+        const orderUpTo = vi.orderUpToLevel ?? (vi.parLevel! * 1.5);
+        const qty = Math.max(0, orderUpTo - vi.inventoryItem.onHand);
+        return {
+          inventoryItemId: vi.inventoryItemId,
+          itemName: vi.vendorDescription || vi.inventoryItem.name,
+          quantity: Math.ceil(qty * 100) / 100,
+          unit: vi.preferredUnit || vi.inventoryItem.unit,
+          currentOnHand: vi.inventoryItem.onHand,
+          parLevel: vi.parLevel,
+        };
+      }).filter(l => l.quantity > 0);
+
+      // Test Kitchen specials: add ingredients for upcoming finalized specials
+      const vendorVendorItems = await storage.getVendorItems(vendorId);
+      const vendorInventoryIds = new Set(vendorVendorItems.map((vi: any) => vi.inventoryItemId));
+      const allSpecials = await storage.getTestKitchenItems({ status: "finalized" });
+      const now = new Date();
+      for (const special of allSpecials) {
+        if (!special.startDate || !special.endDate || !special.anticipatedDailySales) continue;
+        const leadDays = special.orderLeadDays ?? 5;
+        const leadDate = new Date(special.startDate);
+        leadDate.setDate(leadDate.getDate() - leadDays);
+        if (now < leadDate || now > special.endDate) continue;
+
+        const totalDays = Math.ceil((special.endDate.getTime() - special.startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        const totalUnits = special.anticipatedDailySales * totalDays;
+        const yieldAmount = special.yieldAmount || 1;
+        const batches = totalUnits / yieldAmount;
+        const ingredients = (special.ingredients as any[]) || [];
+
+        for (const ing of ingredients) {
+          if (!ing.inventoryItemId || !vendorInventoryIds.has(ing.inventoryItemId)) continue;
+          const existingLine = pendingLines.find(l => l.inventoryItemId === ing.inventoryItemId);
+          const extraQty = Math.ceil((ing.quantity || 0) * batches * 100) / 100;
+          if (existingLine) {
+            existingLine.quantity += extraQty;
+          } else {
+            const vi = vendorVendorItems.find((v: any) => v.inventoryItemId === ing.inventoryItemId);
+            pendingLines.push({
+              inventoryItemId: ing.inventoryItemId,
+              itemName: vi?.vendorDescription || ing.name,
+              quantity: extraQty,
+              unit: vi?.preferredUnit || ing.unit || "",
+              currentOnHand: null as any,
+              parLevel: null as any,
+            });
+          }
+        }
+      }
+
+      if (pendingLines.length === 0) {
         return res.json({ message: "All items are above par level", order: null, itemCount: 0 });
       }
 
@@ -5126,20 +5178,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
         generatedBy: req.user.id,
       });
 
-      const lines = needsReorder.map(vi => {
-        const orderUpTo = vi.orderUpToLevel ?? (vi.parLevel! * 1.5);
-        const qty = Math.max(0, orderUpTo - vi.inventoryItem.onHand);
-        return {
-          purchaseOrderId: order.id,
-          inventoryItemId: vi.inventoryItemId,
-          itemName: vi.vendorDescription || vi.inventoryItem.name,
-          quantity: Math.ceil(qty * 100) / 100,
-          unit: vi.preferredUnit || vi.inventoryItem.unit,
-          currentOnHand: vi.inventoryItem.onHand,
-          parLevel: vi.parLevel,
-        };
-      }).filter(l => l.quantity > 0);
-
+      const lines = pendingLines.map(l => ({ ...l, purchaseOrderId: order.id }));
       const createdLines = await storage.createPurchaseOrderLines(lines);
       const fullOrder = await storage.getPurchaseOrder(order.id);
       res.json(fullOrder);
@@ -6009,6 +6048,171 @@ Guidelines:
       });
     } catch (err: any) {
       console.error("[Jarvis TaskGen] Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === TEST KITCHEN ===
+  app.get("/api/test-kitchen", isAuthenticated, async (req: any, res) => {
+    try {
+      const filters: { status?: string; department?: string } = {};
+      if (req.query.status) filters.status = req.query.status as string;
+      if (req.query.department) filters.department = req.query.department as string;
+      const items = await storage.getTestKitchenItems(filters);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/test-kitchen/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const item = await storage.getTestKitchenItem(parseInt(req.params.id));
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      const notes = await storage.getTestKitchenNotes(item.id);
+      res.json({ ...item, notes });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/test-kitchen", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const body = { ...req.body };
+      if (typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+      if (typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+      body.createdBy = req.appUser?.id || null;
+      const item = await storage.createTestKitchenItem(body);
+      res.status(201).json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/test-kitchen/:id", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const existing = await storage.getTestKitchenItem(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Item not found" });
+
+      const body = { ...req.body };
+      if (typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+      if (typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+
+      if (body.status && body.status !== existing.status) {
+        const allowed: Record<string, string[]> = {
+          draft: ["testing", "archived"],
+          testing: ["review", "draft", "archived"],
+          review: ["finalized", "testing", "archived"],
+          finalized: ["archived"],
+          archived: ["draft"],
+        };
+        if (!allowed[existing.status]?.includes(body.status)) {
+          return res.status(400).json({ message: `Cannot transition from ${existing.status} to ${body.status}` });
+        }
+        if (body.status === "finalized" && (!existing.startDate && !body.startDate || !existing.endDate && !body.endDate)) {
+          return res.status(400).json({ message: "Start date and end date are required to finalize" });
+        }
+      }
+
+      const item = await storage.updateTestKitchenItem(parseInt(req.params.id), body);
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/test-kitchen/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      await storage.deleteTestKitchenItem(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/test-kitchen/:id/notes", isAuthenticated, async (req: any, res) => {
+    try {
+      const note = await storage.createTestKitchenNote({
+        itemId: parseInt(req.params.id),
+        userId: req.appUser?.id || null,
+        content: req.body.content,
+        imageUrl: req.body.imageUrl || null,
+        noteType: req.body.noteType || "note",
+      });
+      res.status(201).json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/test-kitchen/notes/:noteId", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteTestKitchenNote(parseInt(req.params.noteId));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/test-kitchen/:id/calculate-cost", isAuthenticated, async (req: any, res) => {
+    try {
+      const item = await storage.getTestKitchenItem(parseInt(req.params.id));
+      if (!item) return res.status(404).json({ message: "Item not found" });
+
+      const allInventory = await storage.getInventoryItems();
+      const ingredients = (item.ingredients as any[]) || [];
+      let totalCost = 0;
+      const breakdown: any[] = [];
+
+      for (const ing of ingredients) {
+        const ingName = (ing.name || "").toLowerCase().trim();
+        let matchedItem: any = null;
+
+        if (ing.inventoryItemId) {
+          matchedItem = allInventory.find((i: any) => i.id === ing.inventoryItemId);
+        }
+        if (!matchedItem) {
+          for (const inv of allInventory) {
+            if (inv.name.toLowerCase().trim() === ingName) { matchedItem = inv; break; }
+            if (inv.aliases?.some((a: string) => a.toLowerCase().trim() === ingName)) { matchedItem = inv; break; }
+          }
+        }
+
+        const qty = ing.quantity || 0;
+        const cost = matchedItem?.costPerUnit != null ? qty * matchedItem.costPerUnit : null;
+        if (cost != null) totalCost += cost;
+
+        breakdown.push({
+          name: ing.name,
+          quantity: qty,
+          unit: ing.unit,
+          inventoryItemId: matchedItem?.id || null,
+          inventoryItemName: matchedItem?.name || null,
+          costPerUnit: matchedItem?.costPerUnit || null,
+          totalCost: cost,
+          matched: !!matchedItem,
+        });
+      }
+
+      const costPerUnit = item.yieldAmount && item.yieldAmount > 0 ? totalCost / item.yieldAmount : null;
+      await storage.updateTestKitchenItem(item.id, { totalCost, costPerUnit });
+
+      res.json({ totalCost, costPerUnit, breakdown });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/test-kitchen/:id/finalize", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const item = await storage.getTestKitchenItem(parseInt(req.params.id));
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      if (!item.startDate || !item.endDate) {
+        return res.status(400).json({ message: "Start date and end date are required to finalize" });
+      }
+      const updated = await storage.updateTestKitchenItem(item.id, { status: "finalized" });
+      res.json(updated);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

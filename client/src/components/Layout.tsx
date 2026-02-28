@@ -42,6 +42,7 @@ import {
   Zap,
   CircleDot,
   Code2,
+  FlaskConical,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -70,6 +71,7 @@ const ALL_SHORTCUT_OPTIONS: NavItem[] = [
   { href: "/lamination", label: "Lamination Studio", icon: Layers },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },
+  { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/vendors", label: "Vendors", icon: Truck },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
@@ -114,6 +116,7 @@ const NAV_ITEMS = [
   { href: "/lamination", label: "Lamination Studio", icon: Layers },
   { href: "/production", label: "Production Logs", icon: ClipboardList },
   { href: "/sops", label: "SOPs", icon: BookOpen },
+  { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/vendors", label: "Vendors", icon: Truck },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },

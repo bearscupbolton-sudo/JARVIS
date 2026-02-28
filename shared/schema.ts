@@ -1115,3 +1115,43 @@ export const insertEmployeeSkillSchema = createInsertSchema(employeeSkills).omit
 export type EmployeeSkill = typeof employeeSkills.$inferSelect;
 export type InsertEmployeeSkill = z.infer<typeof insertEmployeeSkillSchema>;
 
+export const testKitchenItems = pgTable("test_kitchen_items", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  department: text("department").notNull(),
+  status: text("status").notNull().default("draft"),
+  description: text("description"),
+  ingredients: jsonb("ingredients").default([]),
+  method: jsonb("method").default([]),
+  yieldAmount: doublePrecision("yield_amount"),
+  yieldUnit: text("yield_unit"),
+  anticipatedDailySales: integer("anticipated_daily_sales"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  orderLeadDays: integer("order_lead_days").default(5),
+  totalCost: doublePrecision("total_cost"),
+  costPerUnit: doublePrecision("cost_per_unit"),
+  targetPrice: doublePrecision("target_price"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTestKitchenItemSchema = createInsertSchema(testKitchenItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type TestKitchenItem = typeof testKitchenItems.$inferSelect;
+export type InsertTestKitchenItem = z.infer<typeof insertTestKitchenItemSchema>;
+
+export const testKitchenNotes = pgTable("test_kitchen_notes", {
+  id: serial("id").primaryKey(),
+  itemId: integer("item_id").notNull(),
+  userId: text("user_id"),
+  content: text("content").notNull(),
+  imageUrl: text("image_url"),
+  noteType: text("note_type").notNull().default("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTestKitchenNoteSchema = createInsertSchema(testKitchenNotes).omit({ id: true, createdAt: true });
+export type TestKitchenNote = typeof testKitchenNotes.$inferSelect;
+export type InsertTestKitchenNote = z.infer<typeof insertTestKitchenNoteSchema>;
+

@@ -58,6 +58,7 @@ import MLL from "@/pages/MLL";
 import Notes from "@/pages/Notes";
 import Vendors from "@/pages/Vendors";
 import BagelBros from "@/pages/BagelBros";
+import TestKitchen from "@/pages/TestKitchen";
 import DevFeedback from "@/pages/DevFeedback";
 import NotFound from "@/pages/not-found";
 
@@ -146,6 +147,9 @@ function Router() {
       </Route>
       <Route path="/assistant">
         {() => <ProtectedRoute component={Assistant} />}
+      </Route>
+      <Route path="/test-kitchen">
+        {() => <ProtectedRoute component={TestKitchen} />}
       </Route>
       <Route path="/admin/users">
         {() => <ProtectedRoute component={AdminUsers} />}

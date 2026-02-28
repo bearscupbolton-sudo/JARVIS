@@ -86,6 +86,9 @@ import {
   type DevFeedback, type InsertDevFeedback,
   employeeSkills,
   type EmployeeSkill, type InsertEmployeeSkill,
+  testKitchenItems, testKitchenNotes,
+  type TestKitchenItem, type InsertTestKitchenItem,
+  type TestKitchenNote, type InsertTestKitchenNote,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -483,6 +486,16 @@ export interface IStorage {
 
   // Inventory Deduction
   deductInventoryItem(itemId: number, quantity: number): Promise<void>;
+
+  // Test Kitchen
+  getTestKitchenItems(filters?: { status?: string; department?: string }): Promise<TestKitchenItem[]>;
+  getTestKitchenItem(id: number): Promise<TestKitchenItem | undefined>;
+  createTestKitchenItem(item: InsertTestKitchenItem): Promise<TestKitchenItem>;
+  updateTestKitchenItem(id: number, updates: Partial<InsertTestKitchenItem>): Promise<TestKitchenItem>;
+  deleteTestKitchenItem(id: number): Promise<void>;
+  getTestKitchenNotes(itemId: number): Promise<TestKitchenNote[]>;
+  createTestKitchenNote(note: InsertTestKitchenNote): Promise<TestKitchenNote>;
+  deleteTestKitchenNote(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3075,6 +3088,55 @@ export class DatabaseStorage implements IStorage {
     await db.update(inventoryItems)
       .set({ onHand: sql`GREATEST(0, COALESCE(${inventoryItems.onHand}, 0) - ${quantity})` })
       .where(eq(inventoryItems.id, itemId));
+  }
+
+  // Test Kitchen
+  async getTestKitchenItems(filters?: { status?: string; department?: string }): Promise<TestKitchenItem[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(testKitchenItems.status, filters.status));
+    if (filters?.department) conditions.push(eq(testKitchenItems.department, filters.department));
+    if (conditions.length > 0) {
+      return db.select().from(testKitchenItems).where(and(...conditions)).orderBy(desc(testKitchenItems.updatedAt));
+    }
+    return db.select().from(testKitchenItems).orderBy(desc(testKitchenItems.updatedAt));
+  }
+
+  async getTestKitchenItem(id: number): Promise<TestKitchenItem | undefined> {
+    const [item] = await db.select().from(testKitchenItems).where(eq(testKitchenItems.id, id));
+    return item;
+  }
+
+  async createTestKitchenItem(item: InsertTestKitchenItem): Promise<TestKitchenItem> {
+    const [created] = await db.insert(testKitchenItems).values(item).returning();
+    return created;
+  }
+
+  async updateTestKitchenItem(id: number, updates: Partial<InsertTestKitchenItem>): Promise<TestKitchenItem> {
+    const [updated] = await db.update(testKitchenItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(testKitchenItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTestKitchenItem(id: number): Promise<void> {
+    await db.delete(testKitchenNotes).where(eq(testKitchenNotes.itemId, id));
+    await db.delete(testKitchenItems).where(eq(testKitchenItems.id, id));
+  }
+
+  async getTestKitchenNotes(itemId: number): Promise<TestKitchenNote[]> {
+    return db.select().from(testKitchenNotes)
+      .where(eq(testKitchenNotes.itemId, itemId))
+      .orderBy(desc(testKitchenNotes.createdAt));
+  }
+
+  async createTestKitchenNote(note: InsertTestKitchenNote): Promise<TestKitchenNote> {
+    const [created] = await db.insert(testKitchenNotes).values(note).returning();
+    return created;
+  }
+
+  async deleteTestKitchenNote(id: number): Promise<void> {
+    await db.delete(testKitchenNotes).where(eq(testKitchenNotes.id, id));
   }
 }
 
