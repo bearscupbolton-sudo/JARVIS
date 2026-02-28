@@ -30,6 +30,7 @@ export function getSession() {
 declare module "express-session" {
   interface SessionData {
     userId: string;
+    sessionVersion: string;
   }
 }
 
@@ -48,6 +49,10 @@ export async function setupAuth(app: Express) {
         return res.status(403).json({ message: "Your account is locked. Contact a manager." });
       }
       req.session.userId = user.id;
+      try {
+        const ver = await storage.getAppSetting("session_version");
+        if (ver) req.session.sessionVersion = ver;
+      } catch {}
       storage.logActivity({ userId: user.id, action: "login", metadata: { method: "pin" } }).catch(() => {});
       res.json(user);
     } catch (error: any) {
@@ -110,6 +115,15 @@ export async function setupAuth(app: Express) {
       res.json({ ok: true });
     });
   });
+
+  app.get("/api/auth/session-version", async (_req, res) => {
+    try {
+      const version = await storage.getAppSetting("session_version");
+      res.json({ version: version || "1" });
+    } catch {
+      res.json({ version: "1" });
+    }
+  });
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
@@ -120,6 +134,17 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   if (!user) {
     return res.status(401).json({ message: "Unauthorized" });
   }
+  try {
+    const currentVersion = await storage.getAppSetting("session_version");
+    const sessionVersion = req.session.sessionVersion;
+    if (currentVersion && sessionVersion && sessionVersion !== currentVersion) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: "Session expired", code: "SESSION_VERSION_MISMATCH" });
+    }
+    if (currentVersion && !sessionVersion) {
+      req.session.sessionVersion = currentVersion;
+    }
+  } catch {}
   (req as any).appUser = user;
   return next();
 };

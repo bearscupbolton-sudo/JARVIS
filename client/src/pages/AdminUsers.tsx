@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -23,6 +23,8 @@ export default function AdminUsers() {
   const [addOpen, setAddOpen] = useState(false);
   const [detailUser, setDetailUser] = useState<User | null>(null);
   const [resetPinUser, setResetPinUser] = useState<User | null>(null);
+  const [forceLogoutOpen, setForceLogoutOpen] = useState(false);
+  const [forceLogoutMessage, setForceLogoutMessage] = useState("");
 
   const isManagerOrOwner = currentUser?.role === "owner" || currentUser?.role === "manager";
   const isOwner = currentUser?.role === "owner";
@@ -43,6 +45,24 @@ export default function AdminUsers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/app-settings/dev-mode"] });
       toast({ title: devModeData?.enabled ? "Developer mode disabled" : "Developer mode enabled" });
+    },
+  });
+
+  const forceLogoutMutation = useMutation({
+    mutationFn: async (message?: string) => {
+      const res = await apiRequest("POST", "/api/admin/force-logout", message ? { message } : {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data?.version) {
+        localStorage.setItem("jarvis_session_version", data.version);
+      }
+      setForceLogoutOpen(false);
+      setForceLogoutMessage("");
+      toast({ title: "Force logout triggered", description: "All team members will be logged out on their next interaction." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -128,6 +148,12 @@ export default function AdminUsers() {
                 data-testid="switch-dev-mode"
               />
             </div>
+          )}
+          {isOwner && (
+            <Button variant="outline" onClick={() => setForceLogoutOpen(true)} className="border-red-300 text-red-600 dark:border-red-700 dark:text-red-400" data-testid="button-force-logout">
+              <LogOut className="w-4 h-4 mr-2" />
+              Force Logout All
+            </Button>
           )}
           <Button onClick={() => setAddOpen(true)} data-testid="button-add-team-member">
             <UserPlus className="w-4 h-4 mr-2" />
@@ -218,6 +244,47 @@ export default function AdminUsers() {
           onOpenChange={(open) => { if (!open) setResetPinUser(null); }}
         />
       )}
+
+      <Dialog open={forceLogoutOpen} onOpenChange={setForceLogoutOpen}>
+        <DialogContent className="max-w-md" data-testid="dialog-force-logout">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Force Logout All Users
+            </DialogTitle>
+            <DialogDescription>
+              This will log out every team member on their next interaction — including anyone who saved the app to their home screen.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Message (optional)</Label>
+              <Textarea
+                placeholder="Show a Jarvis message after they log back in..."
+                value={forceLogoutMessage}
+                onChange={(e) => setForceLogoutMessage(e.target.value)}
+                rows={3}
+                data-testid="input-force-logout-message"
+              />
+              <p className="text-xs text-muted-foreground">If provided, everyone will see this as a Jarvis overlay after logging back in.</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setForceLogoutOpen(false)} data-testid="button-cancel-force-logout">
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => forceLogoutMutation.mutate(forceLogoutMessage.trim() || undefined)}
+                disabled={forceLogoutMutation.isPending}
+                data-testid="button-confirm-force-logout"
+              >
+                {forceLogoutMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <LogOut className="w-4 h-4 mr-2" />}
+                Force Logout Everyone
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

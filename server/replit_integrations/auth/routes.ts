@@ -343,6 +343,29 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/admin/force-logout", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { storage } = await import("../../storage");
+      const current = await storage.getAppSetting("session_version");
+      const newVersion = String(Number(current || "1") + 1);
+      await storage.setAppSetting("session_version", newVersion);
+      req.session.sessionVersion = newVersion;
+      const message = req.body?.message || null;
+      if (message) {
+        const allUsers = await authStorage.getAllUsers();
+        for (const u of allUsers) {
+          if (u.id !== req.appUser.id) {
+            await db.update(users).set({ globalAckRequired: true, globalAckMessage: message }).where(eq(users.id, u.id));
+          }
+        }
+      }
+      res.json({ ok: true, version: newVersion });
+    } catch (error) {
+      console.error("Error forcing logout:", error);
+      res.status(500).json({ message: "Failed to force logout" });
+    }
+  });
+
   app.delete("/api/admin/users/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const targetId = req.params.id;

@@ -51,7 +51,14 @@ function LoginForm() {
       const res = await apiRequest("POST", "/api/auth/login", { pin });
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: async (data: any) => {
+      try {
+        const vRes = await fetch("/api/auth/session-version");
+        if (vRes.ok) {
+          const { version } = await vRes.json();
+          localStorage.setItem("jarvis_session_version", version);
+        }
+      } catch {}
       queryClient.setQueryData(["/api/auth/user"], data);
       const allowed = ["/bagel-bros", "/platform", "/bakery", "/clock"];
       const page = data?.defaultPage && allowed.includes(data.defaultPage) ? data.defaultPage : "/";
@@ -169,7 +176,14 @@ function SetupOwner() {
       });
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: async (data: any) => {
+      try {
+        const vRes = await fetch("/api/auth/session-version");
+        if (vRes.ok) {
+          const { version } = await vRes.json();
+          localStorage.setItem("jarvis_session_version", version);
+        }
+      } catch {}
       queryClient.setQueryData(["/api/auth/user"], data);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/has-users"] });
       setLocation("/");
