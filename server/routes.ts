@@ -578,29 +578,43 @@ FORMAT RULES for the content field:
   });
 
   // === EVENTS ===
-  app.get("/api/events/month", async (req, res) => {
+  app.get("/api/events/month", isAuthenticated, async (req: any, res) => {
     const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
     const month = req.query.month ? Number(req.query.month) : new Date().getMonth() + 1;
-    const events = await storage.getEventsByMonth(year, month);
-    res.json(events);
+    const allEvents = await storage.getEventsByMonth(year, month);
+    const userId = req.appUser?.id || null;
+    const filtered = allEvents.filter((e: any) => {
+      if (!e.isPersonal) return true;
+      return userId && e.createdBy === userId;
+    });
+    res.json(filtered);
   });
 
-  app.get("/api/events/:id", async (req, res) => {
+  app.get("/api/events/:id", isAuthenticated, async (req: any, res) => {
     const event = await storage.getEvent(Number(req.params.id));
     if (!event) return res.status(404).json({ message: "Event not found" });
+    if (event.isPersonal && event.createdBy !== req.appUser?.id) {
+      return res.status(404).json({ message: "Event not found" });
+    }
     res.json(event);
   });
 
-  app.get(api.events.list.path, async (req, res) => {
+  app.get(api.events.list.path, isAuthenticated, async (req: any, res) => {
     const days = req.query.days ? Number(req.query.days) : 5;
-    const events = await storage.getUpcomingEvents(days);
-    res.json(events);
+    const allEvents = await storage.getUpcomingEvents(days);
+    const userId = req.appUser?.id || null;
+    const filtered = allEvents.filter((e: any) => {
+      if (!e.isPersonal) return true;
+      return userId && e.createdBy === userId;
+    });
+    res.json(filtered);
   });
 
-  app.post(api.events.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+  app.post(api.events.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const body = { ...req.body };
       if (typeof body.date === "string") body.date = new Date(body.date);
+      body.createdBy = req.appUser?.id || null;
       const input = api.events.create.input.parse(body);
       const event = await storage.createEvent(input);
       res.status(201).json(event);
@@ -612,8 +626,13 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.put(api.events.update.path, isAuthenticated, isUnlocked, async (req, res) => {
+  app.put(api.events.update.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
+      const existing = await storage.getEvent(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Event not found" });
+      if (existing.isPersonal && existing.createdBy !== req.appUser?.id) {
+        return res.status(404).json({ message: "Event not found" });
+      }
       const body = { ...req.body };
       if (typeof body.date === "string") body.date = new Date(body.date);
       const input = api.events.update.input.parse(body);
@@ -627,7 +646,12 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.delete(api.events.delete.path, isAuthenticated, isUnlocked, async (req, res) => {
+  app.delete(api.events.delete.path, isAuthenticated, isUnlocked, async (req: any, res) => {
+    const existing = await storage.getEvent(Number(req.params.id));
+    if (!existing) return res.status(404).json({ message: "Event not found" });
+    if (existing.isPersonal && existing.createdBy !== req.appUser?.id) {
+      return res.status(404).json({ message: "Event not found" });
+    }
     await storage.deleteEvent(Number(req.params.id));
     res.status(204).send();
   });

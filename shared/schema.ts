@@ -117,6 +117,8 @@ export const events = pgTable("events", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   taggedUserIds: integer("tagged_user_ids").array(),
+  isPersonal: boolean("is_personal").default(false),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

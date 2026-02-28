@@ -15,8 +15,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, Trash2,
   MapPin, Clock, Phone, Mail, Cake, Users, X, Check,
-  Pencil, ClipboardList, CheckCircle2, Circle
+  Pencil, ClipboardList, CheckCircle2, Circle, Lock
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths, getMonth, getDate } from "date-fns";
 import type { CalendarEvent, EventJob } from "@shared/schema";
 import { api } from "@shared/routes";
@@ -75,7 +77,7 @@ const EMPTY_FORM = {
   title: "", description: "", date: format(new Date(), "yyyy-MM-dd"),
   eventType: "event", contactName: "", contactPhone: "",
   contactEmail: "", address: "", startTime: "", endTime: "",
-  taggedUserIds: [] as number[],
+  taggedUserIds: [] as number[], isPersonal: false,
 };
 
 export default function CalendarPage() {
@@ -145,7 +147,7 @@ export default function CalendarPage() {
           description: null, date: eventDate, endDate: null,
           eventType: "birthday", contactName: null, contactPhone: null,
           contactEmail: null, address: null, startTime: null, endTime: null,
-          taggedUserIds: null, createdAt: null,
+          taggedUserIds: null, isPersonal: false, createdBy: null, createdAt: null,
         } as CalendarEvent;
       });
     return [...rawEvents, ...birthdayEvents];
@@ -283,6 +285,7 @@ export default function CalendarPage() {
       startTime: eventForm.startTime || null,
       endTime: eventForm.endTime || null,
       taggedUserIds: eventForm.taggedUserIds.length > 0 ? eventForm.taggedUserIds : null,
+      isPersonal: eventForm.isPersonal,
     });
     setEventForm({ ...EMPTY_FORM });
     setShowAddForm(false);
@@ -302,6 +305,7 @@ export default function CalendarPage() {
       startTime: selectedEvent.startTime || "",
       endTime: selectedEvent.endTime || "",
       taggedUserIds: selectedEvent.taggedUserIds || [],
+      isPersonal: selectedEvent.isPersonal ?? false,
     });
     setEditMode(true);
   }
@@ -322,6 +326,7 @@ export default function CalendarPage() {
         startTime: editForm.startTime || null,
         endTime: editForm.endTime || null,
         taggedUserIds: editForm.taggedUserIds.length > 0 ? editForm.taggedUserIds : null,
+        isPersonal: editForm.isPersonal,
       },
     });
   }
@@ -439,6 +444,21 @@ export default function CalendarPage() {
           <Input placeholder="Email (optional)" type="email" value={form.contactEmail} onChange={e => setForm(p => ({ ...p, contactEmail: e.target.value }))} data-testid={`input-${testPrefix}-contact-email`} />
         </div>
         <Input placeholder="Address (optional)" value={form.address} onChange={e => setForm(p => ({ ...p, address: e.target.value }))} data-testid={`input-${testPrefix}-address`} />
+        <div className="flex items-center justify-between rounded-md border px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-muted-foreground" />
+            <Label htmlFor={`${testPrefix}-personal`} className="text-sm cursor-pointer">Personal event</Label>
+          </div>
+          <Switch
+            id={`${testPrefix}-personal`}
+            checked={form.isPersonal}
+            onCheckedChange={(checked) => setForm(p => ({ ...p, isPersonal: !!checked }))}
+            data-testid={`switch-${testPrefix}-personal`}
+          />
+        </div>
+        {form.isPersonal && (
+          <p className="text-xs text-muted-foreground">Only you will see this event on the calendar.</p>
+        )}
       </div>
     );
   }
@@ -581,6 +601,7 @@ export default function CalendarPage() {
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${EVENT_TYPE_COLORS[event.eventType] || "bg-primary"}`} />
                         )}
                         <span className={`text-sm font-medium flex-1 min-w-0 truncate ${event.eventType === "birthday" ? "text-pink-700 dark:text-pink-300" : ""}`}>{event.title}</span>
+                        {event.isPersonal && <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
                         <Badge variant={event.eventType === "birthday" ? "secondary" : "outline"} className={`text-[10px] ${event.eventType === "birthday" ? "bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300" : ""}`}>{event.eventType}</Badge>
                       </div>
                       {event.startTime && (
@@ -636,6 +657,11 @@ export default function CalendarPage() {
                     <DialogTitle data-testid="text-cal-event-detail-title">{selectedEvent.title}</DialogTitle>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <Badge variant="outline">{selectedEvent.eventType}</Badge>
+                      {selectedEvent.isPersonal && (
+                        <Badge variant="secondary" className="text-[10px] gap-1">
+                          <Lock className="w-2.5 h-2.5" /> Personal
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {format(new Date(selectedEvent.date), "EEEE, MMMM d, yyyy")}
                       </span>
