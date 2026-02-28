@@ -21,8 +21,15 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
   ArrowLeft, Plus, Trash2, FileText, CheckCircle2, AlertCircle,
-  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2
+  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus
 } from "lucide-react";
 import type { Invoice, InventoryItem } from "@shared/schema";
 
@@ -61,6 +68,13 @@ export default function InvoiceCapture() {
   const [scanMode, setScanMode] = useState<ScanMode>("idle");
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [editingLine, setEditingLine] = useState<number | null>(null);
+  const [createItemForLine, setCreateItemForLine] = useState<number | null>(null);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("");
+  const [newItemCost, setNewItemCost] = useState("");
+  const [newItemOnHand, setNewItemOnHand] = useState("");
+  const [creatingItem, setCreatingItem] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -218,6 +232,60 @@ export default function InvoiceCapture() {
       return false;
     });
   }
+
+  function openCreateDialog(lineIdx: number) {
+    const line = lines[lineIdx];
+    setCreateItemForLine(lineIdx);
+    setNewItemName(line.itemDescription);
+    setNewItemCategory("");
+    setNewItemUnit(line.unit || "");
+    setNewItemCost(line.unitPrice != null ? String(line.unitPrice) : "");
+    setNewItemOnHand(line.quantity > 0 ? String(line.quantity) : "");
+  }
+
+  async function handleCreateItem() {
+    if (!newItemName.trim() || !newItemCategory.trim() || !newItemUnit.trim()) {
+      toast({ title: "Name, category, and unit are required", variant: "destructive" });
+      return;
+    }
+    setCreatingItem(true);
+    try {
+      const lineIdx = createItemForLine!;
+      const originalDesc = lines[lineIdx].itemDescription;
+      const aliases = [originalDesc.trim()];
+      if (newItemName.trim().toLowerCase() !== originalDesc.trim().toLowerCase()) {
+        aliases.unshift(newItemName.trim());
+      } else {
+        // no duplicate needed
+      }
+      const uniqueAliases = [...new Set(aliases.map(a => a.toLowerCase()))].length === aliases.length
+        ? aliases
+        : [originalDesc.trim()];
+
+      const res = await apiRequest("POST", "/api/inventory-items", {
+        name: newItemName.trim(),
+        category: newItemCategory.trim(),
+        unit: newItemUnit.trim(),
+        aliases: uniqueAliases,
+        onHand: newItemOnHand ? Number(newItemOnHand) : 0,
+        costPerUnit: newItemCost ? Number(newItemCost) : null,
+      });
+      const created = await res.json();
+
+      updateLine(lineIdx, { manualMatchId: created.id, saveAsAlias: false });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+
+      toast({ title: `"${created.name}" created and linked` });
+      setCreateItemForLine(null);
+    } catch (err: any) {
+      toast({ title: "Failed to create item", description: err.message, variant: "destructive" });
+    } finally {
+      setCreatingItem(false);
+    }
+  }
+
+  const existingCategories = [...new Set(masterItems.map(i => i.category).filter(Boolean))].sort();
 
   function onSubmit(data: z.infer<typeof invoiceFormSchema>) {
     if (lines.length === 0) {
@@ -610,6 +678,17 @@ export default function InvoiceCapture() {
                                             ))}
                                           </SelectContent>
                                         </Select>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 text-xs gap-1"
+                                          onClick={() => openCreateDialog(idx)}
+                                          data-testid={`button-create-item-${idx}`}
+                                        >
+                                          <PackagePlus className="w-3.5 h-3.5" />
+                                          Create New Item
+                                        </Button>
                                         <span className="text-xs text-muted-foreground">No auto-match found</span>
                                       </div>
                                     )}
@@ -760,6 +839,113 @@ export default function InvoiceCapture() {
           </div>
         </div>
       )}
+
+      <Dialog open={createItemForLine !== null} onOpenChange={(open) => { if (!open) setCreateItemForLine(null); }}>
+        <DialogContent className="max-w-md" data-testid="dialog-create-item">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackagePlus className="w-5 h-5" />
+              Create New Inventory Item
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="new-item-name">Item Name</Label>
+              <Input
+                id="new-item-name"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="Clean up the vendor description"
+                data-testid="input-new-item-name"
+              />
+              {createItemForLine !== null && lines[createItemForLine] && newItemName.trim().toLowerCase() !== lines[createItemForLine].itemDescription.trim().toLowerCase() && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Vendor alias "{lines[createItemForLine].itemDescription}" will be saved automatically
+                </p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="new-item-category">Category</Label>
+              {existingCategories.length > 0 ? (
+                <Select value={newItemCategory} onValueChange={setNewItemCategory}>
+                  <SelectTrigger data-testid="select-new-item-category">
+                    <SelectValue placeholder="Select a category..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {existingCategories.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="new-item-category"
+                  value={newItemCategory}
+                  onChange={(e) => setNewItemCategory(e.target.value)}
+                  placeholder="e.g. Dairy, Dry Goods, Produce"
+                  data-testid="input-new-item-category"
+                />
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="new-item-unit">Unit</Label>
+                <Input
+                  id="new-item-unit"
+                  value={newItemUnit}
+                  onChange={(e) => setNewItemUnit(e.target.value)}
+                  placeholder="case"
+                  data-testid="input-new-item-unit"
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-item-cost">Cost/Unit</Label>
+                <Input
+                  id="new-item-cost"
+                  type="number"
+                  step="0.01"
+                  value={newItemCost}
+                  onChange={(e) => setNewItemCost(e.target.value)}
+                  placeholder="0.00"
+                  data-testid="input-new-item-cost"
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-item-onhand">On Hand</Label>
+                <Input
+                  id="new-item-onhand"
+                  type="number"
+                  step="any"
+                  value={newItemOnHand}
+                  onChange={(e) => setNewItemOnHand(e.target.value)}
+                  placeholder="0"
+                  data-testid="input-new-item-onhand"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateItemForLine(null)}
+                disabled={creatingItem}
+                data-testid="button-cancel-create-item"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCreateItem}
+                disabled={creatingItem || !newItemName.trim() || !newItemCategory.trim() || !newItemUnit.trim()}
+                data-testid="button-save-create-item"
+              >
+                {creatingItem ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                Create & Link
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
