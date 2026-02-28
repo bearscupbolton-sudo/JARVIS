@@ -31,6 +31,7 @@ export default function Platform934() {
   const [soldoutTime, setSoldoutTime] = useState(format(new Date(), "HH:mm"));
   const [showSoldoutDialog, setShowSoldoutDialog] = useState(false);
   const [showLobbySettings, setShowLobbySettings] = useState(false);
+  const [showBackupDialog, setShowBackupDialog] = useState(false);
   const isManager = user?.role === "owner" || user?.role === "manager";
 
   const { data: taskLists = [], isLoading: loadingTasks } = useQuery<TaskListWithItems[]>({
@@ -447,32 +448,56 @@ export default function Platform934() {
         </div>
       </div>
 
-      <div className="shrink-0 p-4 md:p-5" data-testid="container-foh-backup">
+      <div className="shrink-0 px-4 pb-4 md:px-5 md:pb-5" data-testid="container-foh-backup">
         <button
-          className="relative w-full rounded-2xl border-2 border-red-500/80 bg-gradient-to-b from-red-600 via-red-700 to-red-900 shadow-[0_0_20px_rgba(239,68,68,0.3),0_0_40px_rgba(239,68,68,0.15)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5),0_0_60px_rgba(239,68,68,0.25)] active:scale-[0.98] transition-all duration-200 cursor-pointer group"
-          style={{ minHeight: "28vh" }}
-          onClick={() => {
-            apiRequest("POST", "/api/bagel-bros/send-alert").then(() => {
-              toast({ title: "ALERT SENT!", description: "Bagel Bros crew has been notified" });
-            });
-          }}
+          className="relative w-full rounded-xl border-2 border-red-500/70 bg-gradient-to-r from-red-700 via-red-600 to-red-700 shadow-[0_0_15px_rgba(239,68,68,0.2)] hover:shadow-[0_0_25px_rgba(239,68,68,0.4)] active:scale-[0.97] transition-all duration-200 cursor-pointer group py-4 px-6"
+          onClick={() => setShowBackupDialog(true)}
           data-testid="button-foh-backup-alert"
         >
-          <div className="flex flex-col items-center justify-center gap-3 py-6">
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-red-500/25 border-2 border-red-400/40 flex items-center justify-center group-hover:bg-red-500/40 transition-colors animate-[pulse_2s_ease-in-out_infinite]">
-              <Megaphone className="w-8 h-8 md:w-10 md:h-10 text-white drop-shadow-lg" />
+          <div className="flex items-center justify-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-red-500/25 border border-red-400/40 flex items-center justify-center group-hover:bg-red-500/40 transition-colors">
+              <Megaphone className="w-5 h-5 text-white" />
             </div>
-            <div className="text-center">
-              <p className="text-xl md:text-2xl font-black text-white tracking-wide drop-shadow-lg uppercase">
-                FOH Needs Backup
-              </p>
-              <p className="text-lg md:text-xl font-bold text-red-200/80 mt-0.5 tracking-wide">
-                Refuerzo al Frente
-              </p>
+            <div className="text-left">
+              <p className="text-base font-bold text-white tracking-wide uppercase">FOH Needs Backup</p>
+              <p className="text-sm font-medium text-red-200/70">Refuerzo al Frente</p>
             </div>
-            <p className="text-red-200/40 text-xs tracking-wider uppercase">Tap to alert crew</p>
           </div>
         </button>
+
+        <Dialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-center">What do you need?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 pt-2">
+              <button
+                className="w-full rounded-xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-600 to-amber-700 text-white font-bold text-lg py-5 px-6 hover:from-amber-500 hover:to-amber-600 active:scale-[0.97] transition-all cursor-pointer"
+                onClick={() => {
+                  apiRequest("POST", "/api/bagel-bros/send-alert", { alertType: "garbage_swap" }).then(() => {
+                    toast({ title: "Alert Sent!", description: "Behind bar garbage swap requested" });
+                    setShowBackupDialog(false);
+                  });
+                }}
+                data-testid="button-alert-garbage-swap"
+              >
+                Behind Bar Garbage Swap
+              </button>
+              <button
+                className="w-full rounded-xl border-2 border-red-500/50 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold text-lg py-5 px-6 hover:from-red-500 hover:to-red-600 active:scale-[0.97] transition-all cursor-pointer"
+                onClick={() => {
+                  apiRequest("POST", "/api/bagel-bros/send-alert", { alertType: "lobby_assistance" }).then(() => {
+                    toast({ title: "Alert Sent!", description: "Lobby assistance requested" });
+                    setShowBackupDialog(false);
+                  });
+                }}
+                data-testid="button-alert-lobby-assistance"
+              >
+                Lobby Assistance
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

@@ -3900,6 +3900,7 @@ ${sopsHtml}
 
   // === BAGEL BROS ===
   let bagelBrosAlertActive = false;
+  let bagelBrosAlertType: string | null = null;
 
   app.get("/api/bagel-bros/session", isAuthenticated, async (req, res) => {
     try {
@@ -3961,17 +3962,19 @@ ${sopsHtml}
     }
   });
 
-  app.post("/api/bagel-bros/send-alert", isAuthenticated, async (_req, res) => {
+  app.post("/api/bagel-bros/send-alert", isAuthenticated, async (req, res) => {
     bagelBrosAlertActive = true;
+    bagelBrosAlertType = req.body?.alertType || "general";
     res.json({ success: true });
   });
 
   app.get("/api/bagel-bros/alert", isAuthenticated, async (_req, res) => {
-    res.json({ active: bagelBrosAlertActive });
+    res.json({ active: bagelBrosAlertActive, alertType: bagelBrosAlertType });
   });
 
   app.post("/api/bagel-bros/dismiss-alert", isAuthenticated, async (_req, res) => {
     bagelBrosAlertActive = false;
+    bagelBrosAlertType = null;
     res.json({ success: true });
   });
 

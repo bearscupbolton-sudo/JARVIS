@@ -93,6 +93,7 @@ export default function BagelBros() {
   const [flipAlert, setFlipAlert] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [fohAlert, setFohAlert] = useState(false);
+  const [fohAlertType, setFohAlertType] = useState<string | null>(null);
   const kettleRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: sessionData, isLoading } = useQuery<SessionData>({
@@ -100,13 +101,16 @@ export default function BagelBros() {
     refetchInterval: 5000,
   });
 
-  const { data: alertData } = useQuery<{ active: boolean }>({
+  const { data: alertData } = useQuery<{ active: boolean; alertType: string | null }>({
     queryKey: ["/api/bagel-bros/alert"],
     refetchInterval: 5000,
   });
 
   useEffect(() => {
-    if (alertData?.active && !fohAlert) setFohAlert(true);
+    if (alertData?.active && !fohAlert) {
+      setFohAlert(true);
+      setFohAlertType(alertData.alertType || null);
+    }
   }, [alertData]);
 
   const session = sessionData?.session;
@@ -180,15 +184,28 @@ export default function BagelBros() {
     <div className="min-h-screen bg-zinc-950 text-white select-none" data-testid="page-bagel-bros">
       {fohAlert && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center animate-pulse" data-testid="foh-backup-alert">
-          <div className="absolute inset-0 bg-red-600/90" />
+          <div className={`absolute inset-0 ${fohAlertType === "garbage_swap" ? "bg-amber-600/90" : "bg-red-600/90"}`} />
           <div className="relative text-center p-8">
             <AlertTriangle className="w-24 h-24 text-white mx-auto mb-4" />
-            <h1 className="text-5xl md:text-7xl font-bold font-display mb-2">FOH NEEDS HELP</h1>
-            <h2 className="text-4xl md:text-6xl font-bold font-display text-red-100 mb-8">AYUDA AL FRENTE</h2>
+            {fohAlertType === "garbage_swap" ? (
+              <>
+                <h1 className="text-5xl md:text-7xl font-bold font-display mb-2">GARBAGE SWAP</h1>
+                <h2 className="text-4xl md:text-6xl font-bold font-display text-amber-100 mb-8">CAMBIO DE BASURA</h2>
+              </>
+            ) : (
+              <>
+                <h1 className="text-5xl md:text-7xl font-bold font-display mb-2">LOBBY ASSISTANCE</h1>
+                <h2 className="text-4xl md:text-6xl font-bold font-display text-red-100 mb-8">AYUDA AL FRENTE</h2>
+              </>
+            )}
             <Button
               size="lg"
-              className="h-16 px-12 text-2xl bg-white text-red-600 hover:bg-red-100 font-bold rounded-2xl"
-              onClick={() => dismissAlertMutation.mutate()}
+              className={`h-16 px-12 text-2xl font-bold rounded-2xl ${fohAlertType === "garbage_swap" ? "bg-white text-amber-600 hover:bg-amber-100" : "bg-white text-red-600 hover:bg-red-100"}`}
+              onClick={() => {
+                dismissAlertMutation.mutate();
+                setFohAlert(false);
+                setFohAlertType(null);
+              }}
               data-testid="button-dismiss-foh-alert"
             >
               <X className="w-8 h-8 mr-3" />OK
