@@ -51,9 +51,11 @@ function LoginForm() {
       const res = await apiRequest("POST", "/api/auth/login", { pin });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      setLocation("/");
+      const allowed = ["/bagel-bros", "/platform", "/bakery", "/clock"];
+      const page = data?.defaultPage && allowed.includes(data.defaultPage) ? data.defaultPage : "/";
+      setLocation(page);
     },
     onError: (error: Error) => {
       toast({ title: "Login failed", description: error.message, variant: "destructive" });

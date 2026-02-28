@@ -463,6 +463,19 @@ function UserDetailDialog({
     },
   });
 
+  const defaultPageMutation = useMutation({
+    mutationFn: async (page: string | null) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/default-page`, { defaultPage: page });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Default page updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleSidebarItem = (href: string) => {
     const allHrefs = ALL_SIDEBAR_ITEMS.map(i => i.href);
     if (currentPerms === null) {
@@ -664,6 +677,25 @@ function UserDetailDialog({
                   />
                 </div>
               )}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Default Landing Page</Label>
+                <Select
+                  value={(u as any).defaultPage || "home"}
+                  onValueChange={(val) => defaultPageMutation.mutate(val === "home" ? null : val)}
+                >
+                  <SelectTrigger data-testid={`select-default-page-${u.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">Home</SelectItem>
+                    <SelectItem value="/bagel-bros">Bagel Bros</SelectItem>
+                    <SelectItem value="/platform">Platform 9¾</SelectItem>
+                    <SelectItem value="/bakery">Bakery</SelectItem>
+                    <SelectItem value="/clock">Kiosk Clock</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Where this person lands after signing in.</p>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"

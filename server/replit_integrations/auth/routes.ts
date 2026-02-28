@@ -220,6 +220,25 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/default-page", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { defaultPage } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const ALLOWED_DEFAULT_PAGES = ["/bagel-bros", "/platform", "/bakery", "/clock"];
+      const page = defaultPage && typeof defaultPage === "string" && ALLOWED_DEFAULT_PAGES.includes(defaultPage) ? defaultPage : null;
+      const user = await authStorage.updateUserProfile(targetId, { defaultPage: page });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating default page:", error);
+      res.status(500).json({ message: "Failed to update default page" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/pin", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const { pin } = req.body;
