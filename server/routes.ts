@@ -6076,7 +6076,7 @@ Guidelines:
         priority,
         status: "open",
         pagePath: pagePath || null,
-        userId: req.user!.id,
+        userId: (req as any).appUser.id,
         aiSummary,
         metadata: {
           userAgent: req.headers["user-agent"],
