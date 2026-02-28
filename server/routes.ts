@@ -2832,8 +2832,8 @@ ${sopsHtml}
     try {
       const listId = Number(req.params.id);
       const { assignedTo, department, date } = req.body;
-      if (!assignedTo || !department || !date) {
-        return res.status(400).json({ message: "assignedTo, department, and date are required" });
+      if (!department || !date) {
+        return res.status(400).json({ message: "department and date are required" });
       }
 
       const assigner = req.appUser;
@@ -2842,30 +2842,32 @@ ${sopsHtml}
       const existingList = await storage.getTaskList(listId);
       if (!existingList) return res.status(404).json({ message: "List not found" });
 
-      const list = await storage.assignTaskList(listId, assignedTo, assigner?.id || "unknown", department, date);
+      const list = await storage.assignTaskList(listId, assignedTo || null, assigner?.id || "unknown", department, date);
       if (!list) return res.status(500).json({ message: "Failed to assign list" });
 
       const fullList = await storage.getTaskList(listId);
       const itemCount = fullList?.items?.length || 0;
 
-      try {
-        const msg = await storage.sendMessage({
-          senderId: assigner?.id || "system",
-          subject: `Task List Assigned: ${list.title}`,
-          body: `${assignerName} assigned you a task list "${list.title}" with ${itemCount} item${itemCount !== 1 ? 's' : ''} for ${date} (${department} department).\n\nOpen your task list: /tasks/assigned/${listId}`,
-          priority: "normal",
-          requiresAck: false,
-          targetType: "individual",
-          targetValue: assignedTo,
-        }, [assignedTo]);
+      if (assignedTo) {
+        try {
+          await storage.sendMessage({
+            senderId: assigner?.id || "system",
+            subject: `Task List Assigned: ${list.title}`,
+            body: `${assignerName} assigned you a task list "${list.title}" with ${itemCount} item${itemCount !== 1 ? 's' : ''} for ${date} (${department} department).\n\nOpen your task list: /tasks/assigned/${listId}`,
+            priority: "normal",
+            requiresAck: false,
+            targetType: "individual",
+            targetValue: assignedTo,
+          }, [assignedTo]);
 
-        sendPushToUser(assignedTo, {
-          title: "Task List Assigned",
-          body: `"${list.title}" - ${itemCount} tasks for ${date}`,
-          url: `/tasks/assigned/${listId}`,
-        });
-      } catch (e) {
-        // Message send failure shouldn't block assignment
+          sendPushToUser(assignedTo, {
+            title: "Task List Assigned",
+            body: `"${list.title}" - ${itemCount} tasks for ${date}`,
+            url: `/tasks/assigned/${listId}`,
+          });
+        } catch (e) {
+          // Message send failure shouldn't block assignment
+        }
       }
 
       res.json(list);

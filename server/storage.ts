@@ -271,7 +271,7 @@ export interface IStorage {
 
   // Task Assignment & Performance
   getAssignedTaskLists(userId: string): Promise<TaskList[]>;
-  assignTaskList(listId: number, assignedTo: string, assignedBy: string, department: string, date: string): Promise<TaskList>;
+  assignTaskList(listId: number, assignedTo: string | null, assignedBy: string, department: string, date: string): Promise<TaskList>;
   startTaskItem(itemId: number, userId: string): Promise<TaskListItem>;
   completeTaskItem(itemId: number, userId: string): Promise<TaskListItem>;
   createPerformanceLog(log: InsertTaskPerformanceLog): Promise<TaskPerformanceLog>;
@@ -1299,11 +1299,15 @@ export class DatabaseStorage implements IStorage {
   // Task Assignment & Performance
   async getAssignedTaskLists(userId: string): Promise<TaskList[]> {
     return await db.select().from(taskLists)
-      .where(and(eq(taskLists.assignedTo, userId), eq(taskLists.status, "active")))
+      .where(and(
+        sql`(${taskLists.assignedTo} = ${userId} OR ${taskLists.assignedTo} IS NULL)`,
+        eq(taskLists.status, "active"),
+        sql`${taskLists.department} IS NOT NULL`,
+      ))
       .orderBy(desc(taskLists.assignedAt));
   }
 
-  async assignTaskList(listId: number, assignedTo: string, assignedBy: string, department: string, date: string): Promise<TaskList> {
+  async assignTaskList(listId: number, assignedTo: string | null, assignedBy: string, department: string, date: string): Promise<TaskList> {
     const [updated] = await db.update(taskLists).set({
       assignedTo,
       assignedBy,

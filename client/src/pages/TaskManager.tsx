@@ -128,6 +128,11 @@ function TaskListsPanel({ onSelectList }: { onSelectList: (id: number) => void }
                           <UserPlus className="w-3 h-3 mr-1" /> Assigned
                         </Badge>
                       )}
+                      {!list.assignedTo && list.department && list.date && (
+                        <Badge variant="secondary" className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                          <Users className="w-3 h-3 mr-1" /> Dept
+                        </Badge>
+                      )}
                       {list.department && (
                         <Badge variant="outline" className="text-xs capitalize">{list.department}</Badge>
                       )}
@@ -297,12 +302,19 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-display font-bold truncate" data-testid="text-list-title">{list.title}</h1>
           {list.description && <p className="text-sm text-muted-foreground">{list.description}</p>}
-          {list.assignedTo && (
+          {(list.assignedTo || (list.department && list.date)) && (
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <Badge variant="secondary" className="text-xs">
-                <UserPlus className="w-3 h-3 mr-1" />
-                Assigned to {team?.find(t => t.id === list.assignedTo)?.firstName || "team member"}
-              </Badge>
+              {list.assignedTo ? (
+                <Badge variant="secondary" className="text-xs">
+                  <UserPlus className="w-3 h-3 mr-1" />
+                  Assigned to {team?.find(t => t.id === list.assignedTo)?.firstName || "team member"}
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                  <Users className="w-3 h-3 mr-1" />
+                  Department task
+                </Badge>
+              )}
               {list.department && <Badge variant="outline" className="text-xs capitalize">{list.department}</Badge>}
               {list.date && <span className="text-xs text-muted-foreground">{list.date}</span>}
             </div>
@@ -311,10 +323,10 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
         <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
           {isManager && !list.assignedTo && (
             <Button variant="default" onClick={() => setAssignOpen(true)} data-testid="button-assign-list">
-              <UserPlus className="w-4 h-4 mr-2" /> Assign
+              <UserPlus className="w-4 h-4 mr-2" /> {list.department ? "Reassign" : "Assign"}
             </Button>
           )}
-          {isManager && list.assignedTo && uncompletedCount > 0 && list.status === "active" && (
+          {isManager && (list.assignedTo || list.department) && uncompletedCount > 0 && list.status === "active" && (
             <Button variant="outline" onClick={() => { if (confirm(`Roll over ${uncompletedCount} uncompleted items to department to-do?`)) rolloverMut.mutate(); }} data-testid="button-rollover">
               <RotateCcw className="w-4 h-4 mr-2" /> Roll Over ({uncompletedCount})
             </Button>
@@ -433,35 +445,41 @@ function TaskListDetail({ listId, onBack }: { listId: number; onBack: () => void
           team={team || []}
           open={assignOpen}
           onOpenChange={setAssignOpen}
+          currentDepartment={list.department || ""}
         />
       )}
     </div>
   );
 }
 
-function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
+function AssignDialog({ listId, listTitle, team, open, onOpenChange, currentDepartment = "" }: {
   listId: number;
   listTitle: string;
   team: TeamMember[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  currentDepartment?: string;
 }) {
   const { toast } = useToast();
   const [assignedTo, setAssignedTo] = useState("");
-  const [department, setDepartment] = useState("");
+  const [department, setDepartment] = useState(currentDepartment);
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
 
   const assignMut = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/task-lists/${listId}/assign`, {
-        assignedTo, department, date,
+        assignedTo: assignedTo && assignedTo !== "__dept__" ? assignedTo : null, department, date,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-lists"] });
       queryClient.invalidateQueries({ queryKey: ["/api/task-lists", listId] });
-      toast({ title: "Task list assigned", description: "A message has been sent to the team member." });
+      queryClient.invalidateQueries({ queryKey: ["/api/task-lists/assigned"] });
+      const desc = assignedTo && assignedTo !== "__dept__"
+        ? "A message has been sent to the team member."
+        : `Assigned to the ${department} department. Anyone can pick it up.`;
+      toast({ title: "Task list assigned", description: desc });
       onOpenChange(false);
     },
     onError: (err: Error) => {
@@ -474,24 +492,9 @@ function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Assign Task List</DialogTitle>
-          <DialogDescription>Assign "{listTitle}" to a team member. They'll be notified via message.</DialogDescription>
+          <DialogDescription>Assign "{listTitle}" to a team member or a whole department.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Assign To</label>
-            <Select value={assignedTo} onValueChange={setAssignedTo}>
-              <SelectTrigger data-testid="select-assign-to">
-                <SelectValue placeholder="Select team member..." />
-              </SelectTrigger>
-              <SelectContent>
-                {team.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.firstName || m.username || "Unknown"} {m.lastName || ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div>
             <label className="text-sm font-medium">Department</label>
             <Select value={department} onValueChange={setDepartment}>
@@ -507,6 +510,25 @@ function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
             </Select>
           </div>
           <div>
+            <label className="text-sm font-medium">Assign To (optional)</label>
+            <Select value={assignedTo} onValueChange={setAssignedTo}>
+              <SelectTrigger data-testid="select-assign-to">
+                <SelectValue placeholder="Entire department (anyone can pick up)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__dept__">Entire department</SelectItem>
+                {team.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.firstName || m.username || "Unknown"} {m.lastName || ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Leave as "Entire department" for daily lists like opening/closing.
+            </p>
+          </div>
+          <div>
             <label className="text-sm font-medium">Date</label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="input-assign-date" />
           </div>
@@ -515,10 +537,10 @@ function AssignDialog({ listId, listTitle, team, open, onOpenChange }: {
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={() => assignMut.mutate()}
-            disabled={!assignedTo || !department || !date || assignMut.isPending}
+            disabled={!department || !date || assignMut.isPending}
             data-testid="button-confirm-assign"
           >
-            {assignMut.isPending ? "Assigning..." : "Assign & Notify"}
+            {assignMut.isPending ? "Assigning..." : assignedTo && assignedTo !== "__dept__" ? "Assign & Notify" : "Assign to Dept"}
           </Button>
         </DialogFooter>
       </DialogContent>
