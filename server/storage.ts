@@ -81,6 +81,9 @@ import {
   bagelSessions, bagelOvenLoads,
   type BagelSession, type InsertBagelSession,
   type BagelOvenLoad, type InsertBagelOvenLoad,
+  appSettings,
+  devFeedback,
+  type DevFeedback, type InsertDevFeedback,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -459,6 +462,16 @@ export interface IStorage {
   createOvenLoad(data: InsertBagelOvenLoad): Promise<BagelOvenLoad>;
   getOvenLoads(sessionId: number): Promise<BagelOvenLoad[]>;
   finishOvenLoad(id: number): Promise<BagelOvenLoad>;
+
+  // App Settings
+  getAppSetting(key: string): Promise<string | null>;
+  setAppSetting(key: string, value: string): Promise<void>;
+
+  // Dev Feedback
+  createDevFeedback(feedback: InsertDevFeedback): Promise<DevFeedback>;
+  getDevFeedback(filters?: { status?: string; type?: string }): Promise<DevFeedback[]>;
+  updateDevFeedback(id: number, updates: Partial<DevFeedback>): Promise<DevFeedback>;
+  deleteDevFeedback(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2977,6 +2990,46 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bagelOvenLoads.id, id))
       .returning();
     return updated;
+  }
+
+  // App Settings
+  async getAppSetting(key: string): Promise<string | null> {
+    const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+    return row?.value ?? null;
+  }
+
+  async setAppSetting(key: string, value: string): Promise<void> {
+    const existing = await this.getAppSetting(key);
+    if (existing !== null) {
+      await db.update(appSettings).set({ value }).where(eq(appSettings.key, key));
+    } else {
+      await db.insert(appSettings).values({ key, value });
+    }
+  }
+
+  // Dev Feedback
+  async createDevFeedback(feedback: InsertDevFeedback): Promise<DevFeedback> {
+    const [created] = await db.insert(devFeedback).values(feedback).returning();
+    return created;
+  }
+
+  async getDevFeedback(filters?: { status?: string; type?: string }): Promise<DevFeedback[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(devFeedback.status, filters.status));
+    if (filters?.type) conditions.push(eq(devFeedback.type, filters.type));
+    if (conditions.length > 0) {
+      return await db.select().from(devFeedback).where(and(...conditions)).orderBy(desc(devFeedback.createdAt));
+    }
+    return await db.select().from(devFeedback).orderBy(desc(devFeedback.createdAt));
+  }
+
+  async updateDevFeedback(id: number, updates: Partial<DevFeedback>): Promise<DevFeedback> {
+    const [updated] = await db.update(devFeedback).set(updates).where(eq(devFeedback.id, id)).returning();
+    return updated;
+  }
+
+  async deleteDevFeedback(id: number): Promise<void> {
+    await db.delete(devFeedback).where(eq(devFeedback.id, id));
   }
 }
 

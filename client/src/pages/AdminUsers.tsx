@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2 } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -25,10 +25,25 @@ export default function AdminUsers() {
   const [resetPinUser, setResetPinUser] = useState<User | null>(null);
 
   const isManagerOrOwner = currentUser?.role === "owner" || currentUser?.role === "manager";
+  const isOwner = currentUser?.role === "owner";
 
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
     enabled: isManagerOrOwner,
+  });
+
+  const { data: devModeData } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/app-settings/dev-mode"],
+    enabled: isOwner,
+  });
+
+  const devModeMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest("POST", "/api/app-settings/dev-mode", { enabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/app-settings/dev-mode"] });
+      toast({ title: devModeData?.enabled ? "Developer mode disabled" : "Developer mode enabled" });
+    },
   });
 
   const roleMutation = useMutation({
@@ -101,10 +116,24 @@ export default function AdminUsers() {
             <p className="text-sm text-muted-foreground">{users?.length || 0} team members</p>
           </div>
         </div>
-        <Button onClick={() => setAddOpen(true)} data-testid="button-add-team-member">
-          <UserPlus className="w-4 h-4 mr-2" />
-          Add Team Member
-        </Button>
+        <div className="flex items-center gap-3">
+          {isOwner && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/30" data-testid="container-dev-mode-toggle">
+              <Code2 className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Dev Mode</span>
+              <Switch
+                checked={devModeData?.enabled ?? false}
+                onCheckedChange={(checked) => devModeMutation.mutate(checked)}
+                disabled={devModeMutation.isPending}
+                data-testid="switch-dev-mode"
+              />
+            </div>
+          )}
+          <Button onClick={() => setAddOpen(true)} data-testid="button-add-team-member">
+            <UserPlus className="w-4 h-4 mr-2" />
+            Add Team Member
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

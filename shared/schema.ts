@@ -1065,3 +1065,30 @@ export const insertBagelOvenLoadSchema = createInsertSchema(bagelOvenLoads).omit
 export type BagelOvenLoad = typeof bagelOvenLoads.$inferSelect;
 export type InsertBagelOvenLoad = z.infer<typeof insertBagelOvenLoadSchema>;
 
+// === APP SETTINGS ===
+export const appSettings = pgTable("app_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+});
+
+// === DEV FEEDBACK ===
+export const devFeedback = pgTable("dev_feedback", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  category: text("category"),
+  priority: text("priority"),
+  status: text("status").default("open").notNull(),
+  pagePath: text("page_path"),
+  userId: text("user_id").references(() => users.id),
+  aiSummary: text("ai_summary"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDevFeedbackSchema = createInsertSchema(devFeedback).omit({ id: true, createdAt: true });
+export type DevFeedback = typeof devFeedback.$inferSelect;
+export type InsertDevFeedback = z.infer<typeof insertDevFeedbackSchema>;
+

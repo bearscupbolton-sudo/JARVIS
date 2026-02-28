@@ -5743,6 +5743,155 @@ Rules:
     }
   });
 
+  // === DEV MODE & FEEDBACK ===
+  app.get("/api/app-settings/dev-mode", isAuthenticated, async (_req, res) => {
+    try {
+      const val = await storage.getAppSetting("dev_mode");
+      res.json({ enabled: val === "true" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/app-settings/dev-mode", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      await storage.setAppSetting("dev_mode", enabled ? "true" : "false");
+      res.json({ enabled: !!enabled });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/dev-feedback", isAuthenticated, async (req, res) => {
+    try {
+      const devMode = await storage.getAppSetting("dev_mode");
+      if (devMode !== "true") {
+        return res.status(403).json({ message: "Developer mode is not enabled" });
+      }
+      const { type, description, pagePath } = req.body;
+      const allowedTypes = ["bug", "suggestion", "idea"];
+      if (!type || !allowedTypes.includes(type)) {
+        return res.status(400).json({ message: "Type must be one of: bug, suggestion, idea" });
+      }
+      if (!description || typeof description !== "string" || description.trim().length === 0) {
+        return res.status(400).json({ message: "Description is required" });
+      }
+
+      let title = description.slice(0, 80);
+      let category = "General";
+      let priority = "medium";
+      let aiSummary = description;
+
+      try {
+        const OpenAI = (await import("openai")).default;
+        const ai = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
+        const aiResponse = await withRetry(() => ai.chat.completions.create({
+          model: "gpt-4o-mini",
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: `You are Jarvis, an AI assistant for a bakery management app. A team member has submitted feedback. Analyze it and return JSON with:
+- "title": A concise 5-10 word title summarizing the feedback
+- "category": One of: "UI", "Production", "Scheduling", "Performance", "Navigation", "Data", "Notifications", "Login", "General"
+- "priority": One of: "low", "medium", "high", "critical" (critical = app-breaking bugs, high = major issues, medium = moderate issues/good suggestions, low = minor/cosmetic)
+- "summary": A 1-3 sentence organized summary of the feedback, written clearly for the app owner to review`
+            },
+            {
+              role: "user",
+              content: `Type: ${type}\nPage: ${pagePath || "Unknown"}\nDescription: ${description}`
+            }
+          ],
+        }));
+        const content = aiResponse.choices[0]?.message?.content;
+        if (content) {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            title = parsed.title || title;
+            category = parsed.category || category;
+            priority = parsed.priority || priority;
+            aiSummary = parsed.summary || aiSummary;
+          }
+        }
+      } catch (aiErr) {
+        console.error("[DevFeedback] AI categorization failed, using defaults:", aiErr);
+      }
+
+      const feedback = await storage.createDevFeedback({
+        type,
+        title,
+        description,
+        category,
+        priority,
+        status: "open",
+        pagePath: pagePath || null,
+        userId: req.user!.id,
+        aiSummary,
+        metadata: {
+          userAgent: req.headers["user-agent"],
+          submittedAt: new Date().toISOString(),
+        },
+      });
+      res.json(feedback);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dev-feedback", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const filters: { status?: string; type?: string } = {};
+      if (req.query.status) filters.status = req.query.status as string;
+      if (req.query.type) filters.type = req.query.type as string;
+      const items = await storage.getDevFeedback(filters);
+
+      const userIds = [...new Set(items.map(i => i.userId).filter(Boolean))] as string[];
+      let userMap: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const allUsers = await db.select().from(users).where(inArray(users.id, userIds));
+        for (const u of allUsers) {
+          userMap[u.id] = { firstName: u.firstName, lastName: u.lastName, username: u.username };
+        }
+      }
+
+      const enriched = items.map(item => ({
+        ...item,
+        submitter: item.userId ? userMap[item.userId] || null : null,
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/dev-feedback/:id", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const allowedStatuses = ["open", "reviewed", "in_progress", "resolved", "dismissed"];
+      const { status } = req.body;
+      if (!status || !allowedStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+      const updated = await storage.updateDevFeedback(Number(req.params.id), { status });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/dev-feedback/:id", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      await storage.deleteDevFeedback(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   (async () => {
     try {
       const existingGames = await storage.getStarkadeGames();

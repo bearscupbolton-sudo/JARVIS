@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { LocationProvider } from "@/hooks/use-location-context";
 import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
+import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
@@ -56,6 +57,7 @@ import MLL from "@/pages/MLL";
 import Notes from "@/pages/Notes";
 import Vendors from "@/pages/Vendors";
 import BagelBros from "@/pages/BagelBros";
+import DevFeedback from "@/pages/DevFeedback";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -246,6 +248,9 @@ function Router() {
       <Route path="/bagel-bros">
         {() => <ProtectedRoute component={BagelBros} noLayout />}
       </Route>
+      <Route path="/dev-feedback">
+        {() => <ProtectedRoute component={DevFeedback} />}
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
@@ -258,6 +263,7 @@ function App() {
       <TooltipProvider>
         <Router />
         <LobbyCheckAlert />
+        <DevFeedbackOverlay />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
