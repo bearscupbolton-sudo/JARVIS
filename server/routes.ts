@@ -5,7 +5,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
-import { openai, speechToText, ensureCompatibleFormat } from "./replit_integrations/audio/client";
+import { openai, speechToText, ensureCompatibleFormat, detectAudioFormat } from "./replit_integrations/audio/client";
 import { sendPushToUsers, sendPushToUser } from "./push";
 import { sendSms } from "./sms";
 import { db } from "./db";
@@ -2865,8 +2865,9 @@ Only return the JSON array, no other text.`;
         transcript = text.trim();
       } else if (audio) {
         const rawBuffer = Buffer.from(audio, "base64");
-        const { buffer: audioBuffer, format: inputFormat } = await ensureCompatibleFormat(rawBuffer);
-        transcript = await speechToText(audioBuffer, inputFormat);
+        const detected = detectAudioFormat(rawBuffer);
+        const audioFormat = detected === "unknown" ? "wav" : detected;
+        transcript = await speechToText(rawBuffer, audioFormat);
       }
 
       if (!transcript || transcript.trim().length === 0) {
@@ -5977,8 +5978,9 @@ GUIDELINES:
       if (!audio || typeof audio !== "string") return res.status(400).json({ message: "Audio data required" });
       if (audio.length > 10 * 1024 * 1024) return res.status(400).json({ message: "Audio too large. Maximum 10MB." });
       const audioBuffer = Buffer.from(audio, "base64");
-      const { buffer, format } = await ensureCompatibleFormat(audioBuffer);
-      const transcript = await speechToText(buffer, format);
+      const detected = detectAudioFormat(audioBuffer);
+      const format = detected === "unknown" ? "wav" : detected;
+      const transcript = await speechToText(audioBuffer, format);
       res.json({ transcript });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
