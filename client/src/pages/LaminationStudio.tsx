@@ -568,7 +568,7 @@ export default function LaminationStudio() {
       const totalWeight = dtConfig.baseDoughWeightG + (dtConfig.baseDoughWeightG * fatRatio / (1 - fatRatio));
       setDoughWeightG(String(Math.round(totalWeight)));
     } else {
-      setDoughWeightG("");
+      setDoughWeightG("9400");
     }
   };
 
