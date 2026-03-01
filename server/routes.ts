@@ -10,7 +10,7 @@ import { sendPushToUsers, sendPushToUser } from "./push";
 import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or } from "drizzle-orm";
+import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
 import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
