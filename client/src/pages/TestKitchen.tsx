@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -50,7 +50,15 @@ export default function TestKitchen() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [deptInitialized, setDeptInitialized] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  useEffect(() => {
+    if (!deptInitialized && (user as any)?.department) {
+      setDepartmentFilter((user as any).department);
+      setDeptInitialized(true);
+    }
+  }, [user, deptInitialized]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<number | null>(null);
 

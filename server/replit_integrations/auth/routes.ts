@@ -120,6 +120,7 @@ export function registerAuthRoutes(app: Express): void {
         lastName: input.lastName || null,
         username: input.username,
         role: input.role,
+        department: input.department || "bakery",
         phone: input.phone || null,
         contactEmail: input.contactEmail || null,
         emergencyContactName: input.emergencyContactName || null,
@@ -269,6 +270,27 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error updating default page:", error);
       res.status(500).json({ message: "Failed to update default page" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/department", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { department } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const ALLOWED_DEPARTMENTS = ["bakery", "kitchen", "bar", "foh"];
+      if (!department || !ALLOWED_DEPARTMENTS.includes(department)) {
+        return res.status(400).json({ message: "Invalid department" });
+      }
+      const user = await authStorage.updateUserProfile(targetId, { department });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating department:", error);
+      res.status(500).json({ message: "Failed to update department" });
     }
   });
 

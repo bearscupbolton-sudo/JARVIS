@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,8 +41,8 @@ import {
 import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
 const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Cake", "Bread", "Other"];
-const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "foh"];
-const DEPARTMENT_LABELS: Record<string, string> = { bakery: "Bakery", kitchen: "Kitchen", foh: "FOH" };
+const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "bar", "foh"];
+const DEPARTMENT_LABELS: Record<string, string> = { bakery: "Bakery", kitchen: "Kitchen", bar: "Bar", foh: "FOH" };
 
 const CATEGORY_ICONS: Record<string, any> = {
   "Croissant": Croissant,
@@ -54,13 +55,22 @@ const CATEGORY_ICONS: Record<string, any> = {
 
 export default function PastryItems() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<PastryItem | null>(null);
   const [name, setName] = useState("");
   const [doughType, setDoughType] = useState("");
   const [department, setDepartment] = useState("bakery");
   const [filterDept, setFilterDept] = useState<string>("all");
+  const [deptInitialized, setDeptInitialized] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
+
+  useEffect(() => {
+    if (!deptInitialized && (user as any)?.department) {
+      setFilterDept((user as any).department);
+      setDeptInitialized(true);
+    }
+  }, [user, deptInitialized]);
   const [fatConfigType, setFatConfigType] = useState<string | null>(null);
   const [fatRatio, setFatRatio] = useState("");
   const [fatItemId, setFatItemId] = useState<string>("");

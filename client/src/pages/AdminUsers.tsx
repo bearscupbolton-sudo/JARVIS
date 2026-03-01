@@ -296,6 +296,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [role, setRole] = useState("member");
+  const [department, setDepartment] = useState("bakery");
   const [phone, setPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState("");
@@ -310,6 +311,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         username,
         pin,
         role,
+        department,
         phone: phone || undefined,
         contactEmail: contactEmail || undefined,
         emergencyContactName: emergencyContactName || undefined,
@@ -335,6 +337,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     setUsername("");
     setPin("");
     setRole("member");
+    setDepartment("bakery");
     setPhone("");
     setContactEmail("");
     setEmergencyContactName("");
@@ -382,6 +385,21 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <SelectContent>
                 <SelectItem value="member">Member</SelectItem>
                 <SelectItem value="manager">Manager</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Department</Label>
+            <Select value={department} onValueChange={setDepartment}>
+              <SelectTrigger data-testid="select-member-department">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bakery">Bakery</SelectItem>
+                <SelectItem value="kitchen">Kitchen</SelectItem>
+                <SelectItem value="bar">Bar</SelectItem>
+                <SelectItem value="foh">FOH</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -585,6 +603,20 @@ function UserDetailDialog({
     },
   });
 
+  const departmentMutation = useMutation({
+    mutationFn: async (department: string) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/department`, { department });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      toast({ title: "Department updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleSidebarItem = (href: string) => {
     const allHrefs = ALL_SIDEBAR_ITEMS.map(i => i.href);
     if (currentPerms === null) {
@@ -768,6 +800,24 @@ function UserDetailDialog({
                     <SelectItem value="member">Member</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Department</Label>
+                <Select
+                  value={(u as any).department || "bakery"}
+                  onValueChange={(val) => departmentMutation.mutate(val)}
+                >
+                  <SelectTrigger data-testid={`select-detail-department-${u.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bakery">Bakery</SelectItem>
+                    <SelectItem value="kitchen">Kitchen</SelectItem>
+                    <SelectItem value="bar">Bar</SelectItem>
+                    <SelectItem value="foh">FOH</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Sets default filters across the app for this team member</p>
               </div>
               {(u.role === "manager" || u.role === "owner") && (
                 <div className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30">

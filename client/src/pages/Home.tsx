@@ -537,7 +537,15 @@ export default function Home() {
   const todayDate = new Date().toISOString().split("T")[0];
 
   const [taskDeptFilter, setTaskDeptFilter] = useState("all");
+  const [taskDeptInitialized, setTaskDeptInitialized] = useState(false);
   const [taskStatusFilter, setTaskStatusFilter] = useState<"open" | "completed">("open");
+
+  useEffect(() => {
+    if (!taskDeptInitialized && (user as any)?.department) {
+      setTaskDeptFilter((user as any).department);
+      setTaskDeptInitialized(true);
+    }
+  }, [user, taskDeptInitialized]);
 
   const { data: homeData, isLoading: loadingHome } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
   const { data: assignedTasks = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists/assigned"] });

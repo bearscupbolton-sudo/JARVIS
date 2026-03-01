@@ -27,7 +27,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
-  HandMetal, Upload, FileSpreadsheet, AlertTriangle
+  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
 
@@ -37,6 +37,7 @@ const DEPARTMENTS = [
   { value: "kitchen", label: "Kitchen", icon: ChefHat, color: "text-orange-600 dark:text-orange-400" },
   { value: "foh", label: "FOH", icon: Store, color: "text-blue-600 dark:text-blue-400" },
   { value: "bakery", label: "Bakery", icon: CakeSlice, color: "text-amber-700 dark:text-amber-400" },
+  { value: "bar", label: "Bar", icon: Coffee, color: "text-purple-600 dark:text-purple-400" },
 ] as const;
 
 function getDisplayName(member: TeamMember): string {
@@ -139,7 +140,15 @@ export default function Schedule() {
   const [clearRange, setClearRange] = useState<"week" | "custom">("week");
   const [clearStartDate, setClearStartDate] = useState("");
   const [clearEndDate, setClearEndDate] = useState("");
-  const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery">("all");
+  const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery" | "bar">("all");
+  const [deptInitialized, setDeptInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!deptInitialized && (user as any)?.department) {
+      setDeptFilter((user as any).department);
+      setDeptInitialized(true);
+    }
+  }, [user, deptInitialized]);
 
   const shiftForm = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),

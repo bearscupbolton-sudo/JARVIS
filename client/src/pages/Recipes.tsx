@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -61,6 +61,14 @@ export default function Recipes() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [deptInitialized, setDeptInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!deptInitialized && (user as any)?.department) {
+      setDepartmentFilter((user as any).department);
+      setDeptInitialized(true);
+    }
+  }, [user, deptInitialized]);
 
   const deptRecipes = recipes?.filter(r => departmentFilter === "all" || (r as any).department === departmentFilter || (!((r as any).department) && departmentFilter === "bakery"));
 
