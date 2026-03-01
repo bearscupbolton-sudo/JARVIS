@@ -1,6 +1,6 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
-import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations } from "@shared/schema";
+import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems } from "@shared/schema";
 import { eq, and, gte, lte, inArray, isNull } from "drizzle-orm";
 
 function getSquareClient() {
@@ -344,7 +344,8 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
   if (locationId) salesCond.push(eq(squareSales.locationId, locationId));
   const bakedCond = [eq(bakeoffLogs.date, date)];
   if (locationId) bakedCond.push(eq(bakeoffLogs.locationId, locationId));
-  const [goals, baked, sales] = await Promise.all([
+  const [activePastryItems, goals, baked, sales] = await Promise.all([
+    db.select().from(pastryItems).where(eq(pastryItems.isActive, true)),
     db.select().from(pastryTotals).where(and(...goalsCond)),
     db.select().from(bakeoffLogs).where(and(...bakedCond)),
     db.select().from(squareSales).where(and(...salesCond)),
@@ -364,6 +365,7 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
   }
 
   const allItemKeys = Array.from(new Set([
+    ...activePastryItems.map(p => p.name),
     ...goals.map(g => g.itemName),
     ...Array.from(bakedAgg.keys()),
     ...Array.from(soldAgg.keys()),
@@ -400,10 +402,10 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
     let paceStatus: "on_track" | "selling_fast" | "selling_slow" | "sold_out" | "no_data" = "no_data";
     let projectedSellOut: string | null = null;
 
-    if (goal > 0 && bakedCount > 0) {
+    if (bakedCount > 0) {
       if (remaining <= 0) {
         paceStatus = "sold_out";
-      } else if (dayProgress > 0.1 && soldData.qty > 0) {
+      } else if (goal > 0 && dayProgress > 0.1 && soldData.qty > 0) {
         const salesRate = soldData.qty / elapsedHours;
         const expectedByNow = goal * dayProgress;
         const ratio = soldData.qty / expectedByNow;
@@ -420,6 +422,8 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
         } else {
           paceStatus = "on_track";
         }
+      } else if (soldData.qty > 0) {
+        paceStatus = remaining <= 0 ? "sold_out" : "on_track";
       } else {
         paceStatus = "on_track";
       }
