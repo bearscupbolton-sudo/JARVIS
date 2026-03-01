@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   FlaskConical, Plus, Trash2, GripVertical, DollarSign, Calendar,
   ChevronRight, Sparkles, MessageSquare, Eye, Beaker, CheckCircle2,
-  ArrowRight, TrendingUp, Package, X, Bot, Zap, Lightbulb, Target,
+  ArrowRight, TrendingUp, Package, X, Zap, Lightbulb, Target,
   BarChart3, ShoppingCart, Loader2,
 } from "lucide-react";
 import type { TestKitchenItem, TestKitchenNote, InventoryItem } from "@shared/schema";
@@ -136,8 +136,8 @@ export default function TestKitchen() {
             <CardContent className="p-8 md:p-12">
               <div className="max-w-2xl mx-auto space-y-8">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/20">
-                    <Bot className="h-6 w-6" />
+                  <div className="p-1.5 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg shadow-purple-500/20">
+                    <img src="/bear-logo.png" alt="Jarvis" className="h-7 w-7 object-contain invert" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Jarvis</p>
@@ -861,7 +861,7 @@ function SpecialDetailSheet({
                   {optimizeMutation.isPending ? (
                     <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                   ) : (
-                    <Bot className="h-3 w-3 mr-1" />
+                    <img src="/bear-logo.png" alt="" className="h-3.5 w-3.5 object-contain invert mr-1" />
                   )}
                   {optimizeMutation.isPending ? "Analyzing..." : "Jarvis Optimize"}
                 </Button>
@@ -874,8 +874,8 @@ function SpecialDetailSheet({
               <CardContent className="p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 text-white">
-                      <Bot className="h-4 w-4" />
+                    <div className="p-1 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500">
+                      <img src="/bear-logo.png" alt="Jarvis" className="h-5 w-5 object-contain invert" />
                     </div>
                     <div>
                       <p className="text-sm font-semibold">Jarvis Optimization</p>
