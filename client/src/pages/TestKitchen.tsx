@@ -17,7 +17,8 @@ import { Separator } from "@/components/ui/separator";
 import {
   FlaskConical, Plus, Trash2, GripVertical, DollarSign, Calendar,
   ChevronRight, Sparkles, MessageSquare, Eye, Beaker, CheckCircle2,
-  ArrowRight, TrendingUp, Package, X,
+  ArrowRight, TrendingUp, Package, X, Bot, Zap, Lightbulb, Target,
+  BarChart3, ShoppingCart, Loader2,
 } from "lucide-react";
 import type { TestKitchenItem, TestKitchenNote, InventoryItem } from "@shared/schema";
 
@@ -91,7 +92,7 @@ export default function TestKitchen() {
           </div>
           <Button
             onClick={() => setCreateOpen(true)}
-            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+            className="bg-gradient-to-r from-purple-500 to-pink-500"
             data-testid="button-new-special"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -131,15 +132,69 @@ export default function TestKitchen() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <FlaskConical className="h-12 w-12 text-muted-foreground/30 mb-4" />
-              <h3 className="text-lg font-medium mb-1">No specials yet</h3>
-              <p className="text-sm text-muted-foreground mb-4">Start experimenting with your next creation</p>
-              <Button onClick={() => setCreateOpen(true)} variant="outline" data-testid="button-new-special-empty">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Your First Special
-              </Button>
+          <Card className="border-0 bg-gradient-to-br from-purple-50 via-white to-pink-50 dark:from-purple-950/40 dark:via-background dark:to-pink-950/40 shadow-lg">
+            <CardContent className="p-8 md:p-12">
+              <div className="max-w-2xl mx-auto space-y-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/20">
+                    <Bot className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Jarvis</p>
+                    <p className="text-xs text-muted-foreground">Test Kitchen Assistant</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h2 className="text-2xl font-bold tracking-tight" data-testid="text-welcome-title">
+                    Welcome to the Test Kitchen
+                  </h2>
+                  <p className="text-muted-foreground leading-relaxed">
+                    This is your real-time development lab for building, costing, and perfecting new specials before they hit the menu. Every ingredient you add is costed against live inventory prices, so you always know exactly what a recipe costs to produce.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-white/5 border border-purple-100 dark:border-purple-900/30">
+                    <DollarSign className="h-5 w-5 text-purple-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Live Costing</p>
+                      <p className="text-xs text-muted-foreground">Ingredients link to real inventory prices. Cost/unit and margins update as you build.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-white/5 border border-purple-100 dark:border-purple-900/30">
+                    <Target className="h-5 w-5 text-pink-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Full Lifecycle</p>
+                      <p className="text-xs text-muted-foreground">Draft, test, review, and finalize. Each stage keeps your team aligned on what's next.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-white/5 border border-purple-100 dark:border-purple-900/30">
+                    <ShoppingCart className="h-5 w-5 text-purple-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Auto Vendor Orders</p>
+                      <p className="text-xs text-muted-foreground">Once finalized with a start date, ingredients auto-flow to your vendor purchase orders.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-white/5 border border-purple-100 dark:border-purple-900/30">
+                    <Sparkles className="h-5 w-5 text-pink-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Jarvis Optimize</p>
+                      <p className="text-xs text-muted-foreground">AI-powered recipe analysis finds cost savings while preserving flavor and quality.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => setCreateOpen(true)}
+                  size="lg"
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/20"
+                  data-testid="button-new-special-empty"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Create Your First Special
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : (
@@ -621,6 +676,11 @@ function SpecialDetailSheet({
   const [editDescription, setEditDescription] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [noteType, setNoteType] = useState("note");
+  const [optimizeResults, setOptimizeResults] = useState<any>(null);
+
+  useEffect(() => {
+    setOptimizeResults(null);
+  }, [itemId, open]);
 
   const { data: item, isLoading } = useQuery<TestKitchenItem & { notes: TestKitchenNote[] }>({
     queryKey: ["/api/test-kitchen", itemId],
@@ -698,6 +758,19 @@ function SpecialDetailSheet({
     },
   });
 
+  const optimizeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/test-kitchen/${itemId}/optimize`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setOptimizeResults(data);
+    },
+    onError: (err: any) => {
+      toast({ title: "Optimization failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (isLoading || !item) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -766,19 +839,112 @@ function SpecialDetailSheet({
                   </p>
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full mt-3"
-                onClick={() => costMutation.mutate()}
-                disabled={costMutation.isPending}
-                data-testid="button-recalculate-cost"
-              >
-                <DollarSign className="h-3 w-3 mr-1" />
-                {costMutation.isPending ? "Calculating..." : "Recalculate Cost"}
-              </Button>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => costMutation.mutate()}
+                  disabled={costMutation.isPending}
+                  data-testid="button-recalculate-cost"
+                >
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  {costMutation.isPending ? "Calculating..." : "Recalculate Cost"}
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white"
+                  onClick={() => optimizeMutation.mutate()}
+                  disabled={optimizeMutation.isPending}
+                  data-testid="button-jarvis-optimize"
+                >
+                  {optimizeMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <Bot className="h-3 w-3 mr-1" />
+                  )}
+                  {optimizeMutation.isPending ? "Analyzing..." : "Jarvis Optimize"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
+
+          {optimizeResults && (
+            <Card className="border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50/50 to-pink-50/50 dark:from-purple-950/20 dark:to-pink-950/20">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 text-white">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">Jarvis Optimization</p>
+                      <p className="text-xs text-muted-foreground">AI-powered recipe analysis</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setOptimizeResults(null)}
+                    data-testid="button-close-optimize"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {optimizeResults.summary && (
+                  <p className="text-sm text-muted-foreground italic">{optimizeResults.summary}</p>
+                )}
+
+                <div className="space-y-3">
+                  {(optimizeResults.recommendations || []).map((rec: any, i: number) => {
+                    const typeIcons: Record<string, any> = {
+                      substitution: Zap,
+                      quantity: BarChart3,
+                      technique: Beaker,
+                      sourcing: ShoppingCart,
+                      general: Lightbulb,
+                    };
+                    const TypeIcon = typeIcons[rec.type] || Lightbulb;
+                    const qualityColors: Record<string, string> = {
+                      none: "text-green-600",
+                      minimal: "text-yellow-600",
+                      improved: "text-emerald-600",
+                    };
+
+                    return (
+                      <div
+                        key={i}
+                        className="p-3 rounded-lg bg-white/70 dark:bg-white/5 border border-purple-100 dark:border-purple-900/30 space-y-2"
+                        data-testid={`optimize-recommendation-${i}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <TypeIcon className="h-4 w-4 text-purple-500 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold">{rec.title}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{rec.explanation}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 ml-6">
+                          {rec.estimatedSavings && (
+                            <Badge variant="outline" className="text-[10px] text-green-600 border-green-200 dark:border-green-900">
+                              <DollarSign className="h-3 w-3 mr-0.5" />
+                              {rec.estimatedSavings}
+                            </Badge>
+                          )}
+                          {rec.impactOnQuality && (
+                            <span className={`text-[10px] font-medium ${qualityColors[rec.impactOnQuality] || "text-muted-foreground"}`}>
+                              Quality: {rec.impactOnQuality}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Ingredients & Method - Edit Toggle */}
           {!editing ? (

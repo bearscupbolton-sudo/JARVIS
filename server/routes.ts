@@ -6780,6 +6780,99 @@ Guidelines:
     }
   });
 
+  app.post("/api/test-kitchen/:id/optimize", isAuthenticated, async (req: any, res) => {
+    try {
+      const item = await storage.getTestKitchenItem(parseInt(req.params.id));
+      if (!item) return res.status(404).json({ message: "Item not found" });
+
+      const allInventory = await storage.getInventoryItems();
+      const ingredients = (item.ingredients as any[]) || [];
+      const methodSteps = (item.method as string[]) || [];
+
+      const ingredientDetails = ingredients.map((ing: any) => {
+        const linked = ing.inventoryItemId ? allInventory.find((i: any) => i.id === ing.inventoryItemId) : null;
+        const costPerUnit = linked?.costPerUnit ?? ing.costPerUnit ?? null;
+        const lineCost = costPerUnit != null ? ing.quantity * costPerUnit : null;
+        return {
+          name: ing.name,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          costPerUnit,
+          lineCost,
+          linkedInventoryItem: linked?.name || null,
+        };
+      });
+
+      const totalCost = ingredientDetails.reduce((sum: number, i: any) => sum + (i.lineCost || 0), 0);
+      const costPerUnit = item.yieldAmount && item.yieldAmount > 0 ? totalCost / item.yieldAmount : null;
+      const margin = item.targetPrice && costPerUnit
+        ? ((item.targetPrice - costPerUnit) / item.targetPrice * 100)
+        : null;
+
+      const prompt = `You are Jarvis, the AI operations manager for Bear's Cup Bakehouse. Analyze this Test Kitchen recipe and provide optimization recommendations that maintain or improve flavor and presentation while reducing cost.
+
+RECIPE: "${item.title}"
+Department: ${item.department}
+Description: ${item.description || "None provided"}
+Status: ${item.status}
+
+TARGET PRICE: ${item.targetPrice != null ? `$${item.targetPrice.toFixed(2)}` : "Not set"}
+YIELD: ${item.yieldAmount || "?"} ${item.yieldUnit || "units"}
+TOTAL COST: $${totalCost.toFixed(2)}
+COST/UNIT: ${costPerUnit != null ? `$${costPerUnit.toFixed(2)}` : "Unknown"}
+MARGIN: ${margin != null ? `${margin.toFixed(1)}%` : "Unknown"}
+
+INGREDIENTS:
+${ingredientDetails.map((i: any) => `- ${i.name}: ${i.quantity} ${i.unit} (cost: ${i.lineCost != null ? `$${i.lineCost.toFixed(2)}` : "unknown"})`).join("\n")}
+
+METHOD:
+${methodSteps.map((s: string, i: number) => `${i + 1}. ${s}`).join("\n") || "No method provided"}
+
+Respond with a JSON object:
+{
+  "summary": "Brief overall assessment (1-2 sentences)",
+  "recommendations": [
+    {
+      "title": "Short recommendation title",
+      "type": "substitution" | "quantity" | "technique" | "sourcing" | "general",
+      "explanation": "Clear explanation of what to change and why",
+      "estimatedSavings": "$X.XX per batch" or null if not calculable,
+      "impactOnQuality": "none" | "minimal" | "improved"
+    }
+  ]
+}
+
+Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge. If the recipe is already well-optimized, say so and suggest enhancements instead.`;
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are Jarvis, the AI operations manager for a professional bakery. Always respond with valid JSON only, no markdown fences." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 1500,
+      }), "test-kitchen-optimize");
+
+      const raw = response.choices[0]?.message?.content || "{}";
+      const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      let result;
+      try {
+        result = JSON.parse(cleaned);
+      } catch {
+        result = {
+          summary: "I wasn't able to generate a structured analysis this time. Here's what I found:",
+          recommendations: [{ title: "Raw Analysis", type: "general", explanation: cleaned, estimatedSavings: null, impactOnQuality: "none" }],
+        };
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[Test Kitchen Optimize] Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/test-kitchen/:id/finalize", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const item = await storage.getTestKitchenItem(parseInt(req.params.id));
