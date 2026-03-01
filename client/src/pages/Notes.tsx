@@ -16,10 +16,11 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, Mic, MicOff, Trash2, Share2, Pin, PinOff, Search,
   FileText, ChefHat, ClipboardList, Sparkles, ArrowLeft,
-  MoreVertical, Loader2, Lock, Users, UserPlus, X, CalendarPlus, PenLine,
+  MoreVertical, Loader2, Lock, Users, UserPlus, X, CalendarPlus, PenLine, Mail,
 } from "lucide-react";
 import type { Note } from "@shared/schema";
 
@@ -570,6 +571,10 @@ export default function Notes() {
   const [showScribeIntro, setShowScribeIntro] = useState(false);
   const [isScribing, setIsScribing] = useState(false);
   const scribeInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const [isExtractingEmail, setIsExtractingEmail] = useState(false);
+  const [emailEventData, setEmailEventData] = useState<any>(null);
+  const [showEmailEventReview, setShowEmailEventReview] = useState(false);
 
   const { data, isLoading } = useQuery<{ myNotes: Note[]; sharedNotes: Note[] }>({
     queryKey: ["/api/notes"],
@@ -657,6 +662,68 @@ export default function Notes() {
     },
   });
 
+  async function handleEmailFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setIsExtractingEmail(true);
+    try {
+      const { compressImage } = await import("@/lib/image-utils");
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1600, 0.85);
+
+      const res = await apiRequest("POST", "/api/notes/email-to-event", { image: compressed });
+      const data = await res.json();
+      setEmailEventData(data);
+      setShowEmailEventReview(true);
+    } catch (err: any) {
+      toast({
+        title: "Failed to read email",
+        description: err.message || "Could not extract event details. Try a clearer screenshot.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExtractingEmail(false);
+    }
+  }
+
+  const saveEmailEventMutation = useMutation({
+    mutationFn: async (eventData: any) => {
+      if (!eventData.date) {
+        throw new Error("A date is required. Please set the event date before saving.");
+      }
+      const body: any = {
+        title: eventData.title,
+        description: eventData.description || "",
+        eventType: eventData.eventType || "event",
+        contactName: eventData.contactName || "",
+        contactPhone: eventData.contactPhone || "",
+        contactEmail: eventData.contactEmail || "",
+        address: eventData.address || "",
+        startTime: eventData.startTime || "",
+        endTime: eventData.endTime || "",
+        date: new Date(eventData.date + "T00:00:00"),
+      };
+      const res = await apiRequest("POST", "/api/events", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/events"] });
+      setShowEmailEventReview(false);
+      setEmailEventData(null);
+      toast({ title: "Event created!", description: "The event has been added to your calendar." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to create event", description: err.message, variant: "destructive" });
+    },
+  });
+
   const myNotes = data?.myNotes || [];
   const sharedNotes = data?.sharedNotes || [];
 
@@ -708,6 +775,15 @@ export default function Notes() {
         disabled={isScribing}
         data-testid="input-scribe-file"
       />
+      <input
+        ref={emailInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleEmailFile}
+        disabled={isExtractingEmail}
+        data-testid="input-email-file"
+      />
 
       <Dialog open={showScribeIntro} onOpenChange={setShowScribeIntro}>
         <DialogContent className="max-w-sm">
@@ -738,9 +814,171 @@ export default function Notes() {
         </div>
       )}
 
+      {isExtractingEmail && (
+        <div className="fixed inset-0 z-50 bg-background/80 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Jarvis is reading the email...</p>
+            <p className="text-xs text-muted-foreground">Extracting event details</p>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={showEmailEventReview} onOpenChange={(open) => { if (!open) { setShowEmailEventReview(false); setEmailEventData(null); } }}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarPlus className="w-5 h-5" />
+              Review Event
+            </DialogTitle>
+            <DialogDescription>
+              Jarvis extracted these details from the email. Review and edit before saving to the calendar.
+            </DialogDescription>
+          </DialogHeader>
+          {emailEventData && (
+            <div className="space-y-4">
+              <div>
+                <Label>Title</Label>
+                <Input
+                  value={emailEventData.title || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, title: e.target.value })}
+                  data-testid="input-email-event-title"
+                />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Textarea
+                  value={emailEventData.description || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, description: e.target.value })}
+                  rows={3}
+                  data-testid="input-email-event-description"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Date <span className="text-destructive">*</span></Label>
+                  <Input
+                    type="date"
+                    value={emailEventData.date || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, date: e.target.value })}
+                    className={!emailEventData.date ? "border-destructive" : ""}
+                    data-testid="input-email-event-date"
+                  />
+                  {!emailEventData.date && (
+                    <p className="text-xs text-destructive mt-1">Date is required</p>
+                  )}
+                </div>
+                <div>
+                  <Label>Type</Label>
+                  <Select
+                    value={emailEventData.eventType || "event"}
+                    onValueChange={(v) => setEmailEventData({ ...emailEventData, eventType: v })}
+                  >
+                    <SelectTrigger data-testid="select-email-event-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="event">Event</SelectItem>
+                      <SelectItem value="meeting">Meeting</SelectItem>
+                      <SelectItem value="delivery">Delivery</SelectItem>
+                      <SelectItem value="deadline">Deadline</SelectItem>
+                      <SelectItem value="schedule">Schedule</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Start Time</Label>
+                  <Input
+                    type="time"
+                    value={emailEventData.startTime || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, startTime: e.target.value })}
+                    data-testid="input-email-event-start-time"
+                  />
+                </div>
+                <div>
+                  <Label>End Time</Label>
+                  <Input
+                    type="time"
+                    value={emailEventData.endTime || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, endTime: e.target.value })}
+                    data-testid="input-email-event-end-time"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Contact Name</Label>
+                <Input
+                  value={emailEventData.contactName || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, contactName: e.target.value })}
+                  data-testid="input-email-event-contact-name"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Phone</Label>
+                  <Input
+                    value={emailEventData.contactPhone || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, contactPhone: e.target.value })}
+                    data-testid="input-email-event-contact-phone"
+                  />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input
+                    value={emailEventData.contactEmail || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, contactEmail: e.target.value })}
+                    data-testid="input-email-event-contact-email"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Address</Label>
+                <Input
+                  value={emailEventData.address || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, address: e.target.value })}
+                  data-testid="input-email-event-address"
+                />
+              </div>
+              {emailEventData.emailBody && (
+                <div>
+                  <Label className="text-muted-foreground">Original Email</Label>
+                  <div className="mt-1 p-3 rounded-md bg-muted/50 text-xs text-muted-foreground max-h-32 overflow-y-auto whitespace-pre-wrap" data-testid="text-email-body">
+                    {emailEventData.emailBody}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setShowEmailEventReview(false); setEmailEventData(null); }} data-testid="button-email-event-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => emailEventData && saveEmailEventMutation.mutate(emailEventData)}
+              disabled={saveEmailEventMutation.isPending || !emailEventData?.title || !emailEventData?.date}
+              data-testid="button-email-event-save"
+            >
+              <CalendarPlus className="w-4 h-4 mr-2" />
+              {saveEmailEventMutation.isPending ? "Saving..." : "Save to Calendar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" data-testid="text-notes-heading">Notes</h1>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => emailInputRef.current?.click()}
+            disabled={isExtractingEmail}
+            data-testid="button-email-to-event"
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            Email → Event
+          </Button>
           <Button
             variant="outline"
             onClick={handleScribeClick}

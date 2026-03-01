@@ -5972,6 +5972,128 @@ GUIDELINES:
     }
   });
 
+  app.post("/api/notes/email-to-event", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image } = req.body;
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ message: "An image is required" });
+      }
+      const base64Part = image.includes(",") ? image.split(",")[1] : image;
+      const estimatedBytes = Math.round((base64Part.length * 3) / 4);
+      if (estimatedBytes > 10 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image is too large (over 10MB). Try a smaller screenshot." });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const imageUrl = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+
+      const today = new Date().toISOString().split("T")[0];
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are Jarvis, an AI assistant for Bear's Cup Bakehouse. You are analyzing a screenshot of an email to extract event/meeting/order details for a calendar entry.
+
+TODAY'S DATE: ${today}
+
+Extract the following information from the email. If a field is not present, use null.
+Return a JSON object with these fields:
+{
+  "title": "A concise event title summarizing the purpose (e.g., 'Catering Order - Johnson Wedding')",
+  "description": "A summary of the email content including any relevant details, quantities, special requests, or notes",
+  "date": "YYYY-MM-DD format. If a relative date like 'next Friday' is used, calculate from today's date",
+  "startTime": "HH:MM in 24-hour format (e.g., '14:00') or null",
+  "endTime": "HH:MM in 24-hour format or null",
+  "eventType": "One of: meeting, delivery, deadline, event, schedule. Choose the most appropriate.",
+  "contactName": "The sender's name or the contact person mentioned",
+  "contactPhone": "Phone number if mentioned",
+  "contactEmail": "Email address of the sender or contact",
+  "address": "Any address or location mentioned",
+  "emailBody": "The full email text for reference"
+}
+
+GUIDELINES:
+- Be thorough — extract every piece of useful information
+- For catering/order emails, include item details and quantities in the description
+- If multiple dates are mentioned, use the most relevant event date
+- For vendor emails, the event type is usually 'delivery'
+- For meeting requests, use 'meeting'
+- For general inquiries or bookings, use 'event'
+- If no specific date is found, set date to null`,
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Extract event details from this email screenshot." },
+              { type: "image_url", image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+      }), "email-to-event");
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(400).json({ message: "Could not read the email screenshot. Try a clearer image." });
+      }
+
+      let result;
+      try {
+        result = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          result = JSON.parse(jsonMatch[0]);
+        } else {
+          return res.status(400).json({ message: "Could not extract event details. Try a clearer screenshot." });
+        }
+      }
+
+      const validEventTypes = ["meeting", "delivery", "deadline", "event", "schedule"];
+      const eventType = validEventTypes.includes(result.eventType) ? result.eventType : "event";
+
+      let date = result.date || null;
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        date = null;
+      }
+
+      let startTime = result.startTime || null;
+      if (startTime && !/^\d{2}:\d{2}$/.test(startTime)) {
+        startTime = null;
+      }
+
+      let endTime = result.endTime || null;
+      if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) {
+        endTime = null;
+      }
+
+      res.json({
+        title: result.title || "Email Event",
+        description: result.description || "",
+        date,
+        startTime,
+        endTime,
+        eventType,
+        contactName: result.contactName || null,
+        contactPhone: result.contactPhone || null,
+        contactEmail: result.contactEmail || null,
+        address: result.address || null,
+        emailBody: result.emailBody || null,
+      });
+    } catch (err: any) {
+      console.error("Email-to-event error:", err);
+      res.status(500).json({ message: "Failed to process the email screenshot. Please try again." });
+    }
+  });
+
   app.post("/api/notes/transcribe", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const { audio } = req.body;
