@@ -1340,6 +1340,11 @@ export default function Home() {
               <p className="text-muted-foreground font-mono text-sm" data-testid="text-home-date">
                 {format(new Date(), "EEEE, MMMM do, yyyy")}
               </p>
+              {(user as any)?.isGeneralManager && (
+                <p className="text-xs font-medium tracking-widest uppercase text-muted-foreground/70 mt-0.5" data-testid="text-gm-title">
+                  General Manager — All Locations
+                </p>
+              )}
             </div>
             <Dialog open={showLayoutEditor} onOpenChange={setShowLayoutEditor}>
               <DialogTrigger asChild>
