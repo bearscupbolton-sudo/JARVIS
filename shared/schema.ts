@@ -1155,3 +1155,20 @@ export const insertTestKitchenNoteSchema = createInsertSchema(testKitchenNotes).
 export type TestKitchenNote = typeof testKitchenNotes.$inferSelect;
 export type InsertTestKitchenNote = z.infer<typeof insertTestKitchenNoteSchema>;
 
+// === SENTIMENT SHIFT SCORES ===
+export const sentimentShiftScores = pgTable("sentiment_shift_scores", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  locationId: integer("location_id"),
+  feedbackId: integer("feedback_id").notNull(),
+  rating: integer("rating").notNull(),
+  shiftStart: timestamp("shift_start").notNull(),
+  shiftEnd: timestamp("shift_end"),
+  feedbackAt: timestamp("feedback_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSentimentShiftScoreSchema = createInsertSchema(sentimentShiftScores).omit({ id: true, createdAt: true });
+export type SentimentShiftScore = typeof sentimentShiftScores.$inferSelect;
+export type InsertSentimentShiftScore = z.infer<typeof insertSentimentShiftScoreSchema>;
+

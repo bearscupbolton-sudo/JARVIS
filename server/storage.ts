@@ -89,6 +89,8 @@ import {
   testKitchenItems, testKitchenNotes,
   type TestKitchenItem, type InsertTestKitchenItem,
   type TestKitchenNote, type InsertTestKitchenNote,
+  sentimentShiftScores,
+  type SentimentShiftScore, type InsertSentimentShiftScore,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -147,6 +149,12 @@ export interface IStorage {
   // Customer Feedback
   getCustomerFeedback(): Promise<CustomerFeedback[]>;
   createCustomerFeedback(feedback: InsertCustomerFeedback): Promise<CustomerFeedback>;
+
+  // Sentiment Shift Scores
+  createSentimentShiftScore(data: InsertSentimentShiftScore): Promise<SentimentShiftScore>;
+  getSentimentShiftScores(filters?: { userId?: string; locationId?: number; startDate?: Date; endDate?: Date }): Promise<SentimentShiftScore[]>;
+  getSentimentShiftScoresByFeedback(feedbackId: number): Promise<SentimentShiftScore[]>;
+  getLinkedFeedbackIds(): Promise<number[]>;
 
   // Announcements
   getAnnouncements(): Promise<Announcement[]>;
@@ -740,6 +748,32 @@ export class DatabaseStorage implements IStorage {
   async createCustomerFeedback(feedback: InsertCustomerFeedback): Promise<CustomerFeedback> {
     const [created] = await db.insert(customerFeedback).values(feedback).returning();
     return created;
+  }
+
+  async createSentimentShiftScore(data: InsertSentimentShiftScore): Promise<SentimentShiftScore> {
+    const [created] = await db.insert(sentimentShiftScores).values(data).returning();
+    return created;
+  }
+
+  async getSentimentShiftScores(filters?: { userId?: string; locationId?: number; startDate?: Date; endDate?: Date }): Promise<SentimentShiftScore[]> {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(sentimentShiftScores.userId, filters.userId));
+    if (filters?.locationId) conditions.push(eq(sentimentShiftScores.locationId, filters.locationId));
+    if (filters?.startDate) conditions.push(gte(sentimentShiftScores.feedbackAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(sentimentShiftScores.feedbackAt, filters.endDate));
+    if (conditions.length > 0) {
+      return await db.select().from(sentimentShiftScores).where(and(...conditions)).orderBy(desc(sentimentShiftScores.feedbackAt));
+    }
+    return await db.select().from(sentimentShiftScores).orderBy(desc(sentimentShiftScores.feedbackAt));
+  }
+
+  async getSentimentShiftScoresByFeedback(feedbackId: number): Promise<SentimentShiftScore[]> {
+    return await db.select().from(sentimentShiftScores).where(eq(sentimentShiftScores.feedbackId, feedbackId));
+  }
+
+  async getLinkedFeedbackIds(): Promise<number[]> {
+    const rows = await db.selectDistinct({ feedbackId: sentimentShiftScores.feedbackId }).from(sentimentShiftScores);
+    return rows.map(r => r.feedbackId);
   }
 
   // Announcements

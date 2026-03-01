@@ -43,6 +43,7 @@ import {
   CircleDot,
   Code2,
   FlaskConical,
+  HeartHandshake,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -141,6 +142,7 @@ const MANAGER_NAV_ITEMS = [
 const GM_NAV_ITEMS = [
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
+  { href: "/sentiment", label: "Sentiment Matrix", icon: HeartHandshake },
 ];
 
 const OWNER_ONLY_NAV_ITEMS = [

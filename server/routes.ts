@@ -10,8 +10,8 @@ import { sendPushToUsers, sendPushToUser } from "./push";
 import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, lt, desc, isNotNull, inArray } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems } from "@shared/schema";
+import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or } from "drizzle-orm";
+import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import {
@@ -724,14 +724,41 @@ FORMAT RULES for the content field:
         return res.status(400).json({ message: "Rating must be an integer between 1 and 5" });
       }
       const trimmed = (s: any, max: number) => (typeof s === "string" ? s.trim().slice(0, max) || null : null);
+      const parsedLocationId = typeof locationId === "number" ? locationId : (typeof locationId === "string" && locationId ? Number(locationId) : null);
       const feedback = await storage.createCustomerFeedback({
         rating,
         comment: trimmed(comment, 2000),
         name: trimmed(name, 100),
         email: trimmed(email, 200),
         visitDate: trimmed(visitDate, 10),
-        locationId: typeof locationId === "number" ? locationId : null,
+        locationId: parsedLocationId && !isNaN(parsedLocationId) ? parsedLocationId : null,
       });
+
+      try {
+        const feedbackTime = feedback.createdAt || new Date();
+        const conditions = [
+          lte(timeEntries.clockIn, feedbackTime),
+          or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, feedbackTime)),
+        ];
+        if (feedback.locationId) {
+          conditions.push(eq(timeEntries.locationId, feedback.locationId));
+        }
+        const clockedIn = await db.select().from(timeEntries).where(and(...conditions));
+        for (const entry of clockedIn) {
+          await storage.createSentimentShiftScore({
+            userId: entry.userId,
+            locationId: feedback.locationId || entry.locationId || null,
+            feedbackId: feedback.id,
+            rating: feedback.rating,
+            shiftStart: entry.clockIn,
+            shiftEnd: entry.clockOut || null,
+            feedbackAt: feedbackTime,
+          });
+        }
+      } catch (linkErr) {
+        console.error("Failed to link feedback to shifts:", linkErr);
+      }
+
       res.status(201).json(feedback);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -741,6 +768,329 @@ FORMAT RULES for the content field:
   app.get("/api/feedback", isAuthenticated, isManager, async (_req, res) => {
     const feedback = await storage.getCustomerFeedback();
     res.json(feedback);
+  });
+
+  // === SENTIMENT MATRIX ===
+  app.get("/api/sentiment/team-summary", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const days = Number(req.query.days) || 30;
+      const locId = req.query.locationId ? Number(req.query.locationId) : undefined;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const prevStart = new Date();
+      prevStart.setDate(prevStart.getDate() - days * 2);
+
+      const scores = await storage.getSentimentShiftScores({ locationId: locId, startDate });
+      const prevScores = await storage.getSentimentShiftScores({ locationId: locId, startDate: prevStart, endDate: startDate });
+
+      const allUsers = await db.select().from(users);
+      const allLocations = await db.select().from(locations);
+
+      const byUser: Record<string, { ratings: number[]; locationRatings: Record<number, number[]> }> = {};
+      for (const s of scores) {
+        if (!byUser[s.userId]) byUser[s.userId] = { ratings: [], locationRatings: {} };
+        byUser[s.userId].ratings.push(s.rating);
+        const lid = s.locationId || 0;
+        if (!byUser[s.userId].locationRatings[lid]) byUser[s.userId].locationRatings[lid] = [];
+        byUser[s.userId].locationRatings[lid].push(s.rating);
+      }
+
+      const prevByUser: Record<string, number[]> = {};
+      for (const s of prevScores) {
+        if (!prevByUser[s.userId]) prevByUser[s.userId] = [];
+        prevByUser[s.userId].push(s.rating);
+      }
+
+      const teamSummary = Object.entries(byUser).map(([userId, data]) => {
+        const u = allUsers.find(u => u.id === userId);
+        const avg = data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length;
+        const breakdown: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        data.ratings.forEach(r => breakdown[r]++);
+        const prevRatings = prevByUser[userId] || [];
+        const prevAvg = prevRatings.length > 0 ? prevRatings.reduce((a, b) => a + b, 0) / prevRatings.length : null;
+        const locationBreakdown = Object.entries(data.locationRatings).map(([lid, ratings]) => {
+          const loc = allLocations.find(l => l.id === Number(lid));
+          return {
+            locationId: Number(lid),
+            locationName: loc?.name || "Unknown",
+            avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+            count: ratings.length,
+          };
+        });
+        return {
+          userId,
+          firstName: u?.firstName || null,
+          lastName: u?.lastName || null,
+          avgRating: Number(avg.toFixed(2)),
+          prevAvgRating: prevAvg ? Number(prevAvg.toFixed(2)) : null,
+          totalFeedback: data.ratings.length,
+          ratingBreakdown: breakdown,
+          locationBreakdown,
+        };
+      }).sort((a, b) => b.avgRating - a.avgRating);
+
+      const overallAvg = scores.length > 0 ? Number((scores.reduce((a, b) => a + b.rating, 0) / scores.length).toFixed(2)) : 0;
+      const prevOverallAvg = prevScores.length > 0 ? Number((prevScores.reduce((a, b) => a + b.rating, 0) / prevScores.length).toFixed(2)) : null;
+
+      res.json({ teamSummary, overallAvg, prevOverallAvg, totalFeedback: scores.length, days });
+    } catch (err: any) {
+      console.error("Sentiment team summary error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sentiment/shift-analysis", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const days = Number(req.query.days) || 30;
+      const locId = req.query.locationId ? Number(req.query.locationId) : undefined;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const scores = await storage.getSentimentShiftScores({ locationId: locId, startDate });
+      const allUsers = await db.select().from(users);
+      const allLocations = await db.select().from(locations);
+
+      const windows: Record<string, { ratings: number[]; userRatings: Record<string, number[]>; locationRatings: Record<number, number[]> }> = {
+        morning: { ratings: [], userRatings: {}, locationRatings: {} },
+        afternoon: { ratings: [], userRatings: {}, locationRatings: {} },
+        evening: { ratings: [], userRatings: {}, locationRatings: {} },
+      };
+
+      for (const s of scores) {
+        const hour = s.shiftStart.getHours();
+        let window = "evening";
+        if (hour >= 5 && hour < 11) window = "morning";
+        else if (hour >= 11 && hour < 17) window = "afternoon";
+        const w = windows[window];
+        w.ratings.push(s.rating);
+        if (!w.userRatings[s.userId]) w.userRatings[s.userId] = [];
+        w.userRatings[s.userId].push(s.rating);
+        const lid = s.locationId || 0;
+        if (!w.locationRatings[lid]) w.locationRatings[lid] = [];
+        w.locationRatings[lid].push(s.rating);
+      }
+
+      const shifts = Object.entries(windows).map(([window, data]) => {
+        const topPerformers = Object.entries(data.userRatings)
+          .map(([uid, ratings]) => {
+            const u = allUsers.find(u => u.id === uid);
+            return {
+              userId: uid,
+              name: [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "Unknown",
+              avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+              count: ratings.length,
+            };
+          })
+          .sort((a, b) => b.avgRating - a.avgRating)
+          .slice(0, 5);
+        const locationBreakdown = Object.entries(data.locationRatings).map(([lid, ratings]) => {
+          const loc = allLocations.find(l => l.id === Number(lid));
+          return {
+            locationId: Number(lid),
+            locationName: loc?.name || "Unknown",
+            avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+            count: ratings.length,
+          };
+        });
+        return {
+          shiftWindow: window,
+          avgRating: data.ratings.length > 0 ? Number((data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length).toFixed(2)) : 0,
+          count: data.ratings.length,
+          topPerformers,
+          locationBreakdown,
+        };
+      });
+
+      res.json({ shifts });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sentiment/location-comparison", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const days = Number(req.query.days) || 30;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const prevStart = new Date();
+      prevStart.setDate(prevStart.getDate() - days * 2);
+
+      const scores = await storage.getSentimentShiftScores({ startDate });
+      const prevScores = await storage.getSentimentShiftScores({ startDate: prevStart, endDate: startDate });
+      const allUsers = await db.select().from(users);
+      const allLocations = await db.select().from(locations);
+
+      const byLoc: Record<number, { ratings: number[]; userRatings: Record<string, number[]> }> = {};
+      for (const s of scores) {
+        const lid = s.locationId || 0;
+        if (!byLoc[lid]) byLoc[lid] = { ratings: [], userRatings: {} };
+        byLoc[lid].ratings.push(s.rating);
+        if (!byLoc[lid].userRatings[s.userId]) byLoc[lid].userRatings[s.userId] = [];
+        byLoc[lid].userRatings[s.userId].push(s.rating);
+      }
+
+      const prevByLoc: Record<number, number[]> = {};
+      for (const s of prevScores) {
+        const lid = s.locationId || 0;
+        if (!prevByLoc[lid]) prevByLoc[lid] = [];
+        prevByLoc[lid].push(s.rating);
+      }
+
+      const locationComparison = Object.entries(byLoc).map(([lid, data]) => {
+        const loc = allLocations.find(l => l.id === Number(lid));
+        const avg = data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length;
+        const prevRatings = prevByLoc[Number(lid)] || [];
+        const prevAvg = prevRatings.length > 0 ? prevRatings.reduce((a, b) => a + b, 0) / prevRatings.length : null;
+        const topPerformers = Object.entries(data.userRatings)
+          .map(([uid, ratings]) => {
+            const u = allUsers.find(u => u.id === uid);
+            return {
+              userId: uid,
+              name: [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "Unknown",
+              avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+              count: ratings.length,
+            };
+          })
+          .sort((a, b) => b.avgRating - a.avgRating)
+          .slice(0, 3);
+        return {
+          locationId: Number(lid),
+          locationName: loc?.name || "Unknown",
+          avgRating: Number(avg.toFixed(2)),
+          prevAvgRating: prevAvg ? Number(prevAvg.toFixed(2)) : null,
+          totalFeedback: data.ratings.length,
+          topPerformers,
+        };
+      }).sort((a, b) => b.avgRating - a.avgRating);
+
+      res.json({ locations: locationComparison });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sentiment/member/:userId", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const days = Number(req.query.days) || 90;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const scores = await storage.getSentimentShiftScores({ userId, startDate });
+      const allLocations = await db.select().from(locations);
+      const allFeedback = await storage.getCustomerFeedback();
+
+      if (scores.length === 0) {
+        return res.json({
+          userId, avgRating: 0, totalFeedback: 0,
+          ratingBreakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+          recentFeedback: [], locationBreakdown: [], shiftBreakdown: [], trend: [],
+        });
+      }
+
+      const breakdown: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      scores.forEach(s => breakdown[s.rating]++);
+      const avg = scores.reduce((a, b) => a + b.rating, 0) / scores.length;
+
+      const recentFeedback = scores.slice(0, 10).map(s => {
+        const fb = allFeedback.find(f => f.id === s.feedbackId);
+        return {
+          feedbackId: s.feedbackId,
+          rating: s.rating,
+          comment: fb?.comment || null,
+          customerName: fb?.name || null,
+          feedbackAt: s.feedbackAt,
+          locationId: s.locationId,
+        };
+      });
+
+      const locMap: Record<number, number[]> = {};
+      const shiftMap: Record<string, number[]> = { morning: [], afternoon: [], evening: [] };
+      for (const s of scores) {
+        const lid = s.locationId || 0;
+        if (!locMap[lid]) locMap[lid] = [];
+        locMap[lid].push(s.rating);
+        const hour = s.shiftStart.getHours();
+        let window = "evening";
+        if (hour >= 5 && hour < 11) window = "morning";
+        else if (hour >= 11 && hour < 17) window = "afternoon";
+        shiftMap[window].push(s.rating);
+      }
+
+      const locationBreakdown = Object.entries(locMap).map(([lid, ratings]) => {
+        const loc = allLocations.find(l => l.id === Number(lid));
+        return {
+          locationId: Number(lid),
+          locationName: loc?.name || "Unknown",
+          avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+          count: ratings.length,
+        };
+      });
+
+      const shiftBreakdown = Object.entries(shiftMap).map(([window, ratings]) => ({
+        shiftWindow: window,
+        avgRating: ratings.length > 0 ? Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)) : 0,
+        count: ratings.length,
+      }));
+
+      const trendMap: Record<string, number[]> = {};
+      for (const s of scores) {
+        const week = new Date(s.feedbackAt).toISOString().slice(0, 10);
+        const weekKey = week.slice(0, 7);
+        if (!trendMap[weekKey]) trendMap[weekKey] = [];
+        trendMap[weekKey].push(s.rating);
+      }
+      const trend = Object.entries(trendMap).sort().map(([period, ratings]) => ({
+        period,
+        avgRating: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(2)),
+        count: ratings.length,
+      }));
+
+      res.json({
+        userId, avgRating: Number(avg.toFixed(2)), totalFeedback: scores.length,
+        ratingBreakdown: breakdown, recentFeedback, locationBreakdown, shiftBreakdown, trend,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sentiment/backfill", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const linkedIds = await storage.getLinkedFeedbackIds();
+      const allFeedback = await storage.getCustomerFeedback();
+      const unlinked = allFeedback.filter(f => !linkedIds.includes(f.id));
+      let created = 0;
+
+      for (const feedback of unlinked) {
+        const feedbackTime = feedback.createdAt || new Date();
+        const conditions: any[] = [
+          lte(timeEntries.clockIn, feedbackTime),
+          or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, feedbackTime)),
+        ];
+        if (feedback.locationId) {
+          conditions.push(eq(timeEntries.locationId, feedback.locationId));
+        }
+        const clockedIn = await db.select().from(timeEntries).where(and(...conditions));
+        for (const entry of clockedIn) {
+          await storage.createSentimentShiftScore({
+            userId: entry.userId,
+            locationId: feedback.locationId || entry.locationId || null,
+            feedbackId: feedback.id,
+            rating: feedback.rating,
+            shiftStart: entry.clockIn,
+            shiftEnd: entry.clockOut || null,
+            feedbackAt: feedbackTime,
+          });
+          created++;
+        }
+      }
+
+      res.json({ backfilled: created, feedbackProcessed: unlinked.length });
+    } catch (err: any) {
+      console.error("Sentiment backfill error:", err);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // === ANNOUNCEMENTS ===

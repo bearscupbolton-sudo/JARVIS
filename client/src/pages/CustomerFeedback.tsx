@@ -14,6 +14,12 @@ export default function CustomerFeedback() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  const locationId = (() => {
+    const params = new URLSearchParams(window.location.search);
+    const loc = params.get("loc");
+    return loc ? Number(loc) : null;
+  })();
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/feedback", {
@@ -21,6 +27,7 @@ export default function CustomerFeedback() {
         comment: comment.trim() || null,
         name: name.trim() || null,
         email: email.trim() || null,
+        locationId,
       });
     },
     onSuccess: () => setSubmitted(true),
