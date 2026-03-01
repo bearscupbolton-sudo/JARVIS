@@ -162,17 +162,41 @@ export default function InvoiceCapture() {
       });
     },
     onError: (err: Error) => {
-      toast({ title: "Scan failed", description: err.message, variant: "destructive" });
+      const msg = err.message || "";
+      let description = msg;
+      let title = "Scan failed";
+      if (msg.includes("too large") || msg.includes("payload")) {
+        title = "Image too large";
+        description = "Try taking the photo from further away or scanning fewer pages at once.";
+      } else if (msg.includes("timeout") || msg.includes("timed out")) {
+        title = "Scan timed out";
+        description = "The invoice may be too complex. Try scanning one page at a time.";
+      } else if (msg.includes("blurry") || msg.includes("dark") || msg.includes("No line items")) {
+        title = "Could not read invoice";
+        description = msg;
+      } else if (!description) {
+        description = "Please try again with a clearer, well-lit photo.";
+      }
+      toast({ title, description, variant: "destructive" });
       setScanMode("capturing");
     },
   });
 
-  function stageImage(file: File) {
+  async function stageImage(file: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setStagedImages(prev => [...prev, dataUrl]);
-      if (scanMode === "idle") setScanMode("capturing");
+    reader.onload = async (e) => {
+      try {
+        const dataUrl = e.target?.result as string;
+        const { compressImage } = await import("@/lib/image-utils");
+        const compressed = await compressImage(dataUrl, 1600, 0.85);
+        setStagedImages(prev => [...prev, compressed]);
+        if (scanMode === "idle") setScanMode("capturing");
+      } catch {
+        toast({ title: "Could not process image", description: "Try a different photo.", variant: "destructive" });
+      }
+    };
+    reader.onerror = () => {
+      toast({ title: "Could not read image", description: "The file may be corrupted. Try a different photo.", variant: "destructive" });
     };
     reader.readAsDataURL(file);
   }
@@ -410,15 +434,21 @@ export default function InvoiceCapture() {
               </div>
 
               {stagedImages.length > 0 && (
-                <Button
-                  onClick={scanAllImages}
-                  size="lg"
-                  className="px-8"
-                  data-testid="button-scan-all"
-                >
-                  <ScanLine className="w-4 h-4 mr-2" />
-                  Scan {stagedImages.length} Photo{stagedImages.length > 1 ? "s" : ""}
-                </Button>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 max-w-sm" data-testid="scan-tips">
+                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>For best results: fill the frame with the invoice, avoid shadows and glare, and keep the paper flat.</span>
+                  </div>
+                  <Button
+                    onClick={scanAllImages}
+                    size="lg"
+                    className="px-8"
+                    data-testid="button-scan-all"
+                  >
+                    <ScanLine className="w-4 h-4 mr-2" />
+                    Scan {stagedImages.length} Photo{stagedImages.length > 1 ? "s" : ""}
+                  </Button>
+                </div>
               )}
 
               {stagedImages.length === 0 && (

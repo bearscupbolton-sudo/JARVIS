@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, Mic, MicOff, Trash2, Share2, Pin, PinOff, Search,
   FileText, ChefHat, ClipboardList, Sparkles, ArrowLeft,
-  MoreVertical, Loader2, Lock, Users, UserPlus, X, CalendarPlus,
+  MoreVertical, Loader2, Lock, Users, UserPlus, X, CalendarPlus, PenLine,
 } from "lucide-react";
 import type { Note } from "@shared/schema";
 
@@ -567,6 +567,9 @@ export default function Notes() {
   const [activeNote, setActiveNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tab, setTab] = useState("my");
+  const [showScribeIntro, setShowScribeIntro] = useState(false);
+  const [isScribing, setIsScribing] = useState(false);
+  const scribeInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery<{ myNotes: Note[]; sharedNotes: Note[] }>({
     queryKey: ["/api/notes"],
@@ -581,6 +584,62 @@ export default function Notes() {
       setActiveNote(note);
     },
   });
+
+  function handleScribeClick() {
+    const seen = localStorage.getItem("jarvis_scribe_intro_seen");
+    if (!seen) {
+      setShowScribeIntro(true);
+    } else {
+      scribeInputRef.current?.click();
+    }
+  }
+
+  function handleScribeIntroDismiss() {
+    localStorage.setItem("jarvis_scribe_intro_seen", "true");
+    setShowScribeIntro(false);
+    setTimeout(() => scribeInputRef.current?.click(), 100);
+  }
+
+  async function handleScribeFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setIsScribing(true);
+    try {
+      const { compressImage } = await import("@/lib/image-utils");
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1600, 0.85);
+
+      const scribeRes = await apiRequest("POST", "/api/notes/scribe", { image: compressed });
+      const scribeData = await scribeRes.json();
+
+      const noteRes = await apiRequest("POST", "/api/notes", {
+        title: scribeData.title || "Scribed Note",
+        content: scribeData.content || "",
+      });
+      const note = await noteRes.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
+      setActiveNote(note);
+      toast({
+        title: "Note scribed!",
+        description: "Use Generate to turn it into a recipe, SOP, or calendar event.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Scribe failed",
+        description: err.message || "Could not transcribe the image. Try a clearer photo.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsScribing(false);
+    }
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/notes/${id}`),
@@ -639,12 +698,63 @@ export default function Notes() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-4" data-testid="notes-page">
+      <input
+        ref={scribeInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleScribeFile}
+        disabled={isScribing}
+        data-testid="input-scribe-file"
+      />
+
+      <Dialog open={showScribeIntro} onOpenChange={setShowScribeIntro}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PenLine className="w-5 h-5" />
+              Jarvis Scribe
+            </DialogTitle>
+            <DialogDescription>
+              Take a picture of your handwritten notes and I'll create a notes file that can be instantly converted into a recipe, SOP, reminder, or calendar event.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={handleScribeIntroDismiss} data-testid="button-scribe-got-it">
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {isScribing && (
+        <div className="fixed inset-0 z-50 bg-background/80 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Jarvis is reading your notes...</p>
+            <p className="text-xs text-muted-foreground">This may take a moment</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" data-testid="text-notes-heading">Notes</h1>
-        <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-new-note">
-          <Plus className="w-4 h-4 mr-2" />
-          New Note
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleScribeClick}
+            disabled={isScribing}
+            data-testid="button-scribe"
+          >
+            <PenLine className="w-4 h-4 mr-2" />
+            Scribe
+          </Button>
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-new-note">
+            <Plus className="w-4 h-4 mr-2" />
+            New Note
+          </Button>
+        </div>
       </div>
 
       <div className="relative">

@@ -22,7 +22,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Production Data Flow:** All production output, including lamination and manual bake-offs, flows through `bakeoff_logs` for unified reporting.
 *   **Soldout/86'd Tracking:** Tracks out-of-stock items with timestamps, attribution, and location.
 *   **COGS System:** Calculates real-time per-pastry production costs by integrating invoice data, inventory costs, and recipe ingredient costs.
-*   **Invoice Capture:** Supports multi-image invoice uploads processed by an AI vision model.
+*   **Invoice Capture:** Supports multi-image invoice uploads processed by an AI vision model. Images are compressed client-side (1600px max, JPEG 85%) before sending. The AI prompt is optimized for bakery-specific invoices with abbreviation handling, handwritten correction support, credit memos, and structured error feedback. Utility: `client/src/lib/image-utils.ts`.
 *   **Schedule & Shift Management:** Provides 24-hour shift scheduling with AI-driven generation and block clearing capabilities.
 *   **Events & Calendar:** Manages events with team member tagging and personalized views, supporting both public and private events with strict privacy enforcement.
 *   **Time Card System:** Includes a persistent Clock Bar, PIN-based Kiosk Clock, personal time card management, and a "Time Review" module.
@@ -34,7 +34,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Multi-Location Support:** Facilitates operations across multiple bakery locations, tagging operational data by `locationId`.
 *   **Task Manager:** A comprehensive task management system with assignable task lists, a jobs library, and department to-dos. Supports individual and department assignments, progress tracking, and AI-powered daily task list generation based on various operational factors.
 *   **Employee Skills Tracking:** Allows managers/owners to rate team member skills for intelligent task assignment by Jarvis AI.
-*   **Notes:** A full-featured notes system supporting personal and shared notes with voice dictation. Features AI-powered generation of Recipes, SOPs, Calendar Events, or Letter Head documents from note content.
+*   **Notes:** A full-featured notes system supporting personal and shared notes with voice dictation. Features AI-powered generation of Recipes, SOPs, Calendar Events, or Letter Head documents from note content. Includes "Jarvis Scribe" — photo-to-text transcription of handwritten notes via `POST /api/notes/scribe`, using the shared image compression utility. First-time intro stored in localStorage key `jarvis_scribe_intro_seen`.
 *   **Admin Insights Dashboard:** An owner-only dashboard with analytics across various categories, including Overview, Team, Production, Lamination, Messages, Features, KPI Report, and Performance.
 *   **KPI Report System:** Provides detailed business metrics with period-over-period comparisons.
 *   **Starkade:** An in-house competitive gaming arcade with a unified points system and leaderboards.

@@ -1598,36 +1598,49 @@ FORMAT RULES for the content field:
 
       const response = await withRetry(() => openai.chat.completions.create({
         model: "gpt-5.2",
-        max_completion_tokens: 4096,
+        max_completion_tokens: 8192,
         messages: [
           {
             role: "system",
-            content: `You are an expert invoice parser for a bakery. Extract ALL data from the invoice image${imageList.length > 1 ? "s" : ""}.${multiImageNote}
+            content: `You are an expert invoice parser specializing in bakery and food-service supplier invoices. Extract ALL data from the invoice image${imageList.length > 1 ? "s" : ""}.${multiImageNote}
+
+IMPORTANT GUIDELINES:
+- This is a bakery invoice. Common suppliers include food distributors, dairy, flour mills, packaging, and produce vendors.
+- Recognize common unit abbreviations: "cs" = case, "ea" = each, "bx" = box, "bg" = bag, "pk" = pack, "dz" = dozen, "lb" = pound, "oz" = ounce, "gal" = gallon, "ct" = count, "sl" = sleeve, "sk" = sack, "rl" = roll, "bkt" = bucket, "tub" = tub.
+- If there are handwritten corrections, annotations, or crossed-out items, use the corrected/final values.
+- For credit memos or returns, use NEGATIVE quantities or negative line totals as appropriate.
+- If an item description spans multiple lines, combine them into a single itemDescription.
+- Tax lines, delivery fees, fuel surcharges, and deposit charges should NOT be included as line items — capture them in the "notes" field instead (e.g. "Tax: $12.50, Delivery: $15.00").
+- If any text is blurry or unclear, make your best guess and append "(?)" to that specific field value.
+- For prices, use numbers only — no currency symbols, no commas.
+- If a field is not visible or not applicable, use null.
+
 Return a JSON object with this exact structure:
 {
-  "vendorName": "string - the vendor/supplier name",
-  "invoiceDate": "string - date in YYYY-MM-DD format",
-  "invoiceNumber": "string or null - the invoice number if visible",
-  "invoiceTotal": number or null - the grand total amount,
-  "notes": "string or null - any special notes on the invoice",
+  "vendorName": "string",
+  "invoiceDate": "string in YYYY-MM-DD format",
+  "invoiceNumber": "string or null",
+  "invoiceTotal": number or null,
+  "notes": "string or null - include tax, delivery fees, special notes here",
   "lines": [
     {
-      "itemDescription": "string - item name/description exactly as shown",
-      "quantity": number - the quantity ordered,
-      "unit": "string or null - unit of measure (case, lb, ea, bag, etc.)",
-      "unitPrice": number or null - price per unit,
-      "lineTotal": number or null - total for this line
+      "itemDescription": "string - item name/description exactly as shown on invoice",
+      "quantity": number,
+      "unit": "string or null - full word preferred (case, pound, each, box, bag, dozen, etc.)",
+      "unitPrice": number or null,
+      "lineTotal": number or null
     }
   ]
 }
-Be thorough - capture EVERY line item. For prices, use numbers without currency symbols. If a field isn't visible, use null. Parse the date into YYYY-MM-DD format. Return ONLY the JSON, no other text.`
+
+Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON object.`
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `Parse this invoice${imageList.length > 1 ? ` (${imageList.length} pages)` : ""} and extract all the data into the specified JSON format.`
+                text: `Parse this bakery supplier invoice${imageList.length > 1 ? ` (${imageList.length} pages)` : ""} and extract all data. Focus on capturing every single line item accurately, even if some fields are unclear — mark those with (?).`
               },
               ...imageContent,
             ]
@@ -1638,7 +1651,7 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        return res.status(400).json({ message: "Could not parse invoice image" });
+        return res.status(400).json({ message: "Could not read the invoice. The image may be too blurry or dark — try taking a new photo with better lighting." });
       }
 
       let invoiceData;
@@ -1649,13 +1662,25 @@ Be thorough - capture EVERY line item. For prices, use numbers without currency 
         if (jsonMatch) {
           invoiceData = JSON.parse(jsonMatch[0]);
         } else {
-          return res.status(400).json({ message: "Could not extract structured data from the invoice. Please try a clearer photo." });
+          return res.status(400).json({ message: "Could not extract structured data from the invoice. Try a clearer, well-lit photo with the invoice filling the frame." });
         }
       }
+
+      if (!invoiceData.lines || !Array.isArray(invoiceData.lines) || invoiceData.lines.length === 0) {
+        return res.status(400).json({ message: "No line items found on the invoice. Make sure the full invoice is visible in the photo and text is readable." });
+      }
+
       res.json(invoiceData);
     } catch (err: any) {
       console.error("Invoice scan error:", err);
-      res.status(500).json({ message: err.message || "Failed to scan invoice" });
+      const msg = err.message || "";
+      if (msg.includes("too large") || msg.includes("payload") || msg.includes("413")) {
+        return res.status(400).json({ message: "Image is too large. Try taking the photo from a bit further away, or use fewer pages at once." });
+      }
+      if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
+        return res.status(400).json({ message: "Scanning timed out — the image may be too complex. Try scanning one page at a time." });
+      }
+      res.status(500).json({ message: "Failed to scan invoice. Please try again with a clearer photo." });
     }
   });
 
@@ -5515,6 +5540,84 @@ Make games bakery/food themed when possible but adapt to the user's idea. Be cre
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes/scribe", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image } = req.body;
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ message: "An image is required" });
+      }
+      const base64Part = image.includes(",") ? image.split(",")[1] : image;
+      const estimatedBytes = Math.round((base64Part.length * 3) / 4);
+      if (estimatedBytes > 10 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image is too large (over 10MB). Try taking the photo from a bit further away." });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const imageUrl = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are Jarvis, an AI assistant for Bear's Cup Bakehouse. Your task is to transcribe handwritten or printed notes from the provided image into clean, readable text.
+
+GUIDELINES:
+- Preserve the original structure: bullet points, numbered lists, paragraph breaks, and headings.
+- Fix obvious spelling errors but keep the author's intent, voice, and terminology.
+- If there are drawings, diagrams, or arrows, describe them briefly in [brackets] (e.g., [arrow pointing right], [circle around "butter"]).
+- If any text is illegible, mark it as [illegible] rather than guessing wildly.
+- Do NOT add any commentary, summaries, or interpretation — just transcribe what is written.
+- Return the result as a JSON object with two fields:
+  { "title": "A short descriptive title based on the content (5 words max)", "content": "The full transcribed text" }`,
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Transcribe all the handwritten or printed text in this image." },
+              { type: "image_url", image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+      }), "notes-scribe");
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(400).json({ message: "Could not read the image. Try a clearer photo with better lighting." });
+      }
+
+      let result;
+      try {
+        result = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          result = JSON.parse(jsonMatch[0]);
+        } else {
+          return res.status(400).json({ message: "Could not transcribe the notes. Try a clearer, well-lit photo." });
+        }
+      }
+
+      const title = result.title || "Scribed Note";
+      const transcribed = result.content || "";
+      if (!transcribed.trim()) {
+        return res.status(400).json({ message: "No readable text found in the image. Make sure the writing is visible and the photo is well-lit." });
+      }
+
+      res.json({ title, content: transcribed });
+    } catch (err: any) {
+      console.error("Scribe error:", err);
+      res.status(500).json({ message: "Failed to transcribe the image. Please try again with a clearer photo." });
     }
   });
 
