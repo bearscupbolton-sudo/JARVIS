@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -54,6 +54,9 @@ export default function Profile() {
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
   const [birthday, setBirthday] = useState(user?.birthday || "");
   const [showJarvisBriefing, setShowJarvisBriefing] = useState((user as any)?.showJarvisBriefing ?? true);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [subscribing, setSubscribing] = useState(false);
 
@@ -171,6 +174,47 @@ export default function Profile() {
       toast({ title: "Failed to remove device", description: error.message, variant: "destructive" });
     },
   });
+
+  const pinMutation = useMutation({
+    mutationFn: async (data: { currentPin: string; newPin: string }) => {
+      const res = await fetch("/api/auth/pin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.message || "Failed to update PIN");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      toast({ title: "PIN updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: error.message, variant: "destructive" });
+    },
+  });
+
+  const handlePinChange = () => {
+    if (!currentPin) {
+      toast({ title: "Enter your current PIN", variant: "destructive" });
+      return;
+    }
+    if (!newPin || newPin.length < 4 || newPin.length > 8 || !/^\d+$/.test(newPin)) {
+      toast({ title: "New PIN must be 4-8 digits", variant: "destructive" });
+      return;
+    }
+    if (newPin !== confirmPin) {
+      toast({ title: "New PINs don't match", variant: "destructive" });
+      return;
+    }
+    pinMutation.mutate({ currentPin, newPin });
+  };
 
   const handleEnablePush = async () => {
     if (!VAPID_PUBLIC_KEY) {
@@ -302,6 +346,65 @@ export default function Profile() {
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="w-5 h-5" />
+            Change PIN
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Current PIN</label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              value={currentPin}
+              onChange={e => setCurrentPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="Enter current PIN"
+              data-testid="input-current-pin"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">New PIN</label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              value={newPin}
+              onChange={e => setNewPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="4-8 digits"
+              data-testid="input-new-pin"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Confirm New PIN</label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              value={confirmPin}
+              onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="Re-enter new PIN"
+              data-testid="input-confirm-pin"
+            />
+          </div>
+          <Button
+            onClick={handlePinChange}
+            disabled={pinMutation.isPending || !currentPin || !newPin || !confirmPin}
+            className="w-full"
+            data-testid="button-change-pin"
+          >
+            <KeyRound className="w-4 h-4 mr-2" />
+            {pinMutation.isPending ? "Updating..." : "Update PIN"}
+          </Button>
         </CardContent>
       </Card>
 

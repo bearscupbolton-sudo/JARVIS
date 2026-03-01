@@ -312,6 +312,28 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/auth/pin", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = req.appUser as User;
+      const { currentPin, newPin } = req.body;
+      if (!newPin || typeof newPin !== "string" || newPin.length < 4 || newPin.length > 8 || !/^\d+$/.test(newPin)) {
+        return res.status(400).json({ message: "New PIN must be 4-8 digits" });
+      }
+      const valid = await authStorage.verifyPin(currentUser.id, currentPin);
+      if (!valid) {
+        return res.status(403).json({ message: "Current PIN is incorrect" });
+      }
+      if (await authStorage.isPinTaken(newPin, currentUser.id)) {
+        return res.status(409).json({ message: "That PIN is already in use by another team member." });
+      }
+      await authStorage.updateUserPin(currentUser.id, newPin);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error updating own PIN:", error);
+      res.status(500).json({ message: "Failed to update PIN" });
+    }
+  });
+
   app.patch("/api/auth/profile", isAuthenticated, async (req: any, res) => {
     try {
       const currentUser = req.appUser as User;
