@@ -115,7 +115,7 @@ type ForumFormValues = z.infer<typeof forumFormSchema>;
 export default function Schedule() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { selectedLocationId } = useLocationContext();
+  const { selectedLocationId, locations, selectedLocation, setSelectedLocationId } = useLocationContext();
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -142,6 +142,7 @@ export default function Schedule() {
   const [clearEndDate, setClearEndDate] = useState("");
   const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery" | "bar">("all");
   const [deptInitialized, setDeptInitialized] = useState(false);
+  const [shiftTypeFilter, setShiftTypeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all");
 
   useEffect(() => {
     if (!deptInitialized && (user as any)?.department) {
@@ -492,7 +493,6 @@ export default function Schedule() {
   const openShifts = (shiftsData || []).filter(s => s.status === "open");
   const myPendingClaims = pendingPickups.filter(s => s.claimedBy === user?.id);
 
-  const locationName = locationsData?.[0]?.name || "Bear's Cup Bakehouse";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500" data-testid="container-schedule">
@@ -502,10 +502,29 @@ export default function Schedule() {
         </div>
         <div className="min-w-0">
           <h1 className="text-3xl font-display font-bold" data-testid="text-schedule-title">Schedule</h1>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="w-3 h-3" />
-            <span data-testid="text-location-name">{locationName}</span>
-          </div>
+          {locations.length > 1 ? (
+            <Select
+              value={selectedLocationId?.toString() || ""}
+              onValueChange={(v) => setSelectedLocationId(parseInt(v))}
+            >
+              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 px-0 text-sm text-muted-foreground shadow-none focus:ring-0" data-testid="select-schedule-location">
+                <MapPin className="w-3 h-3 flex-shrink-0" />
+                <SelectValue placeholder="Select location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map((loc) => (
+                  <SelectItem key={loc.id} value={loc.id.toString()} data-testid={`option-location-${loc.id}`}>
+                    {loc.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <MapPin className="w-3 h-3" />
+              <span data-testid="text-location-name">{selectedLocation?.name || "All Locations"}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -628,28 +647,47 @@ export default function Schedule() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              {(["all", "kitchen", "foh", "bakery"] as const).map((dept) => {
-                const labels: Record<string, string> = { all: "All", kitchen: "Kitchen", foh: "FOH", bakery: "Bakery" };
-                return (
-                  <Button
-                    key={dept}
-                    variant={deptFilter === dept ? "default" : "outline"}
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => setDeptFilter(dept)}
-                    data-testid={`button-filter-dept-${dept}`}
-                  >
-                    {labels[dept]}
-                  </Button>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-3 ml-auto text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-muted border border-border inline-block" /> Assigned</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 dark:bg-green-900/50 border border-green-400/50 inline-block" /> Open</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-200 dark:bg-amber-900/50 border border-amber-400/50 inline-block" /> Pending</span>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                {(["all", "kitchen", "foh", "bakery", "bar"] as const).map((dept) => {
+                  const labels: Record<string, string> = { all: "All", kitchen: "Kitchen", foh: "FOH", bakery: "Bakery", bar: "Bar" };
+                  return (
+                    <Button
+                      key={dept}
+                      variant={deptFilter === dept ? "default" : "outline"}
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => setDeptFilter(dept)}
+                      data-testid={`button-filter-dept-${dept}`}
+                    >
+                      {labels[dept]}
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {(["all", "morning", "afternoon", "evening"] as const).map((st) => {
+                  const labels: Record<string, string> = { all: "All Shifts", morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
+                  return (
+                    <Button
+                      key={st}
+                      variant={shiftTypeFilter === st ? "default" : "outline"}
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => setShiftTypeFilter(st)}
+                      data-testid={`button-filter-shift-${st}`}
+                    >
+                      {labels[st]}
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 ml-auto text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-muted border border-border inline-block" /> Assigned</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 dark:bg-green-900/50 border border-green-400/50 inline-block" /> Open</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-200 dark:bg-amber-900/50 border border-amber-400/50 inline-block" /> Pending</span>
+              </div>
             </div>
           </div>
 
@@ -660,7 +698,35 @@ export default function Schedule() {
               ))}
             </div>
           ) : (() => {
-            const filteredShifts = (shiftsData || []).filter(s => deptFilter === "all" || (s.department || "kitchen") === deptFilter);
+            function getShiftType(startTime: string): "morning" | "afternoon" | "evening" | null {
+              const ampmMatch = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+              if (ampmMatch) {
+                let hour = parseInt(ampmMatch[1]);
+                const ampm = ampmMatch[3].toUpperCase();
+                if (ampm === "PM" && hour !== 12) hour += 12;
+                if (ampm === "AM" && hour === 12) hour = 0;
+                if (hour < 11) return "morning";
+                if (hour < 17) return "afternoon";
+                return "evening";
+              }
+              const h24Match = startTime.match(/^(\d{1,2}):(\d{2})/);
+              if (h24Match) {
+                const hour = parseInt(h24Match[1]);
+                if (hour < 11) return "morning";
+                if (hour < 17) return "afternoon";
+                return "evening";
+              }
+              return null;
+            }
+
+            const filteredShifts = (shiftsData || []).filter(s => {
+              if (deptFilter !== "all" && (s.department || "kitchen") !== deptFilter) return false;
+              if (shiftTypeFilter !== "all") {
+                const st = getShiftType(s.startTime);
+                if (st !== null && st !== shiftTypeFilter) return false;
+              }
+              return true;
+            });
 
             const employeeMap = new Map<string, { name: string; shifts: Shift[] }>();
             const openShiftsList: Shift[] = [];
