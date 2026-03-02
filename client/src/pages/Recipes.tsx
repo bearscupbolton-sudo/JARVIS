@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRecipes, useCreateRecipe } from "@/hooks/use-recipes";
 import { useAuth } from "@/hooks/use-auth";
+import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -58,6 +59,7 @@ const DEPARTMENTS = [
 export default function Recipes() {
   const { data: recipes, isLoading } = useRecipes();
   const { user } = useAuth();
+  const { canSeeSection } = useSectionVisibility();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
@@ -90,7 +92,7 @@ export default function Recipes() {
           <h1 className="text-3xl font-display font-bold">Recipes</h1>
           <p className="text-muted-foreground">Standardized formulas and production methods.</p>
         </div>
-        <CreateRecipeDialog />
+        {canSeeSection("/recipes", "scanner") && <CreateRecipeDialog />}
       </div>
 
       {user?.locked && (
@@ -99,7 +101,7 @@ export default function Recipes() {
         </div>
       )}
 
-      <div className="flex gap-2 border-b border-border pb-0">
+      {canSeeSection("/recipes", "categories") && <div className="flex gap-2 border-b border-border pb-0">
         {DEPARTMENTS.map(dept => (
           <button
             key={dept.value}
@@ -115,7 +117,7 @@ export default function Recipes() {
             {dept.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border border-border shadow-sm">
         <div className="relative w-full sm:w-72">

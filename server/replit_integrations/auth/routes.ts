@@ -254,6 +254,32 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/section-permissions", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { sectionPermissions } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      let permissions: Record<string, string[]> | null = null;
+      if (sectionPermissions !== null && typeof sectionPermissions === "object" && !Array.isArray(sectionPermissions)) {
+        permissions = {};
+        for (const [page, sections] of Object.entries(sectionPermissions)) {
+          if (typeof page === "string" && Array.isArray(sections)) {
+            permissions[page] = (sections as any[]).filter((s: any) => typeof s === "string");
+          }
+        }
+      }
+      const user = await authStorage.updateUserProfile(targetId, { sectionPermissions: permissions });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating section permissions:", error);
+      res.status(500).json({ message: "Failed to update section permissions" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/default-page", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { defaultPage } = req.body;

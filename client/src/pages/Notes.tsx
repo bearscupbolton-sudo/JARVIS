@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -564,6 +565,7 @@ function NoteCard({
 
 export default function Notes() {
   const { user } = useAuth();
+  const { canSeeSection } = useSectionVisibility();
   const { toast } = useToast();
   const [activeNote, setActiveNote] = useState<Note | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -970,28 +972,34 @@ export default function Notes() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" data-testid="text-notes-heading">Notes</h1>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => emailInputRef.current?.click()}
-            disabled={isExtractingEmail}
-            data-testid="button-email-to-event"
-          >
-            <Mail className="w-4 h-4 mr-2" />
-            Email → Event
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleScribeClick}
-            disabled={isScribing}
-            data-testid="button-scribe"
-          >
-            <PenLine className="w-4 h-4 mr-2" />
-            Scribe
-          </Button>
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-new-note">
-            <Plus className="w-4 h-4 mr-2" />
-            New Note
-          </Button>
+          {canSeeSection("/notes", "scribe") && (
+            <Button
+              variant="outline"
+              onClick={() => emailInputRef.current?.click()}
+              disabled={isExtractingEmail}
+              data-testid="button-email-to-event"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Email → Event
+            </Button>
+          )}
+          {canSeeSection("/notes", "scribe") && (
+            <Button
+              variant="outline"
+              onClick={handleScribeClick}
+              disabled={isScribing}
+              data-testid="button-scribe"
+            >
+              <PenLine className="w-4 h-4 mr-2" />
+              Scribe
+            </Button>
+          )}
+          {canSeeSection("/notes", "create") && (
+            <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-new-note">
+              <Plus className="w-4 h-4 mr-2" />
+              New Note
+            </Button>
+          )}
         </div>
       </div>
 

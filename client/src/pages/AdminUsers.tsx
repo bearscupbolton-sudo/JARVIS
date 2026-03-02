@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid } from "lucide-react";
+import { PAGE_SECTIONS } from "@/hooks/use-section-visibility";
 import { format } from "date-fns";
 
 export default function AdminUsers() {
@@ -473,7 +474,9 @@ function UserDetailDialog({
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sectionsOpen, setSectionsOpen] = useState(false);
   const currentPerms: string[] | null = (u as any).sidebarPermissions ?? null;
+  const currentSectionPerms: Record<string, string[]> | null = (u as any).sectionPermissions ?? null;
 
   const ALL_SIDEBAR_ITEMS = [
     { href: "/", label: "Home" },
@@ -589,6 +592,59 @@ function UserDetailDialog({
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
     },
   });
+
+  const sectionPermMutation = useMutation({
+    mutationFn: async (perms: Record<string, string[]> | null) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/section-permissions`, { sectionPermissions: perms });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Section permissions updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleSection = (page: string, sectionKey: string) => {
+    const buildFullPerms = (): Record<string, string[]> => {
+      const full: Record<string, string[]> = {};
+      Object.entries(PAGE_SECTIONS).forEach(([p, sections]) => {
+        full[p] = currentSectionPerms && p in currentSectionPerms
+          ? [...currentSectionPerms[p]]
+          : sections.map(s => s.key);
+      });
+      return full;
+    };
+
+    const newPerms = buildFullPerms();
+    const pageSections = newPerms[page];
+
+    if (pageSections.includes(sectionKey)) {
+      newPerms[page] = pageSections.filter(k => k !== sectionKey);
+    } else {
+      newPerms[page] = [...pageSections, sectionKey];
+    }
+
+    const isAllEnabled = Object.keys(PAGE_SECTIONS).every(p => {
+      const allKeys = PAGE_SECTIONS[p].map(s => s.key);
+      return newPerms[p] && newPerms[p].length >= allKeys.length;
+    });
+    sectionPermMutation.mutate(isAllEnabled ? null : newPerms);
+  };
+
+  const isSectionEnabled = (page: string, sectionKey: string): boolean => {
+    if (currentSectionPerms === null) return true;
+    if (!(page in currentSectionPerms)) return true;
+    return currentSectionPerms[page].includes(sectionKey);
+  };
+
+  const selectAllSections = () => sectionPermMutation.mutate(null);
+  const deselectAllSections = () => {
+    const emptyPerms: Record<string, string[]> = {};
+    Object.keys(PAGE_SECTIONS).forEach(p => { emptyPerms[p] = []; });
+    sectionPermMutation.mutate(emptyPerms);
+  };
 
   const defaultPageMutation = useMutation({
     mutationFn: async (page: string | null) => {
@@ -898,6 +954,68 @@ function UserDetailDialog({
                   Remove
                 </Button>
               </div>
+            </div>
+          )}
+
+          {!isCurrentUser && isOwner && (
+            <div className="border-t pt-4">
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left text-sm font-medium text-foreground hover:text-primary transition-colors"
+                onClick={() => setSectionsOpen(!sectionsOpen)}
+                data-testid={`button-section-perms-toggle-${u.id}`}
+              >
+                <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+                Page Sections
+                {sectionsOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+                {currentSectionPerms !== null && (
+                  <Badge variant="secondary" className="text-[10px] ml-1">
+                    Custom
+                  </Badge>
+                )}
+              </button>
+              {sectionsOpen && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Control which sections are visible on each page. Unchecked sections will be hidden from this person's view.</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={selectAllSections} data-testid={`button-sections-select-all-${u.id}`}>
+                      Select All
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={deselectAllSections} data-testid={`button-sections-deselect-all-${u.id}`}>
+                      Deselect All
+                    </Button>
+                  </div>
+                  <div className="max-h-[350px] overflow-y-auto space-y-3 pr-1">
+                    {Object.entries(PAGE_SECTIONS).map(([page, sections]) => (
+                      <div key={page}>
+                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 px-2">
+                          {page === "/" ? "Home" : page.replace(/^\//, "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                        </div>
+                        {sections.map((section) => (
+                          <label
+                            key={`${page}-${section.key}`}
+                            className="flex items-center gap-2 py-1 px-2 rounded-md hover:bg-muted/50 cursor-pointer text-sm"
+                            data-testid={`section-perm-${page.replace(/\//g, "-")}-${section.key}-${u.id}`}
+                          >
+                            <Checkbox
+                              checked={isSectionEnabled(page, section.key)}
+                              onCheckedChange={() => toggleSection(page, section.key)}
+                              disabled={sectionPermMutation.isPending}
+                            />
+                            <span>{section.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {sectionPermMutation.isPending && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Saving...
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

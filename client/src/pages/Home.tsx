@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -676,7 +677,33 @@ export default function Home() {
     toast({ title: "Layout saved", description: "Your home page layout has been updated." });
   }, [toast]);
 
+  const { canSeeSection } = useSectionVisibility();
+
+  const WIDGET_SECTION_MAP: Record<WidgetId, string> = {
+    briefing: "briefing",
+    announcements: "announcements",
+    quickStats: "stats",
+    preShiftNotes: "preshift-notes",
+    production: "production",
+    problems: "problems",
+    forwardLook: "calendar",
+    mySchedule: "calendar",
+    myEvents: "calendar",
+    myEventJobs: "calendar",
+    myTasks: "tasks",
+    todayOrders: "vendor-orders",
+    messages: "messages",
+    quickActions: "quick-actions",
+    whosOn: "whos-on",
+  };
+
   const isWidgetVisible = useCallback((id: WidgetId) => !layoutConfig.hidden.includes(id), [layoutConfig.hidden]);
+
+  const isWidgetAllowed = useCallback((id: WidgetId) => {
+    if (!isWidgetVisible(id)) return false;
+    const sectionKey = WIDGET_SECTION_MAP[id];
+    return sectionKey ? canSeeSection("/", sectionKey) : true;
+  }, [layoutConfig.hidden, canSeeSection]);
 
   async function handleAddProblem() {
     if (!problemForm.title.trim()) return;
@@ -1302,7 +1329,7 @@ export default function Home() {
   const renderWidgetSequence = () => {
     const elements: React.ReactNode[] = [];
     let i = 0;
-    const visibleOrder = layoutConfig.order.filter(id => isWidgetVisible(id) && widgetRenderers[id]);
+    const visibleOrder = layoutConfig.order.filter(id => isWidgetAllowed(id) && widgetRenderers[id]);
 
     while (i < visibleOrder.length) {
       const id = visibleOrder[i];
@@ -1417,7 +1444,7 @@ export default function Home() {
           </DialogContent>
         </Dialog>
 
-        {layoutConfig.whosOnVisible && (
+        {layoutConfig.whosOnVisible && canSeeSection("/", "whos-on") && (
           <div className="xl:w-64 flex-shrink-0">
             <Card className="xl:sticky xl:top-4" data-testid="container-whos-on">
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

@@ -43,6 +43,7 @@ export const users = pgTable("users", {
   isGeneralManager: boolean("is_general_manager").default(false).notNull(),
   hourlyRate: doublePrecision("hourly_rate"),
   sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
+  sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),
   department: varchar("department").default("bakery"),
   defaultPage: varchar("default_page"),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
