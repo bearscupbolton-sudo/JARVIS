@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -36,7 +36,7 @@ import {
   Plus, AlertTriangle, CheckCircle2, Eye, EyeOff,
   FileText, Trash2, MapPin, Phone, Cake,
   Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
-  Truck, ShoppingCart, Zap,
+  Truck, ShoppingCart, Zap, CalendarPlus, Loader2,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote } from "@shared/schema";
@@ -156,6 +156,7 @@ const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/time-cards", label: "Time Cards", icon: Clock },
   { href: "/starkade", label: "Starkade", icon: Gamepad2 },
   { href: "/messages", label: "Messages", icon: MessageSquare },
+  { href: "#email-to-event", label: "Email → Event", icon: CalendarPlus },
 ];
 
 const DEFAULT_QUICK_ACTIONS = ["/calendar", "/recipes", "/tasks", "/sops", "/schedule", "/assistant", "/kiosk", "/bakery"];
@@ -532,6 +533,11 @@ export default function Home() {
   const [showAckedNotes, setShowAckedNotes] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
+  const emailToEventInputRef = useRef<HTMLInputElement>(null);
+  const [isExtractingEmail, setIsExtractingEmail] = useState(false);
+  const [emailEventData, setEmailEventData] = useState<any>(null);
+  const [showEmailEventReview, setShowEmailEventReview] = useState(false);
+
   const [problemForm, setProblemForm] = useState({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
   const [eventForm, setEventForm] = useState({ title: "", description: "", date: format(new Date(), "yyyy-MM-dd"), eventType: "event", contactName: "", contactPhone: "", contactEmail: "", address: "", startTime: "", endTime: "" });
 
@@ -704,6 +710,68 @@ export default function Home() {
     const sectionKey = WIDGET_SECTION_MAP[id];
     return sectionKey ? canSeeSection("/", sectionKey) : true;
   }, [layoutConfig.hidden, canSeeSection]);
+
+  async function handleEmailToEventFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please select an image file (screenshot of the email).", variant: "destructive" });
+      return;
+    }
+    setIsExtractingEmail(true);
+    try {
+      const { compressImage } = await import("@/lib/image-utils");
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(dataUrl, 1600, 0.85);
+      const res = await apiRequest("POST", "/api/notes/email-to-event", { image: compressed });
+      const data = await res.json();
+      setEmailEventData(data);
+      setShowEmailEventReview(true);
+    } catch (err: any) {
+      toast({
+        title: "Failed to read email",
+        description: err.message || "Could not extract event details. Try a clearer screenshot.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExtractingEmail(false);
+    }
+  }
+
+  const saveEmailEventMutation = useMutation({
+    mutationFn: async (eventData: any) => {
+      if (!eventData.date) throw new Error("A date is required.");
+      const body: any = {
+        title: eventData.title,
+        description: eventData.description || "",
+        eventType: eventData.eventType || "event",
+        contactName: eventData.contactName || "",
+        contactPhone: eventData.contactPhone || "",
+        contactEmail: eventData.contactEmail || "",
+        address: eventData.address || "",
+        startTime: eventData.startTime || "",
+        endTime: eventData.endTime || "",
+        date: new Date(eventData.date + "T00:00:00"),
+      };
+      const res = await apiRequest("POST", "/api/events", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/events"] });
+      setShowEmailEventReview(false);
+      setEmailEventData(null);
+      toast({ title: "Event created!", description: "The event has been added to your calendar." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to create event", description: err.message, variant: "destructive" });
+    },
+  });
 
   async function handleAddProblem() {
     if (!problemForm.title.trim()) return;
@@ -1297,11 +1365,23 @@ export default function Home() {
           {!editingQA ? (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
               {resolvedQA.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <div className="flex flex-col items-center gap-1.5 p-3 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid={`quick-action-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                    <item.icon className="w-5 h-5 text-primary" /><span className="text-[10px] font-medium">{item.label}</span>
+                item.href === "#email-to-event" ? (
+                  <div
+                    key={item.href}
+                    onClick={() => !isExtractingEmail && emailToEventInputRef.current?.click()}
+                    className="flex flex-col items-center gap-1.5 p-3 rounded-md border border-border cursor-pointer hover-elevate text-center"
+                    data-testid="quick-action-email-to-event"
+                  >
+                    {isExtractingEmail ? <Loader2 className="w-5 h-5 text-primary animate-spin" /> : <item.icon className="w-5 h-5 text-primary" />}
+                    <span className="text-[10px] font-medium">{isExtractingEmail ? "Reading..." : item.label}</span>
                   </div>
-                </Link>
+                ) : (
+                  <Link key={item.href} href={item.href}>
+                    <div className="flex flex-col items-center gap-1.5 p-3 rounded-md border border-border cursor-pointer hover-elevate text-center" data-testid={`quick-action-${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-5 h-5 text-primary" /><span className="text-[10px] font-medium">{item.label}</span>
+                    </div>
+                  </Link>
+                )
               ))}
             </div>
           ) : (
@@ -1357,6 +1437,133 @@ export default function Home() {
 
   return (
     <div className="animate-in fade-in duration-500" data-testid="container-home">
+      <input
+        ref={emailToEventInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleEmailToEventFile}
+        disabled={isExtractingEmail}
+        data-testid="input-home-email-to-event"
+      />
+
+      {isExtractingEmail && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Jarvis is reading the email...</p>
+            <p className="text-xs text-muted-foreground">Extracting event details</p>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={showEmailEventReview} onOpenChange={(open) => { if (!open) { setShowEmailEventReview(false); setEmailEventData(null); } }}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarPlus className="w-5 h-5" />
+              Review Event
+            </DialogTitle>
+          </DialogHeader>
+          {emailEventData && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Title</label>
+                <Input
+                  value={emailEventData.title || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, title: e.target.value })}
+                  data-testid="input-home-email-event-title"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Description</label>
+                <Textarea
+                  value={emailEventData.description || ""}
+                  onChange={(e) => setEmailEventData({ ...emailEventData, description: e.target.value })}
+                  rows={3}
+                  data-testid="input-home-email-event-description"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Date <span className="text-destructive">*</span></label>
+                  <Input
+                    type="date"
+                    value={emailEventData.date || ""}
+                    onChange={(e) => setEmailEventData({ ...emailEventData, date: e.target.value })}
+                    className={!emailEventData.date ? "border-destructive" : ""}
+                    data-testid="input-home-email-event-date"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Type</label>
+                  <Select
+                    value={emailEventData.eventType || "event"}
+                    onValueChange={(v) => setEmailEventData({ ...emailEventData, eventType: v })}
+                  >
+                    <SelectTrigger data-testid="select-home-email-event-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="event">Event</SelectItem>
+                      <SelectItem value="meeting">Meeting</SelectItem>
+                      <SelectItem value="delivery">Delivery</SelectItem>
+                      <SelectItem value="deadline">Deadline</SelectItem>
+                      <SelectItem value="schedule">Schedule</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Start Time</label>
+                  <Input type="time" value={emailEventData.startTime || ""} onChange={(e) => setEmailEventData({ ...emailEventData, startTime: e.target.value })} data-testid="input-home-email-event-start" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">End Time</label>
+                  <Input type="time" value={emailEventData.endTime || ""} onChange={(e) => setEmailEventData({ ...emailEventData, endTime: e.target.value })} data-testid="input-home-email-event-end" />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Contact Name</label>
+                <Input value={emailEventData.contactName || ""} onChange={(e) => setEmailEventData({ ...emailEventData, contactName: e.target.value })} data-testid="input-home-email-event-contact" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Phone</label>
+                  <Input value={emailEventData.contactPhone || ""} onChange={(e) => setEmailEventData({ ...emailEventData, contactPhone: e.target.value })} data-testid="input-home-email-event-phone" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Email</label>
+                  <Input value={emailEventData.contactEmail || ""} onChange={(e) => setEmailEventData({ ...emailEventData, contactEmail: e.target.value })} data-testid="input-home-email-event-email" />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Address</label>
+                <Input value={emailEventData.address || ""} onChange={(e) => setEmailEventData({ ...emailEventData, address: e.target.value })} data-testid="input-home-email-event-address" />
+              </div>
+              {emailEventData.emailBody && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Original Email</label>
+                  <div className="mt-1 p-3 rounded-md bg-muted/50 text-xs text-muted-foreground max-h-32 overflow-y-auto whitespace-pre-wrap" data-testid="text-home-email-body">
+                    {emailEventData.emailBody}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => { setShowEmailEventReview(false); setEmailEventData(null); }} data-testid="button-home-email-event-cancel">Cancel</Button>
+                <Button
+                  onClick={() => emailEventData && saveEmailEventMutation.mutate(emailEventData)}
+                  disabled={saveEmailEventMutation.isPending || !emailEventData?.title || !emailEventData?.date}
+                  data-testid="button-home-email-event-save"
+                >
+                  <CalendarPlus className="w-4 h-4 mr-2" />
+                  {saveEmailEventMutation.isPending ? "Saving..." : "Save to Calendar"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-col xl:flex-row gap-6">
         <div className="flex-1 min-w-0 space-y-5">
           <div className="flex items-center justify-between gap-2" data-testid="container-welcome-home">
