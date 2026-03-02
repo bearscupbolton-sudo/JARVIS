@@ -86,6 +86,7 @@ export function registerAuthRoutes(app: Express): void {
         username: u.username,
         role: u.role,
         profileImageUrl: u.profileImageUrl,
+        department: u.department,
       }));
       res.json(safeTeam);
     } catch (error) {

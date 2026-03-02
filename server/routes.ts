@@ -742,22 +742,32 @@ FORMAT RULES for the content field:
   });
 
   // === EVENTS ===
+  function canSeePersonalEvent(event: any, userId: string | null, userDepartment: string | null): boolean {
+    if (!event.isPersonal) return true;
+    if (!userId) return false;
+    if (event.createdBy === userId) return true;
+    if (event.taggedUserIds && Array.isArray(event.taggedUserIds)) {
+      const uidStr = String(userId);
+      if (event.taggedUserIds.some((id: any) => String(id) === uidStr)) return true;
+    }
+    if (event.invitedDepartments && Array.isArray(event.invitedDepartments) && userDepartment && event.invitedDepartments.includes(userDepartment)) return true;
+    return false;
+  }
+
   app.get("/api/events/month", isAuthenticated, async (req: any, res) => {
     const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
     const month = req.query.month ? Number(req.query.month) : new Date().getMonth() + 1;
     const allEvents = await storage.getEventsByMonth(year, month);
     const userId = req.appUser?.id || null;
-    const filtered = allEvents.filter((e: any) => {
-      if (!e.isPersonal) return true;
-      return userId && e.createdBy === userId;
-    });
+    const userDepartment = req.appUser?.department || null;
+    const filtered = allEvents.filter((e: any) => canSeePersonalEvent(e, userId, userDepartment));
     res.json(filtered);
   });
 
   app.get("/api/events/:id", isAuthenticated, async (req: any, res) => {
     const event = await storage.getEvent(Number(req.params.id));
     if (!event) return res.status(404).json({ message: "Event not found" });
-    if (event.isPersonal && event.createdBy !== req.appUser?.id) {
+    if (!canSeePersonalEvent(event, req.appUser?.id || null, req.appUser?.department || null)) {
       return res.status(404).json({ message: "Event not found" });
     }
     res.json(event);
@@ -767,10 +777,8 @@ FORMAT RULES for the content field:
     const days = req.query.days ? Number(req.query.days) : 5;
     const allEvents = await storage.getUpcomingEvents(days);
     const userId = req.appUser?.id || null;
-    const filtered = allEvents.filter((e: any) => {
-      if (!e.isPersonal) return true;
-      return userId && e.createdBy === userId;
-    });
+    const userDepartment = req.appUser?.department || null;
+    const filtered = allEvents.filter((e: any) => canSeePersonalEvent(e, userId, userDepartment));
     res.json(filtered);
   });
 
@@ -5369,6 +5377,35 @@ ${sopsHtml}
         }
       }
 
+      if (context.upcomingEvents && context.upcomingEvents.length > 0) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const tomorrowStart = new Date(todayStart);
+        tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+        const dayAfterStart = new Date(todayStart);
+        dayAfterStart.setDate(dayAfterStart.getDate() + 2);
+
+        const todayEvents = context.upcomingEvents.filter(e => {
+          const d = new Date(e.date);
+          return d >= todayStart && d < tomorrowStart;
+        });
+        const tomorrowEvents = context.upcomingEvents.filter(e => {
+          const d = new Date(e.date);
+          return d >= tomorrowStart && d < dayAfterStart;
+        });
+
+        if (todayEvents.length > 0) {
+          stateLines.push("Calendar today: " + todayEvents.map(e =>
+            `${e.title} (${e.eventType}${e.startTime ? ` at ${e.startTime}` : ""})`
+          ).join(", "));
+        }
+        if (tomorrowEvents.length > 0) {
+          stateLines.push("Coming up tomorrow: " + tomorrowEvents.map(e =>
+            `${e.title} (${e.eventType}${e.startTime ? ` at ${e.startTime}` : ""})`
+          ).join(", "));
+        }
+      }
+
       const focusLabels: Record<string, string> = {
         all: "all bakery operations",
         foh: "front-of-house (customer service, display cases, pastry availability, sales)",
@@ -5377,28 +5414,35 @@ ${sopsHtml}
       };
       const focusDescription = focusLabels[focus] || focusLabels.all;
 
-      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing (2-4 sentences max) for a team member opening the app. Be natural and conversational — like a helpful colleague giving a quick heads-up. No bullet points, no lists, no "here's your briefing" phrasing.
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing (2-4 sentences max) for a team member opening the app. Be natural and conversational — like a trusted friend and teammate who genuinely cares about them. No bullet points, no lists, no "here's your briefing" phrasing.
 
 STRICT RULE — ONLY STATE FACTS FROM THE DATA PROVIDED BELOW. Never invent, assume, or hallucinate information. If the data says 0 doughs proofing, do NOT mention doughs proofing. If no active doughs are listed, do NOT reference any doughs. If no production logs exist, do NOT claim there are any. Only mention items explicitly present in the bakery state data.
 
+TONE — Be genuinely empathetic and supportive. You're not just relaying information — you're checking in on someone you care about. Notice what they've been doing, acknowledge their contributions, and make them feel valued. Use their name warmly. Small touches of personality make a big difference: a bit of humor, a kind observation, a word of genuine encouragement. You want them to feel seen.
+
 SHIFT AWARENESS — Always weave the person's schedule into the greeting naturally:
 - If they have a shift today that starts later: greet them and let them know what's going on before their shift.
-- If they're currently on shift: acknowledge they're in the thick of it.
-- If they have no shift today: keep it light and positive.
-- If they haven't been on the schedule for 4+ days (WELCOME BACK flag): warmly welcome them back and catch them up on what's happening.
-- If they've worked 13+ consecutive days (WELLNESS ALERT flag): genuinely encourage them to take a day off, rest, hydrate, and stretch. Be caring, not preachy — like a friend who notices they've been grinding too hard.
-- If they've worked 7-12 consecutive days: acknowledge their solid work ethic with a brief encouraging note.
+- If they're currently on shift: acknowledge they're in the thick of it — maybe note how the day is shaping up.
+- If they have no shift today: keep it light, warm, and maybe a little playful — enjoy the day off.
+- If they haven't been on the schedule for 4+ days (WELCOME BACK flag): warmly welcome them back. Let them know they were missed and catch them up on what's happening.
+- If they've worked 13+ consecutive days (WELLNESS ALERT flag): genuinely encourage them to take a day off. Be caring, not preachy — like a friend who notices they've been grinding too hard. Mention hydration, rest, or stretching naturally.
+- If they've worked 7-12 consecutive days: acknowledge their dedication with sincere appreciation.
+
+CALENDAR AWARENESS — If upcoming events are listed, naturally weave them in:
+- Today's events: mention them as part of what's happening ("You've got a meeting at 2pm" or "Heads up on that delivery coming in")
+- Tomorrow's events: give a gentle heads-up ("Tomorrow you've got..." or "Just so it's on your radar...")
+- Keep event mentions brief and conversational, not a list.
 
 This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
 
-WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and motivational — offer an encouraging thought or a positive note about the day. Be genuine and uplifting, like a supportive teammate.`;
+WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and genuinely uplifting — offer a kind thought, acknowledge something about them, or share a positive note about the day. Be real and human, like a teammate who wants them to have a good day.`;
 
       const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
 Time: Good ${timeOfDay}
 Current bakery state data (ONLY reference items that appear here — do not invent anything):
 ${stateLines.join("\n")}
 
-Generate a personalized briefing for ${context.user.firstName}. Remember: only state facts from the data above. Weave the shift/schedule info naturally into the greeting.`;
+Generate a personalized, empathetic briefing for ${context.user.firstName}. Remember: only state facts from the data above. Make them feel noticed and valued.`;
 
       const OpenAI = (await import("openai")).default;
       const briefingAI = new OpenAI({
@@ -5412,7 +5456,7 @@ Generate a personalized briefing for ${context.user.firstName}. Remember: only s
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 200,
+        max_tokens: 280,
         temperature: 0.7,
       }), "jarvis-briefing");
 

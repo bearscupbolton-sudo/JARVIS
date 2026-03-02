@@ -15,8 +15,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, Trash2,
   MapPin, Clock, Phone, Mail, Cake, Users, X, Check,
-  Pencil, ClipboardList, CheckCircle2, Circle, Lock
+  Pencil, ClipboardList, CheckCircle2, Circle, Lock, Building2
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths, getMonth, getDate } from "date-fns";
@@ -31,6 +32,13 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   schedule: "bg-amber-500",
   birthday: "bg-pink-500",
 };
+
+const DEPARTMENTS = [
+  { value: "bakery", label: "Bakery" },
+  { value: "kitchen", label: "Kitchen" },
+  { value: "bar", label: "Bar" },
+  { value: "foh", label: "FOH" },
+];
 
 const TIME_OPTIONS: string[] = [];
 for (let h = 0; h < 24; h++) {
@@ -67,6 +75,7 @@ type TeamMember = {
   username: string | null;
   role: string;
   profileImageUrl: string | null;
+  department: string | null;
 };
 
 function getTeamMemberName(m: TeamMember): string {
@@ -78,6 +87,7 @@ const EMPTY_FORM = {
   eventType: "event", contactName: "", contactPhone: "",
   contactEmail: "", address: "", startTime: "", endTime: "",
   taggedUserIds: [] as number[], isPersonal: false,
+  invitedDepartments: [] as string[],
 };
 
 export default function CalendarPage() {
@@ -286,6 +296,7 @@ export default function CalendarPage() {
       endTime: eventForm.endTime || null,
       taggedUserIds: eventForm.taggedUserIds.length > 0 ? eventForm.taggedUserIds : null,
       isPersonal: eventForm.isPersonal,
+      invitedDepartments: eventForm.isPersonal && eventForm.invitedDepartments.length > 0 ? eventForm.invitedDepartments : null,
     });
     setEventForm({ ...EMPTY_FORM });
     setShowAddForm(false);
@@ -306,6 +317,7 @@ export default function CalendarPage() {
       endTime: selectedEvent.endTime || "",
       taggedUserIds: selectedEvent.taggedUserIds || [],
       isPersonal: selectedEvent.isPersonal ?? false,
+      invitedDepartments: (selectedEvent as any).invitedDepartments || [],
     });
     setEditMode(true);
   }
@@ -327,6 +339,7 @@ export default function CalendarPage() {
         endTime: editForm.endTime || null,
         taggedUserIds: editForm.taggedUserIds.length > 0 ? editForm.taggedUserIds : null,
         isPersonal: editForm.isPersonal,
+        invitedDepartments: editForm.isPersonal && editForm.invitedDepartments.length > 0 ? editForm.invitedDepartments : null,
       },
     });
   }
@@ -437,7 +450,6 @@ export default function CalendarPage() {
             </Select>
           </div>
         </div>
-        {renderTagPicker(selectedIds, toggleTag, pickerOpen, setPickerOpen, testPrefix)}
         <Input placeholder="Contact name (optional)" value={form.contactName} onChange={e => setForm(p => ({ ...p, contactName: e.target.value }))} data-testid={`input-${testPrefix}-contact-name`} />
         <div className="grid grid-cols-2 gap-3">
           <Input placeholder="Phone (optional)" value={form.contactPhone} onChange={e => setForm(p => ({ ...p, contactPhone: e.target.value }))} data-testid={`input-${testPrefix}-contact-phone`} />
@@ -452,13 +464,52 @@ export default function CalendarPage() {
           <Switch
             id={`${testPrefix}-personal`}
             checked={form.isPersonal}
-            onCheckedChange={(checked) => setForm(p => ({ ...p, isPersonal: !!checked }))}
+            onCheckedChange={(checked) => setForm(p => ({ ...p, isPersonal: !!checked, ...(!checked ? { invitedDepartments: [] } : {}) }))}
             data-testid={`switch-${testPrefix}-personal`}
           />
         </div>
         {form.isPersonal && (
-          <p className="text-xs text-muted-foreground">Only you will see this event on the calendar.</p>
+          <div className="space-y-3 rounded-md border border-dashed border-muted-foreground/30 p-3 bg-muted/30">
+            <p className="text-xs text-muted-foreground">
+              This event won't appear on the shared calendar. Only you and anyone you invite below will see it.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                Invite by Department
+              </label>
+              <div className="flex flex-wrap gap-3">
+                {DEPARTMENTS.map(dept => {
+                  const isChecked = form.invitedDepartments.includes(dept.value);
+                  return (
+                    <label key={dept.value} className="flex items-center gap-1.5 text-sm cursor-pointer" data-testid={`checkbox-${testPrefix}-dept-${dept.value}`}>
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          setForm(p => ({
+                            ...p,
+                            invitedDepartments: checked
+                              ? [...p.invitedDepartments, dept.value]
+                              : p.invitedDepartments.filter(d => d !== dept.value),
+                          }));
+                        }}
+                      />
+                      {dept.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" />
+                Invite Individuals
+              </label>
+              {renderTagPicker(selectedIds, toggleTag, pickerOpen, setPickerOpen, testPrefix)}
+            </div>
+          </div>
         )}
+        {!form.isPersonal && renderTagPicker(selectedIds, toggleTag, pickerOpen, setPickerOpen, testPrefix)}
       </div>
     );
   }
@@ -681,11 +732,24 @@ export default function CalendarPage() {
                 )}
                 {selectedEvent.taggedUserIds && selectedEvent.taggedUserIds.length > 0 && (
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Tagged People</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                      {selectedEvent.isPersonal ? "Invited People" : "Tagged People"}
+                    </p>
                     <div className="flex flex-wrap gap-1">
                       {getTaggedNames(selectedEvent.taggedUserIds).map((name, i) => (
                         <Badge key={i} variant="secondary" className="text-xs" data-testid={`badge-tagged-${i}`}>{name}</Badge>
                       ))}
+                    </div>
+                  </div>
+                )}
+                {(selectedEvent as any).invitedDepartments && (selectedEvent as any).invitedDepartments.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Invited Departments</p>
+                    <div className="flex flex-wrap gap-1">
+                      {(selectedEvent as any).invitedDepartments.map((dept: string, i: number) => {
+                        const label = DEPARTMENTS.find(d => d.value === dept)?.label || dept;
+                        return <Badge key={i} variant="outline" className="text-xs" data-testid={`badge-dept-${dept}`}>{label}</Badge>;
+                      })}
                     </div>
                   </div>
                 )}

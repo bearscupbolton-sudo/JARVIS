@@ -2747,7 +2747,50 @@ export class DatabaseStorage implements IStorage {
         shiftStartsLater,
         upcomingShiftTime,
       },
+      upcomingEvents: await this.getUpcomingEventsForBriefing(userId, user.department || null),
     };
+  }
+
+  private async getUpcomingEventsForBriefing(userId: string, userDepartment: string | null) {
+    const now = new Date();
+    const twoDaysOut = new Date(now);
+    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
+    twoDaysOut.setHours(23, 59, 59, 999);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const allEvents = await db.select({
+      title: events.title,
+      date: events.date,
+      eventType: events.eventType,
+      startTime: events.startTime,
+      endTime: events.endTime,
+      isPersonal: events.isPersonal,
+      createdBy: events.createdBy,
+      taggedUserIds: events.taggedUserIds,
+      invitedDepartments: events.invitedDepartments,
+    }).from(events).where(
+      and(
+        gte(events.date, todayStart),
+        sql`${events.date} <= ${twoDaysOut}`,
+      )
+    ).orderBy(events.date).limit(10);
+
+    return allEvents.filter(e => {
+      if (!e.isPersonal) return true;
+      if (e.createdBy === userId) return true;
+      if (e.taggedUserIds && Array.isArray(e.taggedUserIds) && e.taggedUserIds.some((id: any) => String(id) === String(userId))) return true;
+      if (e.invitedDepartments && Array.isArray(e.invitedDepartments) && userDepartment && e.invitedDepartments.includes(userDepartment)) return true;
+      return false;
+    }).map(e => ({
+      title: e.title,
+      date: e.date,
+      eventType: e.eventType,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      isPersonal: e.isPersonal,
+    }));
   }
 
   async updateJarvisBriefingCache(userId: string, briefingText: string): Promise<void> {
