@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +9,9 @@ import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
+import { PortalLayout } from "@/components/PortalLayout";
 import { Loader2 } from "lucide-react";
+import { useEffect } from "react";
 
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
@@ -61,6 +63,12 @@ import Vendors from "@/pages/Vendors";
 import BagelBros from "@/pages/BagelBros";
 import TestKitchen from "@/pages/TestKitchen";
 import DevFeedback from "@/pages/DevFeedback";
+import PortalLogin from "@/pages/portal/PortalLogin";
+import PortalRegister from "@/pages/portal/PortalRegister";
+import PortalHome from "@/pages/portal/PortalHome";
+import PortalMenu from "@/pages/portal/PortalMenu";
+import PortalOrders from "@/pages/portal/PortalOrders";
+import PortalProfile from "@/pages/portal/PortalProfile";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -94,6 +102,54 @@ function ProtectedRoute({ component: Component, noLayout }: { component: React.C
         <Component />
       </Layout>
     </LocationProvider>
+  );
+}
+
+function PortalProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const [, setLocation] = useLocation();
+
+  const { data: customer, isLoading } = useQuery<{ id: number; firstName: string; email: string } | null>({
+    queryKey: ["/api/portal/me"],
+    queryFn: async () => {
+      const res = await fetch("/api/portal/me", { credentials: "include" });
+      if (res.status === 401) return null;
+      if (!res.ok) throw new Error("Failed to fetch customer");
+      return res.json();
+    },
+    retry: false,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  useEffect(() => {
+    if (!isLoading && !customer) {
+      setLocation("/portal/login");
+    }
+  }, [isLoading, customer, setLocation]);
+
+  if (isLoading) {
+    return (
+      <div className="theme-portal min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!customer) {
+    return null;
+  }
+
+  return (
+    <PortalLayout>
+      <Component />
+    </PortalLayout>
+  );
+}
+
+function PortalPublicRoute({ component: Component }: { component: React.ComponentType }) {
+  return (
+    <div className="theme-portal min-h-screen bg-background">
+      <Component />
+    </div>
   );
 }
 
@@ -259,6 +315,26 @@ function Router() {
       </Route>
       <Route path="/dev-feedback">
         {() => <ProtectedRoute component={DevFeedback} />}
+      </Route>
+
+      {/* Portal Routes (La Carte - Customer-facing) */}
+      <Route path="/portal/login">
+        {() => <PortalPublicRoute component={PortalLogin} />}
+      </Route>
+      <Route path="/portal/register">
+        {() => <PortalPublicRoute component={PortalRegister} />}
+      </Route>
+      <Route path="/portal">
+        {() => <PortalProtectedRoute component={PortalHome} />}
+      </Route>
+      <Route path="/portal/menu">
+        {() => <PortalProtectedRoute component={PortalMenu} />}
+      </Route>
+      <Route path="/portal/orders">
+        {() => <PortalProtectedRoute component={PortalOrders} />}
+      </Route>
+      <Route path="/portal/profile">
+        {() => <PortalProtectedRoute component={PortalProfile} />}
       </Route>
 
       <Route component={NotFound} />

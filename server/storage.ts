@@ -91,6 +91,9 @@ import {
   type TestKitchenNote, type InsertTestKitchenNote,
   sentimentShiftScores,
   type SentimentShiftScore, type InsertSentimentShiftScore,
+  customers, customerOrders,
+  type Customer, type InsertCustomer,
+  type CustomerOrder, type InsertCustomerOrder,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -504,6 +507,18 @@ export interface IStorage {
   getTestKitchenNotes(itemId: number): Promise<TestKitchenNote[]>;
   createTestKitchenNote(note: InsertTestKitchenNote): Promise<TestKitchenNote>;
   deleteTestKitchenNote(id: number): Promise<void>;
+
+  // Customers (Portal)
+  getCustomerByEmail(email: string): Promise<Customer | undefined>;
+  getCustomerById(id: number): Promise<Customer | undefined>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: number, updates: Partial<InsertCustomer>): Promise<Customer>;
+
+  // Customer Orders (Portal)
+  getCustomerOrders(customerId: number): Promise<CustomerOrder[]>;
+  getCustomerOrder(id: number): Promise<CustomerOrder | undefined>;
+  createCustomerOrder(order: InsertCustomerOrder): Promise<CustomerOrder>;
+  updateCustomerOrderStatus(id: number, status: string): Promise<CustomerOrder>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3171,6 +3186,54 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTestKitchenNote(id: number): Promise<void> {
     await db.delete(testKitchenNotes).where(eq(testKitchenNotes.id, id));
+  }
+
+  async getCustomerByEmail(email: string): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.email, email.toLowerCase()));
+    return customer;
+  }
+
+  async getCustomerById(id: number): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.id, id));
+    return customer;
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    const [created] = await db.insert(customers).values({
+      ...customer,
+      email: customer.email.toLowerCase(),
+    }).returning();
+    return created;
+  }
+
+  async updateCustomer(id: number, updates: Partial<InsertCustomer>): Promise<Customer> {
+    if (updates.email) updates.email = updates.email.toLowerCase();
+    const [updated] = await db.update(customers).set(updates).where(eq(customers.id, id)).returning();
+    return updated;
+  }
+
+  async getCustomerOrders(customerId: number): Promise<CustomerOrder[]> {
+    return db.select().from(customerOrders)
+      .where(eq(customerOrders.customerId, customerId))
+      .orderBy(desc(customerOrders.createdAt));
+  }
+
+  async getCustomerOrder(id: number): Promise<CustomerOrder | undefined> {
+    const [order] = await db.select().from(customerOrders).where(eq(customerOrders.id, id));
+    return order;
+  }
+
+  async createCustomerOrder(order: InsertCustomerOrder): Promise<CustomerOrder> {
+    const [created] = await db.insert(customerOrders).values(order).returning();
+    return created;
+  }
+
+  async updateCustomerOrderStatus(id: number, status: string): Promise<CustomerOrder> {
+    const [updated] = await db.update(customerOrders)
+      .set({ status })
+      .where(eq(customerOrders.id, id))
+      .returning();
+    return updated;
   }
 }
 

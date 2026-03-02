@@ -1155,6 +1155,42 @@ export const insertTestKitchenNoteSchema = createInsertSchema(testKitchenNotes).
 export type TestKitchenNote = typeof testKitchenNotes.$inferSelect;
 export type InsertTestKitchenNote = z.infer<typeof insertTestKitchenNoteSchema>;
 
+// === CUSTOMERS (Portal) ===
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  phone: text("phone"),
+  squareCustomerId: text("square_customer_id"),
+  membershipTier: text("membership_tier").notNull().default("free"),
+  preferences: jsonb("preferences").$type<{ dietaryRestrictions?: string[]; favorites?: string[]; allergies?: string[] }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+
+// === CUSTOMER ORDERS (Portal) ===
+export const customerOrders = pgTable("customer_orders", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  squareOrderId: text("square_order_id"),
+  locationId: integer("location_id"),
+  items: jsonb("items").notNull().$type<{ catalogItemId: string; variationId?: string; name: string; quantity: number; priceAmount: number }[]>(),
+  total: doublePrecision("total").notNull(),
+  status: text("status").notNull().default("pending"),
+  pickupName: text("pickup_name"),
+  customerNote: text("customer_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCustomerOrderSchema = createInsertSchema(customerOrders).omit({ id: true, createdAt: true });
+export type CustomerOrder = typeof customerOrders.$inferSelect;
+export type InsertCustomerOrder = z.infer<typeof insertCustomerOrderSchema>;
+
 // === SENTIMENT SHIFT SCORES ===
 export const sentimentShiftScores = pgTable("sentiment_shift_scores", {
   id: serial("id").primaryKey(),

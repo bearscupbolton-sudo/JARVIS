@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Oswald:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Oswald:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -72,6 +72,43 @@
   --ring: 210 20% 98%;
 }
 
+.theme-portal {
+  --font-sans: 'Lora', serif;
+  --font-display: 'Playfair Display', serif;
+  --font-serif: 'Playfair Display', serif;
+  font-family: 'Lora', serif;
+
+  --background: 36 33% 95%;
+  --foreground: 25 15% 20%;
+
+  --card: 36 30% 98%;
+  --card-foreground: 25 15% 20%;
+
+  --popover: 36 30% 98%;
+  --popover-foreground: 25 15% 20%;
+
+  --primary: 25 40% 22%;
+  --primary-foreground: 36 33% 95%;
+
+  --secondary: 36 25% 88%;
+  --secondary-foreground: 25 15% 20%;
+
+  --muted: 36 20% 90%;
+  --muted-foreground: 25 10% 45%;
+
+  --accent: 40 70% 55%;
+  --accent-foreground: 25 40% 15%;
+
+  --destructive: 0 60% 50%;
+  --destructive-foreground: 36 33% 95%;
+
+  --border: 30 15% 82%;
+  --input: 30 15% 82%;
+  --ring: 25 40% 22%;
+
+  --radius: 0.375rem;
+}
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased selection:bg-accent/30;
@@ -104,4 +141,19 @@
   .metallic-gradient {
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   }
+}
+
+.theme-portal h1,
+.theme-portal h2,
+.theme-portal h3,
+.theme-portal h4,
+.theme-portal h5,
+.theme-portal h6 {
+  font-family: 'Playfair Display', serif;
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+.theme-portal .font-serif {
+  font-family: 'Playfair Display', serif;
 }

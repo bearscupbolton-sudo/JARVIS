@@ -532,3 +532,53 @@ export async function fetchSquareTips(date: string, locationId?: string): Promis
     throw new Error(`Failed to fetch tips: ${error.message}`);
   }
 }
+
+export async function createSquareOrder(params: {
+  squareLocationId: string;
+  items: { catalogObjectId: string; variationId: string; quantity: number; note?: string }[];
+  pickupName?: string;
+  customerNote?: string;
+}): Promise<{ orderId: string; totalAmount: number }> {
+  const client = getSquareClient();
+
+  const lineItems = params.items.map((item) => ({
+    catalogObjectId: item.variationId,
+    quantity: item.quantity.toString(),
+    note: item.note || undefined,
+  }));
+
+  const orderRequest: any = {
+    order: {
+      locationId: params.squareLocationId,
+      lineItems,
+      fulfillments: [
+        {
+          type: "PICKUP",
+          state: "PROPOSED",
+          pickupDetails: {
+            recipient: {
+              displayName: params.pickupName || "Guest",
+            },
+            note: params.customerNote || undefined,
+            scheduleType: "ASAP",
+          },
+        },
+      ],
+    },
+    idempotencyKey: `lacarte-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  };
+
+  const response: any = await client.orders.create(orderRequest);
+  const order = response.order;
+
+  if (!order) {
+    throw new Error("Square did not return an order");
+  }
+
+  const totalAmount = order.totalMoney ? parseInt(order.totalMoney.amount || "0") : 0;
+
+  return {
+    orderId: order.id,
+    totalAmount,
+  };
+}
