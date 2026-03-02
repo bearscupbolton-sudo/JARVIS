@@ -27,7 +27,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
-  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee
+  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
 
@@ -130,6 +130,8 @@ export default function Schedule() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
   const [uploadTeam, setUploadTeam] = useState<any[]>([]);
+  const [newEmployeeForm, setNewEmployeeForm] = useState<{ firstName: string; lastName: string; pin: string; forShiftIndex: number | null } | null>(null);
+  const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const isOwner = user?.role === "owner";
   const isShiftManager = (user as any)?.isShiftManager;
@@ -1668,7 +1670,7 @@ export default function Schedule() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!uploadPreview} onOpenChange={(open) => { if (!open) { setUploadPreview(null); setUploadTeam([]); } }}>
+      <Dialog open={!!uploadPreview} onOpenChange={(open) => { if (!open) { setUploadPreview(null); setUploadTeam([]); setNewEmployeeForm(null); } }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-upload-preview">
           <DialogHeader>
             <DialogTitle>
@@ -1679,41 +1681,241 @@ export default function Schedule() {
           {uploadPreview && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Found {uploadPreview.length} shift(s). Review and confirm to add them to the schedule.
+                Found {uploadPreview.length} shift(s). Adjust details below, then confirm to import.
               </p>
+              {uploadPreview.some((s: any) => !s.userId) && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {uploadPreview.filter((s: any) => !s.userId).length} shift(s) have unmatched names. Assign a team member or create a new employee.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 text-xs gap-1 border-amber-500/40"
+                    onClick={() => setNewEmployeeForm({ firstName: "", lastName: "", pin: "", forShiftIndex: null })}
+                    data-testid="button-create-new-employee"
+                  >
+                    <UserPlus className="w-3 h-3" /> New Employee
+                  </Button>
+                </div>
+              )}
+              {newEmployeeForm && (
+                <Card className="border-blue-500/40 bg-blue-500/5" data-testid="card-new-employee-form">
+                  <CardContent className="p-3 space-y-3">
+                    <p className="text-sm font-semibold flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-blue-500" /> Quick Add Employee
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">First Name *</Label>
+                        <Input
+                          value={newEmployeeForm.firstName}
+                          onChange={e => setNewEmployeeForm({ ...newEmployeeForm, firstName: e.target.value })}
+                          placeholder="First name"
+                          data-testid="input-new-employee-firstName"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Last Name (optional)</Label>
+                        <Input
+                          value={newEmployeeForm.lastName}
+                          onChange={e => setNewEmployeeForm({ ...newEmployeeForm, lastName: e.target.value })}
+                          placeholder="Last name"
+                          data-testid="input-new-employee-lastName"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">PIN (4-8 digits) *</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={newEmployeeForm.pin}
+                          onChange={e => setNewEmployeeForm({ ...newEmployeeForm, pin: e.target.value.replace(/\D/g, "").slice(0, 8) })}
+                          placeholder="e.g. 1234"
+                          maxLength={8}
+                          data-testid="input-new-employee-pin"
+                        />
+                      </div>
+                      <div className="flex items-end gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          disabled={!newEmployeeForm.firstName.trim() || newEmployeeForm.pin.length < 4 || creatingEmployee}
+                          onClick={async () => {
+                            setCreatingEmployee(true);
+                            try {
+                              const username = [newEmployeeForm.firstName, newEmployeeForm.lastName].filter(Boolean).join(".").toLowerCase().replace(/\s+/g, "");
+                              const res = await apiRequest("POST", "/api/admin/users", {
+                                firstName: newEmployeeForm.firstName.trim(),
+                                lastName: newEmployeeForm.lastName.trim() || undefined,
+                                username,
+                                pin: newEmployeeForm.pin,
+                                role: "member",
+                                department: "bakery",
+                              });
+                              const created = await res.json();
+                              const newMember = { id: created.id, name: [created.firstName, created.lastName].filter(Boolean).join(" "), username: created.username, firstName: created.firstName, lastName: created.lastName };
+                              setUploadTeam(prev => [...prev, newMember]);
+                              if (newEmployeeForm.forShiftIndex !== null && uploadPreview) {
+                                const updated = [...uploadPreview];
+                                updated[newEmployeeForm.forShiftIndex] = { ...updated[newEmployeeForm.forShiftIndex], userId: created.id };
+                                setUploadPreview(updated);
+                              }
+                              toast({ title: "Employee Created", description: `${newMember.name || newMember.username} added to the team.` });
+                              setNewEmployeeForm(null);
+                              queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+                            } catch (err: any) {
+                              toast({ title: "Failed to create", description: err.message || "Check PIN uniqueness", variant: "destructive" });
+                            } finally {
+                              setCreatingEmployee(false);
+                            }
+                          }}
+                          data-testid="button-save-new-employee"
+                        >
+                          {creatingEmployee ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                          {creatingEmployee ? "Creating..." : "Create"}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setNewEmployeeForm(null)} data-testid="button-cancel-new-employee">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {uploadPreview.map((s: any, i: number) => {
                   const teamMember = uploadTeam.find((t: any) => t.id === s.userId);
                   return (
                     <Card key={i} className={!s.userId ? "border-amber-500/60" : ""} data-testid={`card-preview-shift-${i}`}>
-                      <CardContent className="p-3">
+                      <CardContent className="p-3 space-y-2">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
                             <UserCircle className="w-4 h-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm font-medium">
-                              {teamMember ? teamMember.name || teamMember.username : (s.notes ? `Unknown: ${s.notes}` : "Open Shift")}
-                            </span>
+                            <Select
+                              value={s.userId || "__unassigned__"}
+                              onValueChange={(val) => {
+                                const updated = [...uploadPreview];
+                                updated[i] = { ...updated[i], userId: val === "__unassigned__" ? null : val };
+                                setUploadPreview(updated);
+                              }}
+                            >
+                              <SelectTrigger className="h-7 text-xs flex-1" data-testid={`select-shift-user-${i}`}>
+                                <SelectValue placeholder="Assign employee" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__unassigned__">Open Shift</SelectItem>
+                                {uploadTeam.map((t: any) => (
+                                  <SelectItem key={t.id} value={t.id}>
+                                    {t.name || t.firstName || t.username}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {!s.userId && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 shrink-0"
+                                onClick={() => setNewEmployeeForm({ firstName: (s.notes || "").replace(/^Unknown:\s*/i, "").split(" ")[0] || "", lastName: (s.notes || "").replace(/^Unknown:\s*/i, "").split(" ").slice(1).join(" ") || "", pin: "", forShiftIndex: i })}
+                                title="Create new employee for this shift"
+                                data-testid={`button-create-for-shift-${i}`}
+                              >
+                                <UserPlus className="w-3.5 h-3.5 text-amber-500" />
+                              </Button>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="secondary" className="text-[10px]">{s.department || "kitchen"}</Badge>
-                            <span className="text-xs text-muted-foreground">{s.shiftDate}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-destructive shrink-0"
+                            onClick={() => {
+                              const updated = uploadPreview.filter((_: any, idx: number) => idx !== i);
+                              if (updated.length === 0) {
+                                setUploadPreview(null);
+                                setUploadTeam([]);
+                                setNewEmployeeForm(null);
+                              } else {
+                                setUploadPreview(updated);
+                                if (newEmployeeForm?.forShiftIndex === i) setNewEmployeeForm(null);
+                                else if (newEmployeeForm?.forShiftIndex !== null && newEmployeeForm.forShiftIndex > i)
+                                  setNewEmployeeForm({ ...newEmployeeForm, forShiftIndex: newEmployeeForm.forShiftIndex - 1 });
+                              }
+                            }}
+                            title="Remove shift"
+                            data-testid={`button-remove-shift-${i}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Select
+                            value={s.department || "kitchen"}
+                            onValueChange={(val) => {
+                              const updated = [...uploadPreview];
+                              updated[i] = { ...updated[i], department: val };
+                              setUploadPreview(updated);
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-24" data-testid={`select-shift-dept-${i}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DEPARTMENTS.map(d => (
+                                <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            value={s.shiftDate}
+                            onChange={(e) => {
+                              const updated = [...uploadPreview];
+                              updated[i] = { ...updated[i], shiftDate: e.target.value };
+                              setUploadPreview(updated);
+                            }}
+                            type="date"
+                            className="h-7 text-xs w-36"
+                            data-testid={`input-shift-date-${i}`}
+                          />
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-muted-foreground" />
+                            <Input
+                              value={s.startTime}
+                              onChange={(e) => {
+                                const updated = [...uploadPreview];
+                                updated[i] = { ...updated[i], startTime: e.target.value };
+                                setUploadPreview(updated);
+                              }}
+                              className="h-7 text-xs w-24"
+                              placeholder="Start"
+                              data-testid={`input-shift-start-${i}`}
+                            />
+                            <span className="text-xs text-muted-foreground">-</span>
+                            <Input
+                              value={s.endTime}
+                              onChange={(e) => {
+                                const updated = [...uploadPreview];
+                                updated[i] = { ...updated[i], endTime: e.target.value };
+                                setUploadPreview(updated);
+                              }}
+                              className="h-7 text-xs w-24"
+                              placeholder="End"
+                              data-testid={`input-shift-end-${i}`}
+                            />
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 mt-1 text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          <span className="text-xs">{s.startTime} - {s.endTime}</span>
-                        </div>
-                        {s.position && <p className="text-xs text-muted-foreground mt-1">Position: {s.position}</p>}
+                        {s.notes && !s.userId && (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                            Parsed name: "{s.notes.replace(/^Unknown:\s*/i, "")}"
+                          </p>
+                        )}
                       </CardContent>
                     </Card>
                   );
                 })}
               </div>
-              {uploadPreview.some((s: any) => !s.userId) && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Shifts highlighted in amber could not be matched to a team member and will be created as open shifts.
-                </p>
-              )}
               <div className="flex gap-2">
                 <Button
                   className="flex-1"
@@ -1735,7 +1937,7 @@ export default function Schedule() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => { setUploadPreview(null); setUploadTeam([]); }}
+                  onClick={() => { setUploadPreview(null); setUploadTeam([]); setNewEmployeeForm(null); }}
                   data-testid="button-cancel-import"
                 >
                   Cancel
