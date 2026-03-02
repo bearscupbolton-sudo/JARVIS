@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { LocationProvider } from "@/hooks/use-location-context";
 import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
+import BakeryTimerAlert from "@/components/BakeryTimerAlert";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
@@ -349,6 +350,7 @@ function App() {
         <Router />
         <GlobalAckOverlay />
         <LobbyCheckAlert />
+        <BakeryTimerAlert />
         <DevFeedbackOverlay />
         <Toaster />
       </TooltipProvider>

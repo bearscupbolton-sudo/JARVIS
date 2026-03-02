@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -16,8 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
-  CheckCircle2, Clock, ChevronRight, Zap, XCircle,
-  Plus, Send, Settings2, ShieldCheck, Megaphone, Timer, Volume2, VolumeX,
+  CheckCircle2, Clock, ChevronRight, Zap, XCircle, ChevronDown,
+  Plus, Send, Settings2, ShieldCheck, Megaphone, Timer, Sparkles,
 } from "lucide-react";
 import type { TaskList, TaskListItem, SoldoutLog, LobbyCheckSettings, LobbyCheckLog, PastryItem, KioskTimer } from "@shared/schema";
 
@@ -26,8 +26,6 @@ type TaskListWithItems = TaskList & { items?: TaskListItem[] };
 function OvenTimerRow({ timer, onDismiss }: { timer: KioskTimer; onDismiss: (id: number) => void }) {
   const [remaining, setRemaining] = useState(0);
   const [expired, setExpired] = useState(false);
-  const alarmRef = useRef<{ ctx: AudioContext; osc: OscillatorNode } | null>(null);
-  const [muted, setMuted] = useState(false);
 
   useEffect(() => {
     const update = () => {
@@ -42,39 +40,6 @@ function OvenTimerRow({ timer, onDismiss }: { timer: KioskTimer; onDismiss: (id:
     return () => clearInterval(interval);
   }, [timer.expiresAt]);
 
-  useEffect(() => {
-    if (expired && !muted && !alarmRef.current) {
-      try {
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "square";
-        osc.frequency.value = 880;
-        gain.gain.value = 0.15;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        alarmRef.current = { ctx, osc };
-      } catch (_) {}
-    }
-    if ((muted || !expired) && alarmRef.current) {
-      try {
-        alarmRef.current.osc.stop();
-        alarmRef.current.ctx.close();
-      } catch (_) {}
-      alarmRef.current = null;
-    }
-    return () => {
-      if (alarmRef.current) {
-        try {
-          alarmRef.current.osc.stop();
-          alarmRef.current.ctx.close();
-        } catch (_) {}
-        alarmRef.current = null;
-      }
-    };
-  }, [expired, muted]);
-
   const totalSec = timer.durationSeconds;
   const elapsed = totalSec - remaining;
   const progressPct = totalSec > 0 ? Math.min(100, Math.round((elapsed / totalSec) * 100)) : 100;
@@ -86,63 +51,64 @@ function OvenTimerRow({ timer, onDismiss }: { timer: KioskTimer; onDismiss: (id:
   };
 
   const isSpin = timer.label.includes("Spin");
+  const displayName = timer.label.replace(" — Bake", "").replace(" — Spin", "");
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-all ${
+      className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
         expired
-          ? "bg-red-500/15 border border-red-500/40 animate-pulse"
-          : "bg-muted/40 border border-border/50"
+          ? "bg-emerald-500/10 border border-emerald-500/30"
+          : "bg-muted/30 border border-border/40"
       }`}
       data-testid={`oven-timer-${timer.id}`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold truncate" data-testid={`timer-label-${timer.id}`}>
-            {timer.label}
+          <span className="text-sm font-medium truncate" data-testid={`timer-label-${timer.id}`}>
+            {displayName}
           </span>
           {isSpin && (
             <Badge variant="outline" className="text-[9px] shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-300/40">
               SPIN
             </Badge>
           )}
+          {!isSpin && !expired && (
+            <Badge variant="outline" className="text-[9px] shrink-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-300/40">
+              BAKE
+            </Badge>
+          )}
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-1000 ${
-                expired ? "bg-red-500" : isSpin ? "bg-blue-500" : "bg-orange-500"
-              }`}
-              style={{ width: `${progressPct}%` }}
-            />
+        {!expired && (
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ${isSpin ? "bg-blue-400/60" : "bg-orange-400/60"}`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+              {formatTime(remaining)}
+            </span>
           </div>
-          <span className={`text-xs font-mono font-bold shrink-0 ${expired ? "text-red-500" : "text-foreground"}`}>
-            {expired ? "DONE" : formatTime(remaining)}
-          </span>
-        </div>
+        )}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        {expired && (
+      <div className="shrink-0">
+        {expired ? (
+          <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] gap-1 cursor-pointer" onClick={() => onDismiss(timer.id)} data-testid={`button-dismiss-timer-${timer.id}`}>
+            <Sparkles className="w-3 h-3" />
+            Fresh Out
+          </Badge>
+        ) : (
           <Button
             size="sm"
             variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => setMuted(!muted)}
-            data-testid={`button-mute-timer-${timer.id}`}
+            className="h-6 text-[10px] text-muted-foreground px-2"
+            onClick={() => onDismiss(timer.id)}
+            data-testid={`button-dismiss-timer-${timer.id}`}
           >
-            {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-red-500" />}
+            <XCircle className="w-3 h-3" />
           </Button>
         )}
-        <Button
-          size="sm"
-          variant={expired ? "destructive" : "ghost"}
-          className="h-7 text-xs gap-1"
-          onClick={() => onDismiss(timer.id)}
-          data-testid={`button-dismiss-timer-${timer.id}`}
-        >
-          <XCircle className="w-3 h-3" />
-          Clear
-        </Button>
       </div>
     </div>
   );
@@ -157,6 +123,7 @@ export default function Platform934() {
   const [showSoldoutDialog, setShowSoldoutDialog] = useState(false);
   const [showLobbySettings, setShowLobbySettings] = useState(false);
   const [showBackupDialog, setShowBackupDialog] = useState(false);
+  const [ovenPanelOpen, setOvenPanelOpen] = useState(true);
   const isManager = user?.role === "owner" || user?.role === "manager";
 
   const { data: taskLists = [], isLoading: loadingTasks } = useQuery<TaskListWithItems[]>({
@@ -194,6 +161,11 @@ export default function Platform934() {
       queryClient.invalidateQueries({ queryKey: ["/api/kiosk/timers?department=bakery"] });
     },
   });
+
+  const freshOutCount = useMemo(() =>
+    ovenTimers.filter(t => new Date(t.expiresAt).getTime() <= Date.now()).length,
+    [ovenTimers]
+  );
 
   const todayLobbyLogs = useMemo(() =>
     lobbyLogs.filter(l => l.date === today),
@@ -395,21 +367,33 @@ export default function Platform934() {
         </Card>
 
         {ovenTimers.length > 0 && (
-          <Card className="border-orange-300/30 dark:border-orange-700/40" data-testid="container-oven-timers">
-            <CardHeader className="px-4 py-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Card className="border-orange-200/40 dark:border-orange-800/30" data-testid="container-oven-timers">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg"
+              onClick={() => setOvenPanelOpen(!ovenPanelOpen)}
+              data-testid="button-toggle-oven-panel"
+            >
+              <div className="flex items-center gap-2">
                 <Timer className="w-3.5 h-3.5 text-orange-500" />
-                Oven Timers
-                <Badge variant="outline" className="ml-auto text-[10px] font-mono bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-300/40">
-                  {ovenTimers.length} active
+                <span className="text-sm font-semibold">In the Oven</span>
+                <Badge variant="outline" className="text-[10px] font-mono bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-300/40">
+                  {ovenTimers.length}
                 </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pt-0 pb-3 space-y-2">
-              {ovenTimers.map(timer => (
-                <OvenTimerRow key={timer.id} timer={timer} onDismiss={(id) => dismissTimerMutation.mutate(id)} />
-              ))}
-            </CardContent>
+                {freshOutCount > 0 && (
+                  <Badge className="text-[10px] font-mono bg-emerald-600 text-white border-0">
+                    {freshOutCount} ready
+                  </Badge>
+                )}
+              </div>
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${ovenPanelOpen ? "" : "-rotate-90"}`} />
+            </button>
+            {ovenPanelOpen && (
+              <CardContent className="px-4 pt-0 pb-3 space-y-1.5">
+                {ovenTimers.map(timer => (
+                  <OvenTimerRow key={timer.id} timer={timer} onDismiss={(id) => dismissTimerMutation.mutate(id)} />
+                ))}
+              </CardContent>
+            )}
           </Card>
         )}
 

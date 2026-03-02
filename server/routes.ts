@@ -3482,6 +3482,7 @@ Respond with JSON:
       const timerInput = z.object({
         label: z.string().min(1).max(200),
         durationSeconds: z.number().int().min(1).max(86400),
+        department: z.string().optional(),
       }).parse(req.body);
 
       const now = new Date();
@@ -3494,6 +3495,7 @@ Respond with JSON:
         expiresAt,
         dismissed: false,
         createdBy: req.appUser?.id || null,
+        department: timerInput.department || null,
       });
       res.status(201).json(timer);
     } catch (err: any) {
