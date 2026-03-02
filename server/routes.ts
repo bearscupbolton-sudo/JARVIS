@@ -2820,8 +2820,8 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
   app.post("/api/shifts/import", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
-        return res.status(403).json({ message: "Only shift managers, general managers, or owners can import schedules" });
+      if (user.role !== "owner" && user.role !== "manager" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only managers, shift managers, general managers, or owners can import schedules" });
       }
       const { csvContent, imageBase64, imageMimeType, weekStartDate } = req.body;
       if (!csvContent && !imageBase64) {
@@ -2908,8 +2908,8 @@ Only return the JSON array, no other text.`;
   app.post("/api/shifts/bulk", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
-        return res.status(403).json({ message: "Only shift managers, general managers, or owners can bulk create shifts" });
+      if (user.role !== "owner" && user.role !== "manager" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only managers, shift managers, general managers, or owners can bulk create shifts" });
       }
       const { shifts: shiftList } = req.body;
       console.log("[Bulk Shifts] Received", shiftList?.length, "shifts. Sample:", JSON.stringify(shiftList?.[0]));
