@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -17,11 +17,136 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
   CheckCircle2, Clock, ChevronRight, Zap, XCircle,
-  Plus, Send, Settings2, ShieldCheck, Megaphone,
+  Plus, Send, Settings2, ShieldCheck, Megaphone, Timer, Volume2, VolumeX,
 } from "lucide-react";
-import type { TaskList, TaskListItem, SoldoutLog, LobbyCheckSettings, LobbyCheckLog, PastryItem } from "@shared/schema";
+import type { TaskList, TaskListItem, SoldoutLog, LobbyCheckSettings, LobbyCheckLog, PastryItem, KioskTimer } from "@shared/schema";
 
 type TaskListWithItems = TaskList & { items?: TaskListItem[] };
+
+function OvenTimerRow({ timer, onDismiss }: { timer: KioskTimer; onDismiss: (id: number) => void }) {
+  const [remaining, setRemaining] = useState(0);
+  const [expired, setExpired] = useState(false);
+  const alarmRef = useRef<{ ctx: AudioContext; osc: OscillatorNode } | null>(null);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      const now = Date.now();
+      const expiresMs = new Date(timer.expiresAt).getTime();
+      const diff = Math.max(0, Math.ceil((expiresMs - now) / 1000));
+      setRemaining(diff);
+      setExpired(diff <= 0);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [timer.expiresAt]);
+
+  useEffect(() => {
+    if (expired && !muted && !alarmRef.current) {
+      try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = 880;
+        gain.gain.value = 0.15;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        alarmRef.current = { ctx, osc };
+      } catch (_) {}
+    }
+    if ((muted || !expired) && alarmRef.current) {
+      try {
+        alarmRef.current.osc.stop();
+        alarmRef.current.ctx.close();
+      } catch (_) {}
+      alarmRef.current = null;
+    }
+    return () => {
+      if (alarmRef.current) {
+        try {
+          alarmRef.current.osc.stop();
+          alarmRef.current.ctx.close();
+        } catch (_) {}
+        alarmRef.current = null;
+      }
+    };
+  }, [expired, muted]);
+
+  const totalSec = timer.durationSeconds;
+  const elapsed = totalSec - remaining;
+  const progressPct = totalSec > 0 ? Math.min(100, Math.round((elapsed / totalSec) * 100)) : 100;
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const isSpin = timer.label.includes("Spin");
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-all ${
+        expired
+          ? "bg-red-500/15 border border-red-500/40 animate-pulse"
+          : "bg-muted/40 border border-border/50"
+      }`}
+      data-testid={`oven-timer-${timer.id}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold truncate" data-testid={`timer-label-${timer.id}`}>
+            {timer.label}
+          </span>
+          {isSpin && (
+            <Badge variant="outline" className="text-[9px] shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-300/40">
+              SPIN
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${
+                expired ? "bg-red-500" : isSpin ? "bg-blue-500" : "bg-orange-500"
+              }`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <span className={`text-xs font-mono font-bold shrink-0 ${expired ? "text-red-500" : "text-foreground"}`}>
+            {expired ? "DONE" : formatTime(remaining)}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {expired && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            onClick={() => setMuted(!muted)}
+            data-testid={`button-mute-timer-${timer.id}`}
+          >
+            {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-red-500" />}
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant={expired ? "destructive" : "ghost"}
+          className="h-7 text-xs gap-1"
+          onClick={() => onDismiss(timer.id)}
+          data-testid={`button-dismiss-timer-${timer.id}`}
+        >
+          <XCircle className="w-3 h-3" />
+          Clear
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function Platform934() {
   const { user } = useAuth();
@@ -56,6 +181,18 @@ export default function Platform934() {
 
   const { data: pastryItems = [] } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
+  });
+
+  const { data: ovenTimers = [] } = useQuery<KioskTimer[]>({
+    queryKey: ["/api/kiosk/timers?department=bakery"],
+    refetchInterval: 5000,
+  });
+
+  const dismissTimerMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/kiosk/timers/${id}/dismiss`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/timers?department=bakery"] });
+    },
   });
 
   const todayLobbyLogs = useMemo(() =>
@@ -256,6 +393,25 @@ export default function Platform934() {
             )}
           </CardContent>
         </Card>
+
+        {ovenTimers.length > 0 && (
+          <Card className="border-orange-300/30 dark:border-orange-700/40" data-testid="container-oven-timers">
+            <CardHeader className="px-4 py-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Timer className="w-3.5 h-3.5 text-orange-500" />
+                Oven Timers
+                <Badge variant="outline" className="ml-auto text-[10px] font-mono bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-300/40">
+                  {ovenTimers.length} active
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pt-0 pb-3 space-y-2">
+              {ovenTimers.map(timer => (
+                <OvenTimerRow key={timer.id} timer={timer} onDismiss={(id) => dismissTimerMutation.mutate(id)} />
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card data-testid="container-lobby-check">

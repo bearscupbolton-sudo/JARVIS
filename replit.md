@@ -18,7 +18,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 **Key Features & System Design:**
 
 *   **Recipe System:** Supports inline scaling, production views, logged recipe sessions, and "Recipe Assist." Recipes are categorized by department and link ingredients to inventory.
-*   **Lamination Studio:** Manages the lifecycle of lamination doughs with a FIFO "Next Up" system and automatic bake-off log creation.
+*   **Lamination Studio:** Manages the lifecycle of lamination doughs with a FIFO "Next Up" system and automatic bake-off log creation. Bake-off and Quick Log auto-create oven timers (Bake + Spin at bakeTime - 8 min) on Platform 9¾ when the pastry passport has a `bakeTimeMinutes` set.
 *   **Production Data Flow:** All production output flows through `bakeoff_logs` for unified reporting. Includes a `pastryItemId` for core operational tables, a data pipeline health dashboard, smart matching for Square catalog items, and bulk pastry passport creation.
 *   **Soldout/86'd Tracking:** Tracks out-of-stock items with timestamps, attribution, and location.
 *   **COGS System:** Calculates real-time per-pastry production costs using invoice, inventory, and recipe data.
@@ -43,7 +43,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Test Kitchen:** A collaborative specials development page with ingredient builders, real-time costing, method steps, status progression, collaborative Lab Notes, schedule settings, and "Jarvis Optimize" for AI-powered recipe analysis.
 *   **Customer Feedback & QR Code:** A public-facing, location-aware feedback page with a QR code generator for each location.
 *   **Sentiment Matrix:** An owner/GM dashboard that correlates customer feedback ratings with clocked-in team members for performance analysis.
-*   **Platform 9¾ (FOH Command Center):** A dedicated full-screen kiosk display for FOH, showing filtered task lists, 86'd items, and a FOH backup alert button.
+*   **Platform 9¾ (FOH Command Center):** A dedicated full-screen kiosk display for FOH, showing filtered task lists, 86'd items, live oven timers with countdown/audio alerts (department-filtered, any user can dismiss), and a FOH backup alert button.
 *   **Vendor Management & Auto-Order Generation:** CRUD for vendors, including contact info, order days, and linked inventory items. Auto-generates purchase orders based on stock levels with Twilio SMS capabilities.
 *   **Lobby Check Alert:** A recurring, PIN-acknowledged alert system for FOH staff to check the lobby.
 *   **Bagel Bros Display Screen:** A dedicated, full-screen, bilingual bagel production display with timers and FOH backup alert integration.

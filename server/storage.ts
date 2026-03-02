@@ -267,6 +267,7 @@ export interface IStorage {
   // Pastry Passports
   getPastryPassports(): Promise<PastryPassport[]>;
   getPastryPassport(id: number): Promise<(PastryPassport & { media: PastryMedia[]; components: (PastryComponent & { recipe: Recipe })[]; addins: PastryAddin[]; motherRecipe?: Recipe | null; primaryRecipe?: Recipe | null }) | undefined>;
+  getPassportByPastryItemIdOrName(pastryItemId: number | null, name: string): Promise<PastryPassport | null>;
   createPastryPassport(passport: InsertPastryPassport): Promise<PastryPassport>;
   updatePastryPassport(id: number, updates: Partial<InsertPastryPassport>): Promise<PastryPassport>;
   deletePastryPassport(id: number): Promise<void>;
@@ -1308,6 +1309,15 @@ export class DatabaseStorage implements IStorage {
   // Pastry Passports
   async getPastryPassports(): Promise<PastryPassport[]> {
     return await db.select().from(pastryPassports).orderBy(desc(pastryPassports.createdAt));
+  }
+
+  async getPassportByPastryItemIdOrName(pastryItemId: number | null, name: string): Promise<PastryPassport | null> {
+    if (pastryItemId) {
+      const [p] = await db.select().from(pastryPassports).where(eq(pastryPassports.pastryItemId, pastryItemId)).limit(1);
+      if (p) return p;
+    }
+    const [p] = await db.select().from(pastryPassports).where(ilike(pastryPassports.name, name)).limit(1);
+    return p || null;
   }
 
   async getPastryPassport(id: number) {

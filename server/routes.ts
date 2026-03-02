@@ -26,6 +26,47 @@ async function getUserFromReq(req: any) {
   return req.appUser || null;
 }
 
+async function createOvenTimersForItem(
+  itemName: string,
+  pastryItemId: number | null,
+  userId: string | null,
+): Promise<void> {
+  try {
+    const passport = await storage.getPassportByPastryItemIdOrName(pastryItemId, itemName);
+    if (!passport?.bakeTimeMinutes) return;
+
+    const bakeMinutes = passport.bakeTimeMinutes;
+    const now = new Date();
+
+    await storage.createTimer({
+      label: `${itemName} — Bake`,
+      durationSeconds: bakeMinutes * 60,
+      startedAt: now,
+      expiresAt: new Date(now.getTime() + bakeMinutes * 60 * 1000),
+      dismissed: false,
+      createdBy: userId,
+      department: "bakery",
+      pastryItemId: pastryItemId,
+    });
+
+    if (bakeMinutes > 8) {
+      const spinSeconds = (bakeMinutes - 8) * 60;
+      await storage.createTimer({
+        label: `${itemName} — Spin`,
+        durationSeconds: spinSeconds,
+        startedAt: now,
+        expiresAt: new Date(now.getTime() + spinSeconds * 1000),
+        dismissed: false,
+        createdBy: userId,
+        department: "bakery",
+        pastryItemId: pastryItemId,
+      });
+    }
+  } catch (err) {
+    console.error("Failed to create oven timers:", err);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -2167,10 +2208,16 @@ FORMAT RULES for the content field:
     res.json(logs);
   });
 
-  app.post(api.bakeoffLogs.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+  app.post(api.bakeoffLogs.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const input = api.bakeoffLogs.create.input.parse(req.body);
       const log = await storage.createBakeoffLog(input);
+
+      if (log.itemName) {
+        const pastryItemId = log.pastryItemId ?? await storage.resolvePastryItemId(log.itemName);
+        createOvenTimersForItem(log.itemName, pastryItemId, req.appUser?.id || null).catch(() => {});
+      }
+
       res.status(201).json(log);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -3419,7 +3466,11 @@ Respond with JSON:
 
   app.get("/api/kiosk/timers", isAuthenticated, async (req: any, res) => {
     try {
-      const timers = await storage.getActiveTimers();
+      const dept = req.query.department as string | undefined;
+      let timers = await storage.getActiveTimers();
+      if (dept) {
+        timers = timers.filter(t => t.department === dept);
+      }
       res.json(timers);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4452,6 +4503,11 @@ ${sopsHtml}
         bakedBy: user?.id || null,
       });
       storage.clearAllBriefingCaches().catch(() => {});
+
+      const itemName = dough.pastryType || dough.doughType;
+      const pastryItemId = await storage.resolvePastryItemId(itemName);
+      createOvenTimersForItem(itemName, pastryItemId, user?.id || null).catch(() => {});
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

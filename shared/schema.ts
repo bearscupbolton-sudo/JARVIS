@@ -454,6 +454,7 @@ export const pastryPassports = pgTable("pastry_passports", {
   descriptionText: text("description_text"),
   assemblyText: text("assembly_text"),
   bakingText: text("baking_text"),
+  bakeTimeMinutes: integer("bake_time_minutes"),
   finishText: text("finish_text"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -542,6 +543,8 @@ export const kioskTimers = pgTable("kiosk_timers", {
   expiresAt: timestamp("expires_at").notNull(),
   dismissed: boolean("dismissed").default(false),
   createdBy: text("created_by"),
+  department: text("department"),
+  pastryItemId: integer("pastry_item_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

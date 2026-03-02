@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink, DollarSign, AlertCircle } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink, DollarSign, AlertCircle, Timer } from "lucide-react";
 import type { PastryItem, InventoryItem } from "@shared/schema";
 import { Separator } from "@/components/ui/separator";
 
@@ -102,6 +102,83 @@ function EditableTextField({
           Cancel
         </Button>
       </div>
+    </div>
+  );
+}
+
+function BakeTimeField({
+  value,
+  passportId,
+}: {
+  value: number | null;
+  passportId: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [minutes, setMinutes] = useState(value?.toString() || "");
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const parsed = minutes ? parseInt(minutes, 10) : null;
+      if (minutes && (isNaN(parsed!) || parsed! < 1)) {
+        toast({ title: "Invalid", description: "Enter a valid number of minutes.", variant: "destructive" });
+        setSaving(false);
+        return;
+      }
+      await apiRequest("PUT", `/api/pastry-passports/${passportId}`, { bakeTimeMinutes: parsed });
+      queryClient.invalidateQueries({ queryKey: ['/api/pastry-passports', passportId] });
+      setEditing(false);
+      toast({ title: "Saved", description: "Bake time updated." });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Timer className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Bake Time</h3>
+        </div>
+        {!editing && (
+          <Button variant="ghost" size="sm" onClick={() => { setMinutes(value?.toString() || ""); setEditing(true); }} data-testid="button-edit-bakeTime">
+            <Pencil className="w-4 h-4 mr-1" /> Edit
+          </Button>
+        )}
+      </div>
+      {editing ? (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            value={minutes}
+            onChange={(e) => setMinutes(e.target.value)}
+            placeholder="e.g. 18"
+            className="w-28"
+            data-testid="input-bakeTimeMinutes"
+          />
+          <span className="text-sm text-muted-foreground">minutes</span>
+          <Button size="sm" onClick={handleSave} disabled={saving} data-testid="button-save-bakeTime">
+            <Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setEditing(false)} data-testid="button-cancel-bakeTime">
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <p className="text-foreground" data-testid="text-bakeTimeMinutes">
+          {value ? (
+            <span>{value} minutes <span className="text-muted-foreground text-sm ml-1">(spin alert at {value > 8 ? value - 8 : value} min)</span></span>
+          ) : (
+            <span className="text-muted-foreground italic">Not set — oven timers won't auto-start on bake-off.</span>
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -834,7 +911,12 @@ export default function PastryPassportDetail() {
 
         <TabsContent value="baking" className="mt-4">
           <Card>
-            <CardContent className="p-6">
+            <CardContent className="p-6 space-y-6">
+              <BakeTimeField
+                value={passport.bakeTimeMinutes}
+                passportId={params.id!}
+              />
+              <Separator />
               <EditableTextField
                 label="Baking Instructions"
                 value={passport.bakingText}
