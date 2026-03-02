@@ -92,19 +92,20 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
     }
 
     const catalogMappings = await db.select().from(squareCatalogMap).where(eq(squareCatalogMap.isActive, true));
-    const variationToItem = new Map<string, string>();
-    const itemIdToName = new Map<string, string>();
+    const variationToItem = new Map<string, { name: string; pastryItemId: number | null }>();
+    const itemIdToMapping = new Map<string, { name: string; pastryItemId: number | null }>();
 
     for (const mapping of catalogMappings) {
       if (mapping.pastryItemName) {
+        const info = { name: mapping.pastryItemName, pastryItemId: mapping.pastryItemId };
         if (mapping.squareVariationId) {
-          variationToItem.set(mapping.squareVariationId, mapping.pastryItemName);
+          variationToItem.set(mapping.squareVariationId, info);
         }
-        itemIdToName.set(mapping.squareItemId, mapping.pastryItemName);
+        itemIdToMapping.set(mapping.squareItemId, info);
       }
     }
 
-    const salesAgg = new Map<string, { qty: number; revenue: number }>();
+    const salesAgg = new Map<string, { qty: number; revenue: number; pastryItemId: number | null }>();
     let ordersProcessed = 0;
     let totalRevenue = 0;
     const hourlyBuckets = new Map<number, { orderCount: number; revenue: number; itemsSold: number }>();
@@ -154,19 +155,19 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
 
         for (const lineItem of (order as any).lineItems || []) {
           const catalogId = lineItem.catalogObjectId;
-          let pastryName: string | undefined;
 
+          let mappingInfo: { name: string; pastryItemId: number | null } | undefined;
           if (catalogId) {
-            pastryName = variationToItem.get(catalogId) || itemIdToName.get(catalogId);
+            mappingInfo = variationToItem.get(catalogId) || itemIdToMapping.get(catalogId);
           }
-          if (!pastryName) continue;
+          if (!mappingInfo) continue;
 
           const qty = parseInt(lineItem.quantity || "1", 10);
           const revCents = lineItem.totalMoney?.amount ? Number(lineItem.totalMoney.amount) : 0;
-          const existing = salesAgg.get(pastryName) || { qty: 0, revenue: 0 };
+          const existing = salesAgg.get(mappingInfo.name) || { qty: 0, revenue: 0, pastryItemId: mappingInfo.pastryItemId };
           existing.qty += qty;
           existing.revenue += revCents / 100;
-          salesAgg.set(pastryName, existing);
+          salesAgg.set(mappingInfo.name, existing);
 
           bucket.itemsSold += qty;
         }
@@ -189,6 +190,7 @@ export async function syncSquareSales(date: string, jarvisLocationId?: number): 
       await db.insert(squareSales).values({
         date,
         itemName,
+        pastryItemId: data.pastryItemId,
         quantitySold: data.qty,
         revenue: data.revenue,
         locationId: jarvisLocationId || null,

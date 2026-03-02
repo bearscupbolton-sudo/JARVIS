@@ -18,7 +18,7 @@ import {
   ChefHat, Plus, Trash2, Clock, ArrowRight,
   ClipboardList, Flame, CheckCircle2, ListChecks
 } from "lucide-react";
-import type { PastryTotal, ShapingLog, BakeoffLog, Recipe } from "@shared/schema";
+import type { PastryTotal, ShapingLog, BakeoffLog, Recipe, PastryItem } from "@shared/schema";
 
 function getToday() {
   return new Date().toISOString().split("T")[0];
@@ -85,6 +85,10 @@ export default function Bakery() {
     queryKey: ["/api/recipes"],
   });
 
+  const { data: pastryItemsList = [] } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items"],
+  });
+
   const createTotal = useMutation({
     mutationFn: async (data: z.infer<typeof pastryTotalFormSchema>) => {
       const res = await apiRequest("POST", "/api/pastry-totals", { ...data, date: today });
@@ -142,20 +146,73 @@ export default function Bakery() {
   });
 
   const todoList = useMemo(() => {
+    const pastryItemMap = new Map<number, PastryItem>();
+    const doughTypeToItemIds = new Map<string, Set<number>>();
+    pastryItemsList.forEach(pi => {
+      pastryItemMap.set(pi.id, pi);
+      const dt = pi.doughType.toLowerCase();
+      if (!doughTypeToItemIds.has(dt)) doughTypeToItemIds.set(dt, new Set());
+      doughTypeToItemIds.get(dt)!.add(pi.id);
+    });
+
     return pastryTotals.map(total => {
-      const shaped = shapingLogs
-        .filter(s => s.doughType.toLowerCase() === total.itemName.toLowerCase())
-        .reduce((sum, s) => sum + s.yieldCount, 0);
-      const remaining = Math.max(0, total.targetCount - shaped);
+      let shaped = 0;
+
+      if (total.pastryItemId) {
+        const totalPastryItem = pastryItemMap.get(total.pastryItemId);
+        const relatedDoughType = totalPastryItem?.doughType?.toLowerCase();
+
+        shaped = shapingLogs
+          .filter(s => {
+            if (s.pastryItemId && total.pastryItemId) {
+              if (relatedDoughType) {
+                const sItem = s.pastryItemId ? pastryItemMap.get(s.pastryItemId) : null;
+                const sDoughType = sItem?.doughType?.toLowerCase();
+                return sDoughType === relatedDoughType;
+              }
+              return s.pastryItemId === total.pastryItemId;
+            }
+            return s.doughType.toLowerCase() === total.itemName.toLowerCase();
+          })
+          .reduce((sum, s) => sum + s.yieldCount, 0);
+      } else {
+        const matchingPi = pastryItemsList.find(
+          pi => pi.name.toLowerCase() === total.itemName.toLowerCase()
+        );
+        if (matchingPi) {
+          const dt = matchingPi.doughType.toLowerCase();
+          shaped = shapingLogs
+            .filter(s => {
+              const sItem = s.pastryItemId ? pastryItemMap.get(s.pastryItemId) : null;
+              if (sItem) return sItem.doughType.toLowerCase() === dt;
+              return s.doughType.toLowerCase() === dt || s.doughType.toLowerCase() === total.itemName.toLowerCase();
+            })
+            .reduce((sum, s) => sum + s.yieldCount, 0);
+        } else {
+          shaped = shapingLogs
+            .filter(s => s.doughType.toLowerCase() === total.itemName.toLowerCase())
+            .reduce((sum, s) => sum + s.yieldCount, 0);
+        }
+      }
+
+      const baked = bakeoffLogs
+        .filter(b => {
+          if (b.pastryItemId && total.pastryItemId) return b.pastryItemId === total.pastryItemId;
+          return b.itemName.toLowerCase() === total.itemName.toLowerCase();
+        })
+        .reduce((sum, b) => sum + b.quantity, 0);
+
+      const progress = Math.max(shaped, baked);
+      const remaining = Math.max(0, total.targetCount - progress);
       return {
         itemName: total.itemName,
         target: total.targetCount,
-        shaped,
+        shaped: progress,
         remaining,
         done: remaining === 0,
       };
     });
-  }, [pastryTotals, shapingLogs]);
+  }, [pastryTotals, shapingLogs, bakeoffLogs, pastryItemsList]);
 
   const allDone = todoList.length > 0 && todoList.every(t => t.done);
 

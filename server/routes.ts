@@ -11,7 +11,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -1384,6 +1384,63 @@ FORMAT RULES for the content field:
     }
   });
 
+  // === ADMIN BACKFILL ===
+  app.post("/api/admin/backfill-pastry-ids", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const result = await storage.backfillPastryItemIds();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Backfill error:", error);
+      res.status(500).json({ message: "Backfill failed: " + error.message });
+    }
+  });
+
+  app.get("/api/admin/pipeline-health", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const allPastryItemsList = await db.select().from(pastryItems).where(eq(pastryItems.isActive, true));
+      const totalPastryItems = allPastryItemsList.length;
+
+      const allMappings = await db.select().from(squareCatalogMap).where(eq(squareCatalogMap.isActive, true));
+      const mappedPastryNames = new Set(allMappings.filter(m => m.pastryItemName).map(m => m.pastryItemName!.toLowerCase()));
+      const mappedCount = allPastryItemsList.filter(pi => mappedPastryNames.has(pi.name.toLowerCase())).length;
+
+      const allPassports = await db.select().from(pastryPassports);
+      const passportsLinked = allPassports.filter(p => p.pastryItemId).length;
+      const passportWithRecipe = allPassports.filter(p => p.motherRecipeId || p.primaryRecipeId).length;
+
+      const allInventory = await db.select().from(inventoryItems);
+      const inventoryWithCost = allInventory.filter(i => i.costPerUnit && i.costPerUnit > 0).length;
+
+      const uniqueDoughTypes = [...new Set(allPastryItemsList.map(pi => pi.doughType))];
+      const allDoughConfigs = await db.select().from(doughTypeConfigs);
+      const configuredDoughTypes = new Set(allDoughConfigs.map(c => c.doughType));
+      const doughTypesCovered = uniqueDoughTypes.filter(dt => configuredDoughTypes.has(dt)).length;
+
+      let squareConnected = false;
+      try {
+        const testResult = await testSquareConnection();
+        squareConnected = testResult.success;
+      } catch { }
+
+      const steps = [
+        { name: "Square Connection", status: squareConnected ? "complete" : "missing", current: squareConnected ? 1 : 0, total: 1 },
+        { name: "Catalog Mappings", status: mappedCount >= totalPastryItems ? "complete" : mappedCount > 0 ? "partial" : "missing", current: mappedCount, total: totalPastryItems },
+        { name: "Pastry Passports", status: passportsLinked >= totalPastryItems ? "complete" : passportsLinked > 0 ? "partial" : "missing", current: passportsLinked, total: totalPastryItems },
+        { name: "Recipe Links", status: passportWithRecipe >= allPassports.length && allPassports.length > 0 ? "complete" : passportWithRecipe > 0 ? "partial" : "missing", current: passportWithRecipe, total: allPassports.length },
+        { name: "Ingredient Costing", status: inventoryWithCost >= allInventory.length && allInventory.length > 0 ? "complete" : inventoryWithCost > 0 ? "partial" : "missing", current: inventoryWithCost, total: allInventory.length },
+        { name: "Dough Type Configs", status: doughTypesCovered >= uniqueDoughTypes.length ? "complete" : doughTypesCovered > 0 ? "partial" : "missing", current: doughTypesCovered, total: uniqueDoughTypes.length },
+      ];
+
+      const completedSteps = steps.filter(s => s.status === "complete").length;
+      const overallPct = steps.length > 0 ? Math.round((completedSteps / steps.length) * 100) : 0;
+
+      res.json({ steps, overallPct });
+    } catch (error: any) {
+      console.error("Pipeline health error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // === SQUARE INTEGRATION ===
   app.get("/api/square/test", isAuthenticated, isOwner, async (req, res) => {
     try {
@@ -1410,13 +1467,18 @@ FORMAT RULES for the content field:
 
   app.post("/api/square/catalog-map", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const { squareItemId, squareItemName, squareVariationId, squareVariationName, pastryItemName } = req.body;
+      const { squareItemId, squareItemName, squareVariationId, squareVariationName, pastryItemName, pastryItemId } = req.body;
+      let resolvedPastryItemId = pastryItemId || null;
+      if (!resolvedPastryItemId && pastryItemName) {
+        resolvedPastryItemId = await storage.resolvePastryItemId(pastryItemName);
+      }
       const [mapping] = await db.insert(squareCatalogMap).values({
         squareItemId,
         squareItemName,
         squareVariationId: squareVariationId || null,
         squareVariationName: squareVariationName || null,
         pastryItemName: pastryItemName || null,
+        pastryItemId: resolvedPastryItemId,
         isActive: true,
       }).returning();
       res.status(201).json(mapping);
@@ -1442,6 +1504,116 @@ FORMAT RULES for the content field:
   app.delete("/api/square/catalog-map/:id", isAuthenticated, isOwner, async (req, res) => {
     await db.delete(squareCatalogMap).where(eq(squareCatalogMap.id, Number(req.params.id)));
     res.status(204).send();
+  });
+
+  app.post("/api/square/catalog-map/auto-match", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const catalog = await fetchSquareCatalog();
+      const allPastryItems = await db.select().from(pastryItems).where(eq(pastryItems.isActive, true));
+      const existingMappings = await db.select().from(squareCatalogMap);
+      const mappedSquareIds = new Set(existingMappings.map(m => m.squareItemId));
+
+      const suggestions: {
+        squareItemId: string;
+        squareItemName: string;
+        squareVariationId: string | null;
+        squareVariationName: string | null;
+        pastryItemId: number;
+        pastryItemName: string;
+        confidence: "exact" | "likely" | "possible";
+      }[] = [];
+
+      for (const item of catalog) {
+        if (mappedSquareIds.has(item.id)) continue;
+        const sqName = (item.name || "").trim();
+        const sqNameLower = sqName.toLowerCase();
+
+        let bestMatch: { pastryItem: typeof allPastryItems[0]; confidence: "exact" | "likely" | "possible" } | null = null;
+
+        for (const pi of allPastryItems) {
+          const piNameLower = pi.name.toLowerCase();
+          if (sqNameLower === piNameLower) {
+            bestMatch = { pastryItem: pi, confidence: "exact" };
+            break;
+          }
+        }
+
+        if (!bestMatch) {
+          for (const pi of allPastryItems) {
+            const piNameLower = pi.name.toLowerCase();
+            if (sqNameLower.includes(piNameLower) || piNameLower.includes(sqNameLower)) {
+              bestMatch = { pastryItem: pi, confidence: "likely" };
+              break;
+            }
+          }
+        }
+
+        if (!bestMatch) {
+          for (const pi of allPastryItems) {
+            const piWords = pi.name.toLowerCase().split(/\s+/);
+            const sqWords = sqNameLower.split(/\s+/);
+            const overlap = piWords.filter((w: string) => w.length > 2 && sqWords.some((sw: string) => sw.includes(w) || w.includes(sw)));
+            if (overlap.length > 0 && overlap.length >= Math.min(piWords.length, sqWords.length) * 0.5) {
+              bestMatch = { pastryItem: pi, confidence: "possible" };
+              break;
+            }
+          }
+        }
+
+        if (bestMatch) {
+          const variation = item.variations?.[0];
+          suggestions.push({
+            squareItemId: item.id,
+            squareItemName: sqName,
+            squareVariationId: variation?.id || null,
+            squareVariationName: variation?.name || null,
+            pastryItemId: bestMatch.pastryItem.id,
+            pastryItemName: bestMatch.pastryItem.name,
+            confidence: bestMatch.confidence,
+          });
+        }
+      }
+
+      res.json(suggestions);
+    } catch (error: any) {
+      console.error("Auto-match error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/catalog-map/bulk", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        mappings: z.array(z.object({
+          squareItemId: z.string(),
+          squareItemName: z.string(),
+          squareVariationId: z.string().nullable(),
+          squareVariationName: z.string().nullable(),
+          pastryItemId: z.number(),
+          pastryItemName: z.string(),
+        })),
+      });
+      const { mappings: toCreate } = schema.parse(req.body);
+      const created = [];
+      for (const m of toCreate) {
+        const [mapping] = await db.insert(squareCatalogMap).values({
+          squareItemId: m.squareItemId,
+          squareItemName: m.squareItemName,
+          squareVariationId: m.squareVariationId,
+          squareVariationName: m.squareVariationName,
+          pastryItemName: m.pastryItemName,
+          pastryItemId: m.pastryItemId,
+          isActive: true,
+        }).returning();
+        created.push(mapping);
+      }
+      res.status(201).json({ created: created.length, mappings: created });
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: error.message });
+    }
   });
 
   app.post("/api/square/sync", isAuthenticated, isManager, async (req: any, res) => {
@@ -2921,6 +3093,79 @@ Only return the JSON array, no other text.`;
     const passport = await storage.getPastryPassport(Number(req.params.id));
     if (!passport) return res.status(404).json({ message: "Pastry passport not found" });
     res.json(passport);
+  });
+
+  app.post("/api/pastry-passports/bulk-create", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        pastryItemIds: z.array(z.number().int()).min(1),
+      });
+      const { pastryItemIds } = schema.parse(req.body);
+
+      const allPastryItems = await storage.getPastryItems();
+      const allRecipes = await storage.getRecipes();
+      const existingPassports = await storage.getPastryPassports();
+      const linkedItemIds = new Set(existingPassports.filter(p => p.pastryItemId).map(p => p.pastryItemId));
+
+      const DOUGH_TYPE_TO_CATEGORY: Record<string, string> = {
+        "Croissant": "Viennoiserie",
+        "Danish": "Viennoiserie",
+        "Cookies": "Cookies",
+        "Cake": "Muffin/Cake",
+        "Bread": "Bread",
+      };
+
+      const created: any[] = [];
+      const skipped: string[] = [];
+
+      for (const itemId of pastryItemIds) {
+        const item = allPastryItems.find((i: any) => i.id === itemId);
+        if (!item) {
+          skipped.push(`Item ID ${itemId} not found`);
+          continue;
+        }
+        if (linkedItemIds.has(item.id)) {
+          skipped.push(`${item.name} already has a passport`);
+          continue;
+        }
+
+        const category = DOUGH_TYPE_TO_CATEGORY[item.doughType] || "Bread";
+
+        let motherRecipeId: number | null = null;
+        const doughTypeLower = item.doughType.toLowerCase();
+        const motherMatch = allRecipes.find((r: any) =>
+          r.category === "Mother" &&
+          (r.title.toLowerCase().includes(doughTypeLower) ||
+           doughTypeLower.includes(r.title.toLowerCase().replace(" dough", "").replace(" mother", "")))
+        );
+        if (motherMatch) {
+          motherRecipeId = motherMatch.id;
+        }
+
+        const passport = await storage.createPastryPassport({
+          name: item.name,
+          category,
+          pastryItemId: item.id,
+          motherRecipeId,
+          primaryRecipeId: null,
+          photoUrl: null,
+          descriptionText: null,
+          assemblyText: null,
+          bakingText: null,
+          finishText: null,
+        });
+        created.push({ ...passport, motherRecipeTitle: motherMatch?.title || null });
+        linkedItemIds.add(item.id);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("Bulk create passports error:", err);
+      res.status(500).json({ message: "Failed to bulk create passports" });
+    }
   });
 
   app.post(api.pastryPassports.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {

@@ -3,7 +3,7 @@ import {
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes, preShiftNoteAcks,
-  squareSales,
+  squareSales, squareCatalogMap,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
@@ -99,7 +99,7 @@ import {
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, desc, gte, lte, and, sql, inArray, avg, isNull } from "drizzle-orm";
+import { eq, desc, gte, lte, and, sql, inArray, avg, isNull, ilike } from "drizzle-orm";
 
 export interface IStorage {
   // Recipes
@@ -172,6 +172,9 @@ export interface IStorage {
   getPendingChange(id: number): Promise<PendingChange | undefined>;
   createPendingChange(change: InsertPendingChange): Promise<PendingChange>;
   updatePendingChangeStatus(id: number, status: string, reviewedBy: string, reviewNote?: string): Promise<PendingChange>;
+
+  // Pastry Item ID Resolution
+  resolvePastryItemId(name: string): Promise<number | null>;
 
   // Pastry Totals
   getPastryTotals(date: string, locationId?: number): Promise<PastryTotal[]>;
@@ -528,9 +531,27 @@ export interface IStorage {
   getCustomerOrder(id: number): Promise<CustomerOrder | undefined>;
   createCustomerOrder(order: InsertCustomerOrder): Promise<CustomerOrder>;
   updateCustomerOrderStatus(id: number, status: string): Promise<CustomerOrder>;
+
+  // Backfill
+  backfillPastryItemIds(): Promise<{
+    bakeoffLogs: { total: number; updated: number };
+    pastryTotals: { total: number; updated: number };
+    shapingLogs: { total: number; updated: number };
+    soldoutLogs: { total: number; updated: number };
+    squareSales: { total: number; updated: number };
+    squareCatalogMap: { total: number; updated: number };
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
+  async resolvePastryItemId(name: string): Promise<number | null> {
+    const [item] = await db.select({ id: pastryItems.id })
+      .from(pastryItems)
+      .where(ilike(pastryItems.name, name))
+      .limit(1);
+    return item?.id ?? null;
+  }
+
   // Recipes
   async getRecipes(): Promise<Recipe[]> {
     return await db.select().from(recipes).orderBy(desc(recipes.createdAt));
@@ -850,6 +871,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPastryTotal(insertTotal: InsertPastryTotal): Promise<PastryTotal> {
+    if (!insertTotal.pastryItemId && insertTotal.itemName) {
+      insertTotal.pastryItemId = await this.resolvePastryItemId(insertTotal.itemName);
+    }
     const [total] = await db.insert(pastryTotals).values(insertTotal).returning();
     return total;
   }
@@ -870,6 +894,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createShapingLog(insertLog: InsertShapingLog): Promise<ShapingLog> {
+    if (!insertLog.pastryItemId && insertLog.doughType) {
+      const resolved = await this.resolvePastryItemId(insertLog.doughType);
+      if (!resolved) {
+        const [byDoughType] = await db.select({ id: pastryItems.id })
+          .from(pastryItems)
+          .where(ilike(pastryItems.doughType, insertLog.doughType))
+          .limit(1);
+        insertLog.pastryItemId = byDoughType?.id ?? null;
+      } else {
+        insertLog.pastryItemId = resolved;
+      }
+    }
     const [log] = await db.insert(shapingLogs).values(insertLog).returning();
     return log;
   }
@@ -885,6 +921,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBakeoffLog(insertLog: InsertBakeoffLog): Promise<BakeoffLog> {
+    if (!insertLog.pastryItemId && insertLog.itemName) {
+      insertLog.pastryItemId = await this.resolvePastryItemId(insertLog.itemName);
+    }
     const [log] = await db.insert(bakeoffLogs).values(insertLog).returning();
     return log;
   }
@@ -904,6 +943,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createSoldoutLog(insertLog: InsertSoldoutLog): Promise<SoldoutLog> {
+    if (!insertLog.pastryItemId && insertLog.itemName) {
+      insertLog.pastryItemId = await this.resolvePastryItemId(insertLog.itemName);
+    }
     const [log] = await db.insert(soldoutLogs).values(insertLog).returning();
     return log;
   }
@@ -3315,6 +3357,106 @@ export class DatabaseStorage implements IStorage {
       .set({ permissionLevelId: null, sidebarPermissions: null, sectionPermissions: null })
       .where(eq(users.permissionLevelId, id));
     await db.delete(permissionLevels).where(eq(permissionLevels.id, id));
+  }
+
+  async backfillPastryItemIds(): Promise<{
+    bakeoffLogs: { total: number; updated: number };
+    pastryTotals: { total: number; updated: number };
+    shapingLogs: { total: number; updated: number };
+    soldoutLogs: { total: number; updated: number };
+    squareSales: { total: number; updated: number };
+    squareCatalogMap: { total: number; updated: number };
+  }> {
+    const allPastryItems = await db.select().from(pastryItems);
+    const nameToId = new Map<string, number>();
+    const doughTypeToId = new Map<string, number>();
+    for (const item of allPastryItems) {
+      nameToId.set(item.name.toLowerCase(), item.id);
+      if (!doughTypeToId.has(item.doughType.toLowerCase())) {
+        doughTypeToId.set(item.doughType.toLowerCase(), item.id);
+      }
+    }
+
+    const resolve = (name: string | null | undefined): number | null => {
+      if (!name) return null;
+      return nameToId.get(name.toLowerCase()) ?? null;
+    };
+
+    const resolveByDoughType = (doughType: string | null | undefined): number | null => {
+      if (!doughType) return null;
+      return nameToId.get(doughType.toLowerCase()) ?? doughTypeToId.get(doughType.toLowerCase()) ?? null;
+    };
+
+    const results = {
+      bakeoffLogs: { total: 0, updated: 0 },
+      pastryTotals: { total: 0, updated: 0 },
+      shapingLogs: { total: 0, updated: 0 },
+      soldoutLogs: { total: 0, updated: 0 },
+      squareSales: { total: 0, updated: 0 },
+      squareCatalogMap: { total: 0, updated: 0 },
+    };
+
+    const nullBakeoffs = await db.select().from(bakeoffLogs).where(isNull(bakeoffLogs.pastryItemId));
+    results.bakeoffLogs.total = nullBakeoffs.length;
+    for (const row of nullBakeoffs) {
+      const pid = resolve(row.itemName);
+      if (pid) {
+        await db.update(bakeoffLogs).set({ pastryItemId: pid }).where(eq(bakeoffLogs.id, row.id));
+        results.bakeoffLogs.updated++;
+      }
+    }
+
+    const nullTotals = await db.select().from(pastryTotals).where(isNull(pastryTotals.pastryItemId));
+    results.pastryTotals.total = nullTotals.length;
+    for (const row of nullTotals) {
+      const pid = resolve(row.itemName);
+      if (pid) {
+        await db.update(pastryTotals).set({ pastryItemId: pid }).where(eq(pastryTotals.id, row.id));
+        results.pastryTotals.updated++;
+      }
+    }
+
+    const nullShaping = await db.select().from(shapingLogs).where(isNull(shapingLogs.pastryItemId));
+    results.shapingLogs.total = nullShaping.length;
+    for (const row of nullShaping) {
+      const pid = resolveByDoughType(row.doughType);
+      if (pid) {
+        await db.update(shapingLogs).set({ pastryItemId: pid }).where(eq(shapingLogs.id, row.id));
+        results.shapingLogs.updated++;
+      }
+    }
+
+    const nullSoldout = await db.select().from(soldoutLogs).where(isNull(soldoutLogs.pastryItemId));
+    results.soldoutLogs.total = nullSoldout.length;
+    for (const row of nullSoldout) {
+      const pid = resolve(row.itemName);
+      if (pid) {
+        await db.update(soldoutLogs).set({ pastryItemId: pid }).where(eq(soldoutLogs.id, row.id));
+        results.soldoutLogs.updated++;
+      }
+    }
+
+    const nullSales = await db.select().from(squareSales).where(isNull(squareSales.pastryItemId));
+    results.squareSales.total = nullSales.length;
+    for (const row of nullSales) {
+      const pid = resolve(row.itemName);
+      if (pid) {
+        await db.update(squareSales).set({ pastryItemId: pid }).where(eq(squareSales.id, row.id));
+        results.squareSales.updated++;
+      }
+    }
+
+    const nullCatalog = await db.select().from(squareCatalogMap).where(isNull(squareCatalogMap.pastryItemId));
+    results.squareCatalogMap.total = nullCatalog.length;
+    for (const row of nullCatalog) {
+      const pid = resolve(row.pastryItemName);
+      if (pid) {
+        await db.update(squareCatalogMap).set({ pastryItemId: pid }).where(eq(squareCatalogMap.id, row.id));
+        results.squareCatalogMap.updated++;
+      }
+    }
+
+    return results;
   }
 }
 

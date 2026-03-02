@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +36,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Stamp, Plus, Search, ArrowRight, ChefHat, Image } from "lucide-react";
+import { Stamp, Plus, Search, ArrowRight, ChefHat, Image, AlertTriangle, Zap } from "lucide-react";
 
 const PASSPORT_CATEGORIES = [
   "Bread",
@@ -53,6 +55,143 @@ const DOUGH_TYPE_TO_CATEGORY: Record<string, string> = {
   "Cake": "Muffin/Cake",
   "Bread": "Bread",
 };
+
+function BulkCreateDialog({ unlinkedItems }: { unlinkedItems: PastryItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set(unlinkedItems.map(i => i.id)));
+  const { toast } = useToast();
+
+  const { data: recipes } = useQuery<Recipe[]>({
+    queryKey: ["/api/recipes"],
+    enabled: open,
+  });
+
+  const motherRecipes = recipes?.filter(r => r.category === "Mother") || [];
+
+  const toggleItem = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === unlinkedItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(unlinkedItems.map(i => i.id)));
+    }
+  };
+
+  const getInferredCategory = (doughType: string) => {
+    return DOUGH_TYPE_TO_CATEGORY[doughType] || "Bread";
+  };
+
+  const getMotherRecipeMatch = (doughType: string) => {
+    const doughTypeLower = doughType.toLowerCase();
+    return motherRecipes.find(r =>
+      r.title.toLowerCase().includes(doughTypeLower) ||
+      doughTypeLower.includes(r.title.toLowerCase().replace(" dough", "").replace(" mother", ""))
+    );
+  };
+
+  const mutation = useMutation({
+    mutationFn: async (pastryItemIds: number[]) => {
+      const res = await apiRequest("POST", "/api/pastry-passports/bulk-create", { pastryItemIds });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pastry-passports"] });
+      setOpen(false);
+      const createdCount = data.created?.length || 0;
+      const skippedCount = data.skipped?.length || 0;
+      toast({
+        title: `${createdCount} passport${createdCount !== 1 ? "s" : ""} created`,
+        description: skippedCount > 0 ? `${skippedCount} skipped (already linked)` : "You can now add components and details to each passport.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Bulk create failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" data-testid="button-bulk-create-passports">
+          <Zap className="w-4 h-4 mr-2" /> Create Missing Passports
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create Missing Passports</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Select which pastry items should get auto-generated passports. Category and mother dough will be inferred automatically.
+        </p>
+        <div className="space-y-1 mt-4">
+          <div className="flex items-center gap-3 pb-2 border-b border-border">
+            <Checkbox
+              checked={selectedIds.size === unlinkedItems.length}
+              onCheckedChange={toggleAll}
+              data-testid="checkbox-select-all"
+            />
+            <span className="text-sm font-medium">Select All ({unlinkedItems.length})</span>
+          </div>
+          {unlinkedItems.map((item) => {
+            const category = getInferredCategory(item.doughType);
+            const motherMatch = getMotherRecipeMatch(item.doughType);
+            return (
+              <div
+                key={item.id}
+                className="flex items-start gap-3 py-2 border-b border-border last:border-0"
+                data-testid={`bulk-item-${item.id}`}
+              >
+                <Checkbox
+                  checked={selectedIds.has(item.id)}
+                  onCheckedChange={() => toggleItem(item.id)}
+                  className="mt-0.5"
+                  data-testid={`checkbox-item-${item.id}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium" data-testid={`text-item-name-${item.id}`}>{item.name}</span>
+                    <Badge variant="secondary" className="text-[10px]">{item.doughType}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Category: {category}</span>
+                    {motherMatch && (
+                      <span className="text-xs text-muted-foreground">
+                        | Mother: {motherMatch.title}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <Button type="button" variant="outline" onClick={() => setOpen(false)} data-testid="button-cancel-bulk">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => mutation.mutate(Array.from(selectedIds))}
+            disabled={selectedIds.size === 0 || mutation.isPending}
+            data-testid="button-confirm-bulk-create"
+          >
+            {mutation.isPending ? "Creating..." : `Create ${selectedIds.size} Passport${selectedIds.size !== 1 ? "s" : ""}`}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CreatePassportDialog({ preselectedItemId }: { preselectedItemId?: number }) {
   const [open, setOpen] = useState(!!preselectedItemId);
@@ -321,6 +460,11 @@ export default function PastryPassports() {
   const { data: passports, isLoading } = useQuery<PastryPassport[]>({
     queryKey: ["/api/pastry-passports"],
   });
+
+  const { data: pastryItems } = useQuery<PastryItem[]>({
+    queryKey: ["/api/pastry-items"],
+  });
+
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
@@ -328,6 +472,9 @@ export default function PastryPassports() {
   const createForItemId = urlParams.get("createFor") ? Number(urlParams.get("createFor")) : undefined;
 
   const categories = ["All", ...PASSPORT_CATEGORIES];
+
+  const linkedItemIds = new Set(passports?.filter(p => p.pastryItemId).map(p => p.pastryItemId) || []);
+  const unlinkedItems = pastryItems?.filter(i => i.isActive && !linkedItemIds.has(i.id)) || [];
 
   const filteredPassports = passports?.filter((p) => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -342,8 +489,21 @@ export default function PastryPassports() {
           <h1 className="text-3xl font-display font-bold" data-testid="text-page-title">Pastry Passports</h1>
           <p className="text-muted-foreground" data-testid="text-page-subtitle">Every pastry tells a story. Here are their travel documents.</p>
         </div>
-        <CreatePassportDialog preselectedItemId={createForItemId} />
+        <div className="flex items-center gap-3 flex-wrap">
+          {unlinkedItems.length > 0 && <BulkCreateDialog unlinkedItems={unlinkedItems} />}
+          <CreatePassportDialog preselectedItemId={createForItemId} />
+        </div>
       </div>
+
+      {unlinkedItems.length > 0 && (
+        <Alert data-testid="alert-missing-passports">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertTitle>{unlinkedItems.length} pastry item{unlinkedItems.length !== 1 ? "s have" : " has"} no passport</AlertTitle>
+          <AlertDescription>
+            COGS can't be calculated for items without passports. Use "Create Missing Passports" to auto-generate them.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-md border border-border shadow-sm">
         <div className="relative w-full sm:w-72">

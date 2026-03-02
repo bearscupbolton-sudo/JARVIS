@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -30,13 +31,30 @@ import {
   Unlink,
   Loader2,
   ArrowRight,
+  Sparkles,
+  Database,
+  Activity,
+  AlertTriangle,
 } from "lucide-react";
 import type { PastryItem } from "@shared/schema";
 import { useLocationContext } from "@/hooks/use-location-context";
+import { Link } from "wouter";
+
+type PipelineStep = { name: string; status: "complete" | "partial" | "missing"; current: number; total: number };
+type PipelineHealth = { steps: PipelineStep[]; overallPct: number };
 
 type SquareLocation = { id: string; name: string; address?: string; status: string };
 type SquareCatalogItem = { id: string; name: string; description?: string; variations: { id: string; name: string }[] };
 type CatalogMapping = { id: number; squareItemId: string; squareItemName: string; squareVariationId?: string; squareVariationName?: string; pastryItemName?: string; isActive: boolean };
+type AutoMatchSuggestion = {
+  squareItemId: string;
+  squareItemName: string;
+  squareVariationId: string | null;
+  squareVariationName: string | null;
+  pastryItemId: number;
+  pastryItemName: string;
+  confidence: "exact" | "likely" | "possible";
+};
 
 export default function SquareSettings() {
   const { toast } = useToast();
@@ -45,6 +63,9 @@ export default function SquareSettings() {
   const [selectedSquareItem, setSelectedSquareItem] = useState<SquareCatalogItem | null>(null);
   const [selectedVariation, setSelectedVariation] = useState("");
   const [selectedPastry, setSelectedPastry] = useState("");
+  const [showSmartMatchDialog, setShowSmartMatchDialog] = useState(false);
+  const [smartMatchSuggestions, setSmartMatchSuggestions] = useState<AutoMatchSuggestion[]>([]);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
 
   const { data: connectionTest, isLoading: testingConnection, refetch: retestConnection } = useQuery<{ success: boolean; locations: SquareLocation[]; error?: string }>({
     queryKey: ["/api/square/test"],
@@ -102,6 +123,55 @@ export default function SquareSettings() {
     onError: (err: Error) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
   });
 
+  const { data: pipelineHealth, isLoading: loadingPipeline } = useQuery<PipelineHealth>({
+    queryKey: ["/api/admin/pipeline-health"],
+    staleTime: 30000,
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/backfill-pastry-ids", {}),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      const parts: string[] = [];
+      for (const [table, info] of Object.entries(data as Record<string, { total: number; updated: number }>)) {
+        if (info.updated > 0) parts.push(`${info.updated} ${table}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline-health"] });
+      toast({ title: "Backfill complete", description: parts.length > 0 ? `Updated: ${parts.join(", ")}` : "No records needed updating" });
+    },
+    onError: (err: Error) => toast({ title: "Backfill failed", description: err.message, variant: "destructive" }),
+  });
+
+  const autoMatchMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/square/catalog-map/auto-match", {}),
+    onSuccess: async (res) => {
+      const suggestions: AutoMatchSuggestion[] = await res.json();
+      setSmartMatchSuggestions(suggestions);
+      const initialSelected = new Set<string>();
+      suggestions.forEach(s => {
+        if (s.confidence === "exact" || s.confidence === "likely") {
+          initialSelected.add(s.squareItemId);
+        }
+      });
+      setSelectedSuggestions(initialSelected);
+      setShowSmartMatchDialog(true);
+    },
+    onError: (err: Error) => toast({ title: "Smart Match failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkCreateMutation = useMutation({
+    mutationFn: (mappingsData: any) => apiRequest("POST", "/api/square/catalog-map/bulk", { mappings: mappingsData }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/square/catalog-map"] });
+      toast({ title: "Mappings created", description: `${data.created} mappings added` });
+      setShowSmartMatchDialog(false);
+      setSmartMatchSuggestions([]);
+      setSelectedSuggestions(new Set());
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   function openMapDialog(item: SquareCatalogItem) {
     setSelectedSquareItem(item);
     setSelectedVariation(item.variations[0]?.id || "");
@@ -119,6 +189,44 @@ export default function SquareSettings() {
       squareVariationName: variation?.name || null,
       pastryItemName: selectedPastry,
     });
+  }
+
+  function toggleSuggestion(squareItemId: string) {
+    setSelectedSuggestions(prev => {
+      const next = new Set(prev);
+      if (next.has(squareItemId)) {
+        next.delete(squareItemId);
+      } else {
+        next.add(squareItemId);
+      }
+      return next;
+    });
+  }
+
+  function handleBulkConfirm() {
+    const toCreate = smartMatchSuggestions
+      .filter(s => selectedSuggestions.has(s.squareItemId))
+      .map(s => ({
+        squareItemId: s.squareItemId,
+        squareItemName: s.squareItemName,
+        squareVariationId: s.squareVariationId,
+        squareVariationName: s.squareVariationName,
+        pastryItemId: s.pastryItemId,
+        pastryItemName: s.pastryItemName,
+      }));
+    if (toCreate.length === 0) return;
+    bulkCreateMutation.mutate(toCreate);
+  }
+
+  function getConfidenceBadge(confidence: "exact" | "likely" | "possible") {
+    switch (confidence) {
+      case "exact":
+        return <Badge variant="default" data-testid="badge-confidence-exact">Exact</Badge>;
+      case "likely":
+        return <Badge variant="secondary" data-testid="badge-confidence-likely">Likely</Badge>;
+      case "possible":
+        return <Badge variant="outline" data-testid="badge-confidence-possible">Possible</Badge>;
+    }
   }
 
   const mappedSquareIds = new Set((mappings || []).map(m => m.squareItemId));
@@ -178,6 +286,67 @@ export default function SquareSettings() {
         </CardContent>
       </Card>
 
+      <Card data-testid="card-pipeline-health">
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Activity className="w-5 h-5 text-primary" />
+            Data Pipeline Health
+          </CardTitle>
+          {pipelineHealth && (
+            <Badge variant={pipelineHealth.overallPct === 100 ? "default" : pipelineHealth.overallPct > 50 ? "secondary" : "destructive"} data-testid="badge-pipeline-pct">
+              {pipelineHealth.overallPct}% Complete
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Tracks every link in the chain from purchase to profit. All steps must be green for accurate KPI reporting and live inventory.
+          </p>
+          {loadingPipeline ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Checking pipeline...
+            </div>
+          ) : pipelineHealth ? (
+            <div className="space-y-2">
+              {pipelineHealth.steps.map(step => (
+                <div key={step.name} className="flex items-center justify-between gap-2 py-2 border-b border-border last:border-0" data-testid={`row-pipeline-${step.name.toLowerCase().replace(/\s+/g, "-")}`}>
+                  <div className="flex items-center gap-2">
+                    {step.status === "complete" ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                    ) : step.status === "partial" ? (
+                      <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    )}
+                    <span className="text-sm font-medium">{step.name}</span>
+                  </div>
+                  <Badge variant="outline" className="font-mono text-xs" data-testid={`text-pipeline-count-${step.name.toLowerCase().replace(/\s+/g, "-")}`}>
+                    {step.current}/{step.total}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2 pt-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => backfillMutation.mutate()}
+              disabled={backfillMutation.isPending}
+              data-testid="button-backfill-pastry-ids"
+            >
+              {backfillMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Database className="w-4 h-4 mr-1" />}
+              Backfill Data Links
+            </Button>
+            <Link href="/pastry-passports">
+              <Button variant="outline" size="sm" data-testid="link-pastry-passports">
+                Pastry Passports
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-lg">Quick Sync</CardTitle>
@@ -202,16 +371,28 @@ export default function SquareSettings() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-lg">Catalog Mapping</CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refreshCatalog()}
-            disabled={loadingCatalog || !connectionTest?.success}
-            data-testid="button-refresh-catalog"
-          >
-            {loadingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            <span className="ml-1">Refresh Catalog</span>
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => autoMatchMutation.mutate()}
+              disabled={autoMatchMutation.isPending || !connectionTest?.success}
+              data-testid="button-smart-match"
+            >
+              {autoMatchMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              <span className="ml-1">Smart Match</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshCatalog()}
+              disabled={loadingCatalog || !connectionTest?.success}
+              data-testid="button-refresh-catalog"
+            >
+              {loadingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              <span className="ml-1">Refresh Catalog</span>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -333,6 +514,83 @@ export default function SquareSettings() {
               {createMappingMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
               Create Mapping
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSmartMatchDialog} onOpenChange={setShowSmartMatchDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Smart Match Results</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 max-h-[60vh] overflow-y-auto">
+            {smartMatchSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-matches">
+                No matches found. All Square items may already be mapped, or no pastry items match.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Found {smartMatchSuggestions.length} potential match{smartMatchSuggestions.length !== 1 ? "es" : ""}.
+                  Review and confirm the mappings below.
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedSuggestions(new Set(smartMatchSuggestions.map(s => s.squareItemId)))}
+                    data-testid="button-select-all"
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedSuggestions(new Set())}
+                    data-testid="button-deselect-all"
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+                {smartMatchSuggestions.map(s => (
+                  <div
+                    key={s.squareItemId}
+                    className="flex items-center gap-3 p-3 rounded-md border"
+                    data-testid={`row-suggestion-${s.squareItemId}`}
+                  >
+                    <Checkbox
+                      checked={selectedSuggestions.has(s.squareItemId)}
+                      onCheckedChange={() => toggleSuggestion(s.squareItemId)}
+                      data-testid={`checkbox-suggestion-${s.squareItemId}`}
+                    />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium truncate">{s.squareItemName}</span>
+                        <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{s.pastryItemName}</span>
+                      </div>
+                      {s.squareVariationName && (
+                        <p className="text-xs text-muted-foreground">Variation: {s.squareVariationName}</p>
+                      )}
+                    </div>
+                    {getConfidenceBadge(s.confidence)}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSmartMatchDialog(false)}>Cancel</Button>
+            {smartMatchSuggestions.length > 0 && (
+              <Button
+                onClick={handleBulkConfirm}
+                disabled={selectedSuggestions.size === 0 || bulkCreateMutation.isPending}
+                data-testid="button-confirm-bulk-mapping"
+              >
+                {bulkCreateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                Create {selectedSuggestions.size} Mapping{selectedSuggestions.size !== 1 ? "s" : ""}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
