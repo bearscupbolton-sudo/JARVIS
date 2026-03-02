@@ -94,6 +94,8 @@ import {
   customers, customerOrders,
   type Customer, type InsertCustomer,
   type CustomerOrder, type InsertCustomerOrder,
+  permissionLevels,
+  type PermissionLevel, type InsertPermissionLevel,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -507,6 +509,13 @@ export interface IStorage {
   getTestKitchenNotes(itemId: number): Promise<TestKitchenNote[]>;
   createTestKitchenNote(note: InsertTestKitchenNote): Promise<TestKitchenNote>;
   deleteTestKitchenNote(id: number): Promise<void>;
+
+  // Permission Levels
+  getPermissionLevels(): Promise<PermissionLevel[]>;
+  getPermissionLevel(id: number): Promise<PermissionLevel | undefined>;
+  createPermissionLevel(level: InsertPermissionLevel): Promise<PermissionLevel>;
+  updatePermissionLevel(id: number, updates: Partial<InsertPermissionLevel>): Promise<PermissionLevel>;
+  deletePermissionLevel(id: number): Promise<void>;
 
   // Customers (Portal)
   getCustomerByEmail(email: string): Promise<Customer | undefined>;
@@ -3234,6 +3243,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(customerOrders.id, id))
       .returning();
     return updated;
+  }
+
+  async getPermissionLevels(): Promise<PermissionLevel[]> {
+    return db.select().from(permissionLevels).orderBy(permissionLevels.rank);
+  }
+
+  async getPermissionLevel(id: number): Promise<PermissionLevel | undefined> {
+    const [level] = await db.select().from(permissionLevels).where(eq(permissionLevels.id, id));
+    return level;
+  }
+
+  async createPermissionLevel(level: InsertPermissionLevel): Promise<PermissionLevel> {
+    const [created] = await db.insert(permissionLevels).values(level).returning();
+    return created;
+  }
+
+  async updatePermissionLevel(id: number, updates: Partial<InsertPermissionLevel>): Promise<PermissionLevel> {
+    const [updated] = await db.update(permissionLevels)
+      .set(updates)
+      .where(eq(permissionLevels.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePermissionLevel(id: number): Promise<void> {
+    await db.update(users)
+      .set({ permissionLevelId: null, sidebarPermissions: null, sectionPermissions: null })
+      .where(eq(users.permissionLevelId, id));
+    await db.delete(permissionLevels).where(eq(permissionLevels.id, id));
   }
 }
 

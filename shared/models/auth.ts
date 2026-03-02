@@ -46,6 +46,7 @@ export const users = pgTable("users", {
   sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),
   department: varchar("department").default("bakery"),
   defaultPage: varchar("default_page"),
+  permissionLevelId: integer("permission_level_id"),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),
   createdAt: timestamp("created_at").defaultNow(),

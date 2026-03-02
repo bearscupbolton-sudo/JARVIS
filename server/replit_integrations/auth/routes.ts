@@ -5,6 +5,7 @@ import { authStorage } from "./storage";
 import { isAuthenticated } from "./replitAuth";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
+import { storage } from "../../storage";
 
 export const isOwner: RequestHandler = async (req: any, res, next) => {
   try {
@@ -48,7 +49,16 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const user = req.appUser as User;
       const { pinHash, ...safeUser } = user;
-      res.json(safeUser);
+      let permissionLevelName: string | null = null;
+      let permissionLevelColor: string | null = null;
+      if ((user as any).permissionLevelId) {
+        const level = await storage.getPermissionLevel((user as any).permissionLevelId);
+        if (level) {
+          permissionLevelName = level.name;
+          permissionLevelColor = level.color;
+        }
+      }
+      res.json({ ...safeUser, permissionLevelName, permissionLevelColor });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -448,6 +458,163 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ message: "Failed to delete user" });
+    }
+  });
+
+  app.get("/api/admin/permission-levels", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const levels = await storage.getPermissionLevels();
+      res.json(levels);
+    } catch (error) {
+      console.error("Error fetching permission levels:", error);
+      res.status(500).json({ message: "Failed to fetch permission levels" });
+    }
+  });
+
+  app.post("/api/admin/permission-levels", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { name, description, color, sidebarPermissions, sectionPermissions, rank } = req.body;
+      if (!name || typeof name !== "string" || name.trim().length === 0) {
+        return res.status(400).json({ message: "Name is required" });
+      }
+      if (sidebarPermissions !== null && sidebarPermissions !== undefined && !Array.isArray(sidebarPermissions)) {
+        return res.status(400).json({ message: "sidebarPermissions must be an array or null" });
+      }
+      if (sectionPermissions !== null && sectionPermissions !== undefined && (typeof sectionPermissions !== "object" || Array.isArray(sectionPermissions))) {
+        return res.status(400).json({ message: "sectionPermissions must be an object or null" });
+      }
+      const validSidebar = sidebarPermissions ? sidebarPermissions.filter((p: any) => typeof p === "string") : null;
+      let validSections: Record<string, string[]> | null = null;
+      if (sectionPermissions && typeof sectionPermissions === "object") {
+        validSections = {};
+        for (const [page, sections] of Object.entries(sectionPermissions)) {
+          if (Array.isArray(sections)) {
+            validSections[page] = (sections as any[]).filter((s: any) => typeof s === "string");
+          }
+        }
+      }
+      const level = await storage.createPermissionLevel({
+        name: name.trim(),
+        description: typeof description === "string" ? description : null,
+        color: typeof color === "string" ? color : null,
+        sidebarPermissions: validSidebar,
+        sectionPermissions: validSections,
+        rank: typeof rank === "number" ? rank : 0,
+      });
+      res.status(201).json(level);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "A permission level with that name already exists" });
+      }
+      console.error("Error creating permission level:", error);
+      res.status(500).json({ message: "Failed to create permission level" });
+    }
+  });
+
+  app.patch("/api/admin/permission-levels/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const existing = await storage.getPermissionLevel(id);
+      if (!existing) return res.status(404).json({ message: "Permission level not found" });
+      const updates: any = {};
+      if (req.body.name !== undefined && typeof req.body.name === "string") updates.name = req.body.name.trim();
+      if (req.body.description !== undefined) updates.description = typeof req.body.description === "string" ? req.body.description : null;
+      if (req.body.color !== undefined) updates.color = typeof req.body.color === "string" ? req.body.color : null;
+      if (req.body.rank !== undefined && typeof req.body.rank === "number") updates.rank = req.body.rank;
+      if (req.body.sidebarPermissions !== undefined) {
+        if (req.body.sidebarPermissions === null) {
+          updates.sidebarPermissions = null;
+        } else if (Array.isArray(req.body.sidebarPermissions)) {
+          updates.sidebarPermissions = req.body.sidebarPermissions.filter((p: any) => typeof p === "string");
+        }
+      }
+      if (req.body.sectionPermissions !== undefined) {
+        if (req.body.sectionPermissions === null) {
+          updates.sectionPermissions = null;
+        } else if (typeof req.body.sectionPermissions === "object" && !Array.isArray(req.body.sectionPermissions)) {
+          const validSections: Record<string, string[]> = {};
+          for (const [page, sections] of Object.entries(req.body.sectionPermissions)) {
+            if (Array.isArray(sections)) {
+              validSections[page] = (sections as any[]).filter((s: any) => typeof s === "string");
+            }
+          }
+          updates.sectionPermissions = validSections;
+        }
+      }
+      const level = await storage.updatePermissionLevel(id, updates);
+      res.json(level);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "A permission level with that name already exists" });
+      }
+      console.error("Error updating permission level:", error);
+      res.status(500).json({ message: "Failed to update permission level" });
+    }
+  });
+
+  app.delete("/api/admin/permission-levels/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const existing = await storage.getPermissionLevel(id);
+      if (!existing) return res.status(404).json({ message: "Permission level not found" });
+      await storage.deletePermissionLevel(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting permission level:", error);
+      res.status(500).json({ message: "Failed to delete permission level" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/permission-level", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const targetId = req.params.id;
+      const { permissionLevelId } = req.body;
+
+      if (permissionLevelId === null) {
+        const user = await authStorage.updateUserProfile(targetId, {
+          permissionLevelId: null,
+          sidebarPermissions: null,
+          sectionPermissions: null,
+        });
+        return res.json(user);
+      }
+
+      const level = await storage.getPermissionLevel(permissionLevelId);
+      if (!level) return res.status(404).json({ message: "Permission level not found" });
+
+      const user = await authStorage.updateUserProfile(targetId, {
+        permissionLevelId: level.id,
+        sidebarPermissions: level.sidebarPermissions,
+        sectionPermissions: level.sectionPermissions,
+      });
+      res.json(user);
+    } catch (error) {
+      console.error("Error assigning permission level:", error);
+      res.status(500).json({ message: "Failed to assign permission level" });
+    }
+  });
+
+  app.post("/api/admin/permission-levels/:id/sync", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const level = await storage.getPermissionLevel(id);
+      if (!level) return res.status(404).json({ message: "Permission level not found" });
+
+      const allUsers = await authStorage.getAllUsers();
+      const usersWithLevel = allUsers.filter(u => u.permissionLevelId === id);
+      for (const u of usersWithLevel) {
+        await authStorage.updateUserProfile(u.id, {
+          sidebarPermissions: level.sidebarPermissions,
+          sectionPermissions: level.sectionPermissions,
+        });
+      }
+      res.json({ synced: usersWithLevel.length });
+    } catch (error) {
+      console.error("Error syncing permission level:", error);
+      res.status(500).json({ message: "Failed to sync permission level" });
     }
   });
 }

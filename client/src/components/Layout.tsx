@@ -163,6 +163,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isGeneralManager = !!(user as any)?.isGeneralManager;
   const sidebarPerms: string[] | null = (user as any)?.sidebarPermissions ?? null;
   const canSeeSidebarItem = (href: string) => isOwner || sidebarPerms === null || sidebarPerms.includes(href);
+  const permLevelName: string | null = (user as any)?.permissionLevelName ?? null;
 
   React.useEffect(() => {
     if (user && location) {
@@ -490,7 +491,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-2 flex-wrap mt-1 pl-6">
               <p className="text-xs text-muted-foreground" data-testid="text-sidebar-role">
-                {user?.role === "owner" ? "Owner" : user?.role === "manager" ? "Manager" : "Team Member"}
+                {permLevelName || (user?.role === "owner" ? "Owner" : user?.role === "manager" ? "Manager" : "Team Member")}
               </p>
               {user?.locked && (
                 <Badge variant="outline" className="text-[10px]">Read Only</Badge>

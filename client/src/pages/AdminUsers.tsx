@@ -17,6 +17,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid } from "lucide-react";
 import { PAGE_SECTIONS } from "@/hooks/use-section-visibility";
 import { format } from "date-fns";
+import PermissionLevelManager, { getColorClass } from "@/components/PermissionLevelManager";
+import type { PermissionLevel } from "@shared/schema";
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuth();
@@ -33,6 +35,11 @@ export default function AdminUsers() {
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
     enabled: isManagerOrOwner,
+  });
+
+  const { data: permissionLevels } = useQuery<PermissionLevel[]>({
+    queryKey: ["/api/admin/permission-levels"],
+    enabled: isOwner,
   });
 
   const { data: devModeData } = useQuery<{ enabled: boolean }>({
@@ -184,6 +191,14 @@ export default function AdminUsers() {
                     >
                       {u.role === "owner" ? "Owner" : u.role === "manager" ? "Manager" : "Member"}
                     </Badge>
+                    {(u as any).permissionLevelId && permissionLevels && (() => {
+                      const lvl = permissionLevels.find(l => l.id === (u as any).permissionLevelId);
+                      return lvl ? (
+                        <Badge className={`text-[10px] ${getColorClass(lvl.color)}`} data-testid={`badge-permission-level-${u.id}`}>
+                          {lvl.name}
+                        </Badge>
+                      ) : null;
+                    })()}
                     {(u as any).isShiftManager && (
                       <Badge variant="outline" className="text-[10px] border-blue-500/60 text-blue-700 dark:text-blue-400" data-testid={`badge-shift-manager-${u.id}`}>
                         Shift Mgr
@@ -223,6 +238,10 @@ export default function AdminUsers() {
         })}
       </div>
 
+      {isOwner && (
+        <PermissionLevelManager users={users} />
+      )}
+
       <AddTeamMemberDialog open={addOpen} onOpenChange={setAddOpen} />
 
       {detailUser && (
@@ -235,6 +254,7 @@ export default function AdminUsers() {
           onLockToggle={(id, locked) => lockMutation.mutate({ id, locked })}
           onDelete={(id, name) => { handleDelete(id, name); setDetailUser(null); }}
           onResetPin={(u) => { setDetailUser(null); setResetPinUser(u); }}
+          permissionLevels={permissionLevels}
         />
       )}
 
@@ -454,6 +474,7 @@ function UserDetailDialog({
   onLockToggle,
   onDelete,
   onResetPin,
+  permissionLevels,
 }: {
   user: User;
   open: boolean;
@@ -463,6 +484,7 @@ function UserDetailDialog({
   onLockToggle: (id: string, locked: boolean) => void;
   onDelete: (id: string, name: string) => void;
   onResetPin: (u: User) => void;
+  permissionLevels?: PermissionLevel[];
 }) {
   const { toast } = useToast();
   const displayName = u.username || u.firstName || "Unknown";
@@ -673,6 +695,20 @@ function UserDetailDialog({
     },
   });
 
+  const permissionLevelMutation = useMutation({
+    mutationFn: async (levelId: number | null) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/permission-level`, { permissionLevelId: levelId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      toast({ title: "Permission level updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleSidebarItem = (href: string) => {
     const allHrefs = ALL_SIDEBAR_ITEMS.map(i => i.href);
     if (currentPerms === null) {
@@ -875,6 +911,42 @@ function UserDetailDialog({
                 </Select>
                 <p className="text-[11px] text-muted-foreground">Sets default filters across the app for this team member</p>
               </div>
+              {permissionLevels && permissionLevels.length > 0 && u.role !== "owner" && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5" />
+                    Permission Level
+                  </Label>
+                  <Select
+                    value={(u as any).permissionLevelId?.toString() || "none"}
+                    onValueChange={(val) => {
+                      permissionLevelMutation.mutate(val === "none" ? null : parseInt(val));
+                    }}
+                  >
+                    <SelectTrigger data-testid={`select-permission-level-${u.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Level (Default)</SelectItem>
+                      {permissionLevels.map((level) => (
+                        <SelectItem key={level.id} value={level.id.toString()}>
+                          <span className="flex items-center gap-2">
+                            <span className={`inline-block w-2 h-2 rounded-full ${getColorClass(level.color).split(" ")[0]}`} />
+                            {level.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">Assigns a pre-configured set of sidebar and section permissions.</p>
+                  {permissionLevelMutation.isPending && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Applying level...
+                    </div>
+                  )}
+                </div>
+              )}
               {(u.role === "manager" || u.role === "owner") && (
                 <div className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30">
                   <div className="flex items-center gap-2">

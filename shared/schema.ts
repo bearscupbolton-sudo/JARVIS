@@ -1191,6 +1191,22 @@ export const insertCustomerOrderSchema = createInsertSchema(customerOrders).omit
 export type CustomerOrder = typeof customerOrders.$inferSelect;
 export type InsertCustomerOrder = z.infer<typeof insertCustomerOrderSchema>;
 
+// === PERMISSION LEVELS ===
+export const permissionLevels = pgTable("permission_levels", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  color: text("color"),
+  sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
+  sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),
+  rank: integer("rank").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPermissionLevelSchema = createInsertSchema(permissionLevels).omit({ id: true, createdAt: true });
+export type PermissionLevel = typeof permissionLevels.$inferSelect;
+export type InsertPermissionLevel = z.infer<typeof insertPermissionLevelSchema>;
+
 // === SENTIMENT SHIFT SCORES ===
 export const sentimentShiftScores = pgTable("sentiment_shift_scores", {
   id: serial("id").primaryKey(),
