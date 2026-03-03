@@ -2927,18 +2927,19 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
   app.delete("/api/shifts/clear", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
-        return res.status(403).json({ message: "Only shift managers, general managers, or owners can clear schedules" });
+      if (user.role !== "owner" && user.role !== "manager" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Only managers, shift managers, general managers, or owners can clear schedules" });
       }
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, locationId } = req.query;
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
       if (startDate > endDate) {
         return res.status(400).json({ message: "startDate must be before or equal to endDate" });
       }
-      const deleted = await storage.deleteShiftsByDateRange(startDate as string, endDate as string);
-      storage.logActivity({ userId: user.id, action: "clear_schedule", metadata: { startDate, endDate, deletedCount: deleted } }).catch(() => {});
+      const locId = locationId ? Number(locationId) : undefined;
+      const deleted = await storage.deleteShiftsByDateRange(startDate as string, endDate as string, locId);
+      storage.logActivity({ userId: user.id, action: "clear_schedule", metadata: { startDate, endDate, locationId: locId, deletedCount: deleted } }).catch(() => {});
       res.json({ deleted });
     } catch (error: any) {
       console.error("Error clearing schedule:", error);
@@ -3045,13 +3046,41 @@ Only return the JSON array, no other text.`;
       if (!Array.isArray(shiftList) || shiftList.length === 0) {
         return res.status(400).json({ message: "No shifts provided" });
       }
+      const allDates = [...new Set(shiftList.map((s: any) => s.shiftDate).filter(Boolean))];
+      const allLocationIds = [...new Set(shiftList.map((s: any) => s.locationId).filter(Boolean))];
+      let existingShifts: any[] = [];
+      if (allDates.length > 0) {
+        const minDate = allDates.sort()[0];
+        const maxDate = allDates.sort()[allDates.length - 1];
+        if (allLocationIds.length === 1) {
+          existingShifts = await storage.getShifts(minDate, maxDate, allLocationIds[0]);
+        } else {
+          existingShifts = await storage.getShifts(minDate, maxDate);
+        }
+      }
+
       const created = [];
       let skipped = 0;
+      let duplicates = 0;
       for (const s of shiftList) {
         if (!s.shiftDate || !s.startTime || !s.endTime) {
           console.log("[Bulk Shifts] Skipping shift — missing required fields:", JSON.stringify(s));
           skipped++;
           continue;
+        }
+        if (s.userId) {
+          const isDuplicate = existingShifts.some(e =>
+            e.shiftDate === s.shiftDate &&
+            e.startTime === s.startTime &&
+            e.endTime === s.endTime &&
+            e.userId === s.userId &&
+            ((!e.locationId && !s.locationId) || e.locationId === s.locationId)
+          );
+          if (isDuplicate) {
+            console.log("[Bulk Shifts] Skipping duplicate:", s.shiftDate, s.startTime, s.userId);
+            duplicates++;
+            continue;
+          }
         }
         const shift = await storage.createShift({
           userId: s.userId || null,
@@ -3066,6 +3095,7 @@ Only return the JSON array, no other text.`;
           createdBy: user.id,
         } as any);
         created.push(shift);
+        existingShifts.push(shift);
         if (s.userId) {
           sendPushToUser(s.userId, {
             title: "New Shift Assigned",
@@ -3075,8 +3105,8 @@ Only return the JSON array, no other text.`;
           }).catch(err => console.error("[Push] Bulk shift notification error:", err));
         }
       }
-      console.log("[Bulk Shifts] Created", created.length, "shifts, skipped", skipped);
-      res.status(201).json(created);
+      console.log("[Bulk Shifts] Created", created.length, "shifts, skipped", skipped, "duplicates", duplicates);
+      res.status(201).json({ created, skipped, duplicates });
     } catch (err) {
       console.error("Error bulk creating shifts:", err);
       res.status(500).json({ message: "Failed to create shifts" });
@@ -3224,7 +3254,14 @@ Only return the JSON array, no other text.`;
       const coverageMessages = await storage.getScheduleMessages();
 
       const validShifts = todayShifts.filter(shift => userMap.has(shift.userId));
-      const enrichedShifts = validShifts.map(shift => {
+      const seenUsers = new Set<string>();
+      const dedupedShifts = validShifts.filter(shift => {
+        if (!shift.userId) return true;
+        if (seenUsers.has(shift.userId)) return false;
+        seenUsers.add(shift.userId);
+        return true;
+      });
+      const enrichedShifts = dedupedShifts.map(shift => {
         const shiftUser = userMap.get(shift.userId)!;
         const displayName = shiftUser.username || shiftUser.firstName || shiftUser.email || shift.userId;
 

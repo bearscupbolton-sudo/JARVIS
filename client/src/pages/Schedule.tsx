@@ -132,6 +132,7 @@ export default function Schedule() {
   const [uploadTeam, setUploadTeam] = useState<any[]>([]);
   const [newEmployeeForm, setNewEmployeeForm] = useState<{ firstName: string; lastName: string; pin: string; forShiftIndex: number | null } | null>(null);
   const [creatingEmployee, setCreatingEmployee] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const isOwner = user?.role === "owner";
   const isShiftManager = (user as any)?.isShiftManager;
@@ -287,12 +288,19 @@ export default function Schedule() {
   });
 
   const bulkCreateShiftsMutation = useMutation({
-    mutationFn: (shifts: any[]) => apiRequest("POST", "/api/shifts/bulk", { shifts }),
-    onSuccess: () => {
+    mutationFn: async (shifts: any[]) => {
+      const res = await apiRequest("POST", "/api/shifts/bulk", { shifts });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       setUploadDialogOpen(false);
       setUploadPreview(null);
-      toast({ title: "Schedule imported successfully" });
+      setReplaceExisting(true);
+      const msg = data.duplicates > 0
+        ? `${data.created?.length || 0} shifts imported, ${data.duplicates} duplicates skipped`
+        : `${data.created?.length || 0} shifts imported successfully`;
+      toast({ title: "Schedule imported", description: msg });
     },
     onError: (e: Error) => toast({ title: "Failed to import schedule", description: e.message, variant: "destructive" }),
   });
@@ -1916,14 +1924,36 @@ export default function Schedule() {
                   );
                 })}
               </div>
+              <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                <Switch
+                  id="replace-existing"
+                  checked={replaceExisting}
+                  onCheckedChange={setReplaceExisting}
+                  data-testid="switch-replace-existing"
+                />
+                <Label htmlFor="replace-existing" className="text-xs cursor-pointer">
+                  Replace existing shifts for this week
+                </Label>
+              </div>
               <div className="flex gap-2">
                 <Button
                   className="flex-1"
-                  onClick={() => {
+                  onClick={async () => {
                     const shiftsToCreate = uploadPreview.map((s: any) => ({
                       ...s,
                       locationId: selectedLocationId,
                     }));
+                    if (replaceExisting) {
+                      const startDate = format(weekStart, "yyyy-MM-dd");
+                      const endDate = format(weekEnd, "yyyy-MM-dd");
+                      try {
+                        const locParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+                        await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}${locParam}`);
+                      } catch (err: any) {
+                        toast({ title: "Failed to clear existing shifts", description: err.message, variant: "destructive" });
+                        return;
+                      }
+                    }
                     bulkCreateShiftsMutation.mutate(shiftsToCreate);
                   }}
                   disabled={bulkCreateShiftsMutation.isPending}
@@ -1932,7 +1962,7 @@ export default function Schedule() {
                   {bulkCreateShiftsMutation.isPending ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importing...</>
                   ) : (
-                    <><CheckCircle2 className="w-4 h-4 mr-2" /> Confirm & Import {uploadPreview.length} Shifts</>
+                    <><CheckCircle2 className="w-4 h-4 mr-2" /> {replaceExisting ? "Replace & Import" : "Confirm & Import"} {uploadPreview.length} Shifts</>
                   )}
                 </Button>
                 <Button
