@@ -3,10 +3,13 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, ShieldCheck, Loader2 } from "lucide-react";
 import type { LobbyCheckSettings, LobbyCheckLog } from "@shared/schema";
+
+const FOH_PATHS = ["/platform", "/bagel-bros"];
 
 function isWithinBusinessHours(start: string, end: string): boolean {
   const now = new Date();
@@ -34,6 +37,8 @@ function getNextScheduledTime(frequencyMinutes: number, start: string): string {
 export default function LobbyCheckAlert() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [location] = useLocation();
+  const isFohScreen = FOH_PATHS.some(p => location.startsWith(p));
   const [alertVisible, setAlertVisible] = useState(false);
   const [scheduledTime, setScheduledTime] = useState("");
   const [pin, setPin] = useState("");
@@ -44,14 +49,14 @@ export default function LobbyCheckAlert() {
   const { data: settings } = useQuery<LobbyCheckSettings>({
     queryKey: ["/api/lobby-check/settings"],
     refetchInterval: 60000,
-    enabled: !!user,
+    enabled: !!user && isFohScreen,
   });
 
   const today = new Date().toISOString().split("T")[0];
   const { data: logs = [] } = useQuery<LobbyCheckLog[]>({
     queryKey: ["/api/lobby-check/logs"],
     refetchInterval: 30000,
-    enabled: !!user,
+    enabled: !!user && isFohScreen,
   });
 
   const clearMutation = useMutation({
@@ -127,7 +132,7 @@ export default function LobbyCheckAlert() {
     if (e.key === "Enter") handleClear();
   };
 
-  if (!alertVisible) return null;
+  if (!isFohScreen || !alertVisible) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="lobby-check-overlay">
