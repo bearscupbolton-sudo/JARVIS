@@ -1398,7 +1398,6 @@ export default function Schedule() {
                                                 <div className="border-t border-border pt-1.5">
                                                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
                                                   <input
-                                                    autoFocus
                                                     className="w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 focus:ring-primary"
                                                     placeholder='Type "7-2" then Enter'
                                                     value={inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr ? inlineEditValue : ""}
