@@ -194,7 +194,7 @@ export default function PastryPassportDetail() {
   });
   const { data: recipes } = useQuery<any[]>({ queryKey: ['/api/recipes'] });
   const { data: pastryItems } = useQuery<PastryItem[]>({ queryKey: ['/api/pastry-items'] });
-  const { data: inventoryItems } = useQuery<InventoryItem[]>({ queryKey: ['/api/inventory'] });
+  const { data: inventoryItems } = useQuery<InventoryItem[]>({ queryKey: ['/api/inventory-items'] });
 
   const { data: costData, isLoading: costLoading } = useQuery<any>({
     queryKey: ['/api/pastry-items', passport?.pastryItemId, 'cost'],
