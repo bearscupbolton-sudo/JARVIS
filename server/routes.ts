@@ -5101,7 +5101,7 @@ ${sopsHtml}
     try {
       const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
       const settings = await storage.getLobbyCheckSettings(locationId);
-      res.json(settings || { enabled: false, frequencyMinutes: 30, businessHoursStart: "06:00", businessHoursEnd: "18:00" });
+      res.json(settings || { enabled: false, frequencyMinutes: 30, businessHoursStart: "06:00", businessHoursEnd: "18:00", targetScreens: ["/platform"] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -5110,7 +5110,7 @@ ${sopsHtml}
   app.put("/api/lobby-check/settings", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
-      const { enabled, frequencyMinutes, businessHoursStart, businessHoursEnd, locationId } = req.body;
+      const { enabled, frequencyMinutes, businessHoursStart, businessHoursEnd, locationId, targetScreens } = req.body;
       const freq = Number(frequencyMinutes);
       if (!freq || freq < 5 || freq > 480) return res.status(400).json({ message: "Frequency must be between 5 and 480 minutes" });
       const settings = await storage.upsertLobbyCheckSettings({
@@ -5118,6 +5118,7 @@ ${sopsHtml}
         frequencyMinutes: freq,
         businessHoursStart: businessHoursStart || "06:00",
         businessHoursEnd: businessHoursEnd || "18:00",
+        targetScreens: Array.isArray(targetScreens) ? targetScreens : ["/platform"],
         locationId: locationId || null,
         updatedBy: user?.id || null,
       });

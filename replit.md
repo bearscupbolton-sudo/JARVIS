@@ -46,7 +46,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **The Loop:** A manager-level feedback action dashboard that closes the loop from customer feedback to team action. Features sentiment trend charts over time, AI-extracted recurring themes/complaints (powered by GPT-4o-mini), recent feedback feed with pagination, and quick stats with period-over-period comparison. Located in MANAGER_NAV_ITEMS sidebar section.
 *   **Platform 9¾ (FOH Command Center):** A dedicated full-screen kiosk display for FOH, showing filtered task lists, 86'd items, live oven timers with countdown/audio alerts (department-filtered, any user can dismiss), and a FOH backup alert button.
 *   **Vendor Management & Auto-Order Generation:** CRUD for vendors, including contact info, order days, and linked inventory items. Auto-generates purchase orders based on stock levels with Twilio SMS capabilities.
-*   **Lobby Check Alert:** A recurring, PIN-acknowledged alert system for FOH staff to check the lobby.
+*   **Lobby Check Alert:** A recurring, PIN-acknowledged alert system for FOH staff to check the lobby. Alert screens are configurable via `targetScreens` setting (default: Platform 9¾ only). Owners/managers can select which kiosk screens show the alert from the Lobby Check settings dialog.
 *   **Bagel Bros Display Screen:** A dedicated, full-screen, bilingual bagel production display with timers and FOH backup alert integration.
 *   **Global Acknowledgment System:** Supports forced logout of all users and a one-time, mandatory, Jarvis-branded overlay message on next login.
 *   **Session Version & Force Logout:** An owner-initiated system to force-logout all users with an optional Jarvis message on re-login.

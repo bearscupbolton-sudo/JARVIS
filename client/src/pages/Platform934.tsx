@@ -486,6 +486,36 @@ export default function Platform934() {
                           />
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <Label>Alert Screens</Label>
+                        <p className="text-[11px] text-muted-foreground">Choose which screens show the lobby check alert</p>
+                        {[
+                          { path: "/platform", label: "Platform 9¾" },
+                          { path: "/bagel-bros", label: "Bagel Bros" },
+                          { path: "/kiosk", label: "Kiosk" },
+                        ].map(screen => {
+                          const current = lobbySettings?.targetScreens ?? ["/platform"];
+                          const isChecked = current.includes(screen.path);
+                          return (
+                            <div key={screen.path} className="flex items-center gap-2">
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  const updated = checked
+                                    ? [...current, screen.path]
+                                    : current.filter((p: string) => p !== screen.path);
+                                  lobbySettingsMutation.mutate({
+                                    ...lobbySettings,
+                                    targetScreens: updated.length > 0 ? updated : ["/platform"],
+                                  });
+                                }}
+                                data-testid={`checkbox-lobby-screen-${screen.path.replace("/", "")}`}
+                              />
+                              <Label className="text-sm font-normal">{screen.label}</Label>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </DialogContent>
                 </Dialog>

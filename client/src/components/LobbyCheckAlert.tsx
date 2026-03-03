@@ -9,8 +9,6 @@ import { Input } from "@/components/ui/input";
 import { AlertTriangle, ShieldCheck, Loader2 } from "lucide-react";
 import type { LobbyCheckSettings, LobbyCheckLog } from "@shared/schema";
 
-const FOH_PATHS = ["/platform", "/bagel-bros"];
-
 function isWithinBusinessHours(start: string, end: string): boolean {
   const now = new Date();
   const [sh, sm] = start.split(":").map(Number);
@@ -38,7 +36,6 @@ export default function LobbyCheckAlert() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [location] = useLocation();
-  const isFohScreen = FOH_PATHS.some(p => location.startsWith(p));
   const [alertVisible, setAlertVisible] = useState(false);
   const [scheduledTime, setScheduledTime] = useState("");
   const [pin, setPin] = useState("");
@@ -49,14 +46,17 @@ export default function LobbyCheckAlert() {
   const { data: settings } = useQuery<LobbyCheckSettings>({
     queryKey: ["/api/lobby-check/settings"],
     refetchInterval: 60000,
-    enabled: !!user && isFohScreen,
+    enabled: !!user,
   });
+
+  const targetScreens = settings?.targetScreens ?? ["/platform"];
+  const isTargetScreen = targetScreens.some(p => location.startsWith(p));
 
   const today = new Date().toISOString().split("T")[0];
   const { data: logs = [] } = useQuery<LobbyCheckLog[]>({
     queryKey: ["/api/lobby-check/logs"],
     refetchInterval: 30000,
-    enabled: !!user && isFohScreen,
+    enabled: !!user && isTargetScreen,
   });
 
   const clearMutation = useMutation({
@@ -132,7 +132,7 @@ export default function LobbyCheckAlert() {
     if (e.key === "Enter") handleClear();
   };
 
-  if (!isFohScreen || !alertVisible) return null;
+  if (!isTargetScreen || !alertVisible) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="lobby-check-overlay">

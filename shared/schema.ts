@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real, varchar } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1029,6 +1029,7 @@ export const lobbyCheckSettings = pgTable("lobby_check_settings", {
   frequencyMinutes: integer("frequency_minutes").default(30).notNull(),
   businessHoursStart: text("business_hours_start").default("06:00").notNull(),
   businessHoursEnd: text("business_hours_end").default("18:00").notNull(),
+  targetScreens: text("target_screens").array().default(sql`ARRAY['/platform']::text[]`),
   locationId: integer("location_id"),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at").defaultNow(),
