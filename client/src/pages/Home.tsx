@@ -1576,7 +1576,7 @@ export default function Home() {
               </p>
               {(user as any)?.isGeneralManager && (
                 <p className="text-xs font-medium tracking-widest uppercase text-muted-foreground/70 mt-0.5" data-testid="text-gm-title">
-                  General Manager — All Locations
+                  Lead — All Locations
                 </p>
               )}
             </div>
