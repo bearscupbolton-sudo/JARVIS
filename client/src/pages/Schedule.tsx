@@ -29,7 +29,7 @@ import {
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
   HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy,
-  Save, FolderOpen, StickyNote, Palette
+  Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
@@ -156,7 +156,9 @@ function parseShorthandTime(input: string): { startTime: string; endTime: string
   };
 }
 
-const SHIFT_PRESETS = [
+type ShiftPreset = { label: string; startTime: string; endTime: string; shorthand: string };
+
+const DEFAULT_SHIFT_PRESETS: ShiftPreset[] = [
   { label: "5-1", startTime: "5:00 AM", endTime: "1:00 PM", shorthand: "5-1" },
   { label: "6-2", startTime: "6:00 AM", endTime: "2:00 PM", shorthand: "6-2" },
   { label: "7-3", startTime: "7:00 AM", endTime: "3:00 PM", shorthand: "7-3" },
@@ -166,6 +168,21 @@ const SHIFT_PRESETS = [
   { label: "2-10", startTime: "2:00 PM", endTime: "10:00 PM", shorthand: "2-10" },
   { label: "4-12", startTime: "4:00 PM", endTime: "12:00 AM", shorthand: "4-12" },
 ];
+
+function getShiftPresets(): ShiftPreset[] {
+  try {
+    const stored = localStorage.getItem("shift_presets");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_SHIFT_PRESETS;
+}
+
+function saveShiftPresets(presets: ShiftPreset[]) {
+  localStorage.setItem("shift_presets", JSON.stringify(presets));
+}
 
 function calcShiftHours(startTime: string, endTime: string): number {
   const parseTime = (t: string): number => {
@@ -301,6 +318,9 @@ export default function Schedule() {
   const [templateName, setTemplateName] = useState("");
   const [templates, setTemplates] = useState<ScheduleTemplate[]>(() => getTemplates());
   const [presetPopoverCell, setPresetPopoverCell] = useState<{ userId: string; dateStr: string } | null>(null);
+  const [shiftPresets, setShiftPresets] = useState<ShiftPreset[]>(() => getShiftPresets());
+  const [presetConfigOpen, setPresetConfigOpen] = useState(false);
+  const [newPresetInput, setNewPresetInput] = useState("");
 
   useEffect(() => {
     if (!deptInitialized && (user as any)?.department) {
@@ -608,7 +628,7 @@ export default function Schedule() {
     setInlineEditValue("");
   }
 
-  function handlePresetClick(userId: string, dateStr: string, preset: typeof SHIFT_PRESETS[0]) {
+  function handlePresetClick(userId: string, dateStr: string, preset: ShiftPreset) {
     const dept = deptFilter !== "all" ? deptFilter : "kitchen";
     createShiftMutation.mutate({
       userId,
@@ -1351,9 +1371,20 @@ export default function Schedule() {
                                             </PopoverTrigger>
                                             <PopoverContent className="w-48 p-2" side="bottom" align="center">
                                               <div className="space-y-1.5">
-                                                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Quick Shifts</p>
+                                                <div className="flex items-center justify-between px-1">
+                                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Shifts</p>
+                                                  {isManagerOrOwner && (
+                                                    <button
+                                                      className="text-muted-foreground hover:text-foreground transition-colors"
+                                                      onClick={(e) => { e.stopPropagation(); setPresetConfigOpen(true); setPresetPopoverCell(null); }}
+                                                      data-testid="button-configure-presets"
+                                                    >
+                                                      <Settings2 className="w-3 h-3" />
+                                                    </button>
+                                                  )}
+                                                </div>
                                                 <div className="grid grid-cols-2 gap-1">
-                                                  {SHIFT_PRESETS.map(preset => (
+                                                  {shiftPresets.map(preset => (
                                                     <button
                                                       key={preset.label}
                                                       className="px-2 py-1.5 text-xs font-medium rounded bg-muted hover:bg-primary hover:text-primary-foreground transition-colors text-center"
@@ -2745,6 +2776,149 @@ export default function Schedule() {
                 No templates saved yet. Build a schedule and save it as a template to quickly reuse it.
               </p>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={presetConfigOpen} onOpenChange={setPresetConfigOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4" /> Configure Quick Shifts
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              {shiftPresets.map((preset, idx) => (
+                <div key={`${preset.label}-${idx}`} className="flex items-center gap-2 p-2 rounded-md border bg-muted/30 group" data-testid={`preset-config-${preset.label}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{preset.label}</p>
+                    <p className="text-[11px] text-muted-foreground">{preset.startTime} – {preset.endTime}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {idx > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => {
+                          const updated = [...shiftPresets];
+                          [updated[idx - 1], updated[idx]] = [updated[idx], updated[idx - 1]];
+                          setShiftPresets(updated);
+                          saveShiftPresets(updated);
+                        }}
+                        data-testid={`button-move-up-${preset.label}`}
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5 rotate-90" />
+                      </Button>
+                    )}
+                    {idx < shiftPresets.length - 1 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => {
+                          const updated = [...shiftPresets];
+                          [updated[idx], updated[idx + 1]] = [updated[idx + 1], updated[idx]];
+                          setShiftPresets(updated);
+                          saveShiftPresets(updated);
+                        }}
+                        data-testid={`button-move-down-${preset.label}`}
+                      >
+                        <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                      onClick={() => {
+                        const updated = shiftPresets.filter((_, i) => i !== idx);
+                        setShiftPresets(updated);
+                        saveShiftPresets(updated);
+                        toast({ title: `Removed "${preset.label}"` });
+                      }}
+                      data-testid={`button-remove-preset-${preset.label}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {shiftPresets.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-3 italic">No presets configured</p>
+              )}
+            </div>
+            <div className="border-t border-border pt-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Add New Preset</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder='e.g. "7-3" or "6:30a-2:30p"'
+                  value={newPresetInput}
+                  onChange={(e) => setNewPresetInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const val = newPresetInput.trim();
+                      if (!val) return;
+                      const parsed = parseShorthandTime(val);
+                      if (!parsed) {
+                        toast({ title: "Could not parse that time format", variant: "destructive" });
+                        return;
+                      }
+                      const newPreset: ShiftPreset = { label: val, startTime: parsed.startTime, endTime: parsed.endTime, shorthand: val };
+                      const updated = [...shiftPresets, newPreset];
+                      setShiftPresets(updated);
+                      saveShiftPresets(updated);
+                      setNewPresetInput("");
+                      toast({ title: `Added "${val}" preset` });
+                    }
+                  }}
+                  className="text-sm"
+                  data-testid="input-new-preset"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const val = newPresetInput.trim();
+                    if (!val) return;
+                    const parsed = parseShorthandTime(val);
+                    if (!parsed) {
+                      toast({ title: "Could not parse that time format", variant: "destructive" });
+                      return;
+                    }
+                    const newPreset: ShiftPreset = { label: val, startTime: parsed.startTime, endTime: parsed.endTime, shorthand: val };
+                    const updated = [...shiftPresets, newPreset];
+                    setShiftPresets(updated);
+                    saveShiftPresets(updated);
+                    setNewPresetInput("");
+                    toast({ title: `Added "${val}" preset` });
+                  }}
+                  disabled={!newPresetInput.trim()}
+                  data-testid="button-add-preset"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  Add
+                </Button>
+              </div>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-border">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-muted-foreground"
+                onClick={() => {
+                  setShiftPresets(DEFAULT_SHIFT_PRESETS);
+                  saveShiftPresets(DEFAULT_SHIFT_PRESETS);
+                  toast({ title: "Presets reset to defaults" });
+                }}
+                data-testid="button-reset-presets"
+              >
+                Reset to Defaults
+              </Button>
+              <Button size="sm" onClick={() => setPresetConfigOpen(false)} data-testid="button-done-presets">
+                Done
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
