@@ -2919,11 +2919,6 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
     }
   });
 
-  app.delete(api.shifts.delete.path, isAuthenticated, isManager, async (req, res) => {
-    await storage.deleteShift(Number(req.params.id));
-    res.status(204).send();
-  });
-
   app.delete("/api/shifts/clear", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
@@ -2948,6 +2943,11 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
       console.error("Error clearing schedule:", error);
       res.status(500).json({ message: "Failed to clear schedule" });
     }
+  });
+
+  app.delete(api.shifts.delete.path, isAuthenticated, isManager, async (req, res) => {
+    await storage.deleteShift(Number(req.params.id));
+    res.status(204).send();
   });
 
   app.post("/api/shifts/import", isAuthenticated, async (req: any, res) => {
