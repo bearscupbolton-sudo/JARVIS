@@ -1291,3 +1291,60 @@ export const insertOnboardingSubmissionSchema = createInsertSchema(onboardingSub
 export type OnboardingSubmission = typeof onboardingSubmissions.$inferSelect;
 export type InsertOnboardingSubmission = z.infer<typeof insertOnboardingSubmissionSchema>;
 
+// === COFFEE ===
+export const coffeeInventory = pgTable("coffee_inventory", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  unit: text("unit").notNull(),
+  onHand: doublePrecision("on_hand").default(0).notNull(),
+  parLevel: doublePrecision("par_level"),
+  costPerUnit: doublePrecision("cost_per_unit"),
+  locationId: integer("location_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCoffeeInventorySchema = createInsertSchema(coffeeInventory).omit({ id: true, updatedAt: true });
+export type CoffeeInventoryItem = typeof coffeeInventory.$inferSelect;
+export type InsertCoffeeInventoryItem = z.infer<typeof insertCoffeeInventorySchema>;
+
+export const coffeeDrinkRecipes = pgTable("coffee_drink_recipes", {
+  id: serial("id").primaryKey(),
+  drinkName: text("drink_name").notNull(),
+  squareItemName: text("square_item_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCoffeeDrinkRecipeSchema = createInsertSchema(coffeeDrinkRecipes).omit({ id: true, createdAt: true });
+export type CoffeeDrinkRecipe = typeof coffeeDrinkRecipes.$inferSelect;
+export type InsertCoffeeDrinkRecipe = z.infer<typeof insertCoffeeDrinkRecipeSchema>;
+
+export const coffeeDrinkIngredients = pgTable("coffee_drink_ingredients", {
+  id: serial("id").primaryKey(),
+  drinkRecipeId: integer("drink_recipe_id").notNull(),
+  coffeeInventoryId: integer("coffee_inventory_id").notNull(),
+  quantityUsed: doublePrecision("quantity_used").notNull(),
+  unit: text("unit").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCoffeeDrinkIngredientSchema = createInsertSchema(coffeeDrinkIngredients).omit({ id: true, createdAt: true });
+export type CoffeeDrinkIngredient = typeof coffeeDrinkIngredients.$inferSelect;
+export type InsertCoffeeDrinkIngredient = z.infer<typeof insertCoffeeDrinkIngredientSchema>;
+
+export const coffeeUsageLogs = pgTable("coffee_usage_logs", {
+  id: serial("id").primaryKey(),
+  drinkRecipeId: integer("drink_recipe_id"),
+  drinkName: text("drink_name").notNull(),
+  quantitySold: integer("quantity_sold").notNull(),
+  date: text("date").notNull(),
+  locationId: integer("location_id"),
+  source: text("source").default("manual").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCoffeeUsageLogSchema = createInsertSchema(coffeeUsageLogs).omit({ id: true, createdAt: true });
+export type CoffeeUsageLog = typeof coffeeUsageLogs.$inferSelect;
+export type InsertCoffeeUsageLog = z.infer<typeof insertCoffeeUsageLogSchema>;
+

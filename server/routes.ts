@@ -11,7 +11,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -7753,6 +7753,264 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
       console.error("[Starkade] Failed to seed classic games:", err);
     }
   })();
+
+  // === COFFEE COMMAND CENTER ===
+  app.get("/api/coffee/inventory", isAuthenticated, async (_req, res) => {
+    try {
+      const items = await storage.getCoffeeInventory();
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/inventory", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = insertCoffeeInventorySchema.safeParse({
+        name: req.body.name,
+        category: req.body.category,
+        unit: req.body.unit,
+        onHand: req.body.onHand || 0,
+        parLevel: req.body.parLevel || null,
+        costPerUnit: req.body.costPerUnit || null,
+        locationId: req.body.locationId || null,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors.map(e => e.message).join(", ") });
+      }
+      const item = await storage.createCoffeeInventoryItem(parsed.data);
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/coffee/inventory/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const item = await storage.updateCoffeeInventoryItem(id, req.body);
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/coffee/inventory/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCoffeeInventoryItem(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/coffee/drinks", isAuthenticated, async (_req, res) => {
+    try {
+      const recipes = await storage.getCoffeeDrinkRecipes();
+      const allIngredients = await storage.getAllCoffeeDrinkIngredients();
+      const inventory = await storage.getCoffeeInventory();
+      const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+      const drinksWithIngredients = recipes.map(r => ({
+        ...r,
+        ingredients: allIngredients
+          .filter(ing => ing.drinkRecipeId === r.id)
+          .map(ing => ({
+            ...ing,
+            inventoryItemName: inventoryMap.get(ing.coffeeInventoryId)?.name || "Unknown",
+          })),
+      }));
+      res.json(drinksWithIngredients);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/drinks", isAuthenticated, async (req, res) => {
+    try {
+      const { drinkName, squareItemName, ingredients } = req.body;
+      if (!drinkName) {
+        return res.status(400).json({ message: "Drink name is required" });
+      }
+      const recipe = await storage.createCoffeeDrinkRecipe({
+        drinkName,
+        squareItemName: squareItemName || null,
+        isActive: true,
+      });
+      let savedIngredients: any[] = [];
+      if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
+        savedIngredients = await storage.setCoffeeDrinkIngredients(recipe.id, ingredients);
+      }
+      res.json({ ...recipe, ingredients: savedIngredients });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/coffee/drinks/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { drinkName, squareItemName, isActive, ingredients } = req.body;
+      const updates: any = {};
+      if (drinkName !== undefined) updates.drinkName = drinkName;
+      if (squareItemName !== undefined) updates.squareItemName = squareItemName;
+      if (isActive !== undefined) updates.isActive = isActive;
+      const recipe = await storage.updateCoffeeDrinkRecipe(id, updates);
+      if (ingredients && Array.isArray(ingredients)) {
+        await storage.setCoffeeDrinkIngredients(id, ingredients);
+      }
+      const updatedIngredients = await storage.getCoffeeDrinkIngredients(id);
+      res.json({ ...recipe, ingredients: updatedIngredients });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/coffee/drinks/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCoffeeDrinkRecipe(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/usage/log", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = insertCoffeeUsageLogSchema.safeParse({
+        drinkRecipeId: req.body.drinkRecipeId || null,
+        drinkName: req.body.drinkName,
+        quantitySold: req.body.quantitySold,
+        date: req.body.date,
+        locationId: req.body.locationId || null,
+        source: req.body.source || "manual",
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors.map(e => e.message).join(", ") });
+      }
+      const { drinkRecipeId, drinkName, quantitySold } = parsed.data;
+      const log = await storage.createCoffeeUsageLog(parsed.data);
+      if (drinkRecipeId) {
+        const ingredients = await storage.getCoffeeDrinkIngredients(drinkRecipeId);
+        const inventory = await storage.getCoffeeInventory();
+        const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+        const updates: Promise<any>[] = [];
+        for (const ing of ingredients) {
+          const deduction = ing.quantityUsed * quantitySold;
+          const item = inventoryMap.get(ing.coffeeInventoryId);
+          if (item) {
+            const newOnHand = Math.max(0, (item.onHand || 0) - deduction);
+            updates.push(storage.updateCoffeeInventoryItem(item.id, { onHand: newOnHand }));
+          }
+        }
+        await Promise.all(updates);
+      }
+      res.json(log);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/coffee/usage", isAuthenticated, async (req, res) => {
+    try {
+      const date = req.query.date as string | undefined;
+      const logs = await storage.getCoffeeUsageLogs(date);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/coffee/usage/summary", isAuthenticated, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const allLogs = await storage.getCoffeeUsageLogs();
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      const recentLogs = allLogs.filter(l => l.date >= cutoffStr);
+      const drinkSummary: Record<string, { drinkName: string; totalSold: number; drinkRecipeId: number | null }> = {};
+      for (const log of recentLogs) {
+        const key = log.drinkName;
+        if (!drinkSummary[key]) {
+          drinkSummary[key] = { drinkName: log.drinkName, totalSold: 0, drinkRecipeId: log.drinkRecipeId };
+        }
+        drinkSummary[key].totalSold += log.quantitySold;
+      }
+      const allIngredients = await storage.getAllCoffeeDrinkIngredients();
+      const inventory = await storage.getCoffeeInventory();
+      const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+      const summary = Object.values(drinkSummary).map(d => {
+        const ings = d.drinkRecipeId ? allIngredients.filter(i => i.drinkRecipeId === d.drinkRecipeId) : [];
+        return {
+          ...d,
+          ingredientImpact: ings.map(ing => ({
+            inventoryItemName: inventoryMap.get(ing.coffeeInventoryId)?.name || "Unknown",
+            totalUsed: ing.quantityUsed * d.totalSold,
+            unit: ing.unit,
+          })),
+        };
+      });
+      res.json({ days, summary });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/coffee/briefing", isAuthenticated, async (req: any, res) => {
+    try {
+      const inventory = await storage.getCoffeeInventory();
+      const drinks = await storage.getCoffeeDrinkRecipes();
+      const today = new Date().toISOString().split("T")[0];
+      const todayLogs = await storage.getCoffeeUsageLogs(today);
+      const lowStockItems = inventory.filter(i => i.parLevel && i.onHand < i.parLevel);
+      const totalDrinksToday = todayLogs.reduce((sum, l) => sum + l.quantitySold, 0);
+      const userName = req.appUser?.firstName || "Coffee Master";
+      const hour = new Date().getHours();
+      const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+
+      const { openai: aiClient } = await import("./replit_integrations/audio/client");
+      const response = await aiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are Jarvis, the AI assistant for Bear's Cup Bakehouse — specifically speaking to the coffee program manager. You are passionate about coffee culture, trends, and the craft. Your tone is warm, knowledgeable, and slightly nerdy about coffee.
+
+Your brief should include:
+1. A warm greeting appropriate for the ${timeOfDay}
+2. One or two sentences about a current coffee industry trend, technique, or interesting fact (be creative — mention things like new processing methods, origin spotlights, latte art trends, specialty roasting techniques, sustainability in coffee, etc.)
+3. A quick summary of the coffee inventory status and any low-stock alerts
+4. Today's drink sales summary if any
+5. Any actionable insights or recommendations
+
+Keep it conversational, 3-5 short paragraphs. No bullet points. No markdown formatting.`
+          },
+          {
+            role: "user",
+            content: `Generate a coffee briefing for ${userName}.
+
+Inventory Status:
+${inventory.length === 0 ? "No coffee inventory items set up yet." : inventory.map(i => `- ${i.name} (${i.category}): ${i.onHand} ${i.unit} on hand${i.parLevel ? `, par: ${i.parLevel} ${i.unit}` : ""}`).join("\n")}
+
+Low Stock Alerts:
+${lowStockItems.length === 0 ? "None — all items above par levels." : lowStockItems.map(i => `- ${i.name}: ${i.onHand} ${i.unit} (par: ${i.parLevel} ${i.unit})`).join("\n")}
+
+Drinks Configured: ${drinks.length}
+Drinks Sold Today: ${totalDrinksToday}
+${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkName}: ${l.quantitySold}`).join("\n") : "No sales logged today yet."}`
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.8,
+      });
+
+      const briefing = response.choices[0]?.message?.content || "Couldn't generate the coffee briefing right now. Check back shortly.";
+      res.json({ briefing, generatedAt: new Date().toISOString() });
+    } catch (err: any) {
+      console.error("[Coffee Briefing] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === HR ONBOARDING ===
   app.post("/api/hr/onboarding/invite", isAuthenticated, isManager, async (req: any, res) => {

@@ -99,6 +99,11 @@ import {
   onboardingInvites, onboardingSubmissions,
   type OnboardingInvite, type InsertOnboardingInvite,
   type OnboardingSubmission, type InsertOnboardingSubmission,
+  coffeeInventory, coffeeDrinkRecipes, coffeeDrinkIngredients, coffeeUsageLogs,
+  type CoffeeInventoryItem, type InsertCoffeeInventoryItem,
+  type CoffeeDrinkRecipe, type InsertCoffeeDrinkRecipe,
+  type CoffeeDrinkIngredient, type InsertCoffeeDrinkIngredient,
+  type CoffeeUsageLog, type InsertCoffeeUsageLog,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -535,6 +540,21 @@ export interface IStorage {
   getCustomerOrder(id: number): Promise<CustomerOrder | undefined>;
   createCustomerOrder(order: InsertCustomerOrder): Promise<CustomerOrder>;
   updateCustomerOrderStatus(id: number, status: string): Promise<CustomerOrder>;
+
+  // Coffee
+  getCoffeeInventory(): Promise<CoffeeInventoryItem[]>;
+  createCoffeeInventoryItem(item: InsertCoffeeInventoryItem): Promise<CoffeeInventoryItem>;
+  updateCoffeeInventoryItem(id: number, updates: Partial<InsertCoffeeInventoryItem>): Promise<CoffeeInventoryItem>;
+  deleteCoffeeInventoryItem(id: number): Promise<void>;
+  getCoffeeDrinkRecipes(): Promise<CoffeeDrinkRecipe[]>;
+  createCoffeeDrinkRecipe(recipe: InsertCoffeeDrinkRecipe): Promise<CoffeeDrinkRecipe>;
+  updateCoffeeDrinkRecipe(id: number, updates: Partial<InsertCoffeeDrinkRecipe>): Promise<CoffeeDrinkRecipe>;
+  deleteCoffeeDrinkRecipe(id: number): Promise<void>;
+  getCoffeeDrinkIngredients(drinkRecipeId: number): Promise<CoffeeDrinkIngredient[]>;
+  getAllCoffeeDrinkIngredients(): Promise<CoffeeDrinkIngredient[]>;
+  setCoffeeDrinkIngredients(drinkRecipeId: number, ingredients: InsertCoffeeDrinkIngredient[]): Promise<CoffeeDrinkIngredient[]>;
+  getCoffeeUsageLogs(date?: string): Promise<CoffeeUsageLog[]>;
+  createCoffeeUsageLog(log: InsertCoffeeUsageLog): Promise<CoffeeUsageLog>;
 
   // Onboarding
   createOnboardingInvite(invite: InsertOnboardingInvite): Promise<OnboardingInvite>;
@@ -3514,6 +3534,71 @@ export class DatabaseStorage implements IStorage {
 
   async updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission> {
     const [result] = await db.update(onboardingSubmissions).set(updates).where(eq(onboardingSubmissions.id, id)).returning();
+    return result;
+  }
+
+  // Coffee
+  async getCoffeeInventory(): Promise<CoffeeInventoryItem[]> {
+    return await db.select().from(coffeeInventory).orderBy(coffeeInventory.category, coffeeInventory.name);
+  }
+
+  async createCoffeeInventoryItem(item: InsertCoffeeInventoryItem): Promise<CoffeeInventoryItem> {
+    const [result] = await db.insert(coffeeInventory).values(item).returning();
+    return result;
+  }
+
+  async updateCoffeeInventoryItem(id: number, updates: Partial<InsertCoffeeInventoryItem>): Promise<CoffeeInventoryItem> {
+    const [result] = await db.update(coffeeInventory).set({ ...updates, updatedAt: new Date() }).where(eq(coffeeInventory.id, id)).returning();
+    return result;
+  }
+
+  async deleteCoffeeInventoryItem(id: number): Promise<void> {
+    await db.delete(coffeeInventory).where(eq(coffeeInventory.id, id));
+  }
+
+  async getCoffeeDrinkRecipes(): Promise<CoffeeDrinkRecipe[]> {
+    return await db.select().from(coffeeDrinkRecipes).orderBy(coffeeDrinkRecipes.drinkName);
+  }
+
+  async createCoffeeDrinkRecipe(recipe: InsertCoffeeDrinkRecipe): Promise<CoffeeDrinkRecipe> {
+    const [result] = await db.insert(coffeeDrinkRecipes).values(recipe).returning();
+    return result;
+  }
+
+  async updateCoffeeDrinkRecipe(id: number, updates: Partial<InsertCoffeeDrinkRecipe>): Promise<CoffeeDrinkRecipe> {
+    const [result] = await db.update(coffeeDrinkRecipes).set(updates).where(eq(coffeeDrinkRecipes.id, id)).returning();
+    return result;
+  }
+
+  async deleteCoffeeDrinkRecipe(id: number): Promise<void> {
+    await db.delete(coffeeDrinkIngredients).where(eq(coffeeDrinkIngredients.drinkRecipeId, id));
+    await db.delete(coffeeDrinkRecipes).where(eq(coffeeDrinkRecipes.id, id));
+  }
+
+  async getCoffeeDrinkIngredients(drinkRecipeId: number): Promise<CoffeeDrinkIngredient[]> {
+    return await db.select().from(coffeeDrinkIngredients).where(eq(coffeeDrinkIngredients.drinkRecipeId, drinkRecipeId));
+  }
+
+  async getAllCoffeeDrinkIngredients(): Promise<CoffeeDrinkIngredient[]> {
+    return await db.select().from(coffeeDrinkIngredients);
+  }
+
+  async setCoffeeDrinkIngredients(drinkRecipeId: number, ingredients: InsertCoffeeDrinkIngredient[]): Promise<CoffeeDrinkIngredient[]> {
+    await db.delete(coffeeDrinkIngredients).where(eq(coffeeDrinkIngredients.drinkRecipeId, drinkRecipeId));
+    if (ingredients.length === 0) return [];
+    const rows = ingredients.map(ing => ({ ...ing, drinkRecipeId }));
+    return await db.insert(coffeeDrinkIngredients).values(rows).returning();
+  }
+
+  async getCoffeeUsageLogs(date?: string): Promise<CoffeeUsageLog[]> {
+    if (date) {
+      return await db.select().from(coffeeUsageLogs).where(eq(coffeeUsageLogs.date, date)).orderBy(desc(coffeeUsageLogs.createdAt));
+    }
+    return await db.select().from(coffeeUsageLogs).orderBy(desc(coffeeUsageLogs.createdAt));
+  }
+
+  async createCoffeeUsageLog(log: InsertCoffeeUsageLog): Promise<CoffeeUsageLog> {
+    const [result] = await db.insert(coffeeUsageLogs).values(log).returning();
     return result;
   }
 }
