@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,12 +22,14 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2 } from "lucide-react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
-  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy
+  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy,
+  Save, FolderOpen, StickyNote, Palette
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
@@ -154,6 +156,57 @@ function parseShorthandTime(input: string): { startTime: string; endTime: string
   };
 }
 
+const SHIFT_PRESETS = [
+  { label: "5-1", startTime: "5:00 AM", endTime: "1:00 PM", shorthand: "5-1" },
+  { label: "6-2", startTime: "6:00 AM", endTime: "2:00 PM", shorthand: "6-2" },
+  { label: "7-3", startTime: "7:00 AM", endTime: "3:00 PM", shorthand: "7-3" },
+  { label: "8-4", startTime: "8:00 AM", endTime: "4:00 PM", shorthand: "8-4" },
+  { label: "9-5", startTime: "9:00 AM", endTime: "5:00 PM", shorthand: "9-5" },
+  { label: "10-6", startTime: "10:00 AM", endTime: "6:00 PM", shorthand: "10-6" },
+  { label: "2-10", startTime: "2:00 PM", endTime: "10:00 PM", shorthand: "2-10" },
+  { label: "4-12", startTime: "4:00 PM", endTime: "12:00 AM", shorthand: "4-12" },
+];
+
+function calcShiftHours(startTime: string, endTime: string): number {
+  const parseTime = (t: string): number => {
+    const m = t.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+    if (!m) return 0;
+    let h = parseInt(m[1]);
+    const min = parseInt(m[2]);
+    const ap = m[3].toUpperCase();
+    if (ap === "PM" && h !== 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    return h * 60 + min;
+  };
+  let startMin = parseTime(startTime);
+  let endMin = parseTime(endTime);
+  if (endMin <= startMin) endMin += 24 * 60;
+  return (endMin - startMin) / 60;
+}
+
+type ScheduleTemplate = {
+  name: string;
+  shifts: Array<{
+    userId: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    department: string;
+    position: string | null;
+    notes: string | null;
+  }>;
+};
+
+function getTemplates(): ScheduleTemplate[] {
+  try {
+    return JSON.parse(localStorage.getItem("schedule_templates") || "[]");
+  } catch { return []; }
+}
+
+function saveTemplates(templates: ScheduleTemplate[]) {
+  localStorage.setItem("schedule_templates", JSON.stringify(templates));
+}
+
 const TIME_OPTIONS = [
   "12:00 AM", "12:30 AM", "1:00 AM", "1:30 AM", "2:00 AM", "2:30 AM",
   "3:00 AM", "3:30 AM", "4:00 AM", "4:30 AM", "5:00 AM", "5:30 AM",
@@ -240,6 +293,14 @@ export default function Schedule() {
   const [copyLastWeekDialogOpen, setCopyLastWeekDialogOpen] = useState(false);
   const [lastWeekShiftsCount, setLastWeekShiftsCount] = useState(0);
   const [isCopyingLastWeek, setIsCopyingLastWeek] = useState(false);
+  const [quickModifyShift, setQuickModifyShift] = useState<Shift | null>(null);
+  const [quickModifyStart, setQuickModifyStart] = useState("");
+  const [quickModifyEnd, setQuickModifyEnd] = useState("");
+  const [quickModifyNote, setQuickModifyNote] = useState("");
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templates, setTemplates] = useState<ScheduleTemplate[]>(() => getTemplates());
+  const [presetPopoverCell, setPresetPopoverCell] = useState<{ userId: string; dateStr: string } | null>(null);
 
   useEffect(() => {
     if (!deptInitialized && (user as any)?.department) {
@@ -547,6 +608,135 @@ export default function Schedule() {
     setInlineEditValue("");
   }
 
+  function handlePresetClick(userId: string, dateStr: string, preset: typeof SHIFT_PRESETS[0]) {
+    const dept = deptFilter !== "all" ? deptFilter : "kitchen";
+    createShiftMutation.mutate({
+      userId,
+      shiftDate: dateStr,
+      startTime: preset.startTime,
+      endTime: preset.endTime,
+      department: dept,
+      position: null,
+      notes: null,
+      createdBy: user!.id,
+      locationId: selectedLocationId,
+    }, {
+      onSuccess: () => {
+        toast({ title: `Shift added: ${preset.label}` });
+      },
+    });
+    setPresetPopoverCell(null);
+    setInlineEditCell(null);
+  }
+
+  function openQuickModify(shift: Shift) {
+    setQuickModifyShift(shift);
+    setQuickModifyStart(shift.startTime);
+    setQuickModifyEnd(shift.endTime);
+    setQuickModifyNote(shift.notes || "");
+  }
+
+  function handleQuickModifySave() {
+    if (!quickModifyShift) return;
+
+    let resolvedStart = quickModifyStart;
+    let resolvedEnd = quickModifyEnd;
+
+    if (resolvedStart !== quickModifyShift.startTime || resolvedEnd !== quickModifyShift.endTime) {
+      const isValidTime = (t: string) => /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(t);
+      if (!isValidTime(resolvedStart) || !isValidTime(resolvedEnd)) {
+        const parsed = parseShorthandTime(`${resolvedStart}-${resolvedEnd}`);
+        if (parsed) {
+          resolvedStart = parsed.startTime;
+          resolvedEnd = parsed.endTime;
+        } else {
+          toast({ title: "Invalid time format", variant: "destructive" });
+          return;
+        }
+      }
+    }
+
+    const hasChanges = resolvedStart !== quickModifyShift.startTime ||
+      resolvedEnd !== quickModifyShift.endTime ||
+      quickModifyNote !== (quickModifyShift.notes || "");
+    if (!hasChanges) {
+      setQuickModifyShift(null);
+      return;
+    }
+    updateShiftMutation.mutate({
+      id: quickModifyShift.id,
+      startTime: resolvedStart,
+      endTime: resolvedEnd,
+      notes: quickModifyNote || null,
+      userId: quickModifyShift.userId,
+      shiftDate: quickModifyShift.shiftDate,
+      department: quickModifyShift.department,
+      position: quickModifyShift.position,
+      createdBy: quickModifyShift.createdBy,
+      locationId: quickModifyShift.locationId,
+    });
+    setQuickModifyShift(null);
+  }
+
+  function handleSaveTemplate() {
+    if (!templateName.trim()) return;
+    const currentShifts = shiftsData || [];
+    const templateShifts = currentShifts
+      .filter(s => s.userId)
+      .map(s => {
+        const shiftDay = new Date(s.shiftDate + "T12:00:00");
+        const dayOfWeek = (shiftDay.getDay() + 6) % 7;
+        return {
+          userId: s.userId!,
+          dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          department: s.department || "kitchen",
+          position: s.position,
+          notes: s.notes,
+        };
+      });
+    if (templateShifts.length === 0) {
+      toast({ title: "No shifts to save", description: "Schedule this week first, then save as template", variant: "destructive" });
+      return;
+    }
+    const newTemplate: ScheduleTemplate = { name: templateName.trim(), shifts: templateShifts };
+    const updated = [...templates.filter(t => t.name !== newTemplate.name), newTemplate];
+    saveTemplates(updated);
+    setTemplates(updated);
+    setTemplateName("");
+    setTemplateDialogOpen(false);
+    toast({ title: "Template saved", description: `"${newTemplate.name}" with ${templateShifts.length} shifts` });
+  }
+
+  function handleLoadTemplate(template: ScheduleTemplate) {
+    const newShifts = template.shifts.map(s => ({
+      userId: s.userId,
+      shiftDate: format(addDays(weekStart, s.dayOfWeek), "yyyy-MM-dd"),
+      startTime: s.startTime,
+      endTime: s.endTime,
+      department: s.department,
+      position: s.position,
+      notes: s.notes,
+      createdBy: user!.id,
+      locationId: selectedLocationId,
+      status: "assigned",
+    }));
+    bulkCreateShiftsMutation.mutate(newShifts, {
+      onSuccess: () => {
+        toast({ title: "Template loaded", description: `${newShifts.length} shifts from "${template.name}"` });
+        setTemplateDialogOpen(false);
+      },
+    });
+  }
+
+  function handleDeleteTemplate(name: string) {
+    const updated = templates.filter(t => t.name !== name);
+    saveTemplates(updated);
+    setTemplates(updated);
+    toast({ title: "Template deleted" });
+  }
+
   async function handleCopyLastWeek() {
     setIsCopyingLastWeek(true);
     try {
@@ -846,6 +1036,16 @@ export default function Schedule() {
                   </Button>
                 </>
               )}
+              {canManagePickups && (
+                <Button
+                  variant="outline"
+                  onClick={() => setTemplateDialogOpen(true)}
+                  data-testid="button-templates"
+                >
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  Templates
+                </Button>
+              )}
               {isManagerOrOwner && (
                 <Button onClick={() => openAddShift()} data-testid="button-add-shift">
                   <Plus className="w-4 h-4 mr-2" />
@@ -967,11 +1167,11 @@ export default function Schedule() {
                 {isManagerOrOwner && (
                   <div className="bg-muted/30 border-b border-border px-3 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Plus className="w-3 h-3" />
-                    <span>Click any empty cell to quickly add a shift (e.g. "7-2", "6:30-2:30", "7a-2p")</span>
+                    <span>Click any cell to pick a preset shift or type a custom time. Click an existing shift to modify it.</span>
                   </div>
                 )}
                 <TooltipProvider delayDuration={200}>
-                  <table className="w-full min-w-[700px] border-collapse">
+                  <table className="w-full min-w-[800px] border-collapse">
                     <thead>
                       <tr className="bg-muted/50">
                         <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-10" data-testid="header-employee">
@@ -982,7 +1182,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border last:border-r-0 ${today ? "bg-primary/10" : ""}`}
+                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border ${today ? "bg-primary/10" : ""}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -992,12 +1192,16 @@ export default function Schedule() {
                             </th>
                           );
                         })}
+                        <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px]" data-testid="header-hours">
+                          <div>Hrs</div>
+                          <div className="text-[10px] text-muted-foreground font-normal">Total</div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {allEmployees.length === 0 && !hasOpenShifts ? (
                         <tr>
-                          <td colSpan={8} className="text-center text-sm text-muted-foreground py-12 italic">
+                          <td colSpan={9} className="text-center text-sm text-muted-foreground py-12 italic">
                             No team members found
                           </td>
                         </tr>
@@ -1006,6 +1210,7 @@ export default function Schedule() {
                           {allEmployees.map((member) => {
                             const uid = member.id;
                             const empShifts = shiftsByUser.get(uid) || [];
+                            const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
                               <tr key={uid} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
                                 <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 truncate max-w-[140px]" data-testid={`cell-employee-name-${uid}`}>
@@ -1016,135 +1221,188 @@ export default function Schedule() {
                                   const dayShifts = empShifts.filter(s => s.shiftDate === dateStr);
                                   const today = isSameDay(day, new Date());
                                   const isInlineEditing = inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr;
+                                  const isPresetOpen = presetPopoverCell?.userId === uid && presetPopoverCell?.dateStr === dateStr;
                                   return (
                                     <td
                                       key={dateStr}
-                                      className={`p-1 border-r border-border last:border-r-0 text-center align-top min-w-[80px] ${today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
+                                      className={`p-1 border-r border-border text-center align-top min-w-[80px] ${today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
                                       data-testid={`cell-${uid}-${dateStr}`}
                                     >
                                       <div className="space-y-1">
                                         {dayShifts.map(shift => {
                                           const isPending = shift.status === "pending";
+                                          const isModified = !!(shift.notes && shift.notes.trim());
+                                          const isQuickModifying = quickModifyShift?.id === shift.id;
                                           return (
                                             <div key={shift.id} className="relative group">
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <button
-                                                    className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
-                                                      isPending
-                                                        ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
-                                                        : "bg-muted hover:bg-muted/80 text-foreground"
-                                                    }`}
-                                                    onClick={() => isManagerOrOwner ? openEditShift(shift) : undefined}
-                                                    data-testid={`shift-cell-${shift.id}`}
-                                                  >
-                                                    {compactShiftTime(shift.startTime, shift.endTime)}
-                                                  </button>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top" className="text-xs">
-                                                  <div className="space-y-0.5">
-                                                    <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
-                                                    <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
-                                                    {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
-                                                    {isPending && <div className="text-amber-600">Pending approval</div>}
-                                                    {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                              {isQuickModifying ? (
+                                                <div className="bg-background border-2 border-primary rounded p-1.5 space-y-1.5 text-left" data-testid={`quick-modify-${shift.id}`}>
+                                                  <div className="flex gap-1 items-center">
+                                                    <input
+                                                      className="flex-1 text-[10px] border rounded px-1.5 py-0.5 bg-background text-center w-0 min-w-0"
+                                                      value={quickModifyStart}
+                                                      onChange={(e) => setQuickModifyStart(e.target.value)}
+                                                      data-testid={`input-modify-start-${shift.id}`}
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground flex-shrink-0">–</span>
+                                                    <input
+                                                      className="flex-1 text-[10px] border rounded px-1.5 py-0.5 bg-background text-center w-0 min-w-0"
+                                                      value={quickModifyEnd}
+                                                      onChange={(e) => setQuickModifyEnd(e.target.value)}
+                                                      data-testid={`input-modify-end-${shift.id}`}
+                                                    />
                                                   </div>
-                                                </TooltipContent>
-                                              </Tooltip>
-                                              {isManagerOrOwner && (
-                                                <button
-                                                  className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setConfirmDeleteGridShiftId(shift.id);
-                                                  }}
-                                                  data-testid={`button-grid-delete-shift-${shift.id}`}
-                                                >
-                                                  <Trash2 className="w-2.5 h-2.5" />
-                                                </button>
+                                                  <input
+                                                    className="w-full text-[10px] border rounded px-1.5 py-0.5 bg-background"
+                                                    placeholder="Add note..."
+                                                    value={quickModifyNote}
+                                                    onChange={(e) => setQuickModifyNote(e.target.value)}
+                                                    onKeyDown={(e) => { if (e.key === "Enter") handleQuickModifySave(); if (e.key === "Escape") setQuickModifyShift(null); }}
+                                                    data-testid={`input-modify-note-${shift.id}`}
+                                                  />
+                                                  <div className="flex gap-1">
+                                                    <button
+                                                      className="flex-1 text-[10px] bg-primary text-primary-foreground rounded px-1 py-0.5 font-medium"
+                                                      onClick={handleQuickModifySave}
+                                                      data-testid={`button-modify-save-${shift.id}`}
+                                                    >
+                                                      Save
+                                                    </button>
+                                                    <button
+                                                      className="flex-1 text-[10px] bg-muted text-muted-foreground rounded px-1 py-0.5"
+                                                      onClick={() => setQuickModifyShift(null)}
+                                                      data-testid={`button-modify-cancel-${shift.id}`}
+                                                    >
+                                                      Cancel
+                                                    </button>
+                                                    <button
+                                                      className="text-[10px] text-destructive px-1 py-0.5"
+                                                      onClick={() => { setQuickModifyShift(null); openEditShift(shift); }}
+                                                      data-testid={`button-modify-full-edit-${shift.id}`}
+                                                    >
+                                                      <Pencil className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <button
+                                                        className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
+                                                          isPending
+                                                            ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
+                                                            : isModified
+                                                            ? "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"
+                                                            : "bg-muted hover:bg-muted/80 text-foreground"
+                                                        }`}
+                                                        onClick={() => isManagerOrOwner ? openQuickModify(shift) : undefined}
+                                                        data-testid={`shift-cell-${shift.id}`}
+                                                      >
+                                                        {compactShiftTime(shift.startTime, shift.endTime)}
+                                                        {isModified && <StickyNote className="w-2 h-2 inline-block ml-0.5 opacity-60" />}
+                                                      </button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs">
+                                                      <div className="space-y-0.5">
+                                                        <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
+                                                        <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
+                                                        {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
+                                                        {shift.notes && <div className="text-blue-600 dark:text-blue-400 italic">"{shift.notes}"</div>}
+                                                        {isPending && <div className="text-amber-600">Pending approval</div>}
+                                                        {isManagerOrOwner && <div className="text-muted-foreground italic">Click to modify</div>}
+                                                      </div>
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                  {isManagerOrOwner && (
+                                                    <button
+                                                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setConfirmDeleteGridShiftId(shift.id);
+                                                      }}
+                                                      data-testid={`button-grid-delete-shift-${shift.id}`}
+                                                    >
+                                                      <Trash2 className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  )}
+                                                </>
                                               )}
                                             </div>
                                           );
                                         })}
-                                        {isInlineEditing ? (
-                                          <input
-                                            autoFocus
-                                            className="w-full px-1.5 py-1 rounded text-xs border border-primary bg-background text-foreground text-center outline-none"
-                                            placeholder="7-2"
-                                            value={inlineEditValue}
-                                            onChange={(e) => setInlineEditValue(e.target.value)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === "Enter") {
-                                                e.preventDefault();
-                                                handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
-                                              }
-                                              if (e.key === "Escape") {
-                                                setInlineEditCell(null);
-                                                setInlineEditValue("");
-                                              }
-                                              if (e.key === "Tab") {
-                                                e.preventDefault();
-                                                if (inlineEditValue.trim()) {
-                                                  handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
-                                                }
-                                                const dayIdx = weekDays.findIndex(d => format(d, "yyyy-MM-dd") === dateStr);
-                                                if (dayIdx < 6) {
-                                                  const nextDate = format(weekDays[dayIdx + 1], "yyyy-MM-dd");
-                                                  setInlineEditCell({ userId: uid, dateStr: nextDate });
-                                                  setInlineEditValue("");
-                                                } else {
-                                                  const empIdx = allEmployees.findIndex(m => m.id === uid);
-                                                  if (empIdx < allEmployees.length - 1) {
-                                                    const nextUid = allEmployees[empIdx + 1].id;
-                                                    setInlineEditCell({ userId: nextUid, dateStr: format(weekDays[0], "yyyy-MM-dd") });
-                                                    setInlineEditValue("");
-                                                  } else {
-                                                    setInlineEditCell(null);
-                                                    setInlineEditValue("");
-                                                  }
-                                                }
-                                              }
-                                            }}
-                                            onBlur={() => {
-                                              if (inlineEditValue.trim()) {
-                                                handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
-                                              } else {
-                                                setInlineEditCell(null);
-                                                setInlineEditValue("");
-                                              }
-                                            }}
-                                            data-testid={`input-inline-shift-${uid}-${dateStr}`}
-                                          />
-                                        ) : (
-                                          isManagerOrOwner && dayShifts.length === 0 && (
-                                            <button
-                                              className="w-full h-7 rounded text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-muted/40 transition-colors flex items-center justify-center group/add"
-                                              onClick={() => {
-                                                setInlineEditCell({ userId: uid, dateStr });
-                                                setInlineEditValue("");
-                                              }}
-                                              data-testid={`button-quick-add-${uid}-${dateStr}`}
-                                            >
-                                              <Plus className="w-3.5 h-3.5 opacity-0 group-hover/add:opacity-100 transition-opacity" />
-                                            </button>
-                                          )
-                                        )}
-                                        {isManagerOrOwner && dayShifts.length > 0 && !isInlineEditing && (
-                                          <button
-                                            className="w-full h-5 rounded text-muted-foreground/20 hover:text-muted-foreground/50 hover:bg-muted/30 transition-colors flex items-center justify-center"
-                                            onClick={() => {
-                                              setInlineEditCell({ userId: uid, dateStr });
+                                        {isManagerOrOwner && !isInlineEditing && (dayShifts.length === 0 || dayShifts.length > 0) && !quickModifyShift && (
+                                          <Popover open={isPresetOpen} onOpenChange={(open) => {
+                                            if (open) {
+                                              setPresetPopoverCell({ userId: uid, dateStr });
+                                            } else {
+                                              setPresetPopoverCell(null);
+                                              setInlineEditCell(null);
                                               setInlineEditValue("");
-                                            }}
-                                            data-testid={`button-add-another-${uid}-${dateStr}`}
-                                          >
-                                            <Plus className="w-2.5 h-2.5" />
-                                          </button>
+                                            }
+                                          }}>
+                                            <PopoverTrigger asChild>
+                                              <button
+                                                className={`w-full ${dayShifts.length === 0 ? "h-7" : "h-5"} rounded text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-muted/40 transition-colors flex items-center justify-center group/add`}
+                                                data-testid={`button-quick-add-${uid}-${dateStr}`}
+                                              >
+                                                <Plus className={`${dayShifts.length === 0 ? "w-3.5 h-3.5" : "w-2.5 h-2.5"} opacity-0 group-hover/add:opacity-100 transition-opacity`} />
+                                              </button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-48 p-2" side="bottom" align="center">
+                                              <div className="space-y-1.5">
+                                                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Quick Shifts</p>
+                                                <div className="grid grid-cols-2 gap-1">
+                                                  {SHIFT_PRESETS.map(preset => (
+                                                    <button
+                                                      key={preset.label}
+                                                      className="px-2 py-1.5 text-xs font-medium rounded bg-muted hover:bg-primary hover:text-primary-foreground transition-colors text-center"
+                                                      onClick={() => handlePresetClick(uid, dateStr, preset)}
+                                                      data-testid={`preset-${preset.label}-${uid}-${dateStr}`}
+                                                    >
+                                                      {preset.label}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                                <div className="border-t border-border pt-1.5">
+                                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
+                                                  <input
+                                                    autoFocus
+                                                    className="w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 focus:ring-primary"
+                                                    placeholder='Type "7-2" then Enter'
+                                                    value={inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr ? inlineEditValue : ""}
+                                                    onChange={(e) => {
+                                                      setInlineEditCell({ userId: uid, dateStr });
+                                                      setInlineEditValue(e.target.value);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter" && inlineEditValue.trim()) {
+                                                        e.preventDefault();
+                                                        handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
+                                                        setPresetPopoverCell(null);
+                                                      }
+                                                      if (e.key === "Escape") {
+                                                        setPresetPopoverCell(null);
+                                                        setInlineEditCell(null);
+                                                        setInlineEditValue("");
+                                                      }
+                                                    }}
+                                                    data-testid={`input-inline-shift-${uid}-${dateStr}`}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </PopoverContent>
+                                          </Popover>
                                         )}
                                       </div>
                                     </td>
                                   );
                                 })}
+                                <td className="p-2 text-center align-middle border-l border-border" data-testid={`cell-hours-${uid}`}>
+                                  <span className={`text-xs font-semibold tabular-nums ${weeklyHours > 40 ? "text-red-600 dark:text-red-400" : weeklyHours >= 32 ? "text-foreground" : "text-muted-foreground"}`}>
+                                    {weeklyHours > 0 ? weeklyHours.toFixed(weeklyHours % 1 === 0 ? 0 : 1) : "—"}
+                                  </span>
+                                </td>
                               </tr>
                             );
                           })}
@@ -1213,6 +1471,9 @@ export default function Schedule() {
                                   </td>
                                 );
                               })}
+                              <td className="p-2 text-center align-middle border-l border-border">
+                                <span className="text-xs text-muted-foreground">—</span>
+                              </td>
                             </tr>
                           )}
                         </>
@@ -2412,6 +2673,78 @@ export default function Schedule() {
             >
               Cancel
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4" /> Schedule Templates
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Save Current Week as Template</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Template name (e.g. Normal Week)"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveTemplate(); }}
+                  className="text-sm"
+                  data-testid="input-template-name"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveTemplate}
+                  disabled={!templateName.trim()}
+                  data-testid="button-save-template"
+                >
+                  <Save className="w-3.5 h-3.5 mr-1.5" />
+                  Save
+                </Button>
+              </div>
+            </div>
+            {templates.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Load Template</p>
+                <div className="space-y-1.5">
+                  {templates.map(t => (
+                    <div key={t.name} className="flex items-center gap-2 p-2 rounded-md border bg-muted/30 hover:bg-muted/50 transition-colors" data-testid={`template-${t.name}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{t.name}</p>
+                        <p className="text-[11px] text-muted-foreground">{t.shifts.length} shifts</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleLoadTemplate(t)}
+                        disabled={bulkCreateShiftsMutation.isPending}
+                        data-testid={`button-load-template-${t.name}`}
+                      >
+                        {bulkCreateShiftsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Load"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive h-8 w-8 p-0"
+                        onClick={() => handleDeleteTemplate(t.name)}
+                        data-testid={`button-delete-template-${t.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {templates.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4 italic">
+                No templates saved yet. Build a schedule and save it as a template to quickly reuse it.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>
