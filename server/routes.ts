@@ -8070,6 +8070,113 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
     }
   });
 
+  // === ONBOARDING DOCUMENTS (must be before :token route) ===
+  app.get("/api/hr/onboarding/documents", isAuthenticated, isManager, async (_req, res) => {
+    try {
+      const docs = await storage.getOnboardingDocuments();
+      res.json(docs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/documents/:type", async (req, res) => {
+    try {
+      const doc = await storage.getOnboardingDocumentByType(req.params.type);
+      if (!doc) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      res.json(doc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/onboarding/documents/scan", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { images, documentType } = req.body;
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ message: "At least one image is required" });
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const client = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const imageContent = images.map((img: string) => ({
+        type: "image_url" as const,
+        image_url: {
+          url: img.startsWith("data:") ? img : `data:image/jpeg;base64,${img}`,
+        }
+      }));
+
+      const typeLabel = documentType === "noncompete" ? "Non-Compete & Confidentiality Agreement" : "Employee Handbook";
+      const multiPageNote = images.length > 1
+        ? ` This document spans ${images.length} pages/photos. Combine ALL content from ALL images into one cohesive document.`
+        : "";
+
+      const response = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_completion_tokens: 16384,
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert document processor for Bear's Cup Bakehouse, a professional bakery. Extract ALL text content from the uploaded document image${images.length > 1 ? "s" : ""} and format it into a clean, professional ${typeLabel}.${multiPageNote}
+
+IMPORTANT GUIDELINES:
+- Extract every piece of text from the document faithfully — preserve all legal language, policy specifics, dates, and terms exactly as written.
+- Organize the content into clearly numbered SECTIONS with descriptive headings (e.g., "SECTION 1: WELCOME & MISSION").
+- Use clean, consistent formatting: section headers in ALL CAPS, sub-sections numbered (1.1, 1.2, etc.), bullet points for lists.
+- If text is blurry or unclear, make your best professional interpretation and mark uncertain text with (?).
+- At the end, include an ACKNOWLEDGMENT section appropriate for the document type.
+- Do NOT add content that isn't in the original document — only organize and format what's there.
+- If the document appears to be incomplete, format what's available and note any apparent gaps.
+- Output ONLY the formatted document text — no JSON wrapping, no commentary.`
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `Please extract and professionally format this ${typeLabel} document:` },
+              ...imageContent,
+            ],
+          }
+        ],
+      });
+
+      const extractedText = response.choices[0]?.message?.content || "";
+      res.json({ content: extractedText, pages: images.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/hr/onboarding/documents/:type", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { type } = req.params;
+      const { title, content, rawContent } = req.body;
+      if (!title || !content) {
+        return res.status(400).json({ message: "Title and content are required" });
+      }
+      const validTypes = ["handbook", "noncompete"];
+      if (!validTypes.includes(type)) {
+        return res.status(400).json({ message: "Invalid document type" });
+      }
+      const doc = await storage.upsertOnboardingDocument({
+        type,
+        title,
+        content,
+        rawContent: rawContent || null,
+        updatedBy: req.appUser.id,
+        updatedAt: new Date(),
+      });
+      res.json(doc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/hr/onboarding/:token", async (req, res) => {
     try {
       const invite = await storage.getOnboardingInviteByToken(req.params.token);

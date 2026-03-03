@@ -494,6 +494,17 @@ function HandbookStep({ token, onNext }: { token: string; onNext: () => void }) 
   const [acknowledged, setAcknowledged] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const { data: customDoc } = useQuery({
+    queryKey: ["/api/hr/onboarding/documents", "handbook"],
+    queryFn: async () => {
+      const res = await fetch("/api/hr/onboarding/documents/handbook");
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const handbookText = customDoc?.content || HANDBOOK_CONTENT;
+
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
@@ -525,7 +536,7 @@ function HandbookStep({ token, onNext }: { token: string; onNext: () => void }) 
           className="h-96 overflow-y-auto border rounded-lg p-4 bg-white text-sm leading-relaxed whitespace-pre-wrap font-mono mb-4"
           data-testid="handbook-content"
         >
-          {HANDBOOK_CONTENT}
+          {handbookText}
         </div>
 
         {!scrolledToBottom && (
@@ -567,6 +578,17 @@ function NonCompeteStep({ token, onNext }: { token: string; onNext: () => void }
   const [acknowledged, setAcknowledged] = useState(false);
   const [signature, setSignature] = useState("");
 
+  const { data: customDoc } = useQuery({
+    queryKey: ["/api/hr/onboarding/documents", "noncompete"],
+    queryFn: async () => {
+      const res = await fetch("/api/hr/onboarding/documents/noncompete");
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const nonCompeteText = customDoc?.content || NONCOMPETE_CONTENT;
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/hr/onboarding/${token}/noncompete`, {
@@ -587,7 +609,7 @@ function NonCompeteStep({ token, onNext }: { token: string; onNext: () => void }
       </CardHeader>
       <CardContent>
         <div className="h-80 overflow-y-auto border rounded-lg p-4 bg-white text-sm leading-relaxed whitespace-pre-wrap font-mono mb-4" data-testid="noncompete-content">
-          {NONCOMPETE_CONTENT}
+          {nonCompeteText}
         </div>
 
         <div className="flex items-start gap-3 mb-4">

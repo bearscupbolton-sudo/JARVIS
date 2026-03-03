@@ -1292,6 +1292,22 @@ export const insertOnboardingSubmissionSchema = createInsertSchema(onboardingSub
 export type OnboardingSubmission = typeof onboardingSubmissions.$inferSelect;
 export type InsertOnboardingSubmission = z.infer<typeof insertOnboardingSubmissionSchema>;
 
+// === ONBOARDING DOCUMENTS ===
+export const onboardingDocuments = pgTable("onboarding_documents", {
+  id: serial("id").primaryKey(),
+  type: varchar("type", { length: 50 }).notNull().unique(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  rawContent: text("raw_content"),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertOnboardingDocumentSchema = createInsertSchema(onboardingDocuments).omit({ id: true, createdAt: true });
+export type OnboardingDocument = typeof onboardingDocuments.$inferSelect;
+export type InsertOnboardingDocument = z.infer<typeof insertOnboardingDocumentSchema>;
+
 // === COFFEE ===
 export const coffeeInventory = pgTable("coffee_inventory", {
   id: serial("id").primaryKey(),

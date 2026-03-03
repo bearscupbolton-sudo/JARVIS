@@ -96,9 +96,10 @@ import {
   type CustomerOrder, type InsertCustomerOrder,
   permissionLevels,
   type PermissionLevel, type InsertPermissionLevel,
-  onboardingInvites, onboardingSubmissions,
+  onboardingInvites, onboardingSubmissions, onboardingDocuments,
   type OnboardingInvite, type InsertOnboardingInvite,
   type OnboardingSubmission, type InsertOnboardingSubmission,
+  type OnboardingDocument, type InsertOnboardingDocument,
   coffeeInventory, coffeeDrinkRecipes, coffeeDrinkIngredients, coffeeUsageLogs,
   type CoffeeInventoryItem, type InsertCoffeeInventoryItem,
   type CoffeeDrinkRecipe, type InsertCoffeeDrinkRecipe,
@@ -564,6 +565,11 @@ export interface IStorage {
   createOnboardingSubmission(submission: InsertOnboardingSubmission): Promise<OnboardingSubmission>;
   getOnboardingSubmissionByInviteId(inviteId: number): Promise<OnboardingSubmission | undefined>;
   updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission>;
+
+  // Onboarding Documents
+  getOnboardingDocuments(): Promise<OnboardingDocument[]>;
+  getOnboardingDocumentByType(type: string): Promise<OnboardingDocument | undefined>;
+  upsertOnboardingDocument(doc: InsertOnboardingDocument): Promise<OnboardingDocument>;
 
   // Backfill
   backfillPastryItemIds(): Promise<{
@@ -3534,6 +3540,29 @@ export class DatabaseStorage implements IStorage {
 
   async updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission> {
     const [result] = await db.update(onboardingSubmissions).set(updates).where(eq(onboardingSubmissions.id, id)).returning();
+    return result;
+  }
+
+  // Onboarding Documents
+  async getOnboardingDocuments(): Promise<OnboardingDocument[]> {
+    return await db.select().from(onboardingDocuments).orderBy(onboardingDocuments.type);
+  }
+
+  async getOnboardingDocumentByType(type: string): Promise<OnboardingDocument | undefined> {
+    const [result] = await db.select().from(onboardingDocuments).where(eq(onboardingDocuments.type, type));
+    return result;
+  }
+
+  async upsertOnboardingDocument(doc: InsertOnboardingDocument): Promise<OnboardingDocument> {
+    const existing = await this.getOnboardingDocumentByType(doc.type);
+    if (existing) {
+      const [result] = await db.update(onboardingDocuments)
+        .set({ ...doc, updatedAt: new Date() })
+        .where(eq(onboardingDocuments.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(onboardingDocuments).values(doc).returning();
     return result;
   }
 

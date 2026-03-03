@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight } from "lucide-react";
+import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight, Upload, Pencil, Camera, Sparkles, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import type { OnboardingInvite } from "@shared/schema";
+import { compressImage } from "@/lib/image-utils";
+import type { OnboardingInvite, OnboardingDocument } from "@shared/schema";
 
 const futureSections = [
   {
@@ -400,6 +402,14 @@ function StepPersonalInfo({ submission }: { submission: any }) {
 
 function StepHandbook({ submission }: { submission: any }) {
   const acknowledged = submission?.handbookAcknowledged;
+  const { data: customDoc } = useQuery<OnboardingDocument>({
+    queryKey: ["/api/hr/onboarding/documents", "handbook"],
+    queryFn: async () => {
+      const res = await fetch("/api/hr/onboarding/documents/handbook", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -427,8 +437,17 @@ function StepHandbook({ submission }: { submission: any }) {
           </div>
         </div>
       </div>
-      <div className="text-xs text-muted-foreground p-3 bg-muted/30 rounded-md">
-        The Employee Handbook covers workplace policies, attendance, safety, dress code, compensation, and more. Applicants must scroll to the bottom before they can acknowledge.
+      <div className="text-xs text-muted-foreground p-3 bg-muted/30 rounded-md space-y-1">
+        <p>The Employee Handbook covers workplace policies, attendance, safety, dress code, compensation, and more. Applicants must scroll to the bottom before they can acknowledge.</p>
+        <p className="flex items-center gap-1">
+          <FileText className="w-3 h-3" />
+          <span className="font-medium">Version:</span>
+          {customDoc ? (
+            <span className="text-green-700">Custom document (updated {customDoc.updatedAt ? new Date(customDoc.updatedAt).toLocaleDateString() : "—"})</span>
+          ) : (
+            <span>Default template</span>
+          )}
+        </p>
       </div>
     </div>
   );
@@ -436,6 +455,14 @@ function StepHandbook({ submission }: { submission: any }) {
 
 function StepNonCompete({ submission }: { submission: any }) {
   const signed = submission?.nonCompeteAcknowledged;
+  const { data: customDoc } = useQuery<OnboardingDocument>({
+    queryKey: ["/api/hr/onboarding/documents", "noncompete"],
+    queryFn: async () => {
+      const res = await fetch("/api/hr/onboarding/documents/noncompete", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -469,6 +496,17 @@ function StepNonCompete({ submission }: { submission: any }) {
           <p className="font-serif italic text-lg text-foreground">{submission.digitalSignature}</p>
         </div>
       )}
+      <div className="text-xs text-muted-foreground p-3 bg-muted/30 rounded-md">
+        <p className="flex items-center gap-1">
+          <FileText className="w-3 h-3" />
+          <span className="font-medium">Version:</span>
+          {customDoc ? (
+            <span className="text-green-700">Custom document (updated {customDoc.updatedAt ? new Date(customDoc.updatedAt).toLocaleDateString() : "—"})</span>
+          ) : (
+            <span>Default template</span>
+          )}
+        </p>
+      </div>
     </div>
   );
 }
@@ -546,6 +584,248 @@ function SecureRow({ label, value }: { label: string; value: string }) {
         {label}
       </span>
       <span className="text-foreground font-medium text-right font-mono text-xs">{value}</span>
+    </div>
+  );
+}
+
+const DOC_TYPES = [
+  { type: "handbook", title: "Employee Handbook", description: "Workplace policies, attendance, safety, dress code, compensation, and more" },
+  { type: "noncompete", title: "Non-Compete & Confidentiality Agreement", description: "Confidentiality, non-compete covenants, non-solicitation, and IP" },
+];
+
+function DocumentManagement() {
+  const { toast } = useToast();
+  const { data: documents = [] } = useQuery<OnboardingDocument[]>({
+    queryKey: ["/api/hr/onboarding/documents"],
+  });
+
+  return (
+    <Card data-testid="card-onboarding-documents">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <FileText className="w-5 h-5" /> Onboarding Documents
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground mb-4">
+          Upload your actual handbook and agreements. Jarvis will extract and format the content for your onboarding flow.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {DOC_TYPES.map((docType) => {
+            const existing = documents.find((d) => d.type === docType.type);
+            return (
+              <DocumentCard
+                key={docType.type}
+                docType={docType}
+                existing={existing}
+              />
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DocumentCard({ docType, existing }: { docType: typeof DOC_TYPES[number]; existing?: OnboardingDocument }) {
+  const [mode, setMode] = useState<"idle" | "uploading" | "scanning" | "editing" | "preview">("idle");
+  const [editContent, setEditContent] = useState("");
+  const [rawContent, setRawContent] = useState("");
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  const scanMutation = useMutation({
+    mutationFn: async (images: string[]) => {
+      const res = await apiRequest("POST", "/api/hr/onboarding/documents/scan", {
+        images,
+        documentType: docType.type,
+      });
+      return res.json();
+    },
+    onSuccess: (data: { content: string; pages: number }) => {
+      setRawContent(data.content);
+      setEditContent(data.content);
+      setMode("editing");
+      toast({ title: "Document processed", description: `Jarvis extracted content from ${data.pages} page(s)` });
+    },
+    onError: (err: Error) => {
+      setMode("idle");
+      toast({ title: "Scan failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", `/api/hr/onboarding/documents/${docType.type}`, {
+        title: docType.title,
+        content: editContent,
+        rawContent: rawContent || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setMode("idle");
+      queryClient.invalidateQueries({ queryKey: ["/api/hr/onboarding/documents"] });
+      toast({ title: "Document saved", description: `${docType.title} updated successfully` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setMode("uploading");
+    try {
+      const compressed: string[] = [];
+      for (const file of files) {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        const result = await compressImage(dataUrl, 1600, 0.85);
+        compressed.push(result);
+      }
+      setUploadedImages(compressed);
+      setMode("scanning");
+      scanMutation.mutate(compressed);
+    } catch {
+      setMode("idle");
+      toast({ title: "Upload failed", description: "Could not process the images", variant: "destructive" });
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleEditExisting = () => {
+    if (existing) {
+      setEditContent(existing.content);
+      setRawContent(existing.rawContent || "");
+      setMode("editing");
+    }
+  };
+
+  const handlePreview = () => {
+    if (existing) {
+      setEditContent(existing.content);
+      setMode("preview");
+    }
+  };
+
+  return (
+    <div className="p-4 rounded-lg border bg-card space-y-3" data-testid={`doc-card-${docType.type}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-md ${existing ? "bg-green-100" : "bg-muted"}`}>
+            <FileText className={`w-4 h-4 ${existing ? "text-green-700" : "text-muted-foreground"}`} />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold">{docType.title}</h4>
+            <p className="text-xs text-muted-foreground">{docType.description}</p>
+          </div>
+        </div>
+        {existing && (
+          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs shrink-0" data-testid={`badge-doc-active-${docType.type}`}>
+            <CheckCircle2 className="w-3 h-3 mr-1" /> Custom
+          </Badge>
+        )}
+      </div>
+
+      {existing && (
+        <p className="text-xs text-muted-foreground">
+          Last updated {existing.updatedAt ? new Date(existing.updatedAt).toLocaleDateString() : "—"}
+        </p>
+      )}
+
+      {mode === "idle" && (
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+            data-testid={`input-upload-${docType.type}`}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            data-testid={`button-upload-${docType.type}`}
+          >
+            <Upload className="w-3.5 h-3.5 mr-1" />
+            {existing ? "Re-upload" : "Upload"}
+          </Button>
+          {existing && (
+            <>
+              <Button variant="outline" size="sm" onClick={handleEditExisting} data-testid={`button-edit-${docType.type}`}>
+                <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+              </Button>
+              <Button variant="outline" size="sm" onClick={handlePreview} data-testid={`button-preview-${docType.type}`}>
+                <Eye className="w-3.5 h-3.5 mr-1" /> Preview
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {(mode === "uploading" || mode === "scanning") && (
+        <div className="flex items-center gap-2 py-4 justify-center text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          {mode === "uploading" ? "Processing images..." : "Jarvis is reading your document..."}
+        </div>
+      )}
+
+      {mode === "editing" && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded-md">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            Review and edit the extracted content below, then save.
+          </div>
+          <Textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            className="min-h-[300px] text-xs font-mono leading-relaxed"
+            data-testid={`textarea-edit-${docType.type}`}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={!editContent.trim() || saveMutation.isPending}
+              onClick={() => saveMutation.mutate()}
+              data-testid={`button-save-${docType.type}`}
+            >
+              {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+              Save Document
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setMode("idle")} data-testid={`button-cancel-edit-${docType.type}`}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {mode === "preview" && (
+        <div className="space-y-3">
+          <div className="max-h-[400px] overflow-y-auto p-3 bg-muted/30 rounded-md border">
+            <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed">{editContent}</pre>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setMode("idle")} data-testid={`button-close-preview-${docType.type}`}>
+            Close Preview
+          </Button>
+        </div>
+      )}
+
+      {!existing && mode === "idle" && (
+        <p className="text-xs text-muted-foreground/60 italic">
+          Using default template. Upload your document to customize.
+        </p>
+      )}
     </div>
   );
 }
@@ -660,6 +940,8 @@ export default function HR() {
           )}
         </CardContent>
       </Card>
+
+      <DocumentManagement />
 
       <SecurityInfoCard />
 
