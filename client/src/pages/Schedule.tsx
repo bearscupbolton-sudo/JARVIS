@@ -27,9 +27,9 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2,
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
-  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus
+  HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy
 } from "lucide-react";
-import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns";
+import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
 type TeamMember = Pick<User, "id" | "username" | "firstName" | "lastName" | "email" | "role" | "phone" | "smsOptIn">;
 
@@ -63,6 +63,95 @@ function compactTime(timeStr: string): string {
 
 function compactShiftTime(start: string, end: string): string {
   return `${compactTime(start)}-${compactTime(end)}`;
+}
+
+function parseShorthandTime(input: string): { startTime: string; endTime: string } | null {
+  const trimmed = input.trim().toUpperCase();
+  if (trimmed === "OFF" || trimmed === "X" || !trimmed) return null;
+
+  const pattern = /^(\d{1,2})(?::(\d{2}))?\s*(A|AM|P|PM)?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?\s*(A|AM|P|PM)?$/i;
+  const m = trimmed.match(pattern);
+  if (!m) return null;
+
+  let startH = parseInt(m[1]);
+  const startM = m[2] ? parseInt(m[2]) : 0;
+  const startAmpmRaw = m[3]?.toUpperCase();
+  let endH = parseInt(m[4]);
+  const endM = m[5] ? parseInt(m[5]) : 0;
+  const endAmpmRaw = m[6]?.toUpperCase();
+
+  if (startH > 23 || endH > 23 || startM > 59 || endM > 59) return null;
+
+  const normalizeAmpm = (v: string | undefined) => {
+    if (!v) return undefined;
+    if (v === "A" || v === "AM") return "AM";
+    if (v === "P" || v === "PM") return "PM";
+    return undefined;
+  };
+
+  const to24 = (h: number, ap: string) => {
+    if (ap === "AM") return h === 12 ? 0 : h;
+    return h === 12 ? 12 : h + 12;
+  };
+
+  const to12 = (h24: number): { h: number; ap: "AM" | "PM" } => {
+    if (h24 === 0) return { h: 12, ap: "AM" };
+    if (h24 < 12) return { h: h24, ap: "AM" };
+    if (h24 === 12) return { h: 12, ap: "PM" };
+    return { h: h24 - 12, ap: "PM" };
+  };
+
+  let startAmpm = normalizeAmpm(startAmpmRaw);
+  let endAmpm = normalizeAmpm(endAmpmRaw);
+
+  if (startH > 12 || endH > 12) {
+    const s24 = startH;
+    const e24 = endH;
+    if (s24 > 23 || e24 > 23) return null;
+    const sConv = to12(s24);
+    const eConv = to12(e24);
+    return {
+      startTime: `${sConv.h}:${startM.toString().padStart(2, "0")} ${sConv.ap}`,
+      endTime: `${eConv.h}:${endM.toString().padStart(2, "0")} ${eConv.ap}`,
+    };
+  }
+
+  if (startAmpm && endAmpm) {
+    // both explicit
+  } else if (!startAmpm && !endAmpm) {
+    if (startH >= 1 && startH <= 11 && endH >= 1 && endH <= 11 && endH > startH) {
+      startAmpm = "AM";
+      endAmpm = "AM";
+    } else {
+      startAmpm = "AM";
+      endAmpm = endH <= startH ? "PM" : "PM";
+    }
+    if (startH === 12) {
+      startAmpm = "PM";
+      endAmpm = "PM";
+    }
+  } else if (startAmpm && !endAmpm) {
+    const s24 = to24(startH, startAmpm);
+    const eAsAm = to24(endH, "AM");
+    const eAsPm = to24(endH, "PM");
+    endAmpm = eAsPm > s24 && (eAsAm <= s24 || startAmpm === "AM") ? "PM" : startAmpm;
+    if (endAmpm === startAmpm) {
+      const e24 = to24(endH, endAmpm);
+      if (e24 <= s24) endAmpm = endAmpm === "AM" ? "PM" : "AM";
+    }
+  } else if (!startAmpm && endAmpm) {
+    const e24 = to24(endH, endAmpm);
+    const sAsAm = to24(startH, "AM");
+    startAmpm = sAsAm < e24 ? "AM" : "PM";
+  }
+
+  const fmt = (h: number, min: number, ap: string) =>
+    `${h}:${min.toString().padStart(2, "0")} ${ap}`;
+
+  return {
+    startTime: fmt(startH, startM, startAmpm!),
+    endTime: fmt(endH, endM, endAmpm!),
+  };
 }
 
 const TIME_OPTIONS = [
@@ -146,6 +235,11 @@ export default function Schedule() {
   const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery" | "bar">("all");
   const [deptInitialized, setDeptInitialized] = useState(false);
   const [shiftTypeFilter, setShiftTypeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all");
+  const [inlineEditCell, setInlineEditCell] = useState<{ userId: string; dateStr: string } | null>(null);
+  const [inlineEditValue, setInlineEditValue] = useState("");
+  const [copyLastWeekDialogOpen, setCopyLastWeekDialogOpen] = useState(false);
+  const [lastWeekShiftsCount, setLastWeekShiftsCount] = useState(0);
+  const [isCopyingLastWeek, setIsCopyingLastWeek] = useState(false);
 
   useEffect(() => {
     if (!deptInitialized && (user as any)?.department) {
@@ -234,8 +328,6 @@ export default function Schedule() {
     mutationFn: (data: any) => apiRequest("POST", "/api/shifts", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      setShiftDialogOpen(false);
-      toast({ title: "Shift created" });
     },
     onError: (e: Error) => toast({ title: "Failed to create shift", description: e.message, variant: "destructive" }),
   });
@@ -416,8 +508,104 @@ export default function Schedule() {
     if (editingShift) {
       updateShiftMutation.mutate({ id: editingShift.id, ...payload });
     } else {
-      createShiftMutation.mutate(payload);
+      createShiftMutation.mutate(payload, {
+        onSuccess: () => {
+          setShiftDialogOpen(false);
+          toast({ title: "Shift created" });
+        },
+      });
     }
+  }
+
+  function handleInlineShiftSubmit(userId: string, dateStr: string, rawInput: string) {
+    const parsed = parseShorthandTime(rawInput);
+    if (!parsed) {
+      setInlineEditCell(null);
+      setInlineEditValue("");
+      if (rawInput.trim().toUpperCase() !== "OFF" && rawInput.trim().toUpperCase() !== "X" && rawInput.trim()) {
+        toast({ title: "Invalid time format", description: 'Try "7-2", "7a-2p", or "6:30-2:30"', variant: "destructive" });
+      }
+      return;
+    }
+    const dept = deptFilter !== "all" ? deptFilter : "kitchen";
+    createShiftMutation.mutate({
+      userId,
+      shiftDate: dateStr,
+      startTime: parsed.startTime,
+      endTime: parsed.endTime,
+      department: dept,
+      position: null,
+      notes: null,
+      createdBy: user!.id,
+      locationId: selectedLocationId,
+    }, {
+      onSuccess: () => {
+        toast({ title: `Shift added: ${rawInput.trim()}` });
+      },
+    });
+    setInlineEditCell(null);
+    setInlineEditValue("");
+  }
+
+  async function handleCopyLastWeek() {
+    setIsCopyingLastWeek(true);
+    try {
+      const prevWeekStart = subDays(weekStart, 7);
+      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
+      const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
+      const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
+      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
+      const res = await fetch(`/api/shifts?start=${prevStartStr}&end=${prevEndStr}${locParam}`, { credentials: "include" });
+      const prevShifts: Shift[] = await res.json();
+
+      if (!prevShifts || prevShifts.length === 0) {
+        toast({ title: "No shifts to copy", description: "Last week has no scheduled shifts", variant: "destructive" });
+        setIsCopyingLastWeek(false);
+        return;
+      }
+
+      setLastWeekShiftsCount(prevShifts.length);
+      setCopyLastWeekDialogOpen(true);
+    } catch {
+      toast({ title: "Failed to load last week", variant: "destructive" });
+    }
+    setIsCopyingLastWeek(false);
+  }
+
+  async function confirmCopyLastWeek() {
+    setIsCopyingLastWeek(true);
+    try {
+      const prevWeekStart = subDays(weekStart, 7);
+      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
+      const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
+      const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
+      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
+      const res = await fetch(`/api/shifts?start=${prevStartStr}&end=${prevEndStr}${locParam}`, { credentials: "include" });
+      const prevShifts: Shift[] = await res.json();
+
+      const newShifts = prevShifts.map(s => ({
+        userId: s.userId,
+        shiftDate: format(addDays(new Date(s.shiftDate + "T12:00:00"), 7), "yyyy-MM-dd"),
+        startTime: s.startTime,
+        endTime: s.endTime,
+        department: s.department,
+        position: s.position,
+        notes: s.notes,
+        createdBy: user!.id,
+        locationId: s.locationId,
+        status: s.userId ? "assigned" : "open",
+      }));
+
+      bulkCreateShiftsMutation.mutate(newShifts, {
+        onSuccess: () => {
+          setCopyLastWeekDialogOpen(false);
+          toast({ title: "Schedule copied", description: `${newShifts.length} shifts duplicated from last week` });
+        },
+      });
+    } catch {
+      toast({ title: "Failed to copy schedule", variant: "destructive" });
+    }
+    setIsCopyingLastWeek(false);
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -635,6 +823,15 @@ export default function Schedule() {
                   </div>
                   <Button
                     variant="outline"
+                    onClick={handleCopyLastWeek}
+                    disabled={isCopyingLastWeek}
+                    data-testid="button-copy-last-week"
+                  >
+                    {isCopyingLastWeek ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Copy className="w-4 h-4 mr-2" />}
+                    Copy Last Week
+                  </Button>
+                  <Button
+                    variant="outline"
                     className="text-destructive border-destructive/30 hover:bg-destructive/10"
                     onClick={() => {
                       setClearRange("week");
@@ -739,7 +936,7 @@ export default function Schedule() {
               return true;
             });
 
-            const employeeMap = new Map<string, { name: string; shifts: Shift[] }>();
+            const shiftsByUser = new Map<string, Shift[]>();
             const openShiftsList: Shift[] = [];
 
             for (const shift of filteredShifts) {
@@ -747,24 +944,32 @@ export default function Schedule() {
                 openShiftsList.push(shift);
               } else {
                 const uid = shift.userId || "unassigned";
-                if (!employeeMap.has(uid)) {
-                  employeeMap.set(uid, {
-                    name: getUserDisplayName(uid, members),
-                    shifts: [],
-                  });
-                }
-                employeeMap.get(uid)!.shifts.push(shift);
+                if (!shiftsByUser.has(uid)) shiftsByUser.set(uid, []);
+                shiftsByUser.get(uid)!.push(shift);
               }
             }
 
-            const sortedEmployees = Array.from(employeeMap.entries()).sort((a, b) =>
-              a[1].name.localeCompare(b[1].name)
-            );
+            const allEmployees = members
+              .filter(m => {
+                if (deptFilter !== "all") {
+                  const memberDept = (m as any)?.department;
+                  const hasShiftsInDept = shiftsByUser.has(m.id);
+                  if (memberDept && memberDept !== deptFilter && !hasShiftsInDept) return false;
+                }
+                return true;
+              })
+              .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
 
             const hasOpenShifts = openShiftsList.length > 0;
 
             return (
               <div className="overflow-x-auto border border-border rounded-lg" data-testid="schedule-grid">
+                {isManagerOrOwner && (
+                  <div className="bg-muted/30 border-b border-border px-3 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Plus className="w-3 h-3" />
+                    <span>Click any empty cell to quickly add a shift (e.g. "7-2", "6:30-2:30", "7a-2p")</span>
+                  </div>
+                )}
                 <TooltipProvider delayDuration={200}>
                   <table className="w-full min-w-[700px] border-collapse">
                     <thead>
@@ -777,7 +982,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-2 border-b border-border ${today ? "bg-primary/10" : ""}`}
+                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border last:border-r-0 ${today ? "bg-primary/10" : ""}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -790,30 +995,33 @@ export default function Schedule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedEmployees.length === 0 && !hasOpenShifts ? (
+                      {allEmployees.length === 0 && !hasOpenShifts ? (
                         <tr>
                           <td colSpan={8} className="text-center text-sm text-muted-foreground py-12 italic">
-                            No shifts scheduled this week
+                            No team members found
                           </td>
                         </tr>
                       ) : (
                         <>
-                          {sortedEmployees.map(([uid, emp]) => (
-                            <tr key={uid} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 truncate max-w-[140px]" data-testid={`cell-employee-name-${uid}`}>
-                                {emp.name}
-                              </td>
-                              {weekDays.map((day) => {
-                                const dateStr = format(day, "yyyy-MM-dd");
-                                const dayShifts = emp.shifts.filter(s => s.shiftDate === dateStr);
-                                const today = isSameDay(day, new Date());
-                                return (
-                                  <td
-                                    key={dateStr}
-                                    className={`p-1 border-border text-center align-top ${today ? "bg-primary/5" : ""}`}
-                                    data-testid={`cell-${uid}-${dateStr}`}
-                                  >
-                                    {dayShifts.length > 0 ? (
+                          {allEmployees.map((member) => {
+                            const uid = member.id;
+                            const empShifts = shiftsByUser.get(uid) || [];
+                            return (
+                              <tr key={uid} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
+                                <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 truncate max-w-[140px]" data-testid={`cell-employee-name-${uid}`}>
+                                  {getDisplayName(member)}
+                                </td>
+                                {weekDays.map((day) => {
+                                  const dateStr = format(day, "yyyy-MM-dd");
+                                  const dayShifts = empShifts.filter(s => s.shiftDate === dateStr);
+                                  const today = isSameDay(day, new Date());
+                                  const isInlineEditing = inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr;
+                                  return (
+                                    <td
+                                      key={dateStr}
+                                      className={`p-1 border-r border-border last:border-r-0 text-center align-top min-w-[80px] ${today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
+                                      data-testid={`cell-${uid}-${dateStr}`}
+                                    >
                                       <div className="space-y-1">
                                         {dayShifts.map(shift => {
                                           const isPending = shift.status === "pending";
@@ -858,13 +1066,88 @@ export default function Schedule() {
                                             </div>
                                           );
                                         })}
+                                        {isInlineEditing ? (
+                                          <input
+                                            autoFocus
+                                            className="w-full px-1.5 py-1 rounded text-xs border border-primary bg-background text-foreground text-center outline-none"
+                                            placeholder="7-2"
+                                            value={inlineEditValue}
+                                            onChange={(e) => setInlineEditValue(e.target.value)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
+                                              }
+                                              if (e.key === "Escape") {
+                                                setInlineEditCell(null);
+                                                setInlineEditValue("");
+                                              }
+                                              if (e.key === "Tab") {
+                                                e.preventDefault();
+                                                if (inlineEditValue.trim()) {
+                                                  handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
+                                                }
+                                                const dayIdx = weekDays.findIndex(d => format(d, "yyyy-MM-dd") === dateStr);
+                                                if (dayIdx < 6) {
+                                                  const nextDate = format(weekDays[dayIdx + 1], "yyyy-MM-dd");
+                                                  setInlineEditCell({ userId: uid, dateStr: nextDate });
+                                                  setInlineEditValue("");
+                                                } else {
+                                                  const empIdx = allEmployees.findIndex(m => m.id === uid);
+                                                  if (empIdx < allEmployees.length - 1) {
+                                                    const nextUid = allEmployees[empIdx + 1].id;
+                                                    setInlineEditCell({ userId: nextUid, dateStr: format(weekDays[0], "yyyy-MM-dd") });
+                                                    setInlineEditValue("");
+                                                  } else {
+                                                    setInlineEditCell(null);
+                                                    setInlineEditValue("");
+                                                  }
+                                                }
+                                              }
+                                            }}
+                                            onBlur={() => {
+                                              if (inlineEditValue.trim()) {
+                                                handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
+                                              } else {
+                                                setInlineEditCell(null);
+                                                setInlineEditValue("");
+                                              }
+                                            }}
+                                            data-testid={`input-inline-shift-${uid}-${dateStr}`}
+                                          />
+                                        ) : (
+                                          isManagerOrOwner && dayShifts.length === 0 && (
+                                            <button
+                                              className="w-full h-7 rounded text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-muted/40 transition-colors flex items-center justify-center group/add"
+                                              onClick={() => {
+                                                setInlineEditCell({ userId: uid, dateStr });
+                                                setInlineEditValue("");
+                                              }}
+                                              data-testid={`button-quick-add-${uid}-${dateStr}`}
+                                            >
+                                              <Plus className="w-3.5 h-3.5 opacity-0 group-hover/add:opacity-100 transition-opacity" />
+                                            </button>
+                                          )
+                                        )}
+                                        {isManagerOrOwner && dayShifts.length > 0 && !isInlineEditing && (
+                                          <button
+                                            className="w-full h-5 rounded text-muted-foreground/20 hover:text-muted-foreground/50 hover:bg-muted/30 transition-colors flex items-center justify-center"
+                                            onClick={() => {
+                                              setInlineEditCell({ userId: uid, dateStr });
+                                              setInlineEditValue("");
+                                            }}
+                                            data-testid={`button-add-another-${uid}-${dateStr}`}
+                                          >
+                                            <Plus className="w-2.5 h-2.5" />
+                                          </button>
+                                        )}
                                       </div>
-                                    ) : null}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
                           {hasOpenShifts && (
                             <tr className="border-b border-border last:border-b-0" data-testid="row-open-shifts">
                               <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 text-green-700 dark:text-green-400 italic">
@@ -877,7 +1160,7 @@ export default function Schedule() {
                                 return (
                                   <td
                                     key={dateStr}
-                                    className={`p-1 border-border text-center align-top ${today ? "bg-primary/5" : ""}`}
+                                    className={`p-1 border-r border-border last:border-r-0 text-center align-top ${today ? "bg-primary/5" : ""}`}
                                     data-testid={`cell-open-${dateStr}`}
                                   >
                                     {dayOpenShifts.length > 0 ? (
@@ -2091,6 +2374,41 @@ export default function Schedule() {
               className="flex-1"
               onClick={() => setConfirmDeleteGridShiftId(null)}
               data-testid="button-cancel-grid-delete-shift"
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={copyLastWeekDialogOpen} onOpenChange={setCopyLastWeekDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-4 h-4" /> Copy Last Week
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Copy <span className="font-semibold text-foreground">{lastWeekShiftsCount}</span> shifts from last week into this week's schedule. This won't remove any existing shifts.
+          </p>
+          <div className="flex gap-2 pt-2">
+            <Button
+              className="flex-1"
+              disabled={isCopyingLastWeek || bulkCreateShiftsMutation.isPending}
+              onClick={confirmCopyLastWeek}
+              data-testid="button-confirm-copy-last-week"
+            >
+              {isCopyingLastWeek || bulkCreateShiftsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Copying...</>
+              ) : (
+                "Copy Shifts"
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setCopyLastWeekDialogOpen(false)}
+              data-testid="button-cancel-copy-last-week"
             >
               Cancel
             </Button>

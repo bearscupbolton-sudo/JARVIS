@@ -23,7 +23,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Soldout/86'd Tracking:** Tracks out-of-stock items with timestamps, attribution, and location.
 *   **COGS System:** Calculates real-time per-pastry production costs using invoice, inventory, and recipe data.
 *   **Invoice Capture:** Supports multi-image invoice uploads processed by an AI vision model, optimized for bakery-specific invoices.
-*   **Schedule & Shift Management:** Provides 24-hour shift scheduling with AI-driven generation.
+*   **Schedule & Shift Management:** Spreadsheet-style grid scheduling (employees × days) with inline quick-add (type "7-2" in any cell), smart time shorthand parsing, Tab-to-next-cell navigation, Copy Last Week button for schedule duplication, AI-driven import from CSV/images, shift pickups/claims, and department/shift-type filtering. All team members shown in grid regardless of existing shifts.
 *   **Events & Calendar:** Manages events with team member tagging and personalized views, enforcing privacy for personal events.
 *   **Time Card System:** Includes a persistent Clock Bar, PIN-based Kiosk Clock, personal time card management, and a "Time Review" module.
 *   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions. Roles (`owner`, `manager`, `member`) enforce permissions and data access restrictions.
