@@ -15,7 +15,7 @@ import {
   Coffee as CoffeeIcon, Plus, Minus, Trash2, RefreshCw, Loader2,
   Bean, Milk, Droplets, Package, BarChart3, Sparkles, X, GlassWater,
   AlertTriangle, TrendingUp, ChevronDown, ChevronUp, Edit2, Save,
-  StickyNote, PenLine, ExternalLink
+  StickyNote, PenLine, ExternalLink, FlaskConical
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import type { CoffeeInventoryItem, CoffeeDrinkRecipe, CoffeeDrinkIngredient } from "@shared/schema";
@@ -215,6 +215,22 @@ function CoffeeRightSidebar() {
             {creatingNote ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <PenLine className="w-3.5 h-3.5 mr-2" />}
             New Note
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-gradient-to-b from-amber-50 to-amber-100/50 dark:from-amber-950/40 dark:to-stone-900/50 border-amber-200 dark:border-amber-800/50">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-800 dark:text-amber-300">
+            <FlaskConical className="w-4 h-4" /> Test Kitchen
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-2">
+          <p className="text-xs text-muted-foreground">Develop new drink specials, test recipes, and track costs</p>
+          <Link href="/test-kitchen" data-testid="link-open-test-kitchen">
+            <Button variant="outline" className="w-full justify-start text-sm border-amber-300 dark:border-amber-700" data-testid="button-open-test-kitchen">
+              <ExternalLink className="w-3.5 h-3.5 mr-2" /> Open Test Kitchen
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     </div>
