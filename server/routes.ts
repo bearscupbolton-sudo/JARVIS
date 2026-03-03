@@ -7754,5 +7754,192 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
     }
   })();
 
+  // === HR ONBOARDING ===
+  app.post("/api/hr/onboarding/invite", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { randomUUID } = await import("crypto");
+      const token = randomUUID();
+      const { firstName, lastName, email, position, department, locationId } = req.body;
+      if (!firstName) {
+        return res.status(400).json({ message: "First name is required" });
+      }
+      const invite = await storage.createOnboardingInvite({
+        token,
+        firstName,
+        lastName: lastName || null,
+        email: email || null,
+        position: position || null,
+        department: department || null,
+        locationId: locationId || null,
+        status: "pending",
+        createdBy: req.appUser.id,
+      });
+      res.json(invite);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/invites", isAuthenticated, isManager, async (_req, res) => {
+    try {
+      const invites = await storage.getOnboardingInvites();
+      res.json(invites);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/submission/:inviteId", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const inviteId = parseInt(req.params.inviteId);
+      const submission = await storage.getOnboardingSubmissionByInviteId(inviteId);
+      if (!submission) {
+        return res.status(404).json({ message: "No submission found for this invite" });
+      }
+      const masked = {
+        ...submission,
+        ssn: submission.ssn ? `***-**-${submission.ssn.slice(-4)}` : null,
+        routingNumber: submission.routingNumber ? `****${submission.routingNumber.slice(-4)}` : null,
+        accountNumber: submission.accountNumber ? `****${submission.accountNumber.slice(-4)}` : null,
+      };
+      res.json(masked);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/:token", async (req, res) => {
+    try {
+      const invite = await storage.getOnboardingInviteByToken(req.params.token);
+      if (!invite) {
+        return res.status(404).json({ message: "Onboarding link not found or expired" });
+      }
+      res.json({
+        id: invite.id,
+        firstName: invite.firstName,
+        lastName: invite.lastName,
+        email: invite.email,
+        position: invite.position,
+        department: invite.department,
+        status: invite.status,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/onboarding/:token/submit", async (req, res) => {
+    try {
+      const invite = await storage.getOnboardingInviteByToken(req.params.token);
+      if (!invite) {
+        return res.status(404).json({ message: "Onboarding link not found" });
+      }
+      if (invite.status === "completed") {
+        return res.status(400).json({ message: "This onboarding has already been completed" });
+      }
+      const { z } = await import("zod");
+      const submissionSchema = z.object({
+        legalFirstName: z.string().min(1, "First name is required"),
+        legalLastName: z.string().min(1, "Last name is required"),
+        middleName: z.string().optional().nullable(),
+        ssn: z.string().regex(/^\d{9}$/, "SSN must be 9 digits"),
+        dateOfBirth: z.string().min(1, "Date of birth is required"),
+        address: z.string().min(1, "Address is required"),
+        city: z.string().min(1, "City is required"),
+        state: z.string().min(1, "State is required"),
+        zipCode: z.string().regex(/^\d{5}(-\d{4})?$/, "Invalid ZIP code"),
+        phone: z.string().min(1, "Phone is required"),
+        personalEmail: z.string().email("Invalid email"),
+        emergencyContactName: z.string().min(1, "Emergency contact name is required"),
+        emergencyContactPhone: z.string().min(1, "Emergency contact phone is required"),
+        emergencyContactRelation: z.string().min(1, "Emergency contact relation is required"),
+        federalFilingStatus: z.string().optional(),
+        stateFilingStatus: z.string().optional(),
+        allowances: z.number().int().min(0).optional(),
+        bankName: z.string().optional().nullable(),
+        routingNumber: z.string().optional().nullable(),
+        accountNumber: z.string().optional().nullable(),
+        accountType: z.enum(["checking", "savings"]).optional().nullable(),
+      });
+      const parsed = submissionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Validation failed" });
+      }
+      const data = parsed.data;
+      const crypto = await import("crypto");
+      const hashSensitive = (val: string | null | undefined) => {
+        if (!val) return null;
+        return crypto.createHash("sha256").update(val).digest("hex").slice(0, 8) + ":" + val.slice(-4);
+      };
+      const securedData = {
+        ...data,
+        ssn: hashSensitive(data.ssn),
+        routingNumber: data.routingNumber ? hashSensitive(data.routingNumber) : null,
+        accountNumber: data.accountNumber ? hashSensitive(data.accountNumber) : null,
+      };
+      const existing = await storage.getOnboardingSubmissionByInviteId(invite.id);
+      if (existing) {
+        const updated = await storage.updateOnboardingSubmission(existing.id, securedData);
+        await storage.updateOnboardingInviteStatus(invite.id, "in_progress");
+        return res.json(updated);
+      }
+      const submission = await storage.createOnboardingSubmission({
+        inviteId: invite.id,
+        ...securedData,
+      });
+      await storage.updateOnboardingInviteStatus(invite.id, "in_progress");
+      res.json(submission);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/onboarding/:token/handbook", async (req, res) => {
+    try {
+      const invite = await storage.getOnboardingInviteByToken(req.params.token);
+      if (!invite) {
+        return res.status(404).json({ message: "Onboarding link not found" });
+      }
+      const submission = await storage.getOnboardingSubmissionByInviteId(invite.id);
+      if (!submission) {
+        return res.status(400).json({ message: "Personal info must be submitted first" });
+      }
+      const updated = await storage.updateOnboardingSubmission(submission.id, {
+        handbookAcknowledged: true,
+        handbookAcknowledgedAt: new Date(),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/onboarding/:token/noncompete", async (req, res) => {
+    try {
+      const invite = await storage.getOnboardingInviteByToken(req.params.token);
+      if (!invite) {
+        return res.status(404).json({ message: "Onboarding link not found" });
+      }
+      const submission = await storage.getOnboardingSubmissionByInviteId(invite.id);
+      if (!submission) {
+        return res.status(400).json({ message: "Personal info must be submitted first" });
+      }
+      const { digitalSignature } = req.body;
+      if (!digitalSignature) {
+        return res.status(400).json({ message: "Digital signature is required" });
+      }
+      const updated = await storage.updateOnboardingSubmission(submission.id, {
+        nonCompeteAcknowledged: true,
+        nonCompeteAcknowledgedAt: new Date(),
+        digitalSignature,
+        completedAt: new Date(),
+      });
+      await storage.updateOnboardingInviteStatus(invite.id, "completed", new Date());
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

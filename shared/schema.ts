@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1233,4 +1233,61 @@ export const sentimentShiftScores = pgTable("sentiment_shift_scores", {
 export const insertSentimentShiftScoreSchema = createInsertSchema(sentimentShiftScores).omit({ id: true, createdAt: true });
 export type SentimentShiftScore = typeof sentimentShiftScores.$inferSelect;
 export type InsertSentimentShiftScore = z.infer<typeof insertSentimentShiftScoreSchema>;
+
+// === ONBOARDING ===
+export const onboardingInvites = pgTable("onboarding_invites", {
+  id: serial("id").primaryKey(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  firstName: varchar("first_name", { length: 255 }),
+  lastName: varchar("last_name", { length: 255 }),
+  email: varchar("email", { length: 255 }),
+  position: varchar("position", { length: 255 }),
+  department: varchar("department", { length: 100 }),
+  locationId: integer("location_id"),
+  status: varchar("status", { length: 50 }).default("pending").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertOnboardingInviteSchema = createInsertSchema(onboardingInvites).omit({ id: true, createdAt: true, completedAt: true });
+export type OnboardingInvite = typeof onboardingInvites.$inferSelect;
+export type InsertOnboardingInvite = z.infer<typeof insertOnboardingInviteSchema>;
+
+export const onboardingSubmissions = pgTable("onboarding_submissions", {
+  id: serial("id").primaryKey(),
+  inviteId: integer("invite_id").notNull(),
+  legalFirstName: text("legal_first_name").notNull(),
+  legalLastName: text("legal_last_name").notNull(),
+  middleName: text("middle_name"),
+  ssn: varchar("ssn", { length: 255 }),
+  dateOfBirth: text("date_of_birth"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  phone: text("phone"),
+  personalEmail: text("personal_email"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+  emergencyContactRelation: text("emergency_contact_relation"),
+  federalFilingStatus: text("federal_filing_status"),
+  stateFilingStatus: text("state_filing_status"),
+  allowances: integer("allowances"),
+  bankName: text("bank_name"),
+  routingNumber: text("routing_number"),
+  accountNumber: text("account_number"),
+  accountType: text("account_type"),
+  handbookAcknowledged: boolean("handbook_acknowledged").default(false).notNull(),
+  handbookAcknowledgedAt: timestamp("handbook_acknowledged_at"),
+  nonCompeteAcknowledged: boolean("non_compete_acknowledged").default(false).notNull(),
+  nonCompeteAcknowledgedAt: timestamp("non_compete_acknowledged_at"),
+  digitalSignature: text("digital_signature"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertOnboardingSubmissionSchema = createInsertSchema(onboardingSubmissions).omit({ id: true, createdAt: true });
+export type OnboardingSubmission = typeof onboardingSubmissions.$inferSelect;
+export type InsertOnboardingSubmission = z.infer<typeof insertOnboardingSubmissionSchema>;
 

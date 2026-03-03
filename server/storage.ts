@@ -96,6 +96,9 @@ import {
   type CustomerOrder, type InsertCustomerOrder,
   permissionLevels,
   type PermissionLevel, type InsertPermissionLevel,
+  onboardingInvites, onboardingSubmissions,
+  type OnboardingInvite, type InsertOnboardingInvite,
+  type OnboardingSubmission, type InsertOnboardingSubmission,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -532,6 +535,15 @@ export interface IStorage {
   getCustomerOrder(id: number): Promise<CustomerOrder | undefined>;
   createCustomerOrder(order: InsertCustomerOrder): Promise<CustomerOrder>;
   updateCustomerOrderStatus(id: number, status: string): Promise<CustomerOrder>;
+
+  // Onboarding
+  createOnboardingInvite(invite: InsertOnboardingInvite): Promise<OnboardingInvite>;
+  getOnboardingInvites(): Promise<OnboardingInvite[]>;
+  getOnboardingInviteByToken(token: string): Promise<OnboardingInvite | undefined>;
+  updateOnboardingInviteStatus(id: number, status: string, completedAt?: Date): Promise<OnboardingInvite>;
+  createOnboardingSubmission(submission: InsertOnboardingSubmission): Promise<OnboardingSubmission>;
+  getOnboardingSubmissionByInviteId(inviteId: number): Promise<OnboardingSubmission | undefined>;
+  updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission>;
 
   // Backfill
   backfillPastryItemIds(): Promise<{
@@ -3467,6 +3479,42 @@ export class DatabaseStorage implements IStorage {
     }
 
     return results;
+  }
+
+  async createOnboardingInvite(invite: InsertOnboardingInvite): Promise<OnboardingInvite> {
+    const [result] = await db.insert(onboardingInvites).values(invite).returning();
+    return result;
+  }
+
+  async getOnboardingInvites(): Promise<OnboardingInvite[]> {
+    return await db.select().from(onboardingInvites).orderBy(desc(onboardingInvites.createdAt));
+  }
+
+  async getOnboardingInviteByToken(token: string): Promise<OnboardingInvite | undefined> {
+    const [result] = await db.select().from(onboardingInvites).where(eq(onboardingInvites.token, token));
+    return result;
+  }
+
+  async updateOnboardingInviteStatus(id: number, status: string, completedAt?: Date): Promise<OnboardingInvite> {
+    const updates: any = { status };
+    if (completedAt) updates.completedAt = completedAt;
+    const [result] = await db.update(onboardingInvites).set(updates).where(eq(onboardingInvites.id, id)).returning();
+    return result;
+  }
+
+  async createOnboardingSubmission(submission: InsertOnboardingSubmission): Promise<OnboardingSubmission> {
+    const [result] = await db.insert(onboardingSubmissions).values(submission).returning();
+    return result;
+  }
+
+  async getOnboardingSubmissionByInviteId(inviteId: number): Promise<OnboardingSubmission | undefined> {
+    const [result] = await db.select().from(onboardingSubmissions).where(eq(onboardingSubmissions.inviteId, inviteId));
+    return result;
+  }
+
+  async updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission> {
+    const [result] = await db.update(onboardingSubmissions).set(updates).where(eq(onboardingSubmissions.id, id)).returning();
+    return result;
   }
 }
 

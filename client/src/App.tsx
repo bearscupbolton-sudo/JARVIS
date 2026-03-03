@@ -65,6 +65,7 @@ import Vendors from "@/pages/Vendors";
 import BagelBros from "@/pages/BagelBros";
 import TestKitchen from "@/pages/TestKitchen";
 import DevFeedback from "@/pages/DevFeedback";
+import Onboarding from "@/pages/Onboarding";
 import PortalLogin from "@/pages/portal/PortalLogin";
 import PortalRegister from "@/pages/portal/PortalRegister";
 import PortalHome from "@/pages/portal/PortalHome";
@@ -299,6 +300,9 @@ function Router() {
       </Route>
       <Route path="/feedback">
         {() => <CustomerFeedback />}
+      </Route>
+      <Route path="/onboarding/:token">
+        {() => <Onboarding />}
       </Route>
       <Route path="/admin/feedback">
         {() => <ProtectedRoute component={FeedbackQRCode} />}

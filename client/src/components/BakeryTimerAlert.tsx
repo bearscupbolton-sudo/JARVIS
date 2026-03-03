@@ -7,7 +7,7 @@ import { Timer, Volume2, VolumeX, X } from "lucide-react";
 import { useLocation } from "wouter";
 import type { KioskTimer } from "@shared/schema";
 
-const KIOSK_PATHS = ["/platform", "/kiosk", "/bagel-bros", "/clock"];
+const KIOSK_PATHS = ["/platform", "/kiosk", "/bagel-bros", "/clock", "/onboarding"];
 
 export default function BakeryTimerAlert() {
   const { user } = useAuth();

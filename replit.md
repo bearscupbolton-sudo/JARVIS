@@ -51,6 +51,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 *   **Global Acknowledgment System:** Supports forced logout of all users and a one-time, mandatory, Jarvis-branded overlay message on next login.
 *   **Session Version & Force Logout:** An owner-initiated system to force-logout all users with an optional Jarvis message on re-login.
 *   **Developer Mode & Dev Feedback:** An owner-only toggle enabling a global feedback system for bug reports and suggestions, AI-processed for categorization.
+*   **HR Onboarding System:** Electronic onboarding with shareable invite links. Public multi-step flow: ADP Run-compatible personal info form (legal name, SSN, DOB, address, emergency contact, tax info, direct deposit) → Employee Handbook acknowledgment (scroll-to-bottom required) → Non-Compete agreement with digital signature → Welcome screen. SSN and bank details are hashed before storage. Manager dashboard on `/hr` for creating invites and viewing submissions. Tables: `onboarding_invites`, `onboarding_submissions`.
 *   **La Carte Customer Portal:** A separate customer-facing subscription portal with a unique design, customer authentication, browsable Square catalog menu, "What's Fresh Today," "Coming Soon" specials, Skip the Line ordering via Square Orders API, and order history.
 
 ## External Dependencies
