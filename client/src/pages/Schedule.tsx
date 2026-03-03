@@ -307,7 +307,7 @@ export default function Schedule() {
 
   const clearScheduleMutation = useMutation({
     mutationFn: async ({ startDate, endDate }: { startDate: string; endDate: string }) => {
-      const locParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
       const res = await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}${locParam}`);
       return res.json();
     },

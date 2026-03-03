@@ -44,7 +44,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [selectedId, setSelectedId] = useState<number | null>(() => {
     try {
       const saved = localStorage.getItem("jarvis-location-id");
-      return saved ? parseInt(saved) : null;
+      if (!saved) return null;
+      const parsed = parseInt(saved);
+      return isNaN(parsed) ? null : parsed;
     } catch {
       return null;
     }
