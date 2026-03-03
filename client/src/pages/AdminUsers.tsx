@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid, Check, ChevronsUpDown } from "lucide-react";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { PAGE_SECTIONS } from "@/hooks/use-section-visibility";
 import { format } from "date-fns";
 import PermissionLevelManager, { getColorClass } from "@/components/PermissionLevelManager";
@@ -981,25 +982,11 @@ function UserDetailDialog({
                   />
                 </div>
               )}
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Default Landing Page</Label>
-                <Select
-                  value={(u as any).defaultPage || "home"}
-                  onValueChange={(val) => defaultPageMutation.mutate(val === "home" ? null : val)}
-                >
-                  <SelectTrigger data-testid={`select-default-page-${u.id}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="home">Home</SelectItem>
-                    <SelectItem value="/bagel-bros">Bagel Bros</SelectItem>
-                    <SelectItem value="/platform">Platform 9¾</SelectItem>
-                    <SelectItem value="/bakery">Bakery</SelectItem>
-                    <SelectItem value="/clock">Kiosk Clock</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">Where this person lands after signing in.</p>
-              </div>
+              <DefaultPagePicker
+                value={(u as any).defaultPage || null}
+                onChange={(val) => defaultPageMutation.mutate(val)}
+                userId={u.id}
+              />
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"
@@ -1407,5 +1394,82 @@ function ResetPinDialog({ user: u, open, onOpenChange }: { user: User; open: boo
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const DEFAULT_PAGE_OPTIONS = [
+  { value: "home", label: "Home", description: "Main dashboard" },
+  { value: "/coffee", label: "Coffee", description: "Coffee Command Center" },
+  { value: "/bakery", label: "Bakery", description: "Bakery production" },
+  { value: "/platform", label: "Platform 9¾", description: "FOH command center" },
+  { value: "/bagel-bros", label: "Bagel Bros", description: "Bagel display" },
+  { value: "/clock", label: "Kiosk Clock", description: "Time clock" },
+];
+
+function DefaultPagePicker({ value, onChange, userId }: { value: string | null; onChange: (val: string | null) => void; userId: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const currentValue = value || "home";
+  const currentLabel = DEFAULT_PAGE_OPTIONS.find(o => o.value === currentValue)?.label || "Home";
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [open]);
+
+  return (
+    <div className="space-y-2" ref={ref}>
+      <Label className="text-xs text-muted-foreground">Default Landing Page</Label>
+      <Button
+        variant="outline"
+        className="w-full justify-between font-normal"
+        onClick={() => setOpen(!open)}
+        data-testid={`select-default-page-${userId}`}
+      >
+        {currentLabel}
+        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+      </Button>
+      {open && (
+        <div className="border rounded-md shadow-md bg-popover">
+          <Command>
+            <CommandInput placeholder="Search pages..." data-testid="input-search-default-page" />
+            <CommandList>
+              <CommandEmpty>No pages found.</CommandEmpty>
+              <CommandGroup>
+                {DEFAULT_PAGE_OPTIONS.map(option => (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label}
+                    onSelect={() => {
+                      onChange(option.value === "home" ? null : option.value);
+                      setOpen(false);
+                    }}
+                    data-testid={`option-default-page-${option.value.replace("/", "")}`}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${currentValue === option.value ? "opacity-100" : "opacity-0"}`} />
+                    <div>
+                      <span className="font-medium">{option.label}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{option.description}</span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">Where this person lands after signing in.</p>
+    </div>
   );
 }

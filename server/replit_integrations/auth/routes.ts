@@ -299,7 +299,7 @@ export function registerAuthRoutes(app: Express): void {
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
-      const ALLOWED_DEFAULT_PAGES = ["/bagel-bros", "/platform", "/bakery", "/clock"];
+      const ALLOWED_DEFAULT_PAGES = ["/bagel-bros", "/platform", "/bakery", "/clock", "/coffee"];
       const page = defaultPage && typeof defaultPage === "string" && ALLOWED_DEFAULT_PAGES.includes(defaultPage) ? defaultPage : null;
       const user = await authStorage.updateUserProfile(targetId, { defaultPage: page });
       const { pinHash, ...safeUser } = user;

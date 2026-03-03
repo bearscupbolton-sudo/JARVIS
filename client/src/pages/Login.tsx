@@ -60,7 +60,7 @@ function LoginForm() {
         }
       } catch {}
       queryClient.setQueryData(["/api/auth/user"], data);
-      const allowed = ["/bagel-bros", "/platform", "/bakery", "/clock"];
+      const allowed = ["/bagel-bros", "/platform", "/bakery", "/clock", "/coffee"];
       const page = data?.defaultPage && allowed.includes(data.defaultPage) ? data.defaultPage : "/";
       setLocation(page);
     },
