@@ -14,8 +14,10 @@ import { Progress } from "@/components/ui/progress";
 import {
   Coffee as CoffeeIcon, Plus, Minus, Trash2, RefreshCw, Loader2,
   Bean, Milk, Droplets, Package, BarChart3, Sparkles, X, GlassWater,
-  AlertTriangle, TrendingUp, ChevronDown, ChevronUp, Edit2, Save
+  AlertTriangle, TrendingUp, ChevronDown, ChevronUp, Edit2, Save,
+  StickyNote, PenLine, ExternalLink
 } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import type { CoffeeInventoryItem, CoffeeDrinkRecipe, CoffeeDrinkIngredient } from "@shared/schema";
 
 type DrinkWithIngredients = CoffeeDrinkRecipe & {
@@ -46,8 +48,8 @@ export default function Coffee() {
   const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500" data-testid="coffee-page">
-      <div className="flex items-center justify-between">
+    <div className="animate-in fade-in duration-500" data-testid="coffee-page">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-display font-bold flex items-center gap-2" data-testid="text-coffee-title">
             <CoffeeIcon className="w-8 h-8 text-amber-700" /> Coffee Command Center
@@ -56,32 +58,40 @@ export default function Coffee() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4" data-testid="coffee-tabs">
-          <TabsTrigger value="dashboard" data-testid="tab-dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="inventory" data-testid="tab-inventory">Inventory</TabsTrigger>
-          <TabsTrigger value="drinks" data-testid="tab-drinks">Drink Setup</TabsTrigger>
-          <TabsTrigger value="usage" data-testid="tab-usage">Usage & Sales</TabsTrigger>
-        </TabsList>
+      <div className="flex gap-6">
+        <div className="flex-1 min-w-0 space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-4" data-testid="coffee-tabs">
+              <TabsTrigger value="dashboard" data-testid="tab-dashboard">Dashboard</TabsTrigger>
+              <TabsTrigger value="inventory" data-testid="tab-inventory">Inventory</TabsTrigger>
+              <TabsTrigger value="drinks" data-testid="tab-drinks">Drink Setup</TabsTrigger>
+              <TabsTrigger value="usage" data-testid="tab-usage">Usage & Sales</TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="dashboard" className="space-y-6 mt-4">
-          <CoffeeBriefing />
-          <QuickStats />
-          <InventoryOverview />
-        </TabsContent>
+            <TabsContent value="dashboard" className="space-y-6 mt-4">
+              <CoffeeBriefing />
+              <QuickStats />
+              <InventoryOverview />
+            </TabsContent>
 
-        <TabsContent value="inventory" className="space-y-4 mt-4">
-          <InventoryManager />
-        </TabsContent>
+            <TabsContent value="inventory" className="space-y-4 mt-4">
+              <InventoryManager />
+            </TabsContent>
 
-        <TabsContent value="drinks" className="space-y-4 mt-4">
-          <DrinkSetup />
-        </TabsContent>
+            <TabsContent value="drinks" className="space-y-4 mt-4">
+              <DrinkSetup />
+            </TabsContent>
 
-        <TabsContent value="usage" className="space-y-4 mt-4">
-          <UsageTracker />
-        </TabsContent>
-      </Tabs>
+            <TabsContent value="usage" className="space-y-4 mt-4">
+              <UsageTracker />
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        <div className="hidden lg:block w-56 shrink-0">
+          <CoffeeRightSidebar />
+        </div>
+      </div>
     </div>
   );
 }
@@ -109,16 +119,29 @@ function CoffeeBriefing() {
           <CardTitle className="text-lg flex items-center gap-2 text-amber-100">
             <Sparkles className="w-5 h-5 text-amber-400" /> Jarvis Coffee Brief
           </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={fetchBriefing}
-            disabled={loading}
-            className="text-amber-300 hover:text-amber-100 hover:bg-amber-900/50"
-            data-testid="button-refresh-briefing"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            {briefing && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setBriefing(null)}
+                className="text-amber-300/70 hover:text-amber-100 hover:bg-amber-900/50"
+                data-testid="button-clear-briefing"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchBriefing}
+              disabled={loading}
+              className="text-amber-300 hover:text-amber-100 hover:bg-amber-900/50"
+              data-testid="button-refresh-briefing"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -143,6 +166,58 @@ function CoffeeBriefing() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function CoffeeRightSidebar() {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [creatingNote, setCreatingNote] = useState(false);
+
+  const createQuickNote = async () => {
+    setCreatingNote(true);
+    try {
+      const res = await apiRequest("POST", "/api/notes", {
+        title: `Coffee Note — ${new Date().toLocaleDateString()}`,
+        content: "",
+      });
+      const note = await res.json();
+      toast({ title: "Note created" });
+      navigate("/notes");
+    } catch {
+      toast({ title: "Couldn't create note", variant: "destructive" });
+    }
+    setCreatingNote(false);
+  };
+
+  return (
+    <div className="sticky top-4 space-y-3 z-10" data-testid="coffee-right-sidebar">
+      <Card className="bg-gradient-to-b from-amber-50 to-amber-100/50 dark:from-amber-950/40 dark:to-stone-900/50 border-amber-200 dark:border-amber-800/50">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-800 dark:text-amber-300">
+            <StickyNote className="w-4 h-4" /> Quick Notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-2">
+          <p className="text-xs text-muted-foreground">Jot down coffee ideas, tasting notes, or order reminders</p>
+          <Link href="/notes" data-testid="link-open-notes">
+            <Button variant="outline" className="w-full justify-start text-sm border-amber-300 dark:border-amber-700" data-testid="button-open-notes">
+              <ExternalLink className="w-3.5 h-3.5 mr-2" /> Open Notes
+            </Button>
+          </Link>
+          <Button
+            variant="outline"
+            className="w-full justify-start text-sm border-amber-300 dark:border-amber-700"
+            onClick={createQuickNote}
+            disabled={creatingNote}
+            data-testid="button-new-coffee-note"
+          >
+            {creatingNote ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <PenLine className="w-3.5 h-3.5 mr-2" />}
+            New Note
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
