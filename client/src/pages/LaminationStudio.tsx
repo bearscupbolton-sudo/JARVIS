@@ -54,7 +54,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig, PastryTotal } from "@shared/schema";
 
-const DOUGH_TYPES = ["Croissant", "Danish"];
+const DEFAULT_DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
 
 const REST_DURATION_MS = 30 * 60 * 1000;
@@ -225,6 +225,11 @@ export default function LaminationStudio() {
   const { data: quickLogTotals } = useQuery<PastryTotal[]>({
     queryKey: [`/api/pastry-totals?date=${today}`],
   });
+
+  const doughTypes = Array.from(new Set([
+    ...DEFAULT_DOUGH_TYPES,
+    ...(allPastryItems?.map(i => i.doughType) || []),
+  ])).sort();
 
   const getPassportForPastryName = (name: string): PastryPassport | undefined => {
     const item = allPastryItems?.find(i => i.name === name);
@@ -2087,7 +2092,7 @@ export default function LaminationStudio() {
 
           {newDoughStep === "type" && (
             <div className="grid grid-cols-1 gap-3 py-2">
-              {DOUGH_TYPES.map(type => (
+              {doughTypes.map(type => (
                 <Button
                   key={type}
                   variant="outline"
@@ -2585,7 +2590,7 @@ export default function LaminationStudio() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {DOUGH_TYPES.map(type => (
+                      {doughTypes.map(type => (
                         <SelectItem key={type} value={type}>{type}</SelectItem>
                       ))}
                     </SelectContent>
