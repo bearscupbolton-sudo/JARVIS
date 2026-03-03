@@ -1306,6 +1306,135 @@ FORMAT RULES for the content field:
     }
   });
 
+  // === THE LOOP (Feedback Action Dashboard) ===
+  app.get("/api/loop/sentiment-trend", isAuthenticated, async (req: any, res) => {
+    try {
+      const locationId = req.query.locationId ? Number(req.query.locationId) : null;
+      const days = Math.min(Number(req.query.days) || 30, 365);
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      const allFeedback = await storage.getCustomerFeedback();
+      const filtered = allFeedback.filter(f => {
+        if (!f.createdAt || new Date(f.createdAt) < since) return false;
+        if (locationId && f.locationId !== locationId) return false;
+        return true;
+      });
+
+      const byDate: Record<string, { total: number; count: number }> = {};
+      for (const f of filtered) {
+        const day = new Date(f.createdAt!).toISOString().slice(0, 10);
+        if (!byDate[day]) byDate[day] = { total: 0, count: 0 };
+        byDate[day].total += f.rating;
+        byDate[day].count += 1;
+      }
+
+      const trend = Object.entries(byDate)
+        .map(([date, { total, count }]) => ({ date, avg: Math.round((total / count) * 100) / 100, count }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const totalRating = filtered.reduce((s, f) => s + f.rating, 0);
+      const overallAvg = filtered.length > 0 ? Math.round((totalRating / filtered.length) * 100) / 100 : 0;
+
+      const priorStart = new Date(since);
+      priorStart.setDate(priorStart.getDate() - days);
+      const priorFeedback = allFeedback.filter(f => {
+        if (!f.createdAt) return false;
+        const d = new Date(f.createdAt);
+        if (d < priorStart || d >= since) return false;
+        if (locationId && f.locationId !== locationId) return false;
+        return true;
+      });
+      const priorAvg = priorFeedback.length > 0
+        ? Math.round((priorFeedback.reduce((s, f) => s + f.rating, 0) / priorFeedback.length) * 100) / 100
+        : null;
+
+      res.json({ trend, overallAvg, totalCount: filtered.length, priorAvg, priorCount: priorFeedback.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/loop/themes", isAuthenticated, async (req: any, res) => {
+    try {
+      const locationId = req.query.locationId ? Number(req.query.locationId) : null;
+      const days = Math.min(Number(req.query.days) || 90, 365);
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      const allFeedback = await storage.getCustomerFeedback();
+      const filtered = allFeedback.filter(f => {
+        if (!f.createdAt || new Date(f.createdAt) < since) return false;
+        if (locationId && f.locationId !== locationId) return false;
+        return !!f.comment && f.comment.trim().length > 0;
+      });
+
+      if (filtered.length === 0) {
+        return res.json({ themes: [] });
+      }
+
+      const comments = filtered.map(f => `[Rating: ${f.rating}/5] ${f.comment}`).slice(0, 200);
+
+      const { openai: aiClient } = await import("./replit_integrations/audio/client");
+      const completion = await aiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "system",
+            content: `You are a customer feedback analyst for a bakery called Bear's Cup Bakehouse. Analyze these customer reviews and extract recurring themes that appear MORE THAN ONCE. Focus on actionable insights for shift leaders.
+
+Return ONLY valid JSON — no markdown, no code fences. Format:
+[{"theme":"short theme name","count":number_of_mentions,"sentiment":"negative"|"neutral"|"positive","examples":["quote1","quote2"]}]
+
+Rules:
+- Only include themes mentioned in 2+ reviews
+- Keep theme names short (2-5 words)
+- Include max 2 example quotes per theme, keep them brief
+- Sort by count descending
+- Max 10 themes`
+          },
+          {
+            role: "user",
+            content: `Analyze these ${comments.length} customer reviews:\n\n${comments.join("\n")}`
+          }
+        ],
+      });
+
+      let themes: any[] = [];
+      try {
+        const raw = completion.choices[0]?.message?.content?.trim() || "[]";
+        const cleaned = raw.replace(/^```json?\s*/i, "").replace(/```\s*$/i, "").trim();
+        themes = JSON.parse(cleaned);
+      } catch {
+        themes = [];
+      }
+
+      res.json({ themes, feedbackCount: filtered.length });
+    } catch (err: any) {
+      console.error("Loop themes error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/loop/recent", isAuthenticated, async (req: any, res) => {
+    try {
+      const locationId = req.query.locationId ? Number(req.query.locationId) : null;
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const limit = Math.min(Number(req.query.limit) || 20, 50);
+
+      const allFeedback = await storage.getCustomerFeedback();
+      const filtered = locationId ? allFeedback.filter(f => f.locationId === locationId) : allFeedback;
+
+      const total = filtered.length;
+      const paginated = filtered.slice((page - 1) * limit, page * limit);
+
+      res.json({ feedback: paginated, total, page, pages: Math.ceil(total / limit) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === ANNOUNCEMENTS ===
   app.get(api.announcements.list.path, async (req, res) => {
     const announcements = await storage.getAnnouncements();

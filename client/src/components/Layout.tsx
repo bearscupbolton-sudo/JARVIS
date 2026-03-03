@@ -44,6 +44,7 @@ import {
   Code2,
   FlaskConical,
   HeartHandshake,
+  RefreshCw,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -137,6 +138,7 @@ const MANAGER_NAV_ITEMS = [
   { href: "/time-review", label: "Time Review", icon: Timer },
   { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
   { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
+  { href: "/loop", label: "The Loop", icon: RefreshCw },
 ];
 
 const GM_NAV_ITEMS = [

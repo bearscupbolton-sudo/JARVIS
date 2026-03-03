@@ -57,6 +57,7 @@ import Starkade from "@/pages/Starkade";
 import CustomerFeedback from "@/pages/CustomerFeedback";
 import FeedbackQRCode from "@/pages/FeedbackQRCode";
 import SentimentMatrix from "@/pages/SentimentMatrix";
+import TheLoop from "@/pages/TheLoop";
 import HR from "@/pages/HR";
 import MLL from "@/pages/MLL";
 import Notes from "@/pages/Notes";
@@ -304,6 +305,9 @@ function Router() {
       </Route>
       <Route path="/sentiment">
         {() => <ProtectedRoute component={SentimentMatrix} />}
+      </Route>
+      <Route path="/loop">
+        {() => <ProtectedRoute component={TheLoop} />}
       </Route>
       <Route path="/hr">
         {() => <ProtectedRoute component={HR} />}
