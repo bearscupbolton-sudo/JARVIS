@@ -2938,7 +2938,7 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         return res.status(400).json({ message: "startDate must be before or equal to endDate" });
       }
       const locId = locationId ? Number(locationId) : undefined;
-      if (locId !== undefined && isNaN(locId)) {
+      if (locId !== undefined && (!Number.isFinite(locId) || isNaN(locId))) {
         return res.status(400).json({ message: "Invalid locationId" });
       }
       const deleted = await storage.deleteShiftsByDateRange(startDate as string, endDate as string, locId);

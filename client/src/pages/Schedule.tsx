@@ -480,7 +480,7 @@ export default function Schedule() {
 
   const clearScheduleMutation = useMutation({
     mutationFn: async ({ startDate, endDate }: { startDate: string; endDate: string }) => {
-      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
+      const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
       const res = await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}${locParam}`);
       return res.json();
     },
@@ -764,7 +764,7 @@ export default function Schedule() {
       const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
       const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
       const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
-      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
+      const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
       const res = await fetch(`/api/shifts?start=${prevStartStr}&end=${prevEndStr}${locParam}`, { credentials: "include" });
       const prevShifts: Shift[] = await res.json();
 
@@ -789,7 +789,7 @@ export default function Schedule() {
       const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
       const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
       const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
-      const locParam = selectedLocationId && !isNaN(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
+      const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
       const res = await fetch(`/api/shifts?start=${prevStartStr}&end=${prevEndStr}${locParam}`, { credentials: "include" });
       const prevShifts: Shift[] = await res.json();
 
@@ -2522,7 +2522,7 @@ export default function Schedule() {
                       const startDate = format(weekStart, "yyyy-MM-dd");
                       const endDate = format(weekEnd, "yyyy-MM-dd");
                       try {
-                        const locParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+                        const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
                         await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}${locParam}`);
                       } catch (err: any) {
                         toast({ title: "Failed to clear existing shifts", description: err.message, variant: "destructive" });
