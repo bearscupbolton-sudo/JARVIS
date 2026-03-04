@@ -4,6 +4,7 @@ import compression from "compression";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { seedMarchShifts } from "./seed-march-shifts";
 
 const app = express();
 const httpServer = createServer(app);
@@ -71,6 +72,8 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  seedMarchShifts().catch(err => console.error("[Seed] March shift seeding failed:", err));
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
