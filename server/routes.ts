@@ -6540,6 +6540,36 @@ ${sopsHtml}
         }
       }
 
+      if (context.user.role === "owner") {
+        try {
+          const today = new Date();
+          const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+          const monthEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()}`;
+          const firmSummary = await storage.getFirmSummary(monthStart, monthEnd);
+          const firmObligations = await storage.getFirmObligations();
+
+          if (firmSummary.squareRevenue > 0 || firmSummary.invoiceExpenseTotal > 0 || firmSummary.laborCost > 0) {
+            const rev = firmSummary.squareRevenue || 0;
+            const exp = (firmSummary.invoiceExpenseTotal || 0) + (firmSummary.laborCost || 0) + (firmSummary.payrollTotal || 0);
+            stateLines.push(`FINANCIAL: Month-to-date revenue $${rev.toFixed(0)}, expenses $${exp.toFixed(0)}, net ${rev - exp >= 0 ? "+" : ""}$${(rev - exp).toFixed(0)}`);
+          }
+
+          const overdueObs = firmObligations.filter(o => {
+            if (!o.isActive || !o.nextPaymentDate) return false;
+            return new Date(o.nextPaymentDate) < today;
+          });
+          if (overdueObs.length > 0) {
+            stateLines.push(`FINANCIAL ALERT: ${overdueObs.length} overdue payment(s): ${overdueObs.map(o => o.name).join(", ")}`);
+          }
+
+          if (firmSummary.cashVarianceTotal && Math.abs(firmSummary.cashVarianceTotal) > 10) {
+            stateLines.push(`CASH ALERT: Cash drawer variance this month: $${firmSummary.cashVarianceTotal.toFixed(2)}`);
+          }
+        } catch (e) {
+          // Financial data unavailable, continue without it
+        }
+      }
+
       if (context.upcomingEvents && context.upcomingEvents.length > 0) {
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -6613,6 +6643,12 @@ CALENDAR AWARENESS — If upcoming events are listed, naturally weave them in:
 - Keep event mentions brief and conversational, not a list.
 
 This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
+
+FINANCIAL AWARENESS — If FINANCIAL data is provided (owner only):
+- Briefly mention the month-to-date financial snapshot if numbers are meaningful
+- If there are FINANCIAL ALERTs (overdue payments, cash variance), mention them naturally
+- Keep financial references brief and encouraging — "The numbers are looking solid this month" or "Heads up, there's a payment that needs attention"
+- Don't lecture about finances — just acknowledge the state
 
 PREP EQ AWARENESS — If prep component data is provided:
 - Mention any components below demand naturally ("Heads up, we're a little low on almond paste — might need a batch")
@@ -9019,6 +9055,451 @@ IMPORTANT GUIDELINES:
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === THE FIRM — Financial Management ===
+
+  // Firm Accounts
+  app.get("/api/firm/accounts", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const accounts = await storage.getFirmAccounts();
+      res.json(accounts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/accounts", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(1),
+        type: z.enum(["checking", "savings", "credit_card", "cash", "petty_cash", "loan", "line_of_credit"]),
+        institution: z.string().optional().nullable(),
+        lastFour: z.string().optional().nullable(),
+        currentBalance: z.number().default(0),
+        creditLimit: z.number().optional().nullable(),
+        interestRate: z.number().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        isActive: z.boolean().default(true),
+      });
+      const input = schema.parse(req.body);
+      const account = await storage.createFirmAccount(input);
+      res.status(201).json(account);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid data", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/accounts/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const account = await storage.updateFirmAccount(Number(req.params.id), req.body);
+      if (!account) return res.status(404).json({ message: "Account not found" });
+      res.json(account);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/accounts/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      await storage.deleteFirmAccount(Number(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Firm Transactions
+  app.get("/api/firm/transactions", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      if (req.query.accountId) filters.accountId = Number(req.query.accountId);
+      if (req.query.category) filters.category = req.query.category;
+      if (req.query.referenceType) filters.referenceType = req.query.referenceType;
+      if (req.query.reconciled !== undefined) filters.reconciled = req.query.reconciled === "true";
+      const transactions = await storage.getFirmTransactions(filters);
+      res.json(transactions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/transactions", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        accountId: z.number().optional().nullable(),
+        date: z.string().min(1),
+        description: z.string().min(1),
+        amount: z.number(),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "misc"]),
+        subcategory: z.string().optional().nullable(),
+        referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "manual"]).default("manual"),
+        referenceId: z.string().optional().nullable(),
+        reconciled: z.boolean().default(false),
+        notes: z.string().optional().nullable(),
+        createdBy: z.string().min(1),
+      });
+      const input = schema.parse({ ...req.body, createdBy: req.appUser.id });
+      const transaction = await storage.createFirmTransaction(input);
+      res.status(201).json(transaction);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid data", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/transactions/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const transaction = await storage.updateFirmTransaction(Number(req.params.id), req.body);
+      if (!transaction) return res.status(404).json({ message: "Transaction not found" });
+      res.json(transaction);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/transactions/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      await storage.deleteFirmTransaction(Number(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Firm Obligations
+  app.get("/api/firm/obligations", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const obligations = await storage.getFirmObligations();
+      res.json(obligations);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/obligations", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(1),
+        type: z.enum(["loan", "lease", "subscription", "recurring_bill", "line_of_credit"]),
+        accountId: z.number().optional().nullable(),
+        creditor: z.string().min(1),
+        originalAmount: z.number().optional().nullable(),
+        currentBalance: z.number().optional().nullable(),
+        monthlyPayment: z.number(),
+        interestRate: z.number().optional().nullable(),
+        paymentDueDay: z.number().min(1).max(31).optional().nullable(),
+        frequency: z.enum(["weekly", "biweekly", "monthly", "quarterly", "annual"]).default("monthly"),
+        startDate: z.string().min(1),
+        endDate: z.string().optional().nullable(),
+        nextPaymentDate: z.string().optional().nullable(),
+        autopay: z.boolean().default(false),
+        category: z.string().default("misc"),
+        notes: z.string().optional().nullable(),
+        isActive: z.boolean().default(true),
+      });
+      const input = schema.parse(req.body);
+      const obligation = await storage.createFirmObligation(input);
+      res.status(201).json(obligation);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid data", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/obligations/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const obligation = await storage.updateFirmObligation(Number(req.params.id), req.body);
+      if (!obligation) return res.status(404).json({ message: "Obligation not found" });
+      res.json(obligation);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/obligations/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      await storage.deleteFirmObligation(Number(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/obligations/:id/record-payment", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const obligation = await storage.getFirmObligation(Number(req.params.id));
+      if (!obligation) return res.status(404).json({ message: "Obligation not found" });
+
+      const paymentDate = req.body.date || new Date().toISOString().slice(0, 10);
+      const paymentAmount = req.body.amount || obligation.monthlyPayment;
+
+      const transaction = await storage.createFirmTransaction({
+        accountId: obligation.accountId,
+        date: paymentDate,
+        description: `Payment: ${obligation.name} (${obligation.creditor})`,
+        amount: -Math.abs(paymentAmount),
+        category: obligation.category,
+        subcategory: null,
+        referenceType: "obligation",
+        referenceId: String(obligation.id),
+        reconciled: false,
+        notes: req.body.notes || null,
+        createdBy: req.appUser.id,
+      });
+
+      const updates: any = {};
+      if (obligation.currentBalance !== null && obligation.currentBalance !== undefined) {
+        updates.currentBalance = Math.max(0, obligation.currentBalance - Math.abs(paymentAmount));
+      }
+
+      if (obligation.nextPaymentDate) {
+        const next = new Date(obligation.nextPaymentDate);
+        switch (obligation.frequency) {
+          case "weekly": next.setDate(next.getDate() + 7); break;
+          case "biweekly": next.setDate(next.getDate() + 14); break;
+          case "monthly": next.setMonth(next.getMonth() + 1); break;
+          case "quarterly": next.setMonth(next.getMonth() + 3); break;
+          case "annual": next.setFullYear(next.getFullYear() + 1); break;
+        }
+        updates.nextPaymentDate = next.toISOString().slice(0, 10);
+      }
+
+      const updatedObligation = Object.keys(updates).length > 0
+        ? await storage.updateFirmObligation(obligation.id, updates)
+        : obligation;
+
+      res.json({ transaction, obligation: updatedObligation });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Firm Payroll
+  app.get("/api/firm/payroll", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      const entries = await storage.getFirmPayrollEntries(filters);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/payroll", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        employeeName: z.string().min(1),
+        employeeId: z.string().optional().nullable(),
+        payPeriodStart: z.string().min(1),
+        payPeriodEnd: z.string().min(1),
+        grossAmount: z.number(),
+        deductions: z.number().default(0),
+        netAmount: z.number(),
+        paymentMethod: z.enum(["cash", "check", "direct_deposit", "venmo", "zelle"]),
+        datePaid: z.string().min(1),
+        accountId: z.number().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        createdBy: z.string().min(1),
+      });
+      const input = schema.parse({ ...req.body, createdBy: req.appUser.id });
+      const entry = await storage.createFirmPayrollEntry(input);
+
+      await storage.createFirmTransaction({
+        accountId: input.accountId || null,
+        date: input.datePaid,
+        description: `Payroll: ${input.employeeName} (${input.payPeriodStart} - ${input.payPeriodEnd})`,
+        amount: -Math.abs(input.netAmount),
+        category: "labor",
+        subcategory: null,
+        referenceType: "payroll",
+        referenceId: String(entry.id),
+        reconciled: false,
+        notes: input.notes || null,
+        createdBy: input.createdBy,
+      });
+
+      res.status(201).json(entry);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid data", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/payroll/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const entry = await storage.updateFirmPayrollEntry(Number(req.params.id), req.body);
+      if (!entry) return res.status(404).json({ message: "Payroll entry not found" });
+      res.json(entry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/payroll/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      await storage.deleteFirmPayrollEntry(Number(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Firm Cash Counts
+  app.get("/api/firm/cash-counts", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      if (req.query.locationId) filters.locationId = Number(req.query.locationId);
+      const counts = await storage.getFirmCashCounts(filters);
+      res.json(counts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/cash-counts", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        date: z.string().min(1),
+        locationId: z.number().optional().nullable(),
+        countedBy: z.string().min(1),
+        expectedAmount: z.number(),
+        actualAmount: z.number(),
+        variance: z.number(),
+        denominations: z.any().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      });
+      const input = schema.parse({ ...req.body, countedBy: req.appUser.id });
+      const count = await storage.createFirmCashCount(input);
+      res.status(201).json(count);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid data", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/cash-counts/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const count = await storage.updateFirmCashCount(Number(req.params.id), req.body);
+      if (!count) return res.status(404).json({ message: "Cash count not found" });
+      res.json(count);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Firm Summary
+  app.get("/api/firm/summary", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+      const summary = await storage.getFirmSummary(startDate, endDate);
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Jarvis Financial Intelligence
+  let _firmInsightCache: { text: string; generatedAt: number; key: string } | null = null;
+
+  app.get("/api/firm/jarvis-insight", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+
+      const cacheKey = `${startDate}_${endDate}`;
+      const now = Date.now();
+      if (_firmInsightCache && _firmInsightCache.key === cacheKey && (now - _firmInsightCache.generatedAt) < 30 * 60 * 1000) {
+        return res.json({ insight: _firmInsightCache.text });
+      }
+
+      const summary = await storage.getFirmSummary(startDate, endDate);
+      const obligations = await storage.getFirmObligations();
+      const accounts = await storage.getFirmAccounts();
+
+      const activeAccounts = accounts.filter(a => a.isActive);
+      const totalAssets = activeAccounts.filter(a => ["checking", "savings", "cash", "petty_cash"].includes(a.type)).reduce((s, a) => s + a.currentBalance, 0);
+      const totalLiabilities = activeAccounts.filter(a => ["credit_card", "loan", "line_of_credit"].includes(a.type)).reduce((s, a) => s + Math.abs(a.currentBalance), 0);
+
+      const revenue = summary.squareRevenue || 0;
+      const invoiceExpenses = summary.invoiceExpenseTotal || 0;
+      const laborCost = summary.laborCost || 0;
+      const payrollTotal = summary.payrollTotal || 0;
+      const manualCats = summary.manualTransactionsByCategory || {};
+      const manualExpenses = Object.values(manualCats).reduce((s: number, v: any) => s + Math.abs(v as number), 0);
+      const totalExpenses = invoiceExpenses + laborCost + payrollTotal + manualExpenses;
+      const netPL = revenue - totalExpenses;
+      const cashVariance = summary.cashVarianceTotal || 0;
+
+      const upcomingObs = obligations.filter(o => o.isActive && o.nextPaymentDate).sort((a, b) => (a.nextPaymentDate || "").localeCompare(b.nextPaymentDate || ""));
+
+      const dataPrompt = `Financial Data for ${startDate} to ${endDate}:
+- Revenue (Square POS): ${revenue.toFixed(2)} from ${summary.squareOrderCount || 0} orders
+- Invoice/COGS Expenses: ${invoiceExpenses.toFixed(2)}
+- Labor Cost (clocked hours): ${laborCost.toFixed(2)}
+- Off-system Payroll: ${payrollTotal.toFixed(2)}
+- Manual Transaction Expenses: ${manualExpenses.toFixed(2)}
+- Total Expenses: ${totalExpenses.toFixed(2)}
+- Net Profit/Loss: ${netPL.toFixed(2)}
+- Cash Position (assets): ${totalAssets.toFixed(2)}
+- Total Liabilities: ${totalLiabilities.toFixed(2)}
+- Net Worth: ${(totalAssets - totalLiabilities).toFixed(2)}
+- Cash Drawer Variance: ${cashVariance.toFixed(2)}
+${revenue > 0 ? `- Labor % of Revenue: ${((laborCost / revenue) * 100).toFixed(1)}%` : ""}
+${revenue > 0 ? `- COGS % of Revenue: ${((invoiceExpenses / revenue) * 100).toFixed(1)}%` : ""}
+- Upcoming Obligations (next 30 days): ${upcomingObs.slice(0, 5).map(o => `${o.name}: $${o.monthlyPayment} due ${o.nextPaymentDate}`).join("; ") || "None"}
+- Expense breakdown by category: ${Object.entries(manualCats).map(([cat, total]) => `${cat}: $${Math.abs(total as number).toFixed(2)}`).join(", ") || "None recorded"}`;
+
+      const systemPrompt = `You are Jarvis, the AI financial advisor for Bear's Cup Bakehouse — a small artisan bakery. You provide clear, actionable financial insights in plain English. Your tone is warm but professional, like a trusted accountant who actually cares about the business.
+
+Your analysis should include:
+1. A plain-English P&L summary (are we making or losing money?)
+2. The biggest expense drivers and whether they're in healthy ranges
+3. Industry benchmarks for context (bakery labor should be 25-35% of revenue, COGS 25-35%, rent under 10%)
+4. Cash flow health — can we cover upcoming obligations?
+5. Any red flags or things that need attention
+6. One actionable suggestion for improving profitability
+
+Keep it conversational but data-driven. Use actual numbers from the data. If data is sparse (zeros everywhere), acknowledge that we're just getting started and encourage logging transactions. Never make up data you don't have. Keep it under 200 words.`;
+
+      const OpenAI = (await import("openai")).default;
+      const insightAI = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const completion = await withRetry(() => insightAI.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: dataPrompt },
+        ],
+        max_tokens: 400,
+        temperature: 0.6,
+      }), "firm-jarvis-insight");
+
+      const insightText = completion.choices[0]?.message?.content || "Financial data is being gathered. Check back soon for insights.";
+
+      _firmInsightCache = { text: insightText, generatedAt: now, key: cacheKey };
+      res.json({ insight: insightText });
+    } catch (err: any) {
+      console.error("Firm Jarvis insight error:", err.message);
+      res.json({ insight: "I'm having trouble analyzing the finances right now. The data is all here — try again in a moment." });
     }
   });
 

@@ -1555,3 +1555,107 @@ export const insertShiftNoteSchema = createInsertSchema(shiftNotes).omit({ id: t
 export type ShiftNote = typeof shiftNotes.$inferSelect;
 export type InsertShiftNote = z.infer<typeof insertShiftNoteSchema>;
 
+// === THE FIRM — Financial Management ===
+
+export const firmAccounts = pgTable("firm_accounts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  institution: text("institution"),
+  lastFour: text("last_four"),
+  currentBalance: doublePrecision("current_balance").default(0).notNull(),
+  creditLimit: doublePrecision("credit_limit"),
+  interestRate: doublePrecision("interest_rate"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFirmAccountSchema = createInsertSchema(firmAccounts).omit({ id: true, createdAt: true });
+export type FirmAccount = typeof firmAccounts.$inferSelect;
+export type InsertFirmAccount = z.infer<typeof insertFirmAccountSchema>;
+
+export const firmTransactions = pgTable("firm_transactions", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id"),
+  date: text("date").notNull(),
+  description: text("description").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  category: text("category").notNull(),
+  subcategory: text("subcategory"),
+  referenceType: text("reference_type").notNull().default("manual"),
+  referenceId: text("reference_id"),
+  reconciled: boolean("reconciled").default(false).notNull(),
+  notes: text("notes"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFirmTransactionSchema = createInsertSchema(firmTransactions).omit({ id: true, createdAt: true });
+export type FirmTransaction = typeof firmTransactions.$inferSelect;
+export type InsertFirmTransaction = z.infer<typeof insertFirmTransactionSchema>;
+
+export const firmRecurringObligations = pgTable("firm_recurring_obligations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  accountId: integer("account_id"),
+  creditor: text("creditor").notNull(),
+  originalAmount: doublePrecision("original_amount"),
+  currentBalance: doublePrecision("current_balance"),
+  monthlyPayment: doublePrecision("monthly_payment").notNull(),
+  interestRate: doublePrecision("interest_rate"),
+  paymentDueDay: integer("payment_due_day"),
+  frequency: text("frequency").notNull().default("monthly"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  nextPaymentDate: text("next_payment_date"),
+  autopay: boolean("autopay").default(false).notNull(),
+  category: text("category").notNull().default("misc"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFirmRecurringObligationSchema = createInsertSchema(firmRecurringObligations).omit({ id: true, createdAt: true });
+export type FirmRecurringObligation = typeof firmRecurringObligations.$inferSelect;
+export type InsertFirmRecurringObligation = z.infer<typeof insertFirmRecurringObligationSchema>;
+
+export const firmPayrollEntries = pgTable("firm_payroll_entries", {
+  id: serial("id").primaryKey(),
+  employeeName: text("employee_name").notNull(),
+  employeeId: text("employee_id"),
+  payPeriodStart: text("pay_period_start").notNull(),
+  payPeriodEnd: text("pay_period_end").notNull(),
+  grossAmount: doublePrecision("gross_amount").notNull(),
+  deductions: doublePrecision("deductions").default(0).notNull(),
+  netAmount: doublePrecision("net_amount").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  datePaid: text("date_paid").notNull(),
+  accountId: integer("account_id"),
+  notes: text("notes"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFirmPayrollEntrySchema = createInsertSchema(firmPayrollEntries).omit({ id: true, createdAt: true });
+export type FirmPayrollEntry = typeof firmPayrollEntries.$inferSelect;
+export type InsertFirmPayrollEntry = z.infer<typeof insertFirmPayrollEntrySchema>;
+
+export const firmCashCounts = pgTable("firm_cash_counts", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  locationId: integer("location_id"),
+  countedBy: text("counted_by").notNull(),
+  expectedAmount: doublePrecision("expected_amount").notNull(),
+  actualAmount: doublePrecision("actual_amount").notNull(),
+  variance: doublePrecision("variance").notNull(),
+  denominations: jsonb("denominations"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFirmCashCountSchema = createInsertSchema(firmCashCounts).omit({ id: true, createdAt: true });
+export type FirmCashCount = typeof firmCashCounts.$inferSelect;
+export type InsertFirmCashCount = z.infer<typeof insertFirmCashCountSchema>;
+

@@ -1,62 +1,57 @@
 # Jarvis Bakery OS
 
 ## Overview
-Jarvis Bakery OS is a comprehensive full-stack bakery management application designed to optimize operations for "Bear's Cup Bakehouse." It aims to enhance efficiency, reduce waste, and provide data-driven insights across various bakery functions. Key capabilities include advanced recipe management with production scaling, daily production logging, SOP maintenance, AI assistance ("Jarvis"), multi-location support, team management, time card tracking, and employee engagement features like an in-house gaming arcade. The project's vision is to provide a robust, scalable solution for modern bakery operations, offering tools for better decision-making and operational excellence.
+Jarvis Bakery OS is a comprehensive full-stack bakery management application for "Bear's Cup Bakehouse," designed to optimize operations, enhance efficiency, reduce waste, and provide data-driven insights. It includes advanced recipe management, daily production logging, SOP maintenance, AI assistance, multi-location support, team management, time tracking, and employee engagement features. The project aims to be a robust, scalable solution for modern bakery operations, improving decision-making and operational excellence.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
-The application utilizes a monorepo structure, separating client-side (React, Vite, TypeScript), server-side (Express, Node.js, TypeScript), and shared resources.
-
-**Frontend:** A React 18 SPA built with TypeScript and Vite, using Wouter for routing, TanStack React Query for state management, and shadcn/ui on Radix UI with Tailwind CSS for styling. Forms are managed with React Hook Form and Zod validation, and data visualizations are powered by Recharts. Route-level code splitting via React.lazy + Suspense for all 62+ pages (only Login is eagerly loaded). Reusable `<LazyImage>` component with IntersectionObserver-based lazy loading and blur-up transitions. `<VideoEmbed>` component with facade pattern for YouTube/Vimeo (renders static thumbnail + play button; iframe loads only on click).
-
-**Backend:** An Express.js API server developed in Node.js and TypeScript, providing a RESTful JSON API. Route contracts and validation are enforced using shared Zod schemas. Database interactions are abstracted through an `IStorage` interface.
-
-**Database:** PostgreSQL is the primary database, managed with Drizzle ORM.
+The application uses a monorepo structure with a React 18 frontend (Vite, TypeScript, Wouter, TanStack React Query, shadcn/ui, Radix UI, Tailwind CSS, React Hook Form, Zod, Recharts) and an Express.js backend (Node.js, TypeScript, RESTful JSON API) backed by PostgreSQL with Drizzle ORM.
 
 **Key Features & System Design:**
 
-*   **Recipe System:** Supports inline scaling, production views, logged recipe sessions, and "Recipe Assist." Recipes are categorized by department and link ingredients to inventory. Optional how-to video embeds (YouTube/Vimeo) on recipe detail pages.
-*   **Lamination Studio:** Manages the lifecycle of lamination doughs with a FIFO "Next Up" system and automatic bake-off log creation. Bake-off and Quick Log auto-create oven timers (Bake + Spin at bakeTime - 8 min) on Platform 9¾ when the pastry passport has a `bakeTimeMinutes` set.
-*   **Production Data Flow:** All production output flows through `bakeoff_logs` for unified reporting. Includes a `pastryItemId` for core operational tables, a data pipeline health dashboard, smart matching for Square catalog items, and bulk pastry passport creation.
-*   **Maintenance & Solutions Hub:** A centralized `/maintenance` page with three tabs — Problems (status workflow: open → in-progress → needs-attention → resolved, with priority/assignment/notes/linked contacts), Equipment (inventory with category, make/model/serial, maintenance scheduling with recurring/one-time schedules and overdue detection), and Service Contacts (deep-searchable directory across name/company/specialty/tags/notes). Needs-attention status auto-sends DM + push notification to assigned user. Tables: `problems` (extended), `service_contacts`, `equipment`, `equipment_maintenance`, `problem_notes`, `problem_contacts`.
-*   **Prep EQ (Production Intelligence):** A closed-loop production component tracking system at `/prep-eq` (NOT in sidebar — accessed via floating button on Home/Bakery/Kitchen/Production/Recipes/Lamination pages). Tracks in-house made components (doughs, batters, fillings, toppings, cookie dough) with current levels, par levels, and demand calculations. Data flow: Pastry Goals × BOM (component_bom) → Component Demand → Shortfall → Prep Tasks. Auto-transactions: recipe session completion auto-refills component levels (yieldPerBatch × scaleFactor); bake-off log creation auto-consumes via BOM (quantityPerUnit × quantity). End-of-shift closeout flow for level confirmation/adjustment. Pieces-per-dough analytics with IQR-based outlier detection and manual override. Dough recommendations for tomorrow (lead-time items). Jarvis briefing enhanced with production intelligence (component alerts, dough recs, lead-time prep reminders). Tables: `production_components`, `component_bom`, `component_transactions`, `prep_closeouts`, `prep_closeout_items`. API prefix: `/api/prep-eq/`. Files: `client/src/pages/PrepEQ.tsx`, `client/src/components/PrepEQButton.tsx`.
-*   **Soldout/86'd Tracking:** Tracks out-of-stock items with timestamps, attribution, and location.
-*   **COGS System:** Calculates real-time per-pastry production costs using invoice, inventory, and recipe data.
-*   **Invoice Capture:** Supports multi-image invoice uploads processed by an AI vision model, optimized for bakery-specific invoices.
-*   **Schedule & Shift Management:** Spreadsheet-style grid scheduling (employees × days) with inline quick-add (type "7-2" in any cell), smart time shorthand parsing, Tab-to-next-cell navigation, Copy Last Week button for schedule duplication, AI-driven import from CSV/images (GPT-4o with 16k token limit, supports full-month multi-week images, auto-maps employee departments from profiles, shorthand time parsing "7-2" → "7:00 AM–2:00 PM"), shift pickups/claims, and department/shift-type filtering. All team members shown in grid regardless of existing shifts. Predefined shift presets (click "5-1", "6-2", etc. from popover), inline quick-modify on existing shifts (change start/end time + add note without leaving grid), color-coded modified shifts (blue = has note), weekly hours counter per employee (red if >40h), and reusable schedule templates (save/load entire week layouts via localStorage). Import preview shows date range, employee summary, and replaces shifts for the full imported date range (not just viewed week).
-*   **Events & Calendar:** Manages events with team member tagging and personalized views, enforcing privacy for personal events.
-*   **Time Card System:** Includes a persistent Clock Bar, PIN-based Kiosk Clock, personal time card management, and a "Time Review" module.
-*   **Shift Notes:** A private manager feedback system. Managers add notes to past shifts; Jarvis AI rewrites them constructively. Employees see unacknowledged notes prominently on the Home page with a "Got it" button. Manager dashboard in team profiles shows all notes per employee with acknowledged/pending status.
-*   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions. Roles (`owner`, `manager`, `member`) enforce permissions and data access restrictions.
-*   **User Customization:** Owners can designate General Managers, customize sidebar visibility, set default landing pages, assign default departments, and control section visibility per user.
-*   **Permission Levels:** Reusable, owner-configurable permission templates define sidebar and section permissions, which can be assigned to users and synced.
-*   **AI Integration (Jarvis):** Integrates with OpenAI-compatible APIs for text chat, audio (STT/TTS), image generation, and invoice scanning.
-*   **Consolidated Home Page:** A central operational hub with Jarvis greeting, AI briefing, announcements, stats, notes, production grid, problems tracker, calendar, tasks, vendor orders, messages, quick actions, and a "Who's On" sidebar.
-*   **Jarvis Briefing:** An AI-generated, personalized briefing on the Home page, tailored to the user's role, bakery state, and time of day, now calendar-aware.
-*   **Multi-Location Support:** Facilitates operations across multiple bakery locations, tagging operational data by `locationId`.
-*   **Task Manager:** A comprehensive task management system with assignable task lists, a jobs library, department to-dos, and AI-powered daily task list generation.
-*   **Employee Skills Tracking:** Allows rating team member skills for AI-powered task assignment.
-*   **Notes:** A full-featured notes system with personal and shared notes, voice dictation, and AI-powered generation of Recipes, SOPs, Calendar Events, or Letter Head documents. Includes "Jarvis Scribe" (photo-to-text) and "Email → Event" (extracts event details from email screenshots).
-*   **Admin Insights Dashboard:** An owner-only dashboard with analytics across various categories.
-*   **KPI Report System:** Provides detailed business metrics with period-over-period comparisons.
-*   **Starkade:** An in-house competitive gaming arcade with a unified points system and leaderboards.
-*   **TTIS (Tip Transparency Informational Dashboard):** An owner-only dashboard for allocating Square POS tip data among FOH staff.
-*   **Test Kitchen:** A collaborative specials development page with ingredient builders, real-time costing, method steps, status progression, collaborative Lab Notes, schedule settings, and "Jarvis Optimize" for AI-powered recipe analysis.
-*   **Customer Feedback & QR Code:** A public-facing, location-aware feedback page with a QR code generator for each location.
-*   **Sentiment Matrix:** An owner/GM dashboard that correlates customer feedback ratings with clocked-in team members for performance analysis.
-*   **The Loop:** A manager-level feedback action dashboard that closes the loop from customer feedback to team action. Features sentiment trend charts over time, AI-extracted recurring themes/complaints (powered by GPT-4o-mini), recent feedback feed with pagination, and quick stats with period-over-period comparison. Located in MANAGER_NAV_ITEMS sidebar section.
-*   **Platform 9¾ (FOH Command Center):** A dedicated full-screen kiosk display for FOH, showing filtered task lists, 86'd items, live oven timers with countdown/audio alerts (department-filtered, any user can dismiss), and a FOH backup alert button.
-*   **Vendor Management & Auto-Order Generation:** CRUD for vendors, including contact info, order days, and linked inventory items. Auto-generates purchase orders based on stock levels with Twilio SMS capabilities.
-*   **Lobby Check Alert:** A recurring, PIN-acknowledged alert system for FOH staff to check the lobby. Alert screens are configurable via `targetScreens` setting (default: Platform 9¾ only). Owners/managers can select which kiosk screens show the alert from the Lobby Check settings dialog.
-*   **Bagel Bros Display Screen:** A dedicated, full-screen, bilingual bagel production display with timers and FOH backup alert integration.
-*   **Global Acknowledgment System:** Supports forced logout of all users and a one-time, mandatory, Jarvis-branded overlay message on next login.
-*   **Session Version & Force Logout:** An owner-initiated system to force-logout all users with an optional Jarvis message on re-login.
-*   **Developer Mode & Dev Feedback:** An owner-only toggle enabling a global feedback system for bug reports and suggestions, AI-processed for categorization.
-*   **HR Onboarding System:** Electronic onboarding with shareable invite links. Public multi-step flow: ADP Run-compatible personal info form (legal name, SSN, DOB, address, emergency contact, tax info, direct deposit) → Employee Handbook acknowledgment (scroll-to-bottom required) → Non-Compete agreement with digital signature → Welcome screen. SSN and bank details are hashed (SHA-256) before storage. Manager dashboard on `/hr` with step-by-step onboarding management view (navigate Personal Info, Handbook, Non-Compete, Completion steps with status indicators), copy-link for pending invites, and an expandable Data Security & Privacy card explaining hashing, masking, access controls, and secure tokens. **Custom Document Upload:** Owners/managers can upload photos of their actual handbook and non-compete documents; Jarvis AI (GPT-4o-mini) extracts and formats the content into professional onboarding text. Editable before saving. Onboarding flow dynamically uses custom documents when available, falling back to built-in defaults. Document version status shown in management view. Tables: `onboarding_invites`, `onboarding_submissions`, `onboarding_documents`.
-*   **Coffee Command Center:** A full-featured coffee operations hub at `/coffee` with 4 tabs: Dashboard (Jarvis briefing + quick stats + inventory overview), Inventory (CRUD with +/- adjustments, par levels, stock bars), Drink Setup (ingredient formulas per drink), and Usage & Sales (manual logging with auto inventory deduction, 7-day summary). Available as a default landing page option.
-*   **La Carte Customer Portal:** A separate customer-facing subscription portal with a unique design, customer authentication, browsable Square catalog menu, "What's Fresh Today," "Coming Soon" specials, Skip the Line ordering via Square Orders API, and order history.
+*   **Recipe System:** Supports inline scaling, production views, logged sessions, and "Recipe Assist." Recipes link ingredients to inventory and can include how-to video embeds.
+*   **Lamination Studio:** Manages lamination dough lifecycles with FIFO tracking and automatic bake-off log creation, including oven timer integration.
+*   **Production Data Flow:** Centralized through `bakeoff_logs` for reporting, with `pastryItemId` for core tables, a data pipeline health dashboard, Square catalog item matching, and bulk pastry passport creation.
+*   **Maintenance & Solutions Hub:** Manages problems (workflow, priority, assignment), equipment inventory (scheduling, overdue detection), and service contacts.
+*   **Prep EQ (Production Intelligence):** Tracks in-house components (doughs, batters) with current levels, par levels, and demand calculations, generating prep tasks and auto-adjusting inventory. Includes piece-per-dough analytics and Jarvis briefing integration.
+*   **Soldout/86'd Tracking:** Records out-of-stock items with timestamps, attribution, and location.
+*   **COGS System:** Calculates real-time production costs using invoice, inventory, and recipe data.
+*   **Invoice Capture:** AI vision model processes multi-image bakery invoices.
+*   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI-driven import (CSV/images), smart time parsing, shift pickups/claims, department/shift-type filtering, predefined presets, inline modification, color-coding for modified shifts, weekly hour counters, and reusable templates.
+*   **Events & Calendar:** Manages events with team member tagging and personalized views.
+*   **Time Card System:** Features a persistent Clock Bar, PIN-based Kiosk Clock, personal management, and "Time Review."
+*   **Shift Notes:** Private manager feedback system with AI-rewritten constructive notes visible to employees.
+*   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions and role-based (`owner`, `manager`, `member`) permissions.
+*   **User Customization:** Owners can configure sidebar visibility, landing pages, default departments, and section access.
+*   **Permission Levels:** Reusable, owner-configurable templates for sidebar and section permissions.
+*   **AI Integration (Jarvis):** Utilizes OpenAI-compatible APIs for chat, audio (STT/TTS), image generation, and invoice scanning.
+*   **Consolidated Home Page:** Central operational hub with Jarvis greeting/briefing, announcements, stats, production grid, problems, calendar, tasks, vendor orders, messages, quick actions, and "Who's On" sidebar.
+*   **Jarvis Briefing:** AI-generated, personalized, calendar-aware briefings on the Home page.
+*   **Multi-Location Support:** Operational data tagged by `locationId`.
+*   **Task Manager:** Comprehensive system with assignable task lists, jobs library, department to-dos, and AI-powered daily task generation.
+*   **Employee Skills Tracking:** Ratings for AI-powered task assignment.
+*   **Notes:** Full-featured system with personal/shared notes, voice dictation, AI generation of recipes/SOPs/events, "Jarvis Scribe" (photo-to-text), and "Email → Event."
+*   **Admin Insights Dashboard:** Owner-only analytics dashboard.
+*   **KPI Report System:** Detailed business metrics with period-over-period comparisons.
+*   **Starkade:** In-house competitive gaming arcade with points and leaderboards.
+*   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation.
+*   **Test Kitchen:** Collaborative specials development with ingredient builders, real-time costing, method steps, Lab Notes, scheduling, and "Jarvis Optimize" for AI recipe analysis.
+*   **Customer Feedback & QR Code:** Public-facing, location-aware feedback page with QR code generator.
+*   **Sentiment Matrix:** Owner/GM dashboard correlating customer feedback with clocked-in team members.
+*   **The Loop:** Manager-level feedback action dashboard with sentiment trends, AI-extracted themes, and quick stats.
+*   **Platform 9¾ (FOH Command Center):** Full-screen kiosk display for FOH with filtered tasks, 86'd items, live oven timers, and FOH backup alert.
+*   **Vendor Management & Auto-Order Generation:** CRUD for vendors with auto-generated purchase orders based on stock levels.
+*   **Lobby Check Alert:** Recurring, PIN-acknowledged alert system for FOH staff.
+*   **Bagel Bros Display Screen:** Dedicated, full-screen, bilingual bagel production display with timers and FOH backup alert integration.
+*   **Global Acknowledgment System:** Supports forced logout and one-time, mandatory, Jarvis-branded overlay messages.
+*   **Session Version & Force Logout:** Owner-initiated system to force-logout all users with an optional Jarvis message.
+*   **Developer Mode & Dev Feedback:** Owner-only toggle for a global feedback system (bug reports, suggestions), AI-processed for categorization.
+*   **HR Onboarding System:** Electronic onboarding with shareable invite links, ADP Run-compatible forms, handbook acknowledgment, non-compete agreements, and secure data handling (SSN/bank details hashed). Includes manager dashboard and custom document upload with AI content extraction.
+*   **Coffee Command Center:** Hub for coffee operations with dashboard, inventory, drink setup (formulas), and usage/sales tracking.
+*   **The Firm (Financial Hub):** Owner-only forensic-level financial reconciliation system with overview, accounts, ledger, obligations, payroll, and cash management. Includes Jarvis AI financial analysis and educational tooltips.
+*   **La Carte Customer Portal:** Customer-facing subscription portal with Square catalog, "What's Fresh Today," "Coming Soon," Skip the Line ordering via Square Orders API, and order history.
 
 ## External Dependencies
 

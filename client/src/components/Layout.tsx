@@ -47,6 +47,7 @@ import {
   HeartHandshake,
   RefreshCw,
   Wrench,
+  Landmark,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -152,6 +153,7 @@ const GM_NAV_ITEMS = [
 ];
 
 const OWNER_ONLY_NAV_ITEMS = [
+  { href: "/the-firm", label: "The Firm", icon: Landmark },
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
   { href: "/admin/insights", label: "Insights", icon: Eye },
   { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },

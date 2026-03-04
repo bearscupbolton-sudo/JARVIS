@@ -3,7 +3,7 @@ import {
   pastryTotals, shapingLogs, bakeoffLogs,
   inventoryItems, invoices, invoiceLines, inventoryCounts, inventoryCountLines,
   shifts, timeOffRequests, locations, scheduleMessages, preShiftNotes, preShiftNoteAcks,
-  squareSales, squareCatalogMap,
+  squareSales, squareCatalogMap, squareDailySummary,
   pastryPassports, pastryMedia, pastryComponents, pastryAddins,
   kioskTimers,
   taskJobs, taskLists, taskListItems,
@@ -127,6 +127,12 @@ import {
   type PrepCloseout, type InsertPrepCloseout,
   prepCloseoutItems,
   type PrepCloseoutItem, type InsertPrepCloseoutItem,
+  firmAccounts, firmTransactions, firmRecurringObligations, firmPayrollEntries, firmCashCounts,
+  type FirmAccount, type InsertFirmAccount,
+  type FirmTransaction, type InsertFirmTransaction,
+  type FirmRecurringObligation, type InsertFirmRecurringObligation,
+  type FirmPayrollEntry, type InsertFirmPayrollEntry,
+  type FirmCashCount, type InsertFirmCashCount,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -667,6 +673,53 @@ export interface IStorage {
     soldoutLogs: { total: number; updated: number };
     squareSales: { total: number; updated: number };
     squareCatalogMap: { total: number; updated: number };
+  }>;
+
+  // The Firm — Accounts
+  getFirmAccounts(): Promise<FirmAccount[]>;
+  getFirmAccount(id: number): Promise<FirmAccount | undefined>;
+  createFirmAccount(account: InsertFirmAccount): Promise<FirmAccount>;
+  updateFirmAccount(id: number, updates: Partial<InsertFirmAccount>): Promise<FirmAccount>;
+  deleteFirmAccount(id: number): Promise<void>;
+
+  // The Firm — Transactions
+  getFirmTransactions(filters?: { startDate?: string; endDate?: string; accountId?: number; category?: string; referenceType?: string; reconciled?: boolean }): Promise<FirmTransaction[]>;
+  getFirmTransaction(id: number): Promise<FirmTransaction | undefined>;
+  createFirmTransaction(transaction: InsertFirmTransaction): Promise<FirmTransaction>;
+  updateFirmTransaction(id: number, updates: Partial<InsertFirmTransaction>): Promise<FirmTransaction>;
+  deleteFirmTransaction(id: number): Promise<void>;
+
+  // The Firm — Recurring Obligations
+  getFirmObligations(): Promise<FirmRecurringObligation[]>;
+  getFirmObligation(id: number): Promise<FirmRecurringObligation | undefined>;
+  createFirmObligation(obligation: InsertFirmRecurringObligation): Promise<FirmRecurringObligation>;
+  updateFirmObligation(id: number, updates: Partial<InsertFirmRecurringObligation>): Promise<FirmRecurringObligation>;
+  deleteFirmObligation(id: number): Promise<void>;
+
+  // The Firm — Payroll
+  getFirmPayrollEntries(filters?: { startDate?: string; endDate?: string }): Promise<FirmPayrollEntry[]>;
+  getFirmPayrollEntry(id: number): Promise<FirmPayrollEntry | undefined>;
+  createFirmPayrollEntry(entry: InsertFirmPayrollEntry): Promise<FirmPayrollEntry>;
+  updateFirmPayrollEntry(id: number, updates: Partial<InsertFirmPayrollEntry>): Promise<FirmPayrollEntry>;
+  deleteFirmPayrollEntry(id: number): Promise<void>;
+
+  // The Firm — Cash Counts
+  getFirmCashCounts(filters?: { startDate?: string; endDate?: string; locationId?: number }): Promise<FirmCashCount[]>;
+  getFirmCashCount(id: number): Promise<FirmCashCount | undefined>;
+  createFirmCashCount(count: InsertFirmCashCount): Promise<FirmCashCount>;
+  updateFirmCashCount(id: number, updates: Partial<InsertFirmCashCount>): Promise<FirmCashCount>;
+
+  // The Firm — Summary
+  getFirmSummary(startDate: string, endDate: string): Promise<{
+    squareRevenue: number;
+    squareOrderCount: number;
+    invoiceExpenseTotal: number;
+    laborCost: number;
+    manualTransactionsByCategory: Record<string, number>;
+    payrollTotal: number;
+    cashVarianceTotal: number;
+    upcomingObligations: FirmRecurringObligation[];
+    accountBalances: FirmAccount[];
   }>;
 }
 
@@ -4105,6 +4158,219 @@ export class DatabaseStorage implements IStorage {
     }
 
     return Array.from(demandMap.entries()).map(([componentId, data]) => ({ componentId, ...data }));
+  }
+
+  // === THE FIRM — Accounts ===
+  async getFirmAccounts(): Promise<FirmAccount[]> {
+    return db.select().from(firmAccounts).orderBy(firmAccounts.name);
+  }
+
+  async getFirmAccount(id: number): Promise<FirmAccount | undefined> {
+    const [account] = await db.select().from(firmAccounts).where(eq(firmAccounts.id, id));
+    return account;
+  }
+
+  async createFirmAccount(account: InsertFirmAccount): Promise<FirmAccount> {
+    const [created] = await db.insert(firmAccounts).values(account).returning();
+    return created;
+  }
+
+  async updateFirmAccount(id: number, updates: Partial<InsertFirmAccount>): Promise<FirmAccount> {
+    const [updated] = await db.update(firmAccounts).set(updates).where(eq(firmAccounts.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFirmAccount(id: number): Promise<void> {
+    await db.delete(firmAccounts).where(eq(firmAccounts.id, id));
+  }
+
+  // === THE FIRM — Transactions ===
+  async getFirmTransactions(filters?: { startDate?: string; endDate?: string; accountId?: number; category?: string; referenceType?: string; reconciled?: boolean }): Promise<FirmTransaction[]> {
+    const conditions: any[] = [];
+    if (filters?.startDate) conditions.push(gte(firmTransactions.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(firmTransactions.date, filters.endDate));
+    if (filters?.accountId) conditions.push(eq(firmTransactions.accountId, filters.accountId));
+    if (filters?.category) conditions.push(eq(firmTransactions.category, filters.category));
+    if (filters?.referenceType) conditions.push(eq(firmTransactions.referenceType, filters.referenceType));
+    if (filters?.reconciled !== undefined) conditions.push(eq(firmTransactions.reconciled, filters.reconciled));
+    const query = conditions.length > 0
+      ? db.select().from(firmTransactions).where(and(...conditions)).orderBy(desc(firmTransactions.date))
+      : db.select().from(firmTransactions).orderBy(desc(firmTransactions.date));
+    return query;
+  }
+
+  async getFirmTransaction(id: number): Promise<FirmTransaction | undefined> {
+    const [txn] = await db.select().from(firmTransactions).where(eq(firmTransactions.id, id));
+    return txn;
+  }
+
+  async createFirmTransaction(transaction: InsertFirmTransaction): Promise<FirmTransaction> {
+    const [created] = await db.insert(firmTransactions).values(transaction).returning();
+    return created;
+  }
+
+  async updateFirmTransaction(id: number, updates: Partial<InsertFirmTransaction>): Promise<FirmTransaction> {
+    const [updated] = await db.update(firmTransactions).set(updates).where(eq(firmTransactions.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFirmTransaction(id: number): Promise<void> {
+    await db.delete(firmTransactions).where(eq(firmTransactions.id, id));
+  }
+
+  // === THE FIRM — Recurring Obligations ===
+  async getFirmObligations(): Promise<FirmRecurringObligation[]> {
+    return db.select().from(firmRecurringObligations).orderBy(firmRecurringObligations.name);
+  }
+
+  async getFirmObligation(id: number): Promise<FirmRecurringObligation | undefined> {
+    const [obligation] = await db.select().from(firmRecurringObligations).where(eq(firmRecurringObligations.id, id));
+    return obligation;
+  }
+
+  async createFirmObligation(obligation: InsertFirmRecurringObligation): Promise<FirmRecurringObligation> {
+    const [created] = await db.insert(firmRecurringObligations).values(obligation).returning();
+    return created;
+  }
+
+  async updateFirmObligation(id: number, updates: Partial<InsertFirmRecurringObligation>): Promise<FirmRecurringObligation> {
+    const [updated] = await db.update(firmRecurringObligations).set(updates).where(eq(firmRecurringObligations.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFirmObligation(id: number): Promise<void> {
+    await db.delete(firmRecurringObligations).where(eq(firmRecurringObligations.id, id));
+  }
+
+  // === THE FIRM — Payroll ===
+  async getFirmPayrollEntries(filters?: { startDate?: string; endDate?: string }): Promise<FirmPayrollEntry[]> {
+    const conditions: any[] = [];
+    if (filters?.startDate) conditions.push(gte(firmPayrollEntries.datePaid, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(firmPayrollEntries.datePaid, filters.endDate));
+    const query = conditions.length > 0
+      ? db.select().from(firmPayrollEntries).where(and(...conditions)).orderBy(desc(firmPayrollEntries.datePaid))
+      : db.select().from(firmPayrollEntries).orderBy(desc(firmPayrollEntries.datePaid));
+    return query;
+  }
+
+  async getFirmPayrollEntry(id: number): Promise<FirmPayrollEntry | undefined> {
+    const [entry] = await db.select().from(firmPayrollEntries).where(eq(firmPayrollEntries.id, id));
+    return entry;
+  }
+
+  async createFirmPayrollEntry(entry: InsertFirmPayrollEntry): Promise<FirmPayrollEntry> {
+    const [created] = await db.insert(firmPayrollEntries).values(entry).returning();
+    return created;
+  }
+
+  async updateFirmPayrollEntry(id: number, updates: Partial<InsertFirmPayrollEntry>): Promise<FirmPayrollEntry> {
+    const [updated] = await db.update(firmPayrollEntries).set(updates).where(eq(firmPayrollEntries.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFirmPayrollEntry(id: number): Promise<void> {
+    await db.delete(firmPayrollEntries).where(eq(firmPayrollEntries.id, id));
+  }
+
+  // === THE FIRM — Cash Counts ===
+  async getFirmCashCounts(filters?: { startDate?: string; endDate?: string; locationId?: number }): Promise<FirmCashCount[]> {
+    const conditions: any[] = [];
+    if (filters?.startDate) conditions.push(gte(firmCashCounts.date, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(firmCashCounts.date, filters.endDate));
+    if (filters?.locationId) conditions.push(eq(firmCashCounts.locationId, filters.locationId));
+    const query = conditions.length > 0
+      ? db.select().from(firmCashCounts).where(and(...conditions)).orderBy(desc(firmCashCounts.date))
+      : db.select().from(firmCashCounts).orderBy(desc(firmCashCounts.date));
+    return query;
+  }
+
+  async getFirmCashCount(id: number): Promise<FirmCashCount | undefined> {
+    const [count] = await db.select().from(firmCashCounts).where(eq(firmCashCounts.id, id));
+    return count;
+  }
+
+  async createFirmCashCount(count: InsertFirmCashCount): Promise<FirmCashCount> {
+    const [created] = await db.insert(firmCashCounts).values(count).returning();
+    return created;
+  }
+
+  async updateFirmCashCount(id: number, updates: Partial<InsertFirmCashCount>): Promise<FirmCashCount> {
+    const [updated] = await db.update(firmCashCounts).set(updates).where(eq(firmCashCounts.id, id)).returning();
+    return updated;
+  }
+
+  // === THE FIRM — Summary ===
+  async getFirmSummary(startDate: string, endDate: string): Promise<{
+    squareRevenue: number;
+    squareOrderCount: number;
+    invoiceExpenseTotal: number;
+    laborCost: number;
+    manualTransactionsByCategory: Record<string, number>;
+    payrollTotal: number;
+    cashVarianceTotal: number;
+    upcomingObligations: FirmRecurringObligation[];
+    accountBalances: FirmAccount[];
+  }> {
+    const [summaryRows, invoiceRows, allTimeEntries, manualTxns, payrollRows, cashCountRows, obligations, accounts] = await Promise.all([
+      db.select().from(squareDailySummary).where(and(gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate))),
+      db.select().from(invoices).where(and(gte(invoices.invoiceDate, startDate), lte(invoices.invoiceDate, endDate))),
+      db.select().from(timeEntries).where(and(gte(timeEntries.clockIn, new Date(startDate)), lte(timeEntries.clockIn, new Date(endDate + "T23:59:59")))),
+      db.select().from(firmTransactions).where(and(gte(firmTransactions.date, startDate), lte(firmTransactions.date, endDate))),
+      db.select().from(firmPayrollEntries).where(and(gte(firmPayrollEntries.datePaid, startDate), lte(firmPayrollEntries.datePaid, endDate))),
+      db.select().from(firmCashCounts).where(and(gte(firmCashCounts.date, startDate), lte(firmCashCounts.date, endDate))),
+      db.select().from(firmRecurringObligations).where(eq(firmRecurringObligations.isActive, true)),
+      db.select().from(firmAccounts).where(eq(firmAccounts.isActive, true)),
+    ]);
+
+    const squareRevenue = summaryRows.reduce((sum, r) => sum + (r.totalRevenue || 0), 0);
+    const squareOrderCount = summaryRows.reduce((sum, r) => sum + (r.orderCount || 0), 0);
+    const invoiceExpenseTotal = invoiceRows.reduce((sum, r) => sum + (r.invoiceTotal || 0), 0);
+
+    let laborCost = 0;
+    const allUsers = await db.select().from(users);
+    const userRateMap = new Map<string, number>();
+    for (const u of allUsers) {
+      if ((u as any).hourlyRate) userRateMap.set(u.id, (u as any).hourlyRate);
+    }
+    for (const te of allTimeEntries) {
+      if (!te.clockOut) continue;
+      const rate = userRateMap.get(te.userId) || 0;
+      if (rate === 0) continue;
+      const clockIn = new Date(te.clockIn).getTime();
+      const clockOut = new Date(te.clockOut).getTime();
+      const hoursWorked = (clockOut - clockIn) / (1000 * 60 * 60);
+      laborCost += hoursWorked * rate;
+    }
+
+    const manualTransactionsByCategory: Record<string, number> = {};
+    for (const txn of manualTxns) {
+      const cat = txn.category || "misc";
+      manualTransactionsByCategory[cat] = (manualTransactionsByCategory[cat] || 0) + txn.amount;
+    }
+
+    const payrollTotal = payrollRows.reduce((sum, r) => sum + r.netAmount, 0);
+    const cashVarianceTotal = cashCountRows.reduce((sum, r) => sum + r.variance, 0);
+
+    const now = new Date();
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const thirtyDayStr = thirtyDaysLater.toISOString().slice(0, 10);
+    const todayStr = now.toISOString().slice(0, 10);
+    const upcomingObligations = obligations.filter(o => {
+      if (!o.nextPaymentDate) return false;
+      return o.nextPaymentDate >= todayStr && o.nextPaymentDate <= thirtyDayStr;
+    });
+
+    return {
+      squareRevenue,
+      squareOrderCount,
+      invoiceExpenseTotal,
+      laborCost: Math.round(laborCost * 100) / 100,
+      manualTransactionsByCategory,
+      payrollTotal,
+      cashVarianceTotal,
+      upcomingObligations,
+      accountBalances: accounts,
+    };
   }
 }
 

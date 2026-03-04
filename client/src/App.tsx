@@ -76,6 +76,7 @@ const PortalHome = lazy(() => import("@/pages/portal/PortalHome"));
 const PortalMenu = lazy(() => import("@/pages/portal/PortalMenu"));
 const PortalOrders = lazy(() => import("@/pages/portal/PortalOrders"));
 const PortalProfile = lazy(() => import("@/pages/portal/PortalProfile"));
+const TheFirm = lazy(() => import("@/pages/TheFirm"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
@@ -346,6 +347,9 @@ function Router() {
         </Route>
         <Route path="/maintenance">
           {() => <ProtectedRoute component={Maintenance} />}
+        </Route>
+        <Route path="/the-firm">
+          {() => <ProtectedRoute component={TheFirm} />}
         </Route>
         <Route path="/prep-eq">
           {() => <ProtectedRoute component={PrepEQ} />}
