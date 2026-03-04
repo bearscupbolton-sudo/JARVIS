@@ -10,17 +10,22 @@ export async function seedMarchShifts() {
       lte(shifts.shiftDate, "2026-03-29")
     ));
 
-  if (Number(existingCount[0]?.count) >= 100) {
-    console.log("[Seed] March shifts already exist, skipping seed");
+  if (Number(existingCount[0]?.count) >= 130) {
+    console.log("[Seed] March shifts already exist (" + existingCount[0]?.count + " shifts), skipping seed");
     return;
   }
+  console.log("[Seed] Found " + existingCount[0]?.count + " existing March shifts, checking for missing...");
 
   const allUsers = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, department: users.department }).from(users);
 
   const findUser = (first: string, last: string) => {
-    return allUsers.find(u =>
+    const exactMatch = allUsers.find(u =>
       u.firstName?.trim().toLowerCase() === first.toLowerCase() &&
-      u.lastName?.trim().toLowerCase().startsWith(last.toLowerCase().substring(0, 3))
+      u.lastName?.trim().toLowerCase().startsWith(last.toLowerCase().substring(0, 2))
+    );
+    if (exactMatch) return exactMatch;
+    return allUsers.find(u =>
+      u.firstName?.trim().toLowerCase() === first.toLowerCase()
     );
   };
 
@@ -147,12 +152,29 @@ export async function seedMarchShifts() {
     return;
   }
 
-  console.log(`[Seed] Inserting ${shiftsToInsert.length} March shifts...`);
+  const existingShifts = await db.select({
+    userId: shifts.userId,
+    shiftDate: shifts.shiftDate,
+    startTime: shifts.startTime,
+  }).from(shifts).where(and(
+    gte(shifts.shiftDate, "2026-03-02"),
+    lte(shifts.shiftDate, "2026-03-29")
+  ));
 
-  for (let i = 0; i < shiftsToInsert.length; i += 50) {
-    const batch = shiftsToInsert.slice(i, i + 50);
+  const existingKeys = new Set(existingShifts.map(s => `${s.userId}|${s.shiftDate}|${s.startTime}`));
+  const newShifts = shiftsToInsert.filter(s => !existingKeys.has(`${s.userId}|${s.shiftDate}|${s.startTime}`));
+
+  if (newShifts.length === 0) {
+    console.log("[Seed] All March shifts already exist, nothing new to insert");
+    return;
+  }
+
+  console.log(`[Seed] Inserting ${newShifts.length} new March shifts (${shiftsToInsert.length - newShifts.length} already existed)...`);
+
+  for (let i = 0; i < newShifts.length; i += 50) {
+    const batch = newShifts.slice(i, i + 50);
     await db.insert(shifts).values(batch);
   }
 
-  console.log(`[Seed] Successfully inserted ${shiftsToInsert.length} March shifts`);
+  console.log(`[Seed] Successfully inserted ${newShifts.length} March shifts`);
 }
