@@ -12,7 +12,8 @@ import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
 import { Loader2 } from "lucide-react";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { prefetchCoreRoutes, cancelPrefetch } from "@/lib/prefetch";
 
 import Login from "@/pages/Login";
 
@@ -167,6 +168,15 @@ function PortalPublicRoute({ component: Component }: { component: React.Componen
 
 function Router() {
   const { user, isLoading } = useAuth();
+  const prefetched = useRef(false);
+
+  useEffect(() => {
+    if (user && !prefetched.current) {
+      prefetched.current = true;
+      prefetchCoreRoutes();
+      return () => cancelPrefetch();
+    }
+  }, [user]);
 
   if (isLoading) {
     return (

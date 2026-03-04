@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
+import { PrefetchLink } from "@/components/PrefetchLink";
 import { 
   ChefHat, 
   ClipboardList, 
@@ -278,7 +279,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {NAV_ITEMS.slice(0, 2).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
-            <Link key={item.href} href={item.href}>
+            <PrefetchLink key={item.href} href={item.href}>
               <div
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
@@ -296,7 +297,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </Badge>
                 )}
               </div>
-            </Link>
+            </PrefetchLink>
           );
         })}
 
@@ -318,7 +319,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {shortcutItems.map((item) => {
               const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
               return (
-                <Link key={item.href} href={item.href}>
+                <PrefetchLink key={item.href} href={item.href}>
                   <div
                     className={cn(
                       "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 cursor-pointer group",
@@ -332,7 +333,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <item.icon className={cn("w-4 h-4", isActive ? "text-accent" : "group-hover:text-primary")} />
                     <span className="text-sm font-medium">{item.label}</span>
                   </div>
-                </Link>
+                </PrefetchLink>
               );
             })}
           </>
@@ -393,7 +394,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {NAV_ITEMS.slice(2).filter(item => canSeeSidebarItem(item.href)).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
-            <Link key={item.href} href={item.href}>
+            <PrefetchLink key={item.href} href={item.href}>
               <div
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
@@ -406,7 +407,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                 <span className="font-medium">{item.label}</span>
               </div>
-            </Link>
+            </PrefetchLink>
           );
         })}
 
@@ -418,7 +419,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {MANAGER_NAV_ITEMS.filter(item => canSeeSidebarItem(item.href)).map((item) => {
               const isActive = location === item.href;
               return (
-                <Link key={item.href} href={item.href}>
+                <PrefetchLink key={item.href} href={item.href}>
                   <div
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
@@ -432,13 +433,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                     <span className="font-medium">{item.label}</span>
                   </div>
-                </Link>
+                </PrefetchLink>
               );
             })}
             {(isOwner || isGeneralManager) && GM_NAV_ITEMS.map((item) => {
               const isActive = location === item.href;
               return (
-                <Link key={item.href} href={item.href}>
+                <PrefetchLink key={item.href} href={item.href}>
                   <div
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
@@ -457,13 +458,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       </Badge>
                     )}
                   </div>
-                </Link>
+                </PrefetchLink>
               );
             })}
             {isOwner && OWNER_ONLY_NAV_ITEMS.map((item) => {
               const isActive = location === item.href;
               return (
-                <Link key={item.href} href={item.href}>
+                <PrefetchLink key={item.href} href={item.href}>
                   <div
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
@@ -477,7 +478,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                     <span className="font-medium">{item.label}</span>
                   </div>
-                </Link>
+                </PrefetchLink>
               );
             })}
           </>
