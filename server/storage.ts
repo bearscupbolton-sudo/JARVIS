@@ -105,6 +105,8 @@ import {
   type CoffeeDrinkRecipe, type InsertCoffeeDrinkRecipe,
   type CoffeeDrinkIngredient, type InsertCoffeeDrinkIngredient,
   type CoffeeUsageLog, type InsertCoffeeUsageLog,
+  shiftNotes,
+  type ShiftNote, type InsertShiftNote,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -239,6 +241,12 @@ export interface IStorage {
   updateShift(id: number, updates: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
   deleteShiftsByDateRange(startDate: string, endDate: string, locationId?: number): Promise<number>;
+
+  // Shift Notes
+  getShiftNotes(employeeId?: string): Promise<ShiftNote[]>;
+  getUnacknowledgedShiftNotes(employeeId: string): Promise<ShiftNote[]>;
+  createShiftNote(note: InsertShiftNote): Promise<ShiftNote>;
+  acknowledgeShiftNote(id: number, employeeId: string): Promise<ShiftNote>;
 
   // Time Off Requests
   getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]>;
@@ -1198,6 +1206,34 @@ export class DatabaseStorage implements IStorage {
     if (locationId) conditions.push(eq(shifts.locationId, locationId));
     const deleted = await db.delete(shifts).where(and(...conditions)).returning();
     return deleted.length;
+  }
+
+  async getShiftNotes(employeeId?: string): Promise<ShiftNote[]> {
+    if (employeeId) {
+      return await db.select().from(shiftNotes)
+        .where(eq(shiftNotes.employeeId, employeeId))
+        .orderBy(desc(shiftNotes.createdAt));
+    }
+    return await db.select().from(shiftNotes).orderBy(desc(shiftNotes.createdAt));
+  }
+
+  async getUnacknowledgedShiftNotes(employeeId: string): Promise<ShiftNote[]> {
+    return await db.select().from(shiftNotes)
+      .where(and(eq(shiftNotes.employeeId, employeeId), eq(shiftNotes.acknowledged, false)))
+      .orderBy(desc(shiftNotes.createdAt));
+  }
+
+  async createShiftNote(note: InsertShiftNote): Promise<ShiftNote> {
+    const [created] = await db.insert(shiftNotes).values(note).returning();
+    return created;
+  }
+
+  async acknowledgeShiftNote(id: number, employeeId: string): Promise<ShiftNote> {
+    const [updated] = await db.update(shiftNotes)
+      .set({ acknowledged: true, acknowledgedAt: new Date() })
+      .where(and(eq(shiftNotes.id, id), eq(shiftNotes.employeeId, employeeId)))
+      .returning();
+    return updated;
   }
 
   // Time Off Requests

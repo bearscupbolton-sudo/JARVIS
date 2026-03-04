@@ -14,12 +14,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid, Check, ChevronsUpDown } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid, Check, ChevronsUpDown, MessageSquare, CheckCircle2, Clock } from "lucide-react";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { PAGE_SECTIONS } from "@/hooks/use-section-visibility";
 import { format } from "date-fns";
 import PermissionLevelManager, { getColorClass } from "@/components/PermissionLevelManager";
-import type { PermissionLevel } from "@shared/schema";
+import type { PermissionLevel, ShiftNote } from "@shared/schema";
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuth();
@@ -1082,6 +1082,10 @@ function UserDetailDialog({
             <EmployeeSkillsSection userId={u.id} userName={u.firstName || displayName} />
           )}
 
+          {!isCurrentUser && isManagerOrAbove && (
+            <ShiftNotesSection userId={u.id} userName={u.firstName || displayName} />
+          )}
+
           {!isCurrentUser && isOwner && (
             <div className="border-t pt-4">
               <button
@@ -1344,6 +1348,103 @@ function EmployeeSkillsSection({ userId, userName }: { userId: string; userName:
                 </Button>
               )}
             </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShiftNotesSection({ userId, userName }: { userId: string; userName: string }) {
+  const [notesOpen, setNotesOpen] = useState(false);
+
+  const { data: shiftNotes, isLoading } = useQuery<ShiftNote[]>({
+    queryKey: ["/api/shift-notes", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shift-notes?employeeId=${userId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load shift notes");
+      return res.json();
+    },
+    enabled: notesOpen,
+  });
+
+  const totalCount = shiftNotes?.length || 0;
+  const unacknowledgedCount = shiftNotes?.filter(n => !n.acknowledged).length || 0;
+
+  return (
+    <div className="border-t pt-4">
+      <button
+        type="button"
+        className="flex items-center gap-2 w-full text-left text-sm font-medium text-foreground hover:text-primary transition-colors"
+        onClick={() => setNotesOpen(!notesOpen)}
+        data-testid={`button-shift-notes-toggle-${userId}`}
+      >
+        <MessageSquare className="w-4 h-4 text-muted-foreground" />
+        Shift Notes
+        {notesOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+        {totalCount > 0 && (
+          <Badge variant="secondary" className="text-[10px] ml-1" data-testid={`badge-shift-notes-count-${userId}`}>
+            {totalCount}
+          </Badge>
+        )}
+      </button>
+      {notesOpen && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[11px] text-muted-foreground">
+            Feedback notes left on {userName}&apos;s past shifts.
+          </p>
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading shift notes...
+            </div>
+          ) : totalCount === 0 ? (
+            <p className="text-xs text-muted-foreground py-2" data-testid={`text-no-shift-notes-${userId}`}>
+              No shift notes yet.
+            </p>
+          ) : (
+            <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+              {shiftNotes?.map((note) => (
+                <div
+                  key={note.id}
+                  className={`rounded-md border p-3 space-y-1.5 ${
+                    note.acknowledged
+                      ? "border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/30"
+                      : "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/30"
+                  }`}
+                  data-testid={`shift-note-${note.id}`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs font-medium text-muted-foreground" data-testid={`text-shift-note-date-${note.id}`}>
+                      {note.shiftDate}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        note.acknowledged
+                          ? "border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
+                          : "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400"
+                      }`}
+                      data-testid={`badge-shift-note-status-${note.id}`}
+                    >
+                      {note.acknowledged ? (
+                        <><CheckCircle2 className="w-3 h-3 mr-1" />Acknowledged</>
+                      ) : (
+                        <><Clock className="w-3 h-3 mr-1" />Pending</>
+                      )}
+                    </Badge>
+                  </div>
+                  <p className="text-sm" data-testid={`text-shift-note-content-${note.id}`}>
+                    {note.constructiveNote}
+                  </p>
+                  {note.acknowledgedAt && (
+                    <p className="text-[10px] text-muted-foreground" data-testid={`text-shift-note-ack-date-${note.id}`}>
+                      Acknowledged {format(new Date(note.acknowledgedAt), "MMM d, yyyy")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

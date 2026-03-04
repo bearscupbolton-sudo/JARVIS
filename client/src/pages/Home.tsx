@@ -39,7 +39,7 @@ import {
   Truck, ShoppingCart, Zap, CalendarPlus, Loader2,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
-import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote } from "@shared/schema";
+import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote, ShiftNote } from "@shared/schema";
 import { insertPreShiftNoteSchema } from "@shared/schema";
 
 const BearLogoIcon = ({ className }: { className?: string }) => (
@@ -571,6 +571,21 @@ export default function Home() {
   });
   const { data: todayShifts = [], isLoading: loadingShifts } = useQuery<EnrichedShift[]>({
     queryKey: [`/api/shifts/today?date=${todayDate}`], refetchInterval: 60000,
+  });
+  const { data: myShiftNotes = [] } = useQuery<ShiftNote[]>({
+    queryKey: ["/api/shift-notes/mine"],
+    refetchInterval: 60000,
+  });
+
+  const acknowledgeShiftNoteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/shift-notes/${id}/acknowledge`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shift-notes/mine"] });
+      toast({ title: "Acknowledged", description: "Shift note acknowledged." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
   const { data: pastryTotals = [] } = useQuery<PastryTotal[]>({
     queryKey: [`/api/pastry-totals?date=${todayDate}`],
@@ -1594,6 +1609,43 @@ export default function Home() {
           </div>
 
           <ClockBar />
+
+          {myShiftNotes.length > 0 && (
+            <div className="space-y-2" data-testid="container-shift-notes-notifications">
+              {myShiftNotes.map(note => (
+                <div
+                  key={note.id}
+                  className="flex items-start gap-3 p-4 rounded-md bg-amber-500/10 border border-amber-500/20"
+                  data-testid={`card-shift-note-${note.id}`}
+                >
+                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-amber-700 dark:text-amber-300" data-testid={`text-shift-note-label-${note.id}`}>
+                        Shift Feedback
+                      </span>
+                      <span className="text-xs text-muted-foreground" data-testid={`text-shift-note-date-${note.id}`}>
+                        {note.shiftDate}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-relaxed" data-testid={`text-shift-note-content-${note.id}`}>
+                      {note.constructiveNote}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-shrink-0"
+                    onClick={() => acknowledgeShiftNoteMutation.mutate(note.id)}
+                    disabled={acknowledgeShiftNoteMutation.isPending}
+                    data-testid={`button-acknowledge-shift-note-${note.id}`}
+                  >
+                    <Check className="w-3.5 h-3.5 mr-1.5" />Got it
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {renderWidgetSequence()}
         </div>

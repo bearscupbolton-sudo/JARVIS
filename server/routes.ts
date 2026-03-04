@@ -2950,6 +2950,87 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
     res.status(204).send();
   });
 
+  app.get("/api/shift-notes/mine", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser;
+      const notes = await storage.getUnacknowledgedShiftNotes(user.id);
+      res.json(notes);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/shift-notes", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const { employeeId } = req.query;
+      const notes = await storage.getShiftNotes(employeeId as string | undefined);
+      res.json(notes);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/shift-notes", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const user = req.appUser;
+      const { shiftId, employeeId, shiftDate, rawNote } = req.body;
+      if (!employeeId || !shiftDate || !rawNote) {
+        return res.status(400).json({ message: "employeeId, shiftDate, and rawNote are required" });
+      }
+
+      let constructiveNote = rawNote;
+      try {
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
+        const aiResponse = await withRetry(() => openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a supportive bakery manager writing constructive feedback for a team member. Rewrite the following shift note into professional, actionable feedback. Keep it brief (2-3 sentences max), supportive in tone, and focused on improvement. Do not add anything the manager didn't mention. Do not use bullet points. Write in second person (\"you\")."
+            },
+            { role: "user", content: rawNote }
+          ],
+          max_tokens: 200,
+          temperature: 0.7,
+        }));
+        const aiText = aiResponse.choices[0]?.message?.content?.trim();
+        if (aiText && aiText.length > 0) constructiveNote = aiText;
+      } catch (aiErr) {
+        console.error("AI rewrite failed, using raw note:", aiErr);
+      }
+
+      const note = await storage.createShiftNote({
+        shiftId: shiftId || null,
+        employeeId,
+        shiftDate,
+        rawNote,
+        constructiveNote,
+        createdBy: user.id,
+        acknowledged: false,
+      });
+      res.status(201).json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/shift-notes/:id/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const note = await storage.acknowledgeShiftNote(id, user.id);
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      res.json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/shifts/import", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;

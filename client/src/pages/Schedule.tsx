@@ -321,6 +321,9 @@ export default function Schedule() {
   const [shiftPresets, setShiftPresets] = useState<ShiftPreset[]>(() => getShiftPresets());
   const [presetConfigOpen, setPresetConfigOpen] = useState(false);
   const [newPresetInput, setNewPresetInput] = useState("");
+  const [shiftNoteDialogOpen, setShiftNoteDialogOpen] = useState(false);
+  const [shiftNoteShift, setShiftNoteShift] = useState<Shift | null>(null);
+  const [shiftNoteText, setShiftNoteText] = useState("");
 
   useEffect(() => {
     if (!deptInitialized && (user as any)?.department) {
@@ -545,6 +548,37 @@ export default function Schedule() {
       toast({ title: "Message deleted" });
     },
   });
+
+  const createShiftNoteMutation = useMutation({
+    mutationFn: async (data: { shiftId: number; employeeId: string; shiftDate: string; rawNote: string }) => {
+      const res = await apiRequest("POST", "/api/shift-notes", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      setShiftNoteDialogOpen(false);
+      setShiftNoteShift(null);
+      setShiftNoteText("");
+      toast({ title: "Shift note added", description: "Jarvis rewrote the note into constructive feedback" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to add shift note", description: e.message, variant: "destructive" }),
+  });
+
+  function openShiftNoteDialog(shift: Shift) {
+    setShiftNoteShift(shift);
+    setShiftNoteText("");
+    setShiftNoteDialogOpen(true);
+    setQuickModifyShift(null);
+  }
+
+  function handleShiftNoteSubmit() {
+    if (!shiftNoteShift || !shiftNoteText.trim()) return;
+    createShiftNoteMutation.mutate({
+      shiftId: shiftNoteShift.id,
+      employeeId: shiftNoteShift.userId || "",
+      shiftDate: shiftNoteShift.shiftDate,
+      rawNote: shiftNoteText.trim(),
+    });
+  }
 
   function openAddShift(date?: Date, dept?: string) {
     setEditingShift(null);
@@ -1302,6 +1336,16 @@ export default function Schedule() {
                                                     >
                                                       <Pencil className="w-2.5 h-2.5" />
                                                     </button>
+                                                    {new Date(shift.shiftDate + "T23:59:59") < new Date() && shift.userId && (
+                                                      <button
+                                                        className="text-[10px] text-amber-600 dark:text-amber-400 px-1 py-0.5"
+                                                        onClick={() => openShiftNoteDialog(shift)}
+                                                        data-testid={`button-shift-note-${shift.id}`}
+                                                        title="Add Shift Note"
+                                                      >
+                                                        <MessageSquare className="w-2.5 h-2.5" />
+                                                      </button>
+                                                    )}
                                                   </div>
                                                 </div>
                                               ) : (
@@ -2919,6 +2963,59 @@ export default function Schedule() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shiftNoteDialogOpen} onOpenChange={(open) => { setShiftNoteDialogOpen(open); if (!open) { setShiftNoteShift(null); setShiftNoteText(""); } }}>
+        <DialogContent data-testid="dialog-shift-note">
+          <DialogHeader>
+            <DialogTitle>Add Shift Note</DialogTitle>
+          </DialogHeader>
+          {shiftNoteShift && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <UserCircle className="w-4 h-4 flex-shrink-0" />
+                <span data-testid="text-shift-note-employee">
+                  {getUserDisplayName(shiftNoteShift.userId || "", members)}
+                </span>
+                <span className="text-muted-foreground/50">|</span>
+                <CalendarDays className="w-4 h-4 flex-shrink-0" />
+                <span data-testid="text-shift-note-date">
+                  {format(new Date(shiftNoteShift.shiftDate + "T12:00:00"), "MMM d, yyyy")}
+                </span>
+              </div>
+              <Textarea
+                placeholder="Write your note about this shift... Jarvis will rewrite it as constructive feedback."
+                value={shiftNoteText}
+                onChange={(e) => setShiftNoteText(e.target.value)}
+                className="min-h-[100px]"
+                data-testid="textarea-shift-note"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => { setShiftNoteDialogOpen(false); setShiftNoteShift(null); setShiftNoteText(""); }}
+                  data-testid="button-shift-note-cancel"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleShiftNoteSubmit}
+                  disabled={!shiftNoteText.trim() || createShiftNoteMutation.isPending}
+                  data-testid="button-shift-note-submit"
+                >
+                  {createShiftNoteMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Submit"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

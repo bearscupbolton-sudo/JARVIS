@@ -1365,3 +1365,20 @@ export const insertCoffeeUsageLogSchema = createInsertSchema(coffeeUsageLogs).om
 export type CoffeeUsageLog = typeof coffeeUsageLogs.$inferSelect;
 export type InsertCoffeeUsageLog = z.infer<typeof insertCoffeeUsageLogSchema>;
 
+export const shiftNotes = pgTable("shift_notes", {
+  id: serial("id").primaryKey(),
+  shiftId: integer("shift_id"),
+  employeeId: text("employee_id").notNull(),
+  shiftDate: text("shift_date").notNull(),
+  rawNote: text("raw_note").notNull(),
+  constructiveNote: text("constructive_note").notNull(),
+  createdBy: text("created_by").notNull(),
+  acknowledged: boolean("acknowledged").default(false).notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertShiftNoteSchema = createInsertSchema(shiftNotes).omit({ id: true, createdAt: true, acknowledgedAt: true });
+export type ShiftNote = typeof shiftNotes.$inferSelect;
+export type InsertShiftNote = z.infer<typeof insertShiftNoteSchema>;
+
