@@ -3732,10 +3732,11 @@ Return ONLY the JSON array, no other text or markdown.`;
         parsedShifts = JSON.parse(jsonMatch[0]);
       }
 
+      const validDepts = ["kitchen", "foh", "bakery", "bar"];
       parsedShifts = parsedShifts.map((shift: any) => {
         if (shift.userId && userDeptMap.has(shift.userId)) {
           const profileDept = userDeptMap.get(shift.userId);
-          if (!shift.department || shift.department === "kitchen") {
+          if (!shift.department || !validDepts.includes(shift.department)) {
             shift.department = profileDept;
           }
         }
