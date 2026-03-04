@@ -3,6 +3,19 @@ import { shifts, users } from "@shared/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 
 export async function seedMarchShifts() {
+  const nullLocCount = await db.select({ count: sql<number>`count(*)` })
+    .from(shifts)
+    .where(and(
+      gte(shifts.shiftDate, "2026-03-02"),
+      lte(shifts.shiftDate, "2026-03-29"),
+      sql`${shifts.locationId} IS NULL`
+    ));
+
+  if (Number(nullLocCount[0]?.count) > 0) {
+    console.log(`[Seed] Fixing ${nullLocCount[0]?.count} shifts with NULL locationId → 1`);
+    await db.execute(sql`UPDATE shifts SET location_id = 1 WHERE shift_date >= '2026-03-02' AND shift_date <= '2026-03-29' AND location_id IS NULL`);
+  }
+
   const existingCount = await db.select({ count: sql<number>`count(*)` })
     .from(shifts)
     .where(and(
@@ -142,6 +155,7 @@ export async function seedMarchShifts() {
           department: user.department || "foh",
           status: "posted",
           createdBy: ownerUser.id,
+          locationId: 1,
         });
       }
     }
