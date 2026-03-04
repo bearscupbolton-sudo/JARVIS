@@ -1439,6 +1439,27 @@ export default function Schedule() {
                                                     </button>
                                                   ))}
                                                 </div>
+                                                <button
+                                                  className="w-full text-[10px] text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors py-0.5 text-center"
+                                                  onClick={() => {
+                                                    setPresetPopoverCell(null);
+                                                    setEditingShift(null);
+                                                    shiftForm.reset({
+                                                      userId: "",
+                                                      shiftDate: dateStr,
+                                                      startTime: "06:00",
+                                                      endTime: "14:00",
+                                                      department: deptFilter !== "all" ? deptFilter : "kitchen",
+                                                      position: "",
+                                                      notes: "",
+                                                      isOpenShift: true,
+                                                    });
+                                                    setShiftDialogOpen(true);
+                                                  }}
+                                                  data-testid={`button-open-shift-${uid}-${dateStr}`}
+                                                >
+                                                  + open shift
+                                                </button>
                                                 <div className="border-t border-border pt-1.5">
                                                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
                                                   <input
