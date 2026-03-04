@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { PrepEQButton } from "@/components/PrepEQButton";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -545,6 +546,8 @@ export default function Bakery() {
           </div>
         </CardContent>
       </Card>
+
+      <PrepEQButton />
     </div>
   );
 }

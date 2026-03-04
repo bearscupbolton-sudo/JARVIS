@@ -1,17 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Package, AlertTriangle } from "lucide-react";
+import { Package, AlertTriangle, ChevronRight } from "lucide-react";
 
 type DashboardItem = { id: number; belowPar: boolean; shortfall: number };
 
-const VISIBLE_PATHS = ["/", "/bakery", "/kitchen", "/production", "/recipes", "/lamination"];
-
 export function PrepEQButton() {
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
   const { user } = useAuth();
-
-  const show = user && VISIBLE_PATHS.some(p => location === p || location.startsWith(p + "/"));
 
   const { data: dashboard = [] } = useQuery<DashboardItem[]>({
     queryKey: ["/api/prep-eq/dashboard"],
@@ -19,11 +15,11 @@ export function PrepEQButton() {
       const r = await fetch("/api/prep-eq/dashboard", { credentials: "include" });
       return r.json();
     },
-    enabled: !!show,
+    enabled: !!user,
     refetchInterval: 60000,
   });
 
-  if (!show) return null;
+  if (!user) return null;
 
   const alertCount = dashboard.filter(d => d.belowPar || d.shortfall > 0).length;
 
@@ -31,16 +27,26 @@ export function PrepEQButton() {
     <button
       data-testid="button-prep-eq-fab"
       onClick={() => navigate("/prep-eq")}
-      className="fixed bottom-20 right-4 z-[60] flex items-center gap-2 bg-primary text-primary-foreground shadow-xl rounded-full px-4 py-2.5 hover:bg-primary/90 active:scale-95 transition-all text-sm font-medium ring-1 ring-primary/20"
+      className="w-full flex items-center justify-between gap-3 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-lg px-4 py-3 transition-colors text-sm group"
     >
-      <Package className="h-4 w-4" />
-      Prep EQ
-      {alertCount > 0 && (
-        <span className="flex items-center gap-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 ml-1">
-          <AlertTriangle className="h-3 w-3" />
-          {alertCount}
-        </span>
-      )}
+      <div className="flex items-center gap-3">
+        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Package className="h-4 w-4 text-primary" />
+        </div>
+        <div className="text-left">
+          <span className="font-medium text-foreground">Prep EQ</span>
+          <span className="block text-xs text-muted-foreground">Component levels & production tracking</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {alertCount > 0 && (
+          <span className="flex items-center gap-1 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+            <AlertTriangle className="h-3 w-3" />
+            {alertCount}
+          </span>
+        )}
+        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+      </div>
     </button>
   );
 }

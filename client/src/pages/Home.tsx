@@ -10,6 +10,7 @@ import {
   useEvents, useCreateEvent, useDeleteEvent,
 } from "@/hooks/use-dashboard";
 import { Link } from "wouter";
+import { PrepEQButton } from "@/components/PrepEQButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1735,6 +1736,8 @@ export default function Home() {
             </Card>
           </div>
         )}
+
+        <PrepEQButton />
       </div>
     </div>
   );

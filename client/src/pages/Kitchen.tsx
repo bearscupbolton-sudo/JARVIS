@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { UtensilsCrossed } from "lucide-react";
+import { PrepEQButton } from "@/components/PrepEQButton";
 
 export default function Kitchen() {
   return (
@@ -19,6 +20,8 @@ export default function Kitchen() {
           </p>
         </CardContent>
       </Card>
+
+      <PrepEQButton />
     </div>
   );
 }

@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
+import { PrepEQButton } from "@/components/PrepEQButton";
 import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig, PastryTotal } from "@shared/schema";
 
 const DEFAULT_DOUGH_TYPES = ["Croissant", "Danish"];
@@ -1989,6 +1990,10 @@ export default function LaminationStudio() {
           </div>
         </div>
       )}
+
+      <div className="pt-2">
+        <PrepEQButton />
+      </div>
 
       <Dialog open={showQuickLog} onOpenChange={(open) => { if (!open) { setShowQuickLog(false); setQuickLogItem(""); setQuickLogQty(""); setQuickLogCustom(false); } }}>
         <DialogContent className="sm:max-w-sm">

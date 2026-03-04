@@ -5,6 +5,7 @@ import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { PrepEQButton } from "@/components/PrepEQButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -191,6 +192,8 @@ export default function Recipes() {
           ))
         )}
       </div>
+
+      <PrepEQButton />
     </div>
   );
 }

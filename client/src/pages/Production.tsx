@@ -16,6 +16,7 @@ import { insertProductionLogSchema, type InsertProductionLog } from "@shared/sch
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PrepEQButton } from "@/components/PrepEQButton";
 
 export default function Production() {
   const { data: logs, isLoading: logsLoading } = useProductionLogs();
@@ -72,6 +73,8 @@ export default function Production() {
           )}
         </CardContent>
       </Card>
+
+      <PrepEQButton />
     </div>
   );
 }
