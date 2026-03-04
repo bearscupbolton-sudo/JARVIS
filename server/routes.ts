@@ -3587,21 +3587,115 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
       const currentYear = today.getFullYear();
       const currentDateStr = today.toISOString().split("T")[0];
 
-      const baseInstructions = `You are a schedule parser. Extract ALL shift assignments from the provided data. Today's date is ${currentDateStr} (year ${currentYear}).
+      const timeParsingRules = `Time parsing rules:
+- Shorthand times like "7-2" = "7:00 AM" to "2:00 PM". "7-11" = "7:00 AM" to "11:00 AM". "5-1" = "5:00 AM" to "1:00 PM". "2-10" = "2:00 PM" to "10:00 PM".
+- For single digit end times ≤ 4 (like "7-2", "6-1"), the end time is PM. For end times 5-12, determine AM/PM based on whether it creates a reasonable shift length (4-12 hours).
+- If a cell says "OFF", "X", or is empty, skip it — no shift for that person on that day.`;
+
+      let messages: any[];
+      let parsedShifts: any[] = [];
+
+      if (imageBase64) {
+        const mime = imageMimeType || "image/jpeg";
+        const imagePayload = { type: "image_url" as const, image_url: { url: `data:${mime};base64,${imageBase64}`, detail: "high" as const } };
+
+        console.log("[Schedule Import] Phase 1: Reading grid structure from image...");
+        const phase1Messages = [{
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: `You are a schedule image reader. Today's date is ${currentDateStr} (year ${currentYear}).
+
+Look at this schedule image carefully. It is a grid where rows are employees and columns are dates.
+
+Tell me:
+1. ALL employee names visible (one per line, in order from top to bottom)
+2. ALL date columns visible (list every date header you see, in order left to right)
+3. For EACH employee row, list EVERY cell value (the shift time) for each date column. Use "OFF" or "—" for empty/off cells.
+
+Format your response EXACTLY like this:
+EMPLOYEES:
+- Row 1: [name as shown]
+- Row 2: [name as shown]
+...
+
+DATES: [list all date headers separated by commas, e.g. "3/2, 3/3, 3/4, 3/5, 3/6, 3/7, 3/8, 3/9, 3/10, ..."]
+
+GRID:
+[name]: [cell1], [cell2], [cell3], ...
+[name]: [cell1], [cell2], [cell3], ...
+
+Read the ENTIRE image from top to bottom and left to right. Do not skip any rows or columns. Every date column and every employee row must be included.` },
+            imagePayload,
+          ],
+        }];
+
+        const phase1 = await withRetry(() => aiClient.chat.completions.create({
+          model: "gpt-4o",
+          messages: phase1Messages,
+          max_tokens: 16384,
+          temperature: 0.1,
+        }), "schedule-import-phase1");
+
+        const gridText = phase1.choices[0]?.message?.content || "";
+        console.log("[Schedule Import] Phase 1 response length:", gridText.length, "chars");
+        console.log("[Schedule Import] Phase 1 preview:", gridText.substring(0, 500));
+
+        console.log("[Schedule Import] Phase 2: Converting grid to shift JSON...");
+        const phase2Messages = [{
+          role: "user" as const,
+          content: `You are a schedule parser. Convert the following schedule grid data into a JSON array of shift objects.
+
+Today's date is ${currentDateStr} (year ${currentYear}).
+
+Team members (id, name, username, default department):
+${teamList.map(t => `- ${t.id}: ${t.name} (${t.username}) [dept: ${t.department}]`).join("\n")}
+
+${timeParsingRules}
+
+Schedule grid data extracted from image:
+${gridText}
+
+INSTRUCTIONS:
+- For each non-empty/non-OFF cell, create a shift object.
+- Match employee names to the team member list above (case-insensitive, partial match OK — first name match is sufficient).
+- Convert date headers to YYYY-MM-DD format using year ${currentYear}.
+- For department: use the employee's default department from the team list. Only override if the schedule explicitly shows a different department.
+- If you can't match a name, set userId to null and put "Unknown: [name]" in notes.
+
+Return a JSON array where each object has:
+- userId: matched team member ID or null
+- shiftDate: "YYYY-MM-DD"
+- startTime: "H:MM AM/PM"
+- endTime: "H:MM AM/PM"
+- department: "kitchen", "foh", or "bakery"
+- notes: optional
+
+Return ONLY the JSON array, no other text.`,
+        }];
+
+        const phase2 = await withRetry(() => aiClient.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: phase2Messages,
+          max_tokens: 16384,
+          temperature: 0.1,
+        }), "schedule-import-phase2");
+
+        const responseText = phase2.choices[0]?.message?.content || "[]";
+        console.log("[Schedule Import] Phase 2 response length:", responseText.length, "chars");
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) {
+          return res.status(400).json({ message: "Could not parse schedule from the uploaded data. The AI could read the image but failed to convert it to shifts." });
+        }
+        parsedShifts = JSON.parse(jsonMatch[0]);
+      } else {
+        const csvInstructions = `You are a schedule parser. Extract ALL shift assignments from the provided data. Today's date is ${currentDateStr} (year ${currentYear}).
 
 Team members (id, name, username, default department):
 ${teamList.map(t => `- ${t.id}: ${t.name} (${t.username}) [dept: ${t.department}]`).join("\n")}
 
 ${weekStartDate ? `Reference date context: ${weekStartDate}` : ""}
 
-CRITICAL INSTRUCTIONS:
-- Extract EVERY shift for EVERY employee across ALL dates visible in the schedule.
-- The schedule may span multiple weeks or an entire month. Do NOT stop after the first few days.
-- Scan the ENTIRE image/data from top to bottom, left to right. Every row and every column with shift data must be captured.
-- For dates shown as "3/2", "3/3", etc., use year ${currentYear} → "2026-03-02", "2026-03-03".
-- For shorthand times like "7-2", interpret as "7:00 AM" to "2:00 PM". "7-11" = "7:00 AM" to "11:00 AM". "5-1" = "5:00 AM" to "1:00 PM". "2-10" = "2:00 PM" to "10:00 PM".
-- For single digit end times ≤ 4 (like "7-2", "6-1"), the end time is PM. For end times 5-12, determine AM/PM based on whether it creates a reasonable shift length (4-12 hours).
-- If a cell says "OFF", "X", or is empty, skip it — no shift for that person on that day.
+${timeParsingRules}
 - For department: use the employee's default department from the list above. Only override if the schedule explicitly indicates a different department.
 
 Return a JSON array of shift objects. Each shift must have:
@@ -3610,46 +3704,33 @@ Return a JSON array of shift objects. Each shift must have:
 - startTime: in format like "6:00 AM"
 - endTime: in format like "2:00 PM"
 - department: one of "kitchen", "foh", or "bakery"
-- position: optional role description
-- notes: optional notes
+- notes: optional
 
 If you can't match a name to a team member, set userId to null and put the original name in the notes field prefixed with "Unknown: ".
 Return ONLY the JSON array, no other text or markdown.`;
 
-      let messages: any[];
-
-      if (imageBase64) {
-        const mime = imageMimeType || "image/jpeg";
         messages = [{
           role: "user",
-          content: [
-            { type: "text", text: `${baseInstructions}\n\nRead the schedule from the attached image. This image may contain a FULL MONTH of shifts arranged in a grid (rows = employees, columns = dates). Extract EVERY shift from EVERY week shown. Do not stop partway through — process the entire image thoroughly.` },
-            { type: "image_url", image_url: { url: `data:${mime};base64,${imageBase64}`, detail: "high" } },
-          ],
+          content: `${csvInstructions}\n\nSchedule data:\n${csvContent}`,
         }];
-      } else {
-        messages = [{
-          role: "user",
-          content: `${baseInstructions}\n\nSchedule data:\n${csvContent}`,
-        }];
+
+        console.log("[Schedule Import] Sending CSV to AI with max_tokens=16384, team size:", teamList.length);
+
+        const completion = await withRetry(() => aiClient.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages,
+          max_tokens: 16384,
+          temperature: 0.1,
+        }), "schedule-import");
+
+        const responseText = completion.choices[0]?.message?.content || "[]";
+        console.log("[Schedule Import] AI response length:", responseText.length, "chars");
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) {
+          return res.status(400).json({ message: "Could not parse schedule from the uploaded data" });
+        }
+        parsedShifts = JSON.parse(jsonMatch[0]);
       }
-
-      console.log("[Schedule Import] Sending to AI with max_tokens=16384, team size:", teamList.length);
-
-      const completion = await withRetry(() => aiClient.chat.completions.create({
-        model: imageBase64 ? "gpt-4o" : "gpt-4o-mini",
-        messages,
-        max_tokens: 16384,
-        temperature: 0.1,
-      }), "schedule-import");
-
-      const responseText = completion.choices[0]?.message?.content || "[]";
-      console.log("[Schedule Import] AI response length:", responseText.length, "chars");
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        return res.status(400).json({ message: "Could not parse schedule from the uploaded data" });
-      }
-      let parsedShifts = JSON.parse(jsonMatch[0]);
 
       parsedShifts = parsedShifts.map((shift: any) => {
         if (shift.userId && userDeptMap.has(shift.userId)) {
