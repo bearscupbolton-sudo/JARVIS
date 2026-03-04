@@ -1,21 +1,50 @@
-const CACHE_VERSION = 3;
-const CACHE_NAME = 'jarvis-v' + CACHE_VERSION;
+var CACHE_VERSION = 4;
+var CACHE_NAME = 'jarvis-v' + CACHE_VERSION;
+var MEDIA_CACHE_NAME = 'jarvis-media-v1';
+var MEDIA_CACHE_LIMIT = 200;
 
-const PRECACHE_URLS = [
+var PRECACHE_URLS = [
   '/manifest.json',
   '/favicon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ];
 
-self.addEventListener('install', (event) => {
+function isMediaRequest(url) {
+  if (url.pathname.startsWith('/uploads/')) return true;
+  if (url.hostname.includes('object.storage') || url.hostname.includes('replit')) {
+    var ext = url.pathname.split('.').pop().toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].indexOf(ext) !== -1) return true;
+  }
+  return false;
+}
+
+function isThumbnail(url) {
+  return url.pathname.indexOf('thumb') !== -1 || url.pathname.indexOf('thumbnail') !== -1;
+}
+
+function trimMediaCache() {
+  return caches.open(MEDIA_CACHE_NAME).then(function(cache) {
+    return cache.keys().then(function(keys) {
+      if (keys.length <= MEDIA_CACHE_LIMIT) return;
+      var toDelete = keys.length - MEDIA_CACHE_LIMIT;
+      var deletions = [];
+      for (var i = 0; i < toDelete; i++) {
+        deletions.push(cache.delete(keys[i]));
+      }
+      return Promise.all(deletions);
+    });
+  });
+}
+
+self.addEventListener('install', function(event) {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then(function(cache) { return cache.addAll(PRECACHE_URLS); })
   );
   self.skipWaiting();
 });
 
-self.addEventListener('message', (event) => {
+self.addEventListener('message', function(event) {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
@@ -24,19 +53,48 @@ self.addEventListener('message', (event) => {
   }
 });
 
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', function(event) {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys().then(function(keys) {
+      return Promise.all(
+        keys.filter(function(k) {
+          return k !== CACHE_NAME && k !== MEDIA_CACHE_NAME;
+        }).map(function(k) { return caches.delete(k); })
+      );
+    }).then(function() { return self.clients.claim(); })
   );
 });
 
-self.addEventListener('fetch', (event) => {
+self.addEventListener('fetch', function(event) {
   var request = event.request;
   var url = new URL(request.url);
 
   if (request.method !== 'GET') return;
+
+  if (isMediaRequest(url)) {
+    event.respondWith(
+      caches.open(MEDIA_CACHE_NAME).then(function(cache) {
+        return cache.match(request).then(function(cached) {
+          var fetchPromise = fetch(request).then(function(response) {
+            if (response && response.ok) {
+              var clone = response.clone();
+              cache.put(request, clone).then(function() {
+                if (!isThumbnail(url)) {
+                  trimMediaCache();
+                }
+              });
+            }
+            return response;
+          }).catch(function() {
+            return cached;
+          });
+
+          return cached || fetchPromise;
+        });
+      })
+    );
+    return;
+  }
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(

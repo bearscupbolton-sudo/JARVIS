@@ -5,7 +5,9 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { openai, speechToText, ensureCompatibleFormat, detectAudioFormat } from "./replit_integrations/audio/client";
+import { uploadMedia, uploadMediaWithThumbnail, deleteMedia, streamMediaToResponse } from "./media";
 import { sendPushToUsers, sendPushToUser } from "./push";
 import { sendSms } from "./sms";
 import { db } from "./db";
@@ -88,7 +90,39 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
   registerChatRoutes(app);
+  registerObjectStorageRoutes(app);
   registerPortalAuthRoutes(app);
+
+  app.post("/api/media/upload", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const { image, category } = req.body;
+      if (!image || !category) return res.status(400).json({ message: "image and category required" });
+      const validCategories = ["pastry", "note", "message", "shift-note", "recipe", "sop", "general"];
+      if (!validCategories.includes(category)) return res.status(400).json({ message: "Invalid category" });
+      const result = await uploadMediaWithThumbnail(image, category, req.appUser.id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/media/file/{*path}", async (req, res) => {
+    try {
+      const filePath = (req.params as any).path;
+      await streamMediaToResponse(filePath, res);
+    } catch (err: any) {
+      res.status(404).json({ message: "File not found" });
+    }
+  });
+
+  app.delete("/api/media/{*key}", isAuthenticated, isUnlocked, isManager, async (req: any, res) => {
+    try {
+      await deleteMedia(req.params.key);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === PORTAL DATA ENDPOINTS (La Carte) ===
 
@@ -3538,32 +3572,8 @@ Only return the JSON array, no other text.`;
   app.post(api.pastryPassports.uploadPhoto.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const { image } = api.pastryPassports.uploadPhoto.input.parse(req.body);
-      const base64Size = image.length * 0.75;
-      if (base64Size > 15 * 1024 * 1024) {
-        return res.status(400).json({ message: "Image too large" });
-      }
-
-      const fs = await import("fs");
-      const path = await import("path");
-      const uploadsDir = path.join(process.cwd(), "uploads");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
-      if (!matches) return res.status(400).json({ message: "Invalid image format" });
-
-      const allowedTypes = ["jpeg", "jpg", "png", "webp", "gif"];
-      if (!allowedTypes.includes(matches[1].toLowerCase())) {
-        return res.status(400).json({ message: "Unsupported image type. Use JPEG, PNG, WebP, or GIF." });
-      }
-
-      const ext = matches[1] === "jpeg" ? "jpg" : matches[1];
-      const buffer = Buffer.from(matches[2], "base64");
-      const filename = `pastry_${req.params.id}_${Date.now()}.${ext}`;
-      const filePath = path.join(uploadsDir, filename);
-      fs.writeFileSync(filePath, buffer);
-
-      const url = `/uploads/${filename}`;
-      res.json({ url });
+      const result = await uploadMediaWithThumbnail(image, "pastry", req.params.id);
+      res.json({ url: result.url, thumbnailUrl: result.thumbnailUrl });
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }

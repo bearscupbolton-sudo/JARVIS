@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, BookOpen, Trash2, ChevronDown, ChevronUp, Camera, Loader2, Printer, X } from "lucide-react";
+import { Plus, BookOpen, Trash2, ChevronDown, ChevronUp, Camera, Loader2, Printer, X, Video } from "lucide-react";
+import { VideoEmbed } from "@/components/ui/video-embed";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -152,6 +153,14 @@ strong { color: #000; }
             <div className="prose prose-sm prose-slate max-w-none py-6">
               <ReactMarkdown>{sop.content}</ReactMarkdown>
             </div>
+            {(sop as any).videoUrl && (
+              <div className="py-4" data-testid={`container-sop-video-${sop.id}`}>
+                <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Video className="w-4 h-4" /> How-To Video
+                </p>
+                <VideoEmbed url={(sop as any).videoUrl} />
+              </div>
+            )}
             <div className="flex justify-between items-center pt-4 border-t border-border/50 flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -194,7 +203,8 @@ function CreateSOPDialog() {
     defaultValues: {
       title: "",
       category: "General",
-      content: ""
+      content: "",
+      videoUrl: ""
     }
   });
 
@@ -372,6 +382,20 @@ function CreateSOPDialog() {
                       placeholder="# Steps&#10;1. Do this first..."
                       data-testid="textarea-sop-content"
                     />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="videoUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>How-To Video (optional)</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ""} placeholder="Paste YouTube or Vimeo link..." data-testid="input-sop-video-url" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

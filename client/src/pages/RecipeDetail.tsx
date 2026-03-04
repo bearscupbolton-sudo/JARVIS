@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers, PlayCircle, RotateCcw, Link2, Unlink } from "lucide-react";
+import { ArrowLeft, Trash2, Edit2, Printer, Wheat, Plus, History, Clock, ChevronDown, ChevronRight, Layers, PlayCircle, RotateCcw, Link2, Unlink, Video } from "lucide-react";
+import { VideoEmbed } from "@/components/ui/video-embed";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Ingredient, type Instruction, type RecipeVersion, type InventoryItem } from "@shared/schema";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -674,6 +675,20 @@ export default function RecipeDetail() {
         </div>
       </div>
 
+      {(recipe as any).videoUrl && (
+        <Card className="mt-4" data-testid="card-recipe-video">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <PlayCircle className="w-4 h-4" />
+              How-To Video
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <VideoEmbed url={(recipe as any).videoUrl} />
+          </CardContent>
+        </Card>
+      )}
+
       <EditRecipeDialog
         recipe={recipe}
         open={showEdit}
@@ -715,6 +730,7 @@ function EditRecipeDialog({
   const [yieldUnit, setYieldUnit] = useState(recipe.yieldUnit);
   const [ingredients, setIngredients] = useState<Ingredient[]>(baseIngredients.map(i => ({ ...i })));
   const [instructions, setInstructions] = useState<Instruction[]>(baseInstructions.map(i => ({ ...i })));
+  const [videoUrl, setVideoUrl] = useState((recipe as any).videoUrl || "");
   const [changeReason, setChangeReason] = useState("");
 
   const categoryOptions = DEPARTMENT_CATEGORIES[department] || ALL_CATEGORIES;
@@ -727,6 +743,7 @@ function EditRecipeDialog({
       setDepartment((recipe as any).department || "bakery");
       setServingSize((recipe as any).servingSize || "");
       setPrepTime((recipe as any).prepTime ?? undefined);
+      setVideoUrl((recipe as any).videoUrl || "");
       setYieldAmount(recipe.yieldAmount);
       setYieldUnit(recipe.yieldUnit);
       setIngredients((recipe.ingredients as Ingredient[])?.map(i => ({ ...i })) || []);
@@ -777,6 +794,7 @@ function EditRecipeDialog({
       department,
       servingSize: servingSize.trim() || undefined,
       prepTime: prepTime ?? undefined,
+      videoUrl: videoUrl.trim() || undefined,
       yieldAmount,
       yieldUnit,
       ingredients: validIngredients,
@@ -879,6 +897,16 @@ function EditRecipeDialog({
                 data-testid="input-edit-prep-time"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>How-To Video (optional)</Label>
+            <Input
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="Paste YouTube or Vimeo link..."
+              data-testid="input-edit-video-url"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

@@ -26,7 +26,7 @@ export function compressImage(
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        const compressed = canvas.toDataURL("image/jpeg", quality);
+        const compressed = toPreferredFormat(canvas, quality);
         resolve(compressed);
       } catch (err) {
         reject(err);
@@ -35,6 +35,22 @@ export function compressImage(
     img.onerror = () => reject(new Error("Failed to load image"));
     img.src = dataUrl;
   });
+}
+
+function toPreferredFormat(canvas: HTMLCanvasElement, quality: number): string {
+  const webp = canvas.toDataURL("image/webp", quality);
+  if (webp.startsWith("data:image/webp")) {
+    return webp;
+  }
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+export function compressForUpload(dataUrl: string): Promise<string> {
+  return compressImage(dataUrl, 1200, 0.8);
+}
+
+export function compressForThumbnail(dataUrl: string): Promise<string> {
+  return compressImage(dataUrl, 300, 0.7);
 }
 
 export function getBase64Size(dataUrl: string): number {

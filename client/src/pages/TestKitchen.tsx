@@ -21,6 +21,7 @@ import {
   BarChart3, ShoppingCart, Loader2,
 } from "lucide-react";
 import type { TestKitchenItem, TestKitchenNote, InventoryItem } from "@shared/schema";
+import { LazyImage } from "@/components/ui/lazy-image";
 
 type Ingredient = {
   name: string;
@@ -1159,7 +1160,7 @@ function SpecialDetailSheet({
                       </div>
                       <p className="text-sm">{note.content}</p>
                       {note.imageUrl && (
-                        <img src={note.imageUrl} alt="" className="mt-2 rounded-lg max-h-48 object-cover" />
+                        <LazyImage src={note.imageUrl} alt="" className="mt-2 rounded-lg max-h-48" />
                       )}
                     </div>
                   );

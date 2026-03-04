@@ -37,6 +37,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Stamp, Plus, Search, ArrowRight, ChefHat, Image, AlertTriangle, Zap } from "lucide-react";
+import { LazyImage } from "@/components/ui/lazy-image";
 
 const PASSPORT_CATEGORIES = [
   "Bread",
@@ -555,10 +556,10 @@ export default function PastryPassports() {
                   <div className="flex gap-4 p-4">
                     <div className="w-20 h-20 rounded-md bg-muted flex items-center justify-center overflow-hidden shrink-0">
                       {passport.photoUrl ? (
-                        <img
-                          src={passport.photoUrl}
+                        <LazyImage
+                          src={passport.thumbnailUrl || passport.photoUrl}
                           alt={passport.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full"
                           data-testid={`img-passport-${passport.id}`}
                         />
                       ) : (

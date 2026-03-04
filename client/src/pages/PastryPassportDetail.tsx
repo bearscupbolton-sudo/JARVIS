@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Pencil, Plus, X, Image, Film, Upload, Stamp, Link2, Save, Trash2, Package, ExternalLink, DollarSign, AlertCircle, Timer } from "lucide-react";
+import { LazyImage } from "@/components/ui/lazy-image";
 import type { PastryItem, InventoryItem } from "@shared/schema";
 import { Separator } from "@/components/ui/separator";
 
@@ -463,7 +464,7 @@ export default function PastryPassportDetail() {
             <div className="w-full md:w-48 shrink-0 space-y-3">
               <div className="w-full aspect-square rounded-md bg-muted flex items-center justify-center overflow-hidden">
                 {passport.photoUrl ? (
-                  <img src={passport.photoUrl} alt={passport.name} className="w-full h-full object-cover" data-testid="img-passport-photo" />
+                  <LazyImage src={passport.photoUrl} thumbnailSrc={passport.thumbnailUrl} alt={passport.name} className="w-full h-full" data-testid="img-passport-photo" />
                 ) : (
                   <Image className="w-12 h-12 text-muted-foreground" />
                 )}
@@ -689,7 +690,7 @@ export default function PastryPassportDetail() {
                   {media.map((m: any) => (
                     <div key={m.id} className="relative group rounded-md overflow-hidden border border-border" data-testid={`media-item-${m.id}`}>
                       {m.kind === "photo" ? (
-                        <img src={m.url} alt={m.caption || "Media"} className="w-full h-48 object-cover" data-testid={`img-media-${m.id}`} />
+                        <LazyImage src={m.url} alt={m.caption || "Media"} className="w-full h-48" data-testid={`img-media-${m.id}`} />
                       ) : (
                         <video src={m.url} controls className="w-full h-48 object-cover" data-testid={`video-media-${m.id}`} />
                       )}

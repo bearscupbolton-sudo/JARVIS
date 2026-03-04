@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { compressImage } from "@/lib/image-utils";
+import { compressForUpload } from "@/lib/image-utils";
 import type { OnboardingInvite, OnboardingDocument } from "@shared/schema";
 
 const futureSections = [
@@ -687,7 +687,7 @@ function DocumentCard({ docType, existing }: { docType: typeof DOC_TYPES[number]
           reader.onload = () => resolve(reader.result as string);
           reader.readAsDataURL(file);
         });
-        const result = await compressImage(dataUrl, 1600, 0.85);
+        const result = await compressForUpload(dataUrl);
         compressed.push(result);
       }
       setUploadedImages(compressed);

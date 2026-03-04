@@ -187,8 +187,8 @@ export default function InvoiceCapture() {
     reader.onload = async (e) => {
       try {
         const dataUrl = e.target?.result as string;
-        const { compressImage } = await import("@/lib/image-utils");
-        const compressed = await compressImage(dataUrl, 1600, 0.85);
+        const { compressForUpload } = await import("@/lib/image-utils");
+        const compressed = await compressForUpload(dataUrl);
         setStagedImages(prev => [...prev, compressed]);
         if (scanMode === "idle") setScanMode("capturing");
       } catch {

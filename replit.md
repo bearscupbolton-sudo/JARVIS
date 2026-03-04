@@ -9,7 +9,7 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 The application utilizes a monorepo structure, separating client-side (React, Vite, TypeScript), server-side (Express, Node.js, TypeScript), and shared resources.
 
-**Frontend:** A React 18 SPA built with TypeScript and Vite, using Wouter for routing, TanStack React Query for state management, and shadcn/ui on Radix UI with Tailwind CSS for styling. Forms are managed with React Hook Form and Zod validation, and data visualizations are powered by Recharts.
+**Frontend:** A React 18 SPA built with TypeScript and Vite, using Wouter for routing, TanStack React Query for state management, and shadcn/ui on Radix UI with Tailwind CSS for styling. Forms are managed with React Hook Form and Zod validation, and data visualizations are powered by Recharts. Route-level code splitting via React.lazy + Suspense for all 62+ pages (only Login is eagerly loaded). Reusable `<LazyImage>` component with IntersectionObserver-based lazy loading and blur-up transitions. `<VideoEmbed>` component with facade pattern for YouTube/Vimeo (renders static thumbnail + play button; iframe loads only on click).
 
 **Backend:** An Express.js API server developed in Node.js and TypeScript, providing a RESTful JSON API. Route contracts and validation are enforced using shared Zod schemas. Database interactions are abstracted through an `IStorage` interface.
 
@@ -17,7 +17,7 @@ The application utilizes a monorepo structure, separating client-side (React, Vi
 
 **Key Features & System Design:**
 
-*   **Recipe System:** Supports inline scaling, production views, logged recipe sessions, and "Recipe Assist." Recipes are categorized by department and link ingredients to inventory.
+*   **Recipe System:** Supports inline scaling, production views, logged recipe sessions, and "Recipe Assist." Recipes are categorized by department and link ingredients to inventory. Optional how-to video embeds (YouTube/Vimeo) on recipe detail pages.
 *   **Lamination Studio:** Manages the lifecycle of lamination doughs with a FIFO "Next Up" system and automatic bake-off log creation. Bake-off and Quick Log auto-create oven timers (Bake + Spin at bakeTime - 8 min) on Platform 9¾ when the pastry passport has a `bakeTimeMinutes` set.
 *   **Production Data Flow:** All production output flows through `bakeoff_logs` for unified reporting. Includes a `pastryItemId` for core operational tables, a data pipeline health dashboard, smart matching for Square catalog items, and bulk pastry passport creation.
 *   **Soldout/86'd Tracking:** Tracks out-of-stock items with timestamps, attribution, and location.

@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import path from "path";
+import compression from "compression";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -13,6 +14,8 @@ declare module "http" {
   }
 }
 
+app.use(compression());
+
 app.use(
   express.json({
     limit: "20mb",
@@ -24,7 +27,10 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads"), {
+  maxAge: "1d",
+  immutable: true,
+}));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

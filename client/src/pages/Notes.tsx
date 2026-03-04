@@ -614,14 +614,14 @@ export default function Notes() {
 
     setIsScribing(true);
     try {
-      const { compressImage } = await import("@/lib/image-utils");
+      const { compressForUpload } = await import("@/lib/image-utils");
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (ev) => resolve(ev.target?.result as string);
         reader.onerror = () => reject(new Error("Failed to read image"));
         reader.readAsDataURL(file);
       });
-      const compressed = await compressImage(dataUrl, 1600, 0.85);
+      const compressed = await compressForUpload(dataUrl);
 
       const scribeRes = await apiRequest("POST", "/api/notes/scribe", { image: compressed });
       const scribeData = await scribeRes.json();
@@ -671,14 +671,14 @@ export default function Notes() {
 
     setIsExtractingEmail(true);
     try {
-      const { compressImage } = await import("@/lib/image-utils");
+      const { compressForUpload } = await import("@/lib/image-utils");
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (ev) => resolve(ev.target?.result as string);
         reader.onerror = () => reject(new Error("Failed to read image"));
         reader.readAsDataURL(file);
       });
-      const compressed = await compressImage(dataUrl, 1600, 0.85);
+      const compressed = await compressForUpload(dataUrl);
 
       const res = await apiRequest("POST", "/api/notes/email-to-event", { image: compressed });
       const data = await res.json();

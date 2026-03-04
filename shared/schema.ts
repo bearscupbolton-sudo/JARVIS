@@ -22,6 +22,7 @@ export const recipes = pgTable("recipes", {
   department: text("department").default("bakery"),
   servingSize: text("serving_size"),
   prepTime: integer("prep_time"),
+  videoUrl: text("video_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -79,6 +80,7 @@ export const sops = pgTable("sops", {
   title: text("title").notNull(),
   content: text("content").notNull(), // HTML or Markdown content
   category: text("category").notNull(), // e.g., "Safety", "Cleaning", "Equipment"
+  videoUrl: text("video_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -448,6 +450,7 @@ export const pastryPassports = pgTable("pastry_passports", {
   name: text("name").notNull(),
   category: text("category").notNull(),
   photoUrl: text("photo_url"),
+  thumbnailUrl: text("thumbnail_url"),
   primaryRecipeId: integer("primary_recipe_id").references(() => recipes.id),
   motherRecipeId: integer("mother_recipe_id").references(() => recipes.id),
   pastryItemId: integer("pastry_item_id").references(() => pastryItems.id),
