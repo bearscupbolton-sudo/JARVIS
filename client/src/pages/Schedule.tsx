@@ -1233,8 +1233,7 @@ export default function Schedule() {
               .filter(m => {
                 if (deptFilter !== "all") {
                   const memberDept = (m as any)?.department;
-                  const hasShiftsInDept = shiftsByUser.has(m.id);
-                  if (memberDept && memberDept !== deptFilter && !hasShiftsInDept) return false;
+                  if (memberDept && memberDept !== deptFilter) return false;
                 }
                 return true;
               })
