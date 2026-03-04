@@ -107,6 +107,12 @@ export async function seedMarchShifts() {
       "3/16": [null,null,null,null,null,"7-2",null],
       "3/23": [null,null,null,null,null,"7-2","7-2"],
     }},
+    { name: ["Sabria", "Roggendorf"], weeks: {
+      "3/2": [null,"7-2","7-2",null,null,null,null],
+      "3/9": [null,"7-2","7-2",null,null,null,null],
+      "3/16": [null,"7-2","7-2","7-2",null,null,null],
+      "3/23": [null,"7-2","7-2",null,null,null,null],
+    }},
   ];
 
   const weekStarts: Record<string, Date> = {
