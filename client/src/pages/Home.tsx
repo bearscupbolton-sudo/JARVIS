@@ -994,7 +994,9 @@ export default function Home() {
     problems: () => (
       <Card data-testid="container-problems">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base font-display flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-destructive" />Problems</CardTitle>
+          <Link href="/maintenance" data-testid="link-problems-hub">
+            <CardTitle className="text-base font-display flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"><AlertTriangle className="w-4 h-4 text-destructive" />Problems <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" /></CardTitle>
+          </Link>
           <div className="flex items-center gap-1">
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowCompleted(!showCompleted)} data-testid="button-toggle-completed">{showCompleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</Button>
             <Dialog open={showProblemForm} onOpenChange={setShowProblemForm}>
