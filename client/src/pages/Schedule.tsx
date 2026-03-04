@@ -159,22 +159,24 @@ function parseShorthandTime(input: string): { startTime: string; endTime: string
 type ShiftPreset = { label: string; startTime: string; endTime: string; shorthand: string };
 
 const DEFAULT_SHIFT_PRESETS: ShiftPreset[] = [
-  { label: "5-1", startTime: "5:00 AM", endTime: "1:00 PM", shorthand: "5-1" },
-  { label: "6-2", startTime: "6:00 AM", endTime: "2:00 PM", shorthand: "6-2" },
-  { label: "7-3", startTime: "7:00 AM", endTime: "3:00 PM", shorthand: "7-3" },
-  { label: "8-4", startTime: "8:00 AM", endTime: "4:00 PM", shorthand: "8-4" },
-  { label: "9-5", startTime: "9:00 AM", endTime: "5:00 PM", shorthand: "9-5" },
-  { label: "10-6", startTime: "10:00 AM", endTime: "6:00 PM", shorthand: "10-6" },
-  { label: "2-10", startTime: "2:00 PM", endTime: "10:00 PM", shorthand: "2-10" },
-  { label: "4-12", startTime: "4:00 PM", endTime: "12:00 AM", shorthand: "4-12" },
+  { label: "7-2", startTime: "7:00 AM", endTime: "2:00 PM", shorthand: "7-2" },
 ];
+
+const OLD_DEFAULT_LABELS = new Set(["5-1", "6-2", "7-3", "8-4", "9-5", "10-6", "2-10", "4-12"]);
 
 function getShiftPresets(): ShiftPreset[] {
   try {
     const stored = localStorage.getItem("shift_presets");
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const isOldDefaults = parsed.length === 8 && parsed.every((p: ShiftPreset) => OLD_DEFAULT_LABELS.has(p.label));
+        if (isOldDefaults) {
+          localStorage.removeItem("shift_presets");
+          return DEFAULT_SHIFT_PRESETS;
+        }
+        return parsed;
+      }
     }
   } catch {}
   return DEFAULT_SHIFT_PRESETS;
@@ -321,6 +323,8 @@ export default function Schedule() {
   const [shiftPresets, setShiftPresets] = useState<ShiftPreset[]>(() => getShiftPresets());
   const [presetConfigOpen, setPresetConfigOpen] = useState(false);
   const [newPresetInput, setNewPresetInput] = useState("");
+  const [openShiftMode, setOpenShiftMode] = useState(false);
+  const [openShiftPendingPreset, setOpenShiftPendingPreset] = useState<ShiftPreset | null>(null);
   const [shiftNoteDialogOpen, setShiftNoteDialogOpen] = useState(false);
   const [shiftNoteShift, setShiftNoteShift] = useState<Shift | null>(null);
   const [shiftNoteText, setShiftNoteText] = useState("");
@@ -680,6 +684,28 @@ export default function Schedule() {
       },
     });
     setPresetPopoverCell(null);
+    setInlineEditCell(null);
+  }
+
+  function handleOpenShiftCreate(dateStr: string, preset: ShiftPreset, dept: string) {
+    createShiftMutation.mutate({
+      userId: null,
+      shiftDate: dateStr,
+      startTime: preset.startTime,
+      endTime: preset.endTime,
+      department: dept,
+      position: null,
+      notes: null,
+      createdBy: user!.id,
+      locationId: selectedLocationId,
+    }, {
+      onSuccess: () => {
+        toast({ title: `Open shift posted: ${preset.label} (${dept})` });
+      },
+    });
+    setPresetPopoverCell(null);
+    setOpenShiftMode(false);
+    setOpenShiftPendingPreset(null);
     setInlineEditCell(null);
   }
 
@@ -1399,10 +1425,14 @@ export default function Schedule() {
                                           <Popover open={isPresetOpen} onOpenChange={(open) => {
                                             if (open) {
                                               setPresetPopoverCell({ userId: uid, dateStr });
+                                              setOpenShiftMode(false);
+                                              setOpenShiftPendingPreset(null);
                                             } else {
                                               setPresetPopoverCell(null);
                                               setInlineEditCell(null);
                                               setInlineEditValue("");
+                                              setOpenShiftMode(false);
+                                              setOpenShiftPendingPreset(null);
                                             }
                                           }}>
                                             <PopoverTrigger asChild>
@@ -1415,76 +1445,135 @@ export default function Schedule() {
                                             </PopoverTrigger>
                                             <PopoverContent className="w-48 p-2" side="bottom" align="center">
                                               <div className="space-y-1.5">
-                                                <div className="flex items-center justify-between px-1">
-                                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Shifts</p>
-                                                  {isManagerOrOwner && (
+                                                {openShiftPendingPreset ? (
+                                                  <>
+                                                    <div className="px-1">
+                                                      <p className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">Pick Department</p>
+                                                      <p className="text-[10px] text-muted-foreground">Open shift: {openShiftPendingPreset.label}</p>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-1">
+                                                      {DEPARTMENTS.map(d => (
+                                                        <button
+                                                          key={d.value}
+                                                          className="px-2 py-1.5 text-xs font-medium rounded border border-green-500/40 bg-green-500/10 hover:bg-green-500 hover:text-white transition-colors text-center disabled:opacity-50"
+                                                          onClick={() => handleOpenShiftCreate(dateStr, openShiftPendingPreset, d.value)}
+                                                          disabled={createShiftMutation.isPending}
+                                                          data-testid={`open-shift-dept-${d.value}-${dateStr}`}
+                                                        >
+                                                          {d.label}
+                                                        </button>
+                                                      ))}
+                                                    </div>
                                                     <button
-                                                      className="text-muted-foreground hover:text-foreground transition-colors"
-                                                      onClick={(e) => { e.stopPropagation(); setPresetConfigOpen(true); setPresetPopoverCell(null); }}
-                                                      data-testid="button-configure-presets"
+                                                      className="w-full text-[10px] text-muted-foreground hover:text-foreground transition-colors py-0.5 text-center"
+                                                      onClick={() => { setOpenShiftPendingPreset(null); }}
+                                                      data-testid="button-back-open-shift"
                                                     >
-                                                      <Settings2 className="w-3 h-3" />
+                                                      back
                                                     </button>
-                                                  )}
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1">
-                                                  {shiftPresets.map(preset => (
-                                                    <button
-                                                      key={preset.label}
-                                                      className="px-2 py-1.5 text-xs font-medium rounded bg-muted hover:bg-primary hover:text-primary-foreground transition-colors text-center"
-                                                      onClick={() => handlePresetClick(uid, dateStr, preset)}
-                                                      data-testid={`preset-${preset.label}-${uid}-${dateStr}`}
-                                                    >
-                                                      {preset.label}
-                                                    </button>
-                                                  ))}
-                                                </div>
-                                                <button
-                                                  className="w-full text-[10px] text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors py-0.5 text-center"
-                                                  onClick={() => {
-                                                    setPresetPopoverCell(null);
-                                                    setEditingShift(null);
-                                                    shiftForm.reset({
-                                                      userId: "",
-                                                      shiftDate: dateStr,
-                                                      startTime: "06:00",
-                                                      endTime: "14:00",
-                                                      department: deptFilter !== "all" ? deptFilter : "kitchen",
-                                                      position: "",
-                                                      notes: "",
-                                                      isOpenShift: true,
-                                                    });
-                                                    setShiftDialogOpen(true);
-                                                  }}
-                                                  data-testid={`button-open-shift-${uid}-${dateStr}`}
-                                                >
-                                                  + open shift
-                                                </button>
-                                                <div className="border-t border-border pt-1.5">
-                                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
-                                                  <input
-                                                    className="w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 focus:ring-primary"
-                                                    placeholder='Type "7-2" then Enter'
-                                                    value={inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr ? inlineEditValue : ""}
-                                                    onChange={(e) => {
-                                                      setInlineEditCell({ userId: uid, dateStr });
-                                                      setInlineEditValue(e.target.value);
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === "Enter" && inlineEditValue.trim()) {
-                                                        e.preventDefault();
-                                                        handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
-                                                        setPresetPopoverCell(null);
-                                                      }
-                                                      if (e.key === "Escape") {
-                                                        setPresetPopoverCell(null);
-                                                        setInlineEditCell(null);
-                                                        setInlineEditValue("");
-                                                      }
-                                                    }}
-                                                    data-testid={`input-inline-shift-${uid}-${dateStr}`}
-                                                  />
-                                                </div>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <div className="flex items-center justify-between px-1">
+                                                      <p className={`text-[10px] font-medium uppercase tracking-wider ${openShiftMode ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+                                                        {openShiftMode ? "Pick Time for Open Shift" : "Quick Shifts"}
+                                                      </p>
+                                                      {isManagerOrOwner && !openShiftMode && (
+                                                        <button
+                                                          className="text-muted-foreground hover:text-foreground transition-colors"
+                                                          onClick={(e) => { e.stopPropagation(); setPresetConfigOpen(true); setPresetPopoverCell(null); }}
+                                                          data-testid="button-configure-presets"
+                                                        >
+                                                          <Settings2 className="w-3 h-3" />
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                    <div className={`grid ${shiftPresets.length === 1 ? "grid-cols-1" : "grid-cols-2"} gap-1`}>
+                                                      {shiftPresets.map(preset => (
+                                                        <button
+                                                          key={preset.label}
+                                                          className={`px-2 py-1.5 text-xs font-medium rounded transition-colors text-center disabled:opacity-50 ${
+                                                            openShiftMode
+                                                              ? "border border-green-500/60 bg-green-500/10 hover:bg-green-500 hover:text-white"
+                                                              : "bg-muted hover:bg-primary hover:text-primary-foreground"
+                                                          }`}
+                                                          disabled={openShiftMode && createShiftMutation.isPending}
+                                                          onClick={() => {
+                                                            if (openShiftMode) {
+                                                              if (deptFilter !== "all") {
+                                                                handleOpenShiftCreate(dateStr, preset, deptFilter);
+                                                              } else {
+                                                                setOpenShiftPendingPreset(preset);
+                                                              }
+                                                            } else {
+                                                              handlePresetClick(uid, dateStr, preset);
+                                                            }
+                                                          }}
+                                                          data-testid={`preset-${preset.label}-${uid}-${dateStr}`}
+                                                        >
+                                                          {preset.label}
+                                                        </button>
+                                                      ))}
+                                                    </div>
+                                                    {openShiftMode ? (
+                                                      <button
+                                                        className="w-full text-[10px] text-muted-foreground hover:text-foreground transition-colors py-0.5 text-center"
+                                                        onClick={() => setOpenShiftMode(false)}
+                                                        data-testid={`button-cancel-open-shift-${uid}-${dateStr}`}
+                                                      >
+                                                        cancel
+                                                      </button>
+                                                    ) : (
+                                                      <button
+                                                        className="w-full text-[10px] text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors py-0.5 text-center"
+                                                        onClick={() => setOpenShiftMode(true)}
+                                                        data-testid={`button-open-shift-${uid}-${dateStr}`}
+                                                      >
+                                                        + open shift
+                                                      </button>
+                                                    )}
+                                                    <div className="border-t border-border pt-1.5">
+                                                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
+                                                      <input
+                                                        className={`w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 ${openShiftMode ? "focus:ring-green-500 border-green-500/40" : "focus:ring-primary"}`}
+                                                        placeholder={openShiftMode ? 'Type time for open shift' : 'Type "7-2" then Enter'}
+                                                        value={inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr ? inlineEditValue : ""}
+                                                        onChange={(e) => {
+                                                          setInlineEditCell({ userId: uid, dateStr });
+                                                          setInlineEditValue(e.target.value);
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === "Enter" && inlineEditValue.trim()) {
+                                                            e.preventDefault();
+                                                            if (openShiftMode) {
+                                                              const parsed = parseShorthandTime(inlineEditValue.trim());
+                                                              if (parsed) {
+                                                                const customPreset: ShiftPreset = { label: inlineEditValue.trim(), startTime: parsed.startTime, endTime: parsed.endTime, shorthand: inlineEditValue.trim() };
+                                                                if (deptFilter !== "all") {
+                                                                  handleOpenShiftCreate(dateStr, customPreset, deptFilter);
+                                                                } else {
+                                                                  setOpenShiftPendingPreset(customPreset);
+                                                                }
+                                                              } else {
+                                                                toast({ title: "Invalid time format", description: 'Try "7-2" for 7:00 AM – 2:00 PM', variant: "destructive" });
+                                                              }
+                                                            } else {
+                                                              handleInlineShiftSubmit(uid, dateStr, inlineEditValue);
+                                                              setPresetPopoverCell(null);
+                                                            }
+                                                          }
+                                                          if (e.key === "Escape") {
+                                                            setPresetPopoverCell(null);
+                                                            setInlineEditCell(null);
+                                                            setInlineEditValue("");
+                                                            setOpenShiftMode(false);
+                                                          }
+                                                        }}
+                                                        data-testid={`input-inline-shift-${uid}-${dateStr}`}
+                                                      />
+                                                    </div>
+                                                  </>
+                                                )}
                                               </div>
                                             </PopoverContent>
                                           </Popover>
