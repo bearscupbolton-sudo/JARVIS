@@ -2326,11 +2326,31 @@ export default function Schedule() {
               Schedule Preview
             </DialogTitle>
           </DialogHeader>
-          {uploadPreview && (
+          {uploadPreview && (() => {
+            const allDates = [...new Set(uploadPreview.map((s: any) => s.shiftDate).filter(Boolean))].sort();
+            const minDate = allDates[0];
+            const maxDate = allDates[allDates.length - 1];
+            const dateRange = minDate && maxDate && minDate !== maxDate
+              ? `${format(new Date(minDate + "T12:00:00"), "MMM d")} – ${format(new Date(maxDate + "T12:00:00"), "MMM d, yyyy")}`
+              : minDate ? format(new Date(minDate + "T12:00:00"), "MMM d, yyyy") : "";
+            const isMultiWeek = allDates.length > 7;
+            const employeeSummary = uploadPreview.reduce((acc: Record<string, number>, s: any) => {
+              const name = uploadTeam.find((t: any) => t.id === s.userId)?.name || s.notes?.replace(/^Unknown:\s*/i, "") || "Unassigned";
+              acc[name] = (acc[name] || 0) + 1;
+              return acc;
+            }, {});
+            return (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Found {uploadPreview.length} shift(s). Adjust details below, then confirm to import.
-              </p>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">
+                  Found <span className="font-semibold text-foreground">{uploadPreview.length}</span> shift(s){dateRange ? ` from ${dateRange}` : ""}. Adjust details below, then confirm to import.
+                </p>
+                {Object.keys(employeeSummary).length > 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    {Object.entries(employeeSummary).map(([name, count]) => `${name}: ${count}`).join(" · ")}
+                  </p>
+                )}
+              </div>
               {uploadPreview.some((s: any) => !s.userId) && (
                 <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
                   <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -2446,7 +2466,9 @@ export default function Schedule() {
                               value={s.userId || "__unassigned__"}
                               onValueChange={(val) => {
                                 const updated = [...uploadPreview];
-                                updated[i] = { ...updated[i], userId: val === "__unassigned__" ? null : val };
+                                const newUserId = val === "__unassigned__" ? null : val;
+                                const matchedMember = newUserId ? uploadTeam.find((t: any) => t.id === newUserId) : null;
+                                updated[i] = { ...updated[i], userId: newUserId, ...(matchedMember?.department ? { department: matchedMember.department } : {}) };
                                 setUploadPreview(updated);
                               }}
                             >
@@ -2572,7 +2594,7 @@ export default function Schedule() {
                   data-testid="switch-replace-existing"
                 />
                 <Label htmlFor="replace-existing" className="text-xs cursor-pointer">
-                  Replace existing shifts for this week
+                  Replace existing shifts for imported date range{minDate && maxDate && minDate !== maxDate ? ` (${format(new Date(minDate + "T12:00:00"), "MMM d")} – ${format(new Date(maxDate + "T12:00:00"), "MMM d")})` : ""}
                 </Label>
               </div>
               <div className="flex gap-2">
@@ -2584,8 +2606,9 @@ export default function Schedule() {
                       locationId: selectedLocationId,
                     }));
                     if (replaceExisting) {
-                      const startDate = format(weekStart, "yyyy-MM-dd");
-                      const endDate = format(weekEnd, "yyyy-MM-dd");
+                      const importDates = [...new Set(uploadPreview.map((sh: any) => sh.shiftDate).filter(Boolean))].sort();
+                      const startDate = importDates[0] || format(weekStart, "yyyy-MM-dd");
+                      const endDate = importDates[importDates.length - 1] || format(weekEnd, "yyyy-MM-dd");
                       try {
                         const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
                         await apiRequest("DELETE", `/api/shifts/clear?startDate=${startDate}&endDate=${endDate}${locParam}`);
@@ -2614,7 +2637,8 @@ export default function Schedule() {
                 </Button>
               </div>
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

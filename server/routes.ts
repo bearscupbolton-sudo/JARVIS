@@ -3576,28 +3576,45 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         id: u.id,
         name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
         username: u.username || "",
+        department: (u as any).department || "kitchen",
       })).filter(u => u.name || u.username);
+
+      const userDeptMap = new Map(teamList.map(t => [t.id, t.department]));
 
       const { openai: aiClient } = await import("./replit_integrations/audio/client");
 
-      const baseInstructions = `You are a schedule parser. Given the following team members and schedule data, extract shift assignments.
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentDateStr = today.toISOString().split("T")[0];
 
-Team members (id, name, username):
-${teamList.map(t => `- ${t.id}: ${t.name} (${t.username})`).join("\n")}
+      const baseInstructions = `You are a schedule parser. Extract ALL shift assignments from the provided data. Today's date is ${currentDateStr} (year ${currentYear}).
 
-${weekStartDate ? `The week starts on: ${weekStartDate}` : ""}
+Team members (id, name, username, default department):
+${teamList.map(t => `- ${t.id}: ${t.name} (${t.username}) [dept: ${t.department}]`).join("\n")}
 
-Return a JSON array of shift objects. Each shift should have:
-- userId: the team member's ID from the list above (match by name or username, case-insensitive)
+${weekStartDate ? `Reference date context: ${weekStartDate}` : ""}
+
+CRITICAL INSTRUCTIONS:
+- Extract EVERY shift for EVERY employee across ALL dates visible in the schedule.
+- The schedule may span multiple weeks or an entire month. Do NOT stop after the first few days.
+- Scan the ENTIRE image/data from top to bottom, left to right. Every row and every column with shift data must be captured.
+- For dates shown as "3/2", "3/3", etc., use year ${currentYear} → "2026-03-02", "2026-03-03".
+- For shorthand times like "7-2", interpret as "7:00 AM" to "2:00 PM". "7-11" = "7:00 AM" to "11:00 AM". "5-1" = "5:00 AM" to "1:00 PM". "2-10" = "2:00 PM" to "10:00 PM".
+- For single digit end times ≤ 4 (like "7-2", "6-1"), the end time is PM. For end times 5-12, determine AM/PM based on whether it creates a reasonable shift length (4-12 hours).
+- If a cell says "OFF", "X", or is empty, skip it — no shift for that person on that day.
+- For department: use the employee's default department from the list above. Only override if the schedule explicitly indicates a different department.
+
+Return a JSON array of shift objects. Each shift must have:
+- userId: the team member's ID from the list above (match by name, first name, last name, or username — case-insensitive, partial match OK)
 - shiftDate: in YYYY-MM-DD format
 - startTime: in format like "6:00 AM"
 - endTime: in format like "2:00 PM"
-- department: one of "kitchen", "foh", or "bakery" (infer from context, default to "kitchen")
+- department: one of "kitchen", "foh", or "bakery"
 - position: optional role description
 - notes: optional notes
 
-If you can't match a name to a team member, set userId to null and add the original name in notes.
-Only return the JSON array, no other text.`;
+If you can't match a name to a team member, set userId to null and put the original name in the notes field prefixed with "Unknown: ".
+Return ONLY the JSON array, no other text or markdown.`;
 
       let messages: any[];
 
@@ -3606,8 +3623,8 @@ Only return the JSON array, no other text.`;
         messages = [{
           role: "user",
           content: [
-            { type: "text", text: `${baseInstructions}\n\nRead the schedule from the attached photo. Extract all shift assignments you can see, including names, dates, and times. If dates are shown as days of the week (Mon, Tue, etc.), map them to actual dates based on the week start date provided.` },
-            { type: "image_url", image_url: { url: `data:${mime};base64,${imageBase64}` } },
+            { type: "text", text: `${baseInstructions}\n\nRead the schedule from the attached image. This image may contain a FULL MONTH of shifts arranged in a grid (rows = employees, columns = dates). Extract EVERY shift from EVERY week shown. Do not stop partway through — process the entire image thoroughly.` },
+            { type: "image_url", image_url: { url: `data:${mime};base64,${imageBase64}`, detail: "high" } },
           ],
         }];
       } else {
@@ -3617,19 +3634,34 @@ Only return the JSON array, no other text.`;
         }];
       }
 
+      console.log("[Schedule Import] Sending to AI with max_tokens=16384, team size:", teamList.length);
+
       const completion = await withRetry(() => aiClient.chat.completions.create({
         model: imageBase64 ? "gpt-4o" : "gpt-4o-mini",
         messages,
-        max_tokens: 4096,
+        max_tokens: 16384,
         temperature: 0.1,
       }), "schedule-import");
 
       const responseText = completion.choices[0]?.message?.content || "[]";
+      console.log("[Schedule Import] AI response length:", responseText.length, "chars");
       const jsonMatch = responseText.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
         return res.status(400).json({ message: "Could not parse schedule from the uploaded data" });
       }
-      const parsedShifts = JSON.parse(jsonMatch[0]);
+      let parsedShifts = JSON.parse(jsonMatch[0]);
+
+      parsedShifts = parsedShifts.map((shift: any) => {
+        if (shift.userId && userDeptMap.has(shift.userId)) {
+          const profileDept = userDeptMap.get(shift.userId);
+          if (!shift.department || shift.department === "kitchen") {
+            shift.department = profileDept;
+          }
+        }
+        return shift;
+      });
+
+      console.log("[Schedule Import] Parsed", parsedShifts.length, "shifts");
       res.json({ shifts: parsedShifts, teamMembers: teamList });
     } catch (err) {
       console.error("Error importing schedule:", err);
