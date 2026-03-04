@@ -117,6 +117,16 @@ import {
   type ProblemNote, type InsertProblemNote,
   problemContacts,
   type ProblemContact, type InsertProblemContact,
+  productionComponents,
+  type ProductionComponent, type InsertProductionComponent,
+  componentBom,
+  type ComponentBom, type InsertComponentBom,
+  componentTransactions,
+  type ComponentTransaction, type InsertComponentTransaction,
+  prepCloseouts,
+  type PrepCloseout, type InsertPrepCloseout,
+  prepCloseoutItems,
+  type PrepCloseoutItem, type InsertPrepCloseoutItem,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -188,6 +198,33 @@ export interface IStorage {
   updateMaintenanceSchedule(id: number, data: Partial<InsertEquipmentMaintenance>): Promise<EquipmentMaintenance>;
   deleteMaintenanceSchedule(id: number): Promise<void>;
   getOverdueMaintenanceSchedules(locationId?: number): Promise<(EquipmentMaintenance & { equipment?: Equipment })[]>;
+
+  // Prep EQ — Production Components
+  getComponents(locationId?: number): Promise<ProductionComponent[]>;
+  getComponent(id: number): Promise<ProductionComponent | undefined>;
+  createComponent(data: InsertProductionComponent): Promise<ProductionComponent>;
+  updateComponent(id: number, data: Partial<InsertProductionComponent>): Promise<ProductionComponent>;
+  deleteComponent(id: number): Promise<void>;
+
+  // Prep EQ — BOM
+  getBOM(pastryPassportId: number): Promise<(ComponentBom & { component?: ProductionComponent })[]>;
+  setBOMItem(data: InsertComponentBom): Promise<ComponentBom>;
+  updateBOMItem(id: number, data: Partial<InsertComponentBom>): Promise<ComponentBom>;
+  deleteBOMItem(id: number): Promise<void>;
+  getComponentUsage(componentId: number): Promise<ComponentBom[]>;
+
+  // Prep EQ — Transactions
+  addComponentTransaction(data: InsertComponentTransaction): Promise<ComponentTransaction>;
+  getComponentTransactions(componentId: number, limit?: number): Promise<ComponentTransaction[]>;
+
+  // Prep EQ — Closeouts
+  createCloseout(data: InsertPrepCloseout, items: InsertPrepCloseoutItem[]): Promise<PrepCloseout>;
+  getCloseouts(locationId?: number, limit?: number): Promise<PrepCloseout[]>;
+  getLatestCloseout(locationId?: number): Promise<PrepCloseout | undefined>;
+  getCloseoutItems(closeoutId: number): Promise<PrepCloseoutItem[]>;
+
+  // Prep EQ — Analytics
+  getComponentDemand(date: string, locationId?: number): Promise<{ componentId: number; componentName: string; demandQuantity: number; currentLevel: number; unitOfMeasure: string }[]>;
 
   // Events
   getUpcomingEvents(days?: number): Promise<CalendarEvent[]>;
@@ -3038,6 +3075,52 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    let prepEQContext: any = null;
+    try {
+      const components = await this.getComponents();
+      if (components.length > 0) {
+        const demand = await this.getComponentDemand(todayStr);
+        const demandMap = new Map(demand.map(d => [d.componentId, d.demandQuantity]));
+        const belowPar = components.filter(c => c.parLevel != null && c.currentLevel < c.parLevel);
+        const shortfalls = components.filter(c => {
+          const d = demandMap.get(c.id) || 0;
+          return d > 0 && c.currentLevel < d;
+        });
+        const leadTimeItems = components.filter(c => c.leadTimeDays > 0);
+        const tomorrowStr = new Date(new Date(todayStr + "T00:00:00").getTime() + 86400000).toISOString().split("T")[0];
+        let tomorrowDemandMap = new Map<number, number>();
+        try {
+          const tomorrowDemand = await this.getComponentDemand(tomorrowStr);
+          tomorrowDemandMap = new Map(tomorrowDemand.map(d => [d.componentId, d.demandQuantity]));
+        } catch (e) {
+          tomorrowDemandMap = demandMap;
+        }
+        const doughRecs = leadTimeItems.map(c => {
+          const piecesPerDough = c.piecesPerDough || 24;
+          const tmrDemand = tomorrowDemandMap.get(c.id) || 0;
+          const doughsNeeded = tmrDemand > 0 ? Math.ceil(tmrDemand / piecesPerDough) : 0;
+          return { name: c.name, doughsNeeded, piecesPerDough, currentLevel: c.currentLevel };
+        });
+
+        const [latestCloseout] = await db.select().from(prepCloseouts).orderBy(desc(prepCloseouts.createdAt)).limit(1);
+
+        prepEQContext = {
+          totalComponents: components.length,
+          componentsBelowPar: belowPar.map(c => ({ name: c.name, current: c.currentLevel, par: c.parLevel })),
+          componentsBelowDemand: shortfalls.map(c => ({
+            name: c.name,
+            current: c.currentLevel,
+            demand: demandMap.get(c.id) || 0,
+          })),
+          doughRecommendations: doughRecs.filter(r => r.doughsNeeded > 0),
+          leadTimeItemsNeedingPrep: leadTimeItems.map(c => c.name),
+          lastCloseoutAt: latestCloseout?.createdAt || null,
+        };
+      }
+    } catch (e) {
+      console.error("[Briefing] Failed to get Prep EQ context:", e);
+    }
+
     return {
       user: {
         firstName: user.firstName || "Team Member",
@@ -3085,6 +3168,7 @@ export class DatabaseStorage implements IStorage {
         upcomingShiftTime,
       },
       upcomingEvents: await this.getUpcomingEventsForBriefing(userId, user.department || null),
+      prepEQ: prepEQContext,
     };
   }
 
@@ -3876,6 +3960,151 @@ export class DatabaseStorage implements IStorage {
   async createCoffeeUsageLog(log: InsertCoffeeUsageLog): Promise<CoffeeUsageLog> {
     const [result] = await db.insert(coffeeUsageLogs).values(log).returning();
     return result;
+  }
+
+  // === PREP EQ — Production Components ===
+  async getComponents(locationId?: number): Promise<ProductionComponent[]> {
+    if (locationId) {
+      return db.select().from(productionComponents).where(eq(productionComponents.locationId, locationId)).orderBy(productionComponents.name);
+    }
+    return db.select().from(productionComponents).orderBy(productionComponents.name);
+  }
+
+  async getComponent(id: number): Promise<ProductionComponent | undefined> {
+    const [result] = await db.select().from(productionComponents).where(eq(productionComponents.id, id));
+    return result;
+  }
+
+  async createComponent(data: InsertProductionComponent): Promise<ProductionComponent> {
+    const [result] = await db.insert(productionComponents).values(data).returning();
+    return result;
+  }
+
+  async updateComponent(id: number, data: Partial<InsertProductionComponent>): Promise<ProductionComponent> {
+    const [result] = await db.update(productionComponents).set({ ...data, updatedAt: new Date() }).where(eq(productionComponents.id, id)).returning();
+    return result;
+  }
+
+  async deleteComponent(id: number): Promise<void> {
+    await db.delete(productionComponents).where(eq(productionComponents.id, id));
+  }
+
+  // === PREP EQ — BOM ===
+  async getBOM(pastryPassportId: number): Promise<(ComponentBom & { component?: ProductionComponent })[]> {
+    const items = await db.select().from(componentBom).where(eq(componentBom.pastryPassportId, pastryPassportId));
+    const result = [];
+    for (const item of items) {
+      const [comp] = await db.select().from(productionComponents).where(eq(productionComponents.id, item.componentId));
+      result.push({ ...item, component: comp || undefined });
+    }
+    return result;
+  }
+
+  async setBOMItem(data: InsertComponentBom): Promise<ComponentBom> {
+    const [result] = await db.insert(componentBom).values(data).returning();
+    return result;
+  }
+
+  async updateBOMItem(id: number, data: Partial<InsertComponentBom>): Promise<ComponentBom> {
+    const [result] = await db.update(componentBom).set(data).where(eq(componentBom.id, id)).returning();
+    return result;
+  }
+
+  async deleteBOMItem(id: number): Promise<void> {
+    await db.delete(componentBom).where(eq(componentBom.id, id));
+  }
+
+  async getComponentUsage(componentId: number): Promise<ComponentBom[]> {
+    return db.select().from(componentBom).where(eq(componentBom.componentId, componentId));
+  }
+
+  // === PREP EQ — Transactions ===
+  async addComponentTransaction(data: InsertComponentTransaction): Promise<ComponentTransaction> {
+    const [result] = await db.insert(componentTransactions).values(data).returning();
+    if (data.quantity !== 0) {
+      await db.update(productionComponents)
+        .set({ currentLevel: sql`current_level + ${data.quantity}`, updatedAt: new Date() })
+        .where(eq(productionComponents.id, data.componentId));
+    }
+    return result;
+  }
+
+  async getComponentTransactions(componentId: number, limit = 50): Promise<ComponentTransaction[]> {
+    return db.select().from(componentTransactions)
+      .where(eq(componentTransactions.componentId, componentId))
+      .orderBy(desc(componentTransactions.createdAt))
+      .limit(limit);
+  }
+
+  // === PREP EQ — Closeouts ===
+  async createCloseout(data: InsertPrepCloseout, items: InsertPrepCloseoutItem[]): Promise<PrepCloseout> {
+    const [closeout] = await db.insert(prepCloseouts).values(data).returning();
+    for (const item of items) {
+      await db.insert(prepCloseoutItems).values({ ...item, closeoutId: closeout.id });
+      const diff = item.reportedLevel - item.previousLevel;
+      if (diff !== 0) {
+        await db.insert(componentTransactions).values({
+          componentId: item.componentId,
+          type: "closeout",
+          quantity: diff,
+          referenceType: "closeout",
+          referenceId: closeout.id,
+          notes: item.notes || "Closeout adjustment",
+          createdBy: data.closedBy,
+        });
+        await db.update(productionComponents)
+          .set({ currentLevel: item.reportedLevel, updatedAt: new Date() })
+          .where(eq(productionComponents.id, item.componentId));
+      }
+    }
+    return closeout;
+  }
+
+  async getCloseouts(locationId?: number, limit = 10): Promise<PrepCloseout[]> {
+    if (locationId) {
+      return db.select().from(prepCloseouts).where(eq(prepCloseouts.locationId, locationId)).orderBy(desc(prepCloseouts.createdAt)).limit(limit);
+    }
+    return db.select().from(prepCloseouts).orderBy(desc(prepCloseouts.createdAt)).limit(limit);
+  }
+
+  async getLatestCloseout(locationId?: number): Promise<PrepCloseout | undefined> {
+    const results = await this.getCloseouts(locationId, 1);
+    return results[0];
+  }
+
+  async getCloseoutItems(closeoutId: number): Promise<PrepCloseoutItem[]> {
+    return db.select().from(prepCloseoutItems).where(eq(prepCloseoutItems.closeoutId, closeoutId));
+  }
+
+  // === PREP EQ — Analytics ===
+  async getComponentDemand(date: string, locationId?: number): Promise<{ componentId: number; componentName: string; demandQuantity: number; currentLevel: number; unitOfMeasure: string }[]> {
+    const goals = locationId
+      ? await db.select().from(pastryTotals).where(and(eq(pastryTotals.date, date), eq(pastryTotals.locationId, locationId)))
+      : await db.select().from(pastryTotals).where(eq(pastryTotals.date, date));
+
+    const demandMap = new Map<number, { componentName: string; demandQuantity: number; currentLevel: number; unitOfMeasure: string }>();
+
+    for (const goal of goals) {
+      if (!goal.pastryItemId) continue;
+      const passports = await db.select().from(pastryPassports).where(eq(pastryPassports.pastryItemId, goal.pastryItemId));
+      for (const passport of passports) {
+        const bomItems = await db.select().from(componentBom).where(eq(componentBom.pastryPassportId, passport.id));
+        for (const bom of bomItems) {
+          const [comp] = await db.select().from(productionComponents).where(eq(productionComponents.id, bom.componentId));
+          if (!comp) continue;
+          const target = goal.targetCount || 0;
+          const demand = target * bom.quantityPerUnit;
+          const existing = demandMap.get(comp.id);
+          if (existing) {
+            existing.demandQuantity += demand;
+          } else {
+            demandMap.set(comp.id, { componentName: comp.name, demandQuantity: demand, currentLevel: comp.currentLevel, unitOfMeasure: comp.unitOfMeasure });
+          }
+        }
+      }
+    }
+
+    return Array.from(demandMap.entries()).map(([componentId, data]) => ({ componentId, ...data }));
   }
 }
 

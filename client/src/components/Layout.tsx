@@ -54,6 +54,7 @@ import { useLocationContext } from "@/hooks/use-location-context";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PrepEQButton } from "@/components/PrepEQButton";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -554,6 +555,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </Sheet>
+      <PrepEQButton />
     </div>
   );
 }

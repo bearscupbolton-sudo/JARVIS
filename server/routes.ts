@@ -13,7 +13,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -560,6 +560,28 @@ Guidelines:
         }
       }
 
+      // Prep EQ: auto-refill component if this recipe is linked
+      try {
+        const allComponents = await storage.getComponents();
+        const linked = allComponents.filter(c => c.linkedRecipeId === parsed.recipeId);
+        for (const comp of linked) {
+          if (comp.yieldPerBatch) {
+            const refillQty = comp.yieldPerBatch * (parsed.scaleFactor || 1);
+            await storage.addComponentTransaction({
+              componentId: comp.id,
+              type: "refill",
+              quantity: refillQty,
+              referenceType: "recipe_session",
+              referenceId: session.id,
+              notes: `Auto-refill from recipe: ${parsed.recipeTitle} (×${parsed.scaleFactor || 1})`,
+              createdBy: req.appUser.id,
+            });
+          }
+        }
+      } catch (e) {
+        console.error("[PrepEQ] Failed to auto-refill component:", e);
+      }
+
       res.status(201).json(session);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -1037,6 +1059,217 @@ FORMAT RULES for the content field:
   app.delete("/api/equipment/maintenance/:id", isAuthenticated, isUnlocked, async (req, res) => {
     await storage.deleteMaintenanceSchedule(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // === PREP EQ ===
+  app.get("/api/prep-eq/components", isAuthenticated, async (req, res) => {
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const items = await storage.getComponents(locationId);
+    res.json(items);
+  });
+
+  app.get("/api/prep-eq/components/:id", isAuthenticated, async (req, res) => {
+    const item = await storage.getComponent(Number(req.params.id));
+    if (!item) return res.status(404).json({ message: "Component not found" });
+    res.json(item);
+  });
+
+  app.post("/api/prep-eq/components", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = insertProductionComponentSchema.parse(req.body);
+      const item = await storage.createComponent(input);
+      res.status(201).json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.patch("/api/prep-eq/components/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = insertProductionComponentSchema.partial().parse(req.body);
+      const item = await storage.updateComponent(Number(req.params.id), input);
+      res.json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(404).json({ message: "Component not found" });
+    }
+  });
+
+  app.delete("/api/prep-eq/components/:id", isAuthenticated, isOwner, async (req, res) => {
+    await storage.deleteComponent(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  app.get("/api/prep-eq/components/:id/usage", isAuthenticated, async (req, res) => {
+    const usage = await storage.getComponentUsage(Number(req.params.id));
+    res.json(usage);
+  });
+
+  app.get("/api/prep-eq/components/:id/transactions", isAuthenticated, async (req, res) => {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const txns = await storage.getComponentTransactions(Number(req.params.id), limit);
+    res.json(txns);
+  });
+
+  app.post("/api/prep-eq/components/:id/adjust", isAuthenticated, isUnlocked, async (req: any, res) => {
+    const user = await getUserFromReq(req);
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    const { quantity, notes } = req.body;
+    if (typeof quantity !== "number" || isNaN(quantity) || quantity === 0) return res.status(400).json({ message: "Valid non-zero quantity required" });
+    const compId = Number(req.params.id);
+    if (isNaN(compId)) return res.status(400).json({ message: "Invalid component ID" });
+    const txn = await storage.addComponentTransaction({
+      componentId: Number(req.params.id),
+      type: "adjustment",
+      quantity,
+      referenceType: "manual",
+      notes: notes || "Manual adjustment",
+      createdBy: user.id,
+    });
+    res.status(201).json(txn);
+  });
+
+  // BOM
+  app.get("/api/prep-eq/bom/:pastryPassportId", isAuthenticated, async (req, res) => {
+    const bom = await storage.getBOM(Number(req.params.pastryPassportId));
+    res.json(bom);
+  });
+
+  app.post("/api/prep-eq/bom", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = insertComponentBomSchema.parse(req.body);
+      const item = await storage.setBOMItem(input);
+      res.status(201).json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.patch("/api/prep-eq/bom/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    try {
+      const input = insertComponentBomSchema.partial().parse(req.body);
+      const item = await storage.updateBOMItem(Number(req.params.id), input);
+      res.json(item);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(404).json({ message: "BOM item not found" });
+    }
+  });
+
+  app.delete("/api/prep-eq/bom/:id", isAuthenticated, isUnlocked, async (req, res) => {
+    await storage.deleteBOMItem(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // Closeouts
+  app.get("/api/prep-eq/closeouts", isAuthenticated, async (req, res) => {
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 10;
+    const closeouts = await storage.getCloseouts(locationId, limit);
+    res.json(closeouts);
+  });
+
+  app.get("/api/prep-eq/closeout/latest", isAuthenticated, async (req, res) => {
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const closeout = await storage.getLatestCloseout(locationId);
+    res.json(closeout || null);
+  });
+
+  app.get("/api/prep-eq/closeout/:id/items", isAuthenticated, async (req, res) => {
+    const items = await storage.getCloseoutItems(Number(req.params.id));
+    res.json(items);
+  });
+
+  app.post("/api/prep-eq/closeout", isAuthenticated, isUnlocked, async (req: any, res) => {
+    const user = await getUserFromReq(req);
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    const { notes, locationId, items } = req.body;
+    if (!Array.isArray(items)) return res.status(400).json({ message: "items array required" });
+    const closeout = await storage.createCloseout(
+      { closedBy: user.id, locationId: locationId || undefined, notes: notes || undefined },
+      items.map((item: any) => ({
+        closeoutId: 0,
+        componentId: item.componentId,
+        reportedLevel: item.reportedLevel,
+        previousLevel: item.previousLevel,
+        notes: item.notes || undefined,
+      }))
+    );
+    res.status(201).json(closeout);
+  });
+
+  // Analytics
+  app.get("/api/prep-eq/demand", isAuthenticated, async (req, res) => {
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const demand = await storage.getComponentDemand(date, locationId);
+    res.json(demand);
+  });
+
+  app.get("/api/prep-eq/dashboard", isAuthenticated, async (req, res) => {
+    const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
+    const components = await storage.getComponents(locationId);
+    const date = new Date().toISOString().split("T")[0];
+    const demand = await storage.getComponentDemand(date, locationId);
+    const demandMap = new Map(demand.map(d => [d.componentId, d.demandQuantity]));
+    const dashboard = components.map(c => ({
+      ...c,
+      demandToday: demandMap.get(c.id) || 0,
+      shortfall: Math.max(0, (demandMap.get(c.id) || 0) - c.currentLevel),
+      belowPar: c.parLevel != null && c.currentLevel < c.parLevel,
+    }));
+    res.json(dashboard);
+  });
+
+  app.get("/api/prep-eq/pieces-per-dough", isAuthenticated, async (req, res) => {
+    const doughType = req.query.doughType as string;
+    const days = req.query.days ? Number(req.query.days) : 30;
+    if (!doughType) return res.status(400).json({ message: "doughType required" });
+
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const doughs = await db.select().from(laminationDoughs).where(
+      and(
+        eq(laminationDoughs.doughType, doughType),
+        gte(laminationDoughs.createdAt, since),
+        isNotNull(laminationDoughs.totalPieces)
+      )
+    );
+
+    const pieces = doughs
+      .filter(d => d.totalPieces && d.totalPieces > 0)
+      .map(d => ({ pieces: d.totalPieces!, date: d.createdAt, doughId: d.id }));
+
+    if (pieces.length === 0) {
+      return res.json({ average: 0, median: 0, outliers: [], dataPoints: 0, recommended: null, manualOverride: null });
+    }
+
+    const sorted = pieces.map(p => p.pieces).sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const iqr = q3 - q1;
+    const upperFence = q3 + 1.5 * iqr;
+
+    const outliers = pieces.filter(p => p.pieces > upperFence);
+
+    const [component] = await db.select().from(productionComponents).where(
+      and(eq(productionComponents.category, "dough"), sql`LOWER(${productionComponents.name}) LIKE LOWER(${'%' + doughType + '%'})`)
+    );
+
+    res.json({
+      average: Math.round(mean * 10) / 10,
+      median,
+      outliers,
+      dataPoints: pieces.length,
+      upperFence: Math.round(upperFence * 10) / 10,
+      recommended: null,
+      manualOverride: component?.piecesPerDough || null,
+    });
   });
 
   // === EVENTS ===
@@ -2602,6 +2835,34 @@ Rules:
       if (log.itemName) {
         const pastryItemId = log.pastryItemId ?? await storage.resolvePastryItemId(log.itemName);
         createOvenTimersForItem(log.itemName, pastryItemId, req.appUser?.id || null).catch(() => {});
+      }
+
+      // Prep EQ: auto-consume components via BOM
+      try {
+        let pItemId = log.pastryItemId;
+        if (!pItemId && log.itemName) {
+          pItemId = await storage.resolvePastryItemId(log.itemName);
+        }
+        if (pItemId && log.quantity && log.quantity > 0) {
+          const passports = await db.select().from(pastryPassports).where(eq(pastryPassports.pastryItemId, pItemId));
+          for (const passport of passports) {
+            const bomItems = await db.select().from(componentBom).where(eq(componentBom.pastryPassportId, passport.id));
+            for (const bom of bomItems) {
+              const consumeQty = bom.quantityPerUnit * log.quantity;
+              await storage.addComponentTransaction({
+                componentId: bom.componentId,
+                type: "consumption",
+                quantity: -consumeQty,
+                referenceType: "bakeoff_log",
+                referenceId: log.id,
+                notes: `Auto-consume: ${log.quantity}× ${log.itemName}`,
+                createdBy: req.appUser?.id || null,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[PrepEQ] Failed to auto-consume components:", e);
       }
 
       res.status(201).json(log);
@@ -6193,6 +6454,22 @@ ${sopsHtml}
         }
       }
 
+      if ((context as any).prepEQ) {
+        const peq = (context as any).prepEQ;
+        if (peq.componentsBelowDemand?.length > 0) {
+          stateLines.push("PREP ALERT — Components below today's demand: " + peq.componentsBelowDemand.map((c: any) => `${c.name} (have ${c.current}, need ${c.demand})`).join(", "));
+        }
+        if (peq.componentsBelowPar?.length > 0) {
+          stateLines.push("Components below par level: " + peq.componentsBelowPar.map((c: any) => `${c.name} (${c.current}/${c.par})`).join(", "));
+        }
+        if (peq.doughRecommendations?.length > 0) {
+          stateLines.push("Dough prep needed for tomorrow: " + peq.doughRecommendations.map((r: any) => `${r.name}: ${r.doughsNeeded} dough${r.doughsNeeded > 1 ? "s" : ""} (${r.piecesPerDough} pcs/dough)`).join(", "));
+        }
+        if (peq.leadTimeItemsNeedingPrep?.length > 0) {
+          stateLines.push("Lead-time items requiring prep today: " + peq.leadTimeItemsNeedingPrep.join(", "));
+        }
+      }
+
       const focusLabels: Record<string, string> = {
         all: "all bakery operations",
         foh: "front-of-house (customer service, display cases, pastry availability, sales)",
@@ -6221,6 +6498,12 @@ CALENDAR AWARENESS — If upcoming events are listed, naturally weave them in:
 - Keep event mentions brief and conversational, not a list.
 
 This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
+
+PREP EQ AWARENESS — If prep component data is provided:
+- Mention any components below demand naturally ("Heads up, we're a little low on almond paste — might need a batch")
+- For dough prep recommendations, mention how many doughs need mixing today for tomorrow
+- Keep it actionable but casual, not alarming
+- Lead-time items that need prep today deserve a gentle nudge
 
 WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and genuinely uplifting — offer a kind thought, acknowledge something about them, or share a positive note about the day. Be real and human, like a teammate who wants them to have a good day.`;
 

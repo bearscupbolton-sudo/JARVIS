@@ -194,6 +194,86 @@ export const insertProblemContactSchema = createInsertSchema(problemContacts).om
 export type ProblemContact = typeof problemContacts.$inferSelect;
 export type InsertProblemContact = z.infer<typeof insertProblemContactSchema>;
 
+// === PRODUCTION COMPONENTS (Prep EQ) ===
+export const productionComponents = pgTable("production_components", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  unitOfMeasure: text("unit_of_measure").notNull(),
+  currentLevel: real("current_level").default(0).notNull(),
+  parLevel: real("par_level"),
+  linkedRecipeId: integer("linked_recipe_id"),
+  yieldPerBatch: real("yield_per_batch"),
+  piecesPerDough: integer("pieces_per_dough"),
+  leadTimeDays: integer("lead_time_days").default(0).notNull(),
+  shelfLifeDays: integer("shelf_life_days"),
+  locationId: integer("location_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+export const insertProductionComponentSchema = createInsertSchema(productionComponents).omit({ id: true, createdAt: true });
+export type ProductionComponent = typeof productionComponents.$inferSelect;
+export type InsertProductionComponent = z.infer<typeof insertProductionComponentSchema>;
+
+// === COMPONENT BOM (Bill of Materials — links pastry passports to production components) ===
+export const componentBom = pgTable("component_bom", {
+  id: serial("id").primaryKey(),
+  pastryPassportId: integer("pastry_passport_id").notNull(),
+  componentId: integer("component_id").notNull(),
+  quantityPerUnit: real("quantity_per_unit").notNull(),
+  unitOfMeasure: text("unit_of_measure"),
+  notes: text("notes"),
+});
+
+export const insertComponentBomSchema = createInsertSchema(componentBom).omit({ id: true });
+export type ComponentBom = typeof componentBom.$inferSelect;
+export type InsertComponentBom = z.infer<typeof insertComponentBomSchema>;
+
+// === COMPONENT TRANSACTIONS ===
+export const componentTransactions = pgTable("component_transactions", {
+  id: serial("id").primaryKey(),
+  componentId: integer("component_id").notNull(),
+  type: text("type").notNull(),
+  quantity: real("quantity").notNull(),
+  referenceType: text("reference_type"),
+  referenceId: integer("reference_id"),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertComponentTransactionSchema = createInsertSchema(componentTransactions).omit({ id: true, createdAt: true });
+export type ComponentTransaction = typeof componentTransactions.$inferSelect;
+export type InsertComponentTransaction = z.infer<typeof insertComponentTransactionSchema>;
+
+// === PREP CLOSEOUTS ===
+export const prepCloseouts = pgTable("prep_closeouts", {
+  id: serial("id").primaryKey(),
+  closedBy: text("closed_by").notNull(),
+  locationId: integer("location_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPrepCloseoutSchema = createInsertSchema(prepCloseouts).omit({ id: true, createdAt: true });
+export type PrepCloseout = typeof prepCloseouts.$inferSelect;
+export type InsertPrepCloseout = z.infer<typeof insertPrepCloseoutSchema>;
+
+export const prepCloseoutItems = pgTable("prep_closeout_items", {
+  id: serial("id").primaryKey(),
+  closeoutId: integer("closeout_id").notNull(),
+  componentId: integer("component_id").notNull(),
+  reportedLevel: real("reported_level").notNull(),
+  previousLevel: real("previous_level").notNull(),
+  notes: text("notes"),
+});
+
+export const insertPrepCloseoutItemSchema = createInsertSchema(prepCloseoutItems).omit({ id: true });
+export type PrepCloseoutItem = typeof prepCloseoutItems.$inferSelect;
+export type InsertPrepCloseoutItem = z.infer<typeof insertPrepCloseoutItemSchema>;
+
 // === EVENTS (Forward 5 Look) ===
 export const events = pgTable("events", {
   id: serial("id").primaryKey(),
