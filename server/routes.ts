@@ -3275,6 +3275,7 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         role: u.role,
         phone: u.phone,
         smsOptIn: u.smsOptIn,
+        department: u.department,
       }));
       res.json(teamMembers);
     } catch (err) {

@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
-type TeamMember = Pick<User, "id" | "username" | "firstName" | "lastName" | "email" | "role" | "phone" | "smsOptIn">;
+type TeamMember = Pick<User, "id" | "username" | "firstName" | "lastName" | "email" | "role" | "phone" | "smsOptIn" | "department">;
 
 const DEPARTMENTS = [
   { value: "kitchen", label: "Kitchen", icon: ChefHat, color: "text-orange-600 dark:text-orange-400" },
@@ -1232,8 +1232,8 @@ export default function Schedule() {
             const allEmployees = members
               .filter(m => {
                 if (deptFilter !== "all") {
-                  const memberDept = (m as any)?.department;
-                  if (memberDept && memberDept !== deptFilter) return false;
+                  if (m.department && m.department !== deptFilter) return false;
+                  if (!m.department) return false;
                 }
                 return true;
               })
