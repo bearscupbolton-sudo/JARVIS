@@ -42,6 +42,7 @@ const routeImportMap: Record<string, () => Promise<unknown>> = {
   "/mll": () => import("@/pages/MLL"),
   "/bagel-bros": () => import("@/pages/BagelBros"),
   "/dev-feedback": () => import("@/pages/DevFeedback"),
+  "/maintenance": () => import("@/pages/Maintenance"),
   "/display": () => import("@/pages/Display"),
 };
 

@@ -46,6 +46,7 @@ import {
   FlaskConical,
   HeartHandshake,
   RefreshCw,
+  Wrench,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -77,6 +78,7 @@ const ALL_SHORTCUT_OPTIONS: NavItem[] = [
   { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/vendors", label: "Vendors", icon: Truck },
+  { href: "/maintenance", label: "Maintenance", icon: Wrench },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/calendar", label: "Event Calendar", icon: Calendar },
   { href: "/time-cards", label: "Time Cards", icon: Clock },
@@ -122,6 +124,7 @@ const NAV_ITEMS = [
   { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/vendors", label: "Vendors", icon: Truck },
+  { href: "/maintenance", label: "Maintenance", icon: Wrench },
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/time-cards", label: "Time Cards", icon: Clock },

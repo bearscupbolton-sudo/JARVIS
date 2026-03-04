@@ -67,6 +67,7 @@ const Vendors = lazy(() => import("@/pages/Vendors"));
 const BagelBros = lazy(() => import("@/pages/BagelBros"));
 const TestKitchen = lazy(() => import("@/pages/TestKitchen"));
 const DevFeedback = lazy(() => import("@/pages/DevFeedback"));
+const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const Onboarding = lazy(() => import("@/pages/Onboarding"));
 const PortalLogin = lazy(() => import("@/pages/portal/PortalLogin"));
 const PortalRegister = lazy(() => import("@/pages/portal/PortalRegister"));
@@ -341,6 +342,9 @@ function Router() {
         </Route>
         <Route path="/bagel-bros">
           {() => <ProtectedRoute component={BagelBros} noLayout />}
+        </Route>
+        <Route path="/maintenance">
+          {() => <ProtectedRoute component={Maintenance} />}
         </Route>
         <Route path="/dev-feedback">
           {() => <ProtectedRoute component={DevFeedback} />}

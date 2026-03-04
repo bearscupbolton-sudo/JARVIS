@@ -107,6 +107,16 @@ import {
   type CoffeeUsageLog, type InsertCoffeeUsageLog,
   shiftNotes,
   type ShiftNote, type InsertShiftNote,
+  serviceContacts,
+  type ServiceContact, type InsertServiceContact,
+  equipment,
+  type Equipment, type InsertEquipment,
+  equipmentMaintenance,
+  type EquipmentMaintenance, type InsertEquipmentMaintenance,
+  problemNotes,
+  type ProblemNote, type InsertProblemNote,
+  problemContacts,
+  type ProblemContact, type InsertProblemContact,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -141,10 +151,43 @@ export interface IStorage {
   deleteSOP(id: number): Promise<void>;
 
   // Problems
-  getProblems(includeCompleted?: boolean): Promise<Problem[]>;
+  getProblems(filters?: { includeCompleted?: boolean; status?: string; locationId?: number; priority?: string }): Promise<Problem[]>;
+  getProblem(id: number): Promise<Problem | undefined>;
   createProblem(problem: InsertProblem): Promise<Problem>;
   updateProblem(id: number, updates: Partial<InsertProblem>): Promise<Problem>;
   deleteProblem(id: number): Promise<void>;
+
+  // Problem Notes
+  getProblemNotes(problemId: number): Promise<ProblemNote[]>;
+  createProblemNote(note: InsertProblemNote): Promise<ProblemNote>;
+
+  // Problem Contacts
+  getProblemContacts(problemId: number): Promise<(ProblemContact & { contact?: ServiceContact })[]>;
+  linkContactToProblem(data: InsertProblemContact): Promise<ProblemContact>;
+  unlinkContactFromProblem(id: number): Promise<void>;
+
+  // Service Contacts
+  getServiceContacts(locationId?: number): Promise<ServiceContact[]>;
+  getServiceContact(id: number): Promise<ServiceContact | undefined>;
+  createServiceContact(data: InsertServiceContact): Promise<ServiceContact>;
+  updateServiceContact(id: number, data: Partial<InsertServiceContact>): Promise<ServiceContact>;
+  deleteServiceContact(id: number): Promise<void>;
+  searchServiceContacts(query: string): Promise<ServiceContact[]>;
+
+  // Equipment
+  getEquipment(locationId?: number): Promise<Equipment[]>;
+  getEquipmentItem(id: number): Promise<Equipment | undefined>;
+  createEquipment(data: InsertEquipment): Promise<Equipment>;
+  updateEquipment(id: number, data: Partial<InsertEquipment>): Promise<Equipment>;
+  deleteEquipment(id: number): Promise<void>;
+  searchEquipment(query: string): Promise<Equipment[]>;
+
+  // Equipment Maintenance
+  getMaintenanceSchedules(equipmentId?: number): Promise<EquipmentMaintenance[]>;
+  createMaintenanceSchedule(data: InsertEquipmentMaintenance): Promise<EquipmentMaintenance>;
+  updateMaintenanceSchedule(id: number, data: Partial<InsertEquipmentMaintenance>): Promise<EquipmentMaintenance>;
+  deleteMaintenanceSchedule(id: number): Promise<void>;
+  getOverdueMaintenanceSchedules(locationId?: number): Promise<(EquipmentMaintenance & { equipment?: Equipment })[]>;
 
   // Events
   getUpcomingEvents(days?: number): Promise<CalendarEvent[]>;
@@ -718,11 +761,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Problems
-  async getProblems(includeCompleted = false): Promise<Problem[]> {
-    if (includeCompleted) {
-      return await db.select().from(problems).orderBy(desc(problems.createdAt));
+  async getProblems(filters?: { includeCompleted?: boolean; status?: string; locationId?: number; priority?: string }): Promise<Problem[]> {
+    const conditions = [];
+    if (filters?.status) {
+      conditions.push(eq(problems.status, filters.status));
+    } else if (!filters?.includeCompleted) {
+      conditions.push(sql`${problems.status} != 'resolved'`);
     }
-    return await db.select().from(problems).where(eq(problems.completed, false)).orderBy(desc(problems.createdAt));
+    if (filters?.locationId) {
+      conditions.push(eq(problems.locationId, filters.locationId));
+    }
+    if (filters?.priority) {
+      conditions.push(eq(problems.priority, filters.priority));
+    }
+    if (conditions.length > 0) {
+      return await db.select().from(problems).where(and(...conditions)).orderBy(desc(problems.createdAt));
+    }
+    return await db.select().from(problems).orderBy(desc(problems.createdAt));
+  }
+
+  async getProblem(id: number): Promise<Problem | undefined> {
+    const [problem] = await db.select().from(problems).where(eq(problems.id, id));
+    return problem;
   }
 
   async createProblem(insertProblem: InsertProblem): Promise<Problem> {
@@ -731,12 +791,163 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateProblem(id: number, updates: Partial<InsertProblem>): Promise<Problem> {
-    const [updated] = await db.update(problems).set(updates).where(eq(problems.id, id)).returning();
+    const [updated] = await db.update(problems).set({ ...updates, updatedAt: new Date() }).where(eq(problems.id, id)).returning();
     return updated;
   }
 
   async deleteProblem(id: number): Promise<void> {
     await db.delete(problems).where(eq(problems.id, id));
+  }
+
+  // Problem Notes
+  async getProblemNotes(problemId: number): Promise<ProblemNote[]> {
+    return await db.select().from(problemNotes).where(eq(problemNotes.problemId, problemId)).orderBy(desc(problemNotes.createdAt));
+  }
+
+  async createProblemNote(note: InsertProblemNote): Promise<ProblemNote> {
+    const [created] = await db.insert(problemNotes).values(note).returning();
+    return created;
+  }
+
+  // Problem Contacts
+  async getProblemContacts(problemId: number): Promise<(ProblemContact & { contact?: ServiceContact })[]> {
+    const links = await db.select().from(problemContacts).where(eq(problemContacts.problemId, problemId)).orderBy(desc(problemContacts.createdAt));
+    const result = [];
+    for (const link of links) {
+      const [contact] = await db.select().from(serviceContacts).where(eq(serviceContacts.id, link.serviceContactId));
+      result.push({ ...link, contact: contact || undefined });
+    }
+    return result;
+  }
+
+  async linkContactToProblem(data: InsertProblemContact): Promise<ProblemContact> {
+    const [created] = await db.insert(problemContacts).values(data).returning();
+    return created;
+  }
+
+  async unlinkContactFromProblem(id: number): Promise<void> {
+    await db.delete(problemContacts).where(eq(problemContacts.id, id));
+  }
+
+  // Service Contacts
+  async getServiceContacts(locationId?: number): Promise<ServiceContact[]> {
+    if (locationId) {
+      return await db.select().from(serviceContacts)
+        .where(sql`${serviceContacts.locationId} = ${locationId} OR ${serviceContacts.locationId} IS NULL`)
+        .orderBy(serviceContacts.name);
+    }
+    return await db.select().from(serviceContacts).orderBy(serviceContacts.name);
+  }
+
+  async getServiceContact(id: number): Promise<ServiceContact | undefined> {
+    const [contact] = await db.select().from(serviceContacts).where(eq(serviceContacts.id, id));
+    return contact;
+  }
+
+  async createServiceContact(data: InsertServiceContact): Promise<ServiceContact> {
+    const [created] = await db.insert(serviceContacts).values(data).returning();
+    return created;
+  }
+
+  async updateServiceContact(id: number, data: Partial<InsertServiceContact>): Promise<ServiceContact> {
+    const [updated] = await db.update(serviceContacts).set({ ...data, updatedAt: new Date() }).where(eq(serviceContacts.id, id)).returning();
+    return updated;
+  }
+
+  async deleteServiceContact(id: number): Promise<void> {
+    await db.delete(serviceContacts).where(eq(serviceContacts.id, id));
+  }
+
+  async searchServiceContacts(query: string): Promise<ServiceContact[]> {
+    const pattern = `%${query}%`;
+    return await db.select().from(serviceContacts)
+      .where(sql`
+        ${serviceContacts.name} ILIKE ${pattern}
+        OR ${serviceContacts.company} ILIKE ${pattern}
+        OR ${serviceContacts.specialty} ILIKE ${pattern}
+        OR ${serviceContacts.notes} ILIKE ${pattern}
+        OR ${serviceContacts.phone} ILIKE ${pattern}
+        OR ${serviceContacts.email} ILIKE ${pattern}
+        OR EXISTS (SELECT 1 FROM unnest(${serviceContacts.tags}) AS t WHERE t ILIKE ${pattern})
+      `)
+      .orderBy(serviceContacts.name);
+  }
+
+  // Equipment
+  async getEquipment(locationId?: number): Promise<Equipment[]> {
+    if (locationId) {
+      return await db.select().from(equipment).where(eq(equipment.locationId, locationId)).orderBy(equipment.name);
+    }
+    return await db.select().from(equipment).orderBy(equipment.name);
+  }
+
+  async getEquipmentItem(id: number): Promise<Equipment | undefined> {
+    const [item] = await db.select().from(equipment).where(eq(equipment.id, id));
+    return item;
+  }
+
+  async createEquipment(data: InsertEquipment): Promise<Equipment> {
+    const [created] = await db.insert(equipment).values(data).returning();
+    return created;
+  }
+
+  async updateEquipment(id: number, data: Partial<InsertEquipment>): Promise<Equipment> {
+    const [updated] = await db.update(equipment).set({ ...data, updatedAt: new Date() }).where(eq(equipment.id, id)).returning();
+    return updated;
+  }
+
+  async deleteEquipment(id: number): Promise<void> {
+    await db.delete(equipment).where(eq(equipment.id, id));
+  }
+
+  async searchEquipment(query: string): Promise<Equipment[]> {
+    const pattern = `%${query}%`;
+    return await db.select().from(equipment)
+      .where(sql`
+        ${equipment.name} ILIKE ${pattern}
+        OR ${equipment.make} ILIKE ${pattern}
+        OR ${equipment.model} ILIKE ${pattern}
+        OR ${equipment.notes} ILIKE ${pattern}
+        OR ${equipment.category} ILIKE ${pattern}
+        OR EXISTS (SELECT 1 FROM unnest(${equipment.tags}) AS t WHERE t ILIKE ${pattern})
+      `)
+      .orderBy(equipment.name);
+  }
+
+  // Equipment Maintenance
+  async getMaintenanceSchedules(equipmentId?: number): Promise<EquipmentMaintenance[]> {
+    if (equipmentId) {
+      return await db.select().from(equipmentMaintenance).where(eq(equipmentMaintenance.equipmentId, equipmentId)).orderBy(equipmentMaintenance.nextDueDate);
+    }
+    return await db.select().from(equipmentMaintenance).orderBy(equipmentMaintenance.nextDueDate);
+  }
+
+  async createMaintenanceSchedule(data: InsertEquipmentMaintenance): Promise<EquipmentMaintenance> {
+    const [created] = await db.insert(equipmentMaintenance).values(data).returning();
+    return created;
+  }
+
+  async updateMaintenanceSchedule(id: number, data: Partial<InsertEquipmentMaintenance>): Promise<EquipmentMaintenance> {
+    const [updated] = await db.update(equipmentMaintenance).set(data).where(eq(equipmentMaintenance.id, id)).returning();
+    return updated;
+  }
+
+  async deleteMaintenanceSchedule(id: number): Promise<void> {
+    await db.delete(equipmentMaintenance).where(eq(equipmentMaintenance.id, id));
+  }
+
+  async getOverdueMaintenanceSchedules(locationId?: number): Promise<(EquipmentMaintenance & { equipment?: Equipment })[]> {
+    const today = new Date().toISOString().split("T")[0];
+    const schedules = await db.select().from(equipmentMaintenance)
+      .where(sql`${equipmentMaintenance.nextDueDate} IS NOT NULL AND ${equipmentMaintenance.nextDueDate} <= ${today}`)
+      .orderBy(equipmentMaintenance.nextDueDate);
+    const result = [];
+    for (const s of schedules) {
+      const [equip] = await db.select().from(equipment).where(eq(equipment.id, s.equipmentId));
+      if (locationId && equip && equip.locationId !== locationId) continue;
+      result.push({ ...s, equipment: equip || undefined });
+    }
+    return result;
   }
 
   // Events

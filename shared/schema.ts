@@ -92,17 +92,107 @@ export const problems = pgTable("problems", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
-  severity: text("severity").notNull(), // "critical", "high", "medium", "low"
-  location: text("location"), // e.g., "Oven 2", "Walk-in cooler", "Front display"
+  severity: text("severity").notNull(),
+  location: text("location"),
   reportedBy: text("reported_by"),
   notes: text("notes"),
   completed: boolean("completed").default(false).notNull(),
+  status: text("status").default("open").notNull(),
+  priority: text("priority").default("medium").notNull(),
+  assignedTo: text("assigned_to"),
+  equipmentId: integer("equipment_id"),
+  locationId: integer("location_id"),
+  resolvedAt: timestamp("resolved_at"),
+  updatedAt: timestamp("updated_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertProblemSchema = createInsertSchema(problems).omit({ id: true, createdAt: true });
 export type Problem = typeof problems.$inferSelect;
 export type InsertProblem = z.infer<typeof insertProblemSchema>;
+
+// === SERVICE CONTACTS ===
+export const serviceContacts = pgTable("service_contacts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  company: text("company"),
+  phone: text("phone"),
+  email: text("email"),
+  specialty: text("specialty"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  locationId: integer("location_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+export const insertServiceContactSchema = createInsertSchema(serviceContacts).omit({ id: true, createdAt: true });
+export type ServiceContact = typeof serviceContacts.$inferSelect;
+export type InsertServiceContact = z.infer<typeof insertServiceContactSchema>;
+
+// === EQUIPMENT ===
+export const equipment = pgTable("equipment", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  make: text("make"),
+  model: text("model"),
+  serialNumber: text("serial_number"),
+  locationId: integer("location_id"),
+  installDate: text("install_date"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
+export const insertEquipmentSchema = createInsertSchema(equipment).omit({ id: true, createdAt: true });
+export type Equipment = typeof equipment.$inferSelect;
+export type InsertEquipment = z.infer<typeof insertEquipmentSchema>;
+
+// === EQUIPMENT MAINTENANCE ===
+export const equipmentMaintenance = pgTable("equipment_maintenance", {
+  id: serial("id").primaryKey(),
+  equipmentId: integer("equipment_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  frequencyDays: integer("frequency_days"),
+  nextDueDate: text("next_due_date"),
+  lastCompletedDate: text("last_completed_date"),
+  serviceContactId: integer("service_contact_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEquipmentMaintenanceSchema = createInsertSchema(equipmentMaintenance).omit({ id: true, createdAt: true });
+export type EquipmentMaintenance = typeof equipmentMaintenance.$inferSelect;
+export type InsertEquipmentMaintenance = z.infer<typeof insertEquipmentMaintenanceSchema>;
+
+// === PROBLEM NOTES ===
+export const problemNotes = pgTable("problem_notes", {
+  id: serial("id").primaryKey(),
+  problemId: integer("problem_id").notNull(),
+  content: text("content").notNull(),
+  authorId: text("author_id").notNull(),
+  authorName: text("author_name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertProblemNoteSchema = createInsertSchema(problemNotes).omit({ id: true, createdAt: true });
+export type ProblemNote = typeof problemNotes.$inferSelect;
+export type InsertProblemNote = z.infer<typeof insertProblemNoteSchema>;
+
+// === PROBLEM CONTACTS ===
+export const problemContacts = pgTable("problem_contacts", {
+  id: serial("id").primaryKey(),
+  problemId: integer("problem_id").notNull(),
+  serviceContactId: integer("service_contact_id").notNull(),
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertProblemContactSchema = createInsertSchema(problemContacts).omit({ id: true, createdAt: true });
+export type ProblemContact = typeof problemContacts.$inferSelect;
+export type InsertProblemContact = z.infer<typeof insertProblemContactSchema>;
 
 // === EVENTS (Forward 5 Look) ===
 export const events = pgTable("events", {
