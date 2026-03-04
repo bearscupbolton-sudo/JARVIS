@@ -277,7 +277,7 @@ export default function Schedule() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { selectedLocationId, locations, selectedLocation, setSelectedLocationId } = useLocationContext();
-  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
+  const isLeadOrAbove = user?.role === "owner" || user?.role === "manager";
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -382,7 +382,7 @@ export default function Schedule() {
 
   const { data: teamMembersFull } = useQuery<TeamMember[]>({
     queryKey: ["/api/team-members"],
-    enabled: isManagerOrOwner,
+    enabled: isLeadOrAbove,
   });
 
   const { data: teamBasic } = useQuery<{ id: string; firstName: string | null; lastName: string | null; username: string | null; role: string }[]>({
@@ -444,7 +444,7 @@ export default function Schedule() {
     mutationFn: (id: number) => apiRequest("POST", `/api/shifts/${id}/claim`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Shift pickup requested", description: "Waiting for manager approval" });
+      toast({ title: "Shift pickup requested", description: "Waiting for lead approval" });
     },
     onError: (e: Error) => toast({ title: "Cannot pick up shift", description: e.message, variant: "destructive" }),
   });
@@ -1013,7 +1013,7 @@ export default function Schedule() {
         >
           <CalendarOff className="w-4 h-4 mr-2" />
           Time Off
-          {isManagerOrOwner && pendingRequests.length > 0 && (
+          {isLeadOrAbove && pendingRequests.length > 0 && (
             <Badge variant="destructive" className="ml-2 text-[10px]" data-testid="badge-pending-timeoff">
               {pendingRequests.length}
             </Badge>
@@ -1126,7 +1126,7 @@ export default function Schedule() {
                   Templates
                 </Button>
               )}
-              {isManagerOrOwner && (
+              {isLeadOrAbove && (
                 <Button onClick={() => openAddShift()} data-testid="button-add-shift">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Shift
@@ -1243,7 +1243,7 @@ export default function Schedule() {
 
             return (
               <div className="overflow-x-auto border border-border rounded-lg" data-testid="schedule-grid">
-                {isManagerOrOwner && (
+                {isLeadOrAbove && (
                   <div className="bg-muted/30 border-b border-border px-3 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Plus className="w-3 h-3" />
                     <span>Click any cell to pick a preset shift or type a custom time. Click an existing shift to modify it.</span>
@@ -1271,16 +1271,18 @@ export default function Schedule() {
                             </th>
                           );
                         })}
-                        <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px]" data-testid="header-hours">
-                          <div>Hrs</div>
-                          <div className="text-[10px] text-muted-foreground font-normal">Total</div>
-                        </th>
+                        {isLeadOrAbove && (
+                          <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px]" data-testid="header-hours">
+                            <div>Hrs</div>
+                            <div className="text-[10px] text-muted-foreground font-normal">Total</div>
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {allEmployees.length === 0 && !hasOpenShifts ? (
                         <tr>
-                          <td colSpan={9} className="text-center text-sm text-muted-foreground py-12 italic">
+                          <td colSpan={isLeadOrAbove ? 9 : 8} className="text-center text-sm text-muted-foreground py-12 italic">
                             No team members found
                           </td>
                         </tr>
@@ -1385,7 +1387,7 @@ export default function Schedule() {
                                                             ? "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"
                                                             : "bg-muted hover:bg-muted/80 text-foreground"
                                                         }`}
-                                                        onClick={() => isManagerOrOwner ? openQuickModify(shift) : undefined}
+                                                        onClick={() => isLeadOrAbove ? openQuickModify(shift) : undefined}
                                                         data-testid={`shift-cell-${shift.id}`}
                                                       >
                                                         {compactShiftTime(shift.startTime, shift.endTime)}
@@ -1399,11 +1401,11 @@ export default function Schedule() {
                                                         {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
                                                         {shift.notes && <div className="text-blue-600 dark:text-blue-400 italic">"{shift.notes}"</div>}
                                                         {isPending && <div className="text-amber-600">Pending approval</div>}
-                                                        {isManagerOrOwner && <div className="text-muted-foreground italic">Click to modify</div>}
+                                                        {isLeadOrAbove && <div className="text-muted-foreground italic">Click to modify</div>}
                                                       </div>
                                                     </TooltipContent>
                                                   </Tooltip>
-                                                  {isManagerOrOwner && (
+                                                  {isLeadOrAbove && (
                                                     <button
                                                       className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
                                                       onClick={(e) => {
@@ -1420,7 +1422,7 @@ export default function Schedule() {
                                             </div>
                                           );
                                         })}
-                                        {isManagerOrOwner && !isInlineEditing && (dayShifts.length === 0 || dayShifts.length > 0) && !quickModifyShift && (
+                                        {isLeadOrAbove && !isInlineEditing && (dayShifts.length === 0 || dayShifts.length > 0) && !quickModifyShift && (
                                           <Popover open={isPresetOpen} onOpenChange={(open) => {
                                             if (open) {
                                               setPresetPopoverCell({ userId: uid, dateStr });
@@ -1477,7 +1479,7 @@ export default function Schedule() {
                                                       <p className={`text-[10px] font-medium uppercase tracking-wider ${openShiftMode ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
                                                         {openShiftMode ? "Pick Time for Open Shift" : "Quick Shifts"}
                                                       </p>
-                                                      {isManagerOrOwner && !openShiftMode && (
+                                                      {isLeadOrAbove && !openShiftMode && (
                                                         <button
                                                           className="text-muted-foreground hover:text-foreground transition-colors"
                                                           onClick={(e) => { e.stopPropagation(); setPresetConfigOpen(true); setPresetPopoverCell(null); }}
@@ -1581,11 +1583,13 @@ export default function Schedule() {
                                     </td>
                                   );
                                 })}
-                                <td className="p-2 text-center align-middle border-l border-border" data-testid={`cell-hours-${uid}`}>
-                                  <span className={`text-xs font-semibold tabular-nums ${weeklyHours > 40 ? "text-red-600 dark:text-red-400" : weeklyHours >= 32 ? "text-foreground" : "text-muted-foreground"}`}>
-                                    {weeklyHours > 0 ? weeklyHours.toFixed(weeklyHours % 1 === 0 ? 0 : 1) : "—"}
-                                  </span>
-                                </td>
+                                {isLeadOrAbove && (
+                                  <td className="p-2 text-center align-middle border-l border-border" data-testid={`cell-hours-${uid}`}>
+                                    <span className={`text-xs font-semibold tabular-nums ${weeklyHours > 40 ? "text-red-600 dark:text-red-400" : weeklyHours >= 32 ? "text-foreground" : "text-muted-foreground"}`}>
+                                      {weeklyHours > 0 ? weeklyHours.toFixed(weeklyHours % 1 === 0 ? 0 : 1) : "—"}
+                                    </span>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
@@ -1613,7 +1617,7 @@ export default function Schedule() {
                                                 <button
                                                   className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 hover:bg-green-300 dark:hover:bg-green-900/60"
                                                   onClick={() => {
-                                                    if (isManagerOrOwner) {
+                                                    if (isLeadOrAbove) {
                                                       openEditShift(shift);
                                                     } else {
                                                       claimShiftMutation.mutate(shift.id);
@@ -1630,12 +1634,12 @@ export default function Schedule() {
                                                   <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
                                                   {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
                                                   <div className="text-green-600 font-medium">Available for pickup</div>
-                                                  {!isManagerOrOwner && <div className="text-muted-foreground italic">Click to pick up</div>}
-                                                  {isManagerOrOwner && <div className="text-muted-foreground italic">Click to edit</div>}
+                                                  {!isLeadOrAbove && <div className="text-muted-foreground italic">Click to pick up</div>}
+                                                  {isLeadOrAbove && <div className="text-muted-foreground italic">Click to edit</div>}
                                                 </div>
                                               </TooltipContent>
                                             </Tooltip>
-                                            {isManagerOrOwner && (
+                                            {isLeadOrAbove && (
                                               <button
                                                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
                                                 onClick={(e) => {
@@ -1654,9 +1658,11 @@ export default function Schedule() {
                                   </td>
                                 );
                               })}
-                              <td className="p-2 text-center align-middle border-l border-border">
-                                <span className="text-xs text-muted-foreground">—</span>
-                              </td>
+                              {isLeadOrAbove && (
+                                <td className="p-2 text-center align-middle border-l border-border">
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                </td>
+                              )}
                             </tr>
                           )}
                         </>
@@ -1683,7 +1689,7 @@ export default function Schedule() {
             </Button>
           </div>
 
-          {isManagerOrOwner && pendingRequests.length > 0 && (
+          {isLeadOrAbove && pendingRequests.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-lg font-semibold">Pending Approvals</h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1733,7 +1739,7 @@ export default function Schedule() {
 
           <div className="space-y-3">
             <h3 className="text-lg font-semibold">
-              {isManagerOrOwner ? "All Requests" : "My Requests"}
+              {isLeadOrAbove ? "All Requests" : "My Requests"}
             </h3>
             {timeOffLoading ? (
               <div className="space-y-2">
@@ -1741,13 +1747,13 @@ export default function Schedule() {
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {(isManagerOrOwner ? timeOffData : myRequests)?.map((req) => (
+                {(isLeadOrAbove ? timeOffData : myRequests)?.map((req) => (
                   <Card key={req.id} data-testid={`card-timeoff-${req.id}`}>
                     <CardContent className="p-4 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-semibold truncate">
-                            {isManagerOrOwner ? getUserDisplayName(req.userId, members) : "My Request"}
+                            {isLeadOrAbove ? getUserDisplayName(req.userId, members) : "My Request"}
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {req.startDate} to {req.endDate}
@@ -1785,7 +1791,7 @@ export default function Schedule() {
                     </CardContent>
                   </Card>
                 )) || null}
-                {(isManagerOrOwner ? timeOffData : myRequests)?.length === 0 && (
+                {(isLeadOrAbove ? timeOffData : myRequests)?.length === 0 && (
                   <p className="text-muted-foreground col-span-full">No time off requests yet</p>
                 )}
               </div>
@@ -1886,7 +1892,7 @@ export default function Schedule() {
                               <p className="text-sm">{msg.message}</p>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                              {isManagerOrOwner && (
+                              {isLeadOrAbove && (
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -1896,7 +1902,7 @@ export default function Schedule() {
                                   <Check className="w-4 h-4" />
                                 </Button>
                               )}
-                              {(msg.userId === user?.id || isManagerOrOwner) && (
+                              {(msg.userId === user?.id || isLeadOrAbove) && (
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -1939,7 +1945,7 @@ export default function Schedule() {
                               </div>
                               <p className="text-sm line-through">{msg.message}</p>
                             </div>
-                            {isManagerOrOwner && (
+                            {isLeadOrAbove && (
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -2099,7 +2105,7 @@ export default function Schedule() {
           </DialogHeader>
           <Form {...shiftForm}>
             <form onSubmit={shiftForm.handleSubmit(handleShiftSubmit)} className="space-y-4">
-              {isManagerOrOwner && (
+              {isLeadOrAbove && (
                 <FormField
                   control={shiftForm.control}
                   name="isOpenShift"
