@@ -133,6 +133,8 @@ import {
   type FirmRecurringObligation, type InsertFirmRecurringObligation,
   type FirmPayrollEntry, type InsertFirmPayrollEntry,
   type FirmCashCount, type InsertFirmCashCount,
+  payrollBatches,
+  type PayrollBatch, type InsertPayrollBatch,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -710,6 +712,15 @@ export interface IStorage {
   getFirmCashCount(id: number): Promise<FirmCashCount | undefined>;
   createFirmCashCount(count: InsertFirmCashCount): Promise<FirmCashCount>;
   updateFirmCashCount(id: number, updates: Partial<InsertFirmCashCount>): Promise<FirmCashCount>;
+
+  // Payroll Batches
+  getPayrollBatches(): Promise<PayrollBatch[]>;
+  getPayrollBatch(id: number): Promise<PayrollBatch | undefined>;
+  createPayrollBatch(batch: InsertPayrollBatch): Promise<PayrollBatch>;
+  updatePayrollBatch(id: number, updates: Partial<InsertPayrollBatch>): Promise<PayrollBatch>;
+
+  // ADP Worker Linking
+  updateUserAdpOID(userId: string, adpAssociateOID: string | null): Promise<void>;
 
   // The Firm — Summary
   getFirmSummary(startDate: string, endDate: string): Promise<{
@@ -4382,6 +4393,29 @@ export class DatabaseStorage implements IStorage {
       upcomingObligations,
       accountBalances: accounts,
     };
+  }
+
+  async getPayrollBatches(): Promise<PayrollBatch[]> {
+    return db.select().from(payrollBatches).orderBy(desc(payrollBatches.createdAt));
+  }
+
+  async getPayrollBatch(id: number): Promise<PayrollBatch | undefined> {
+    const [batch] = await db.select().from(payrollBatches).where(eq(payrollBatches.id, id));
+    return batch;
+  }
+
+  async createPayrollBatch(batch: InsertPayrollBatch): Promise<PayrollBatch> {
+    const [created] = await db.insert(payrollBatches).values(batch).returning();
+    return created;
+  }
+
+  async updatePayrollBatch(id: number, updates: Partial<InsertPayrollBatch>): Promise<PayrollBatch> {
+    const [updated] = await db.update(payrollBatches).set(updates).where(eq(payrollBatches.id, id)).returning();
+    return updated;
+  }
+
+  async updateUserAdpOID(userId: string, adpAssociateOID: string | null): Promise<void> {
+    await db.update(users).set({ adpAssociateOID }).where(eq(users.id, userId));
   }
 }
 

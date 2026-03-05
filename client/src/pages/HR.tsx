@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight, Upload, Pencil, Camera, Sparkles, Save, Trash2, Download, AlertTriangle } from "lucide-react";
+import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight, Upload, Pencil, Camera, Sparkles, Save, Trash2, Download, AlertTriangle, Wifi, WifiOff, RefreshCw, Unlink, ListChecks, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { compressForUpload } from "@/lib/image-utils";
 import { useAuth } from "@/hooks/use-auth";
-import type { OnboardingInvite, OnboardingDocument } from "@shared/schema";
+import type { OnboardingInvite, OnboardingDocument, User } from "@shared/schema";
 
 const futureSections = [
   {
@@ -97,6 +97,7 @@ function CreateInviteDialog() {
   const [email, setEmail] = useState("");
   const [position, setPosition] = useState("");
   const [department, setDepartment] = useState("bakery");
+  const [hourlyWage, setHourlyWage] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
@@ -109,6 +110,7 @@ function CreateInviteDialog() {
         email: email.trim() || null,
         position: position.trim() || null,
         department,
+        hourlyWage: hourlyWage.trim() || null,
       });
       return res.json();
     },
@@ -133,6 +135,7 @@ function CreateInviteDialog() {
     setEmail("");
     setPosition("");
     setDepartment("bakery");
+    setHourlyWage("");
     setGeneratedLink("");
     setCopied(false);
   };
@@ -199,6 +202,22 @@ function CreateInviteDialog() {
                   <SelectItem value="bar">Bar</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-sm">Hourly Wage</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={hourlyWage}
+                  onChange={(e) => setHourlyWage(e.target.value)}
+                  placeholder="0.00"
+                  className="pl-7"
+                  data-testid="input-invite-wage"
+                />
+              </div>
             </div>
             <Button
               className="w-full bg-amber-600 hover:bg-amber-700 text-white"
@@ -297,6 +316,7 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
               </p>
               <p className="text-xs text-muted-foreground">
                 {invite.position || invite.department || "New Hire"}
+                {invite.hourlyWage && <> · ${invite.hourlyWage}/hr</>}
                 {invite.createdAt && <> · {new Date(invite.createdAt).toLocaleDateString()}</>}
               </p>
             </div>
@@ -324,6 +344,7 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
               <p className="text-xs text-muted-foreground">
                 {invite.position && <>{invite.position} · </>}
                 {invite.department && <>{invite.department} · </>}
+                {invite.hourlyWage && <>${invite.hourlyWage}/hr · </>}
                 {invite.createdAt && <>Created {new Date(invite.createdAt).toLocaleDateString()}</>}
               </p>
             </div>
@@ -437,6 +458,14 @@ function StepPersonalInfo({ submission }: { submission: any }) {
         <Row label="Federal Filing" value={submission.federalFilingStatus || "—"} />
         <Row label="State Filing" value={submission.stateFilingStatus || "Same as Federal"} />
         <Row label="Allowances" value={String(submission.allowances ?? 0)} />
+      </Section>
+      <Section title="W-4 Federal Tax Withholding">
+        <Row label="Multiple Jobs" value={submission.multipleJobs ? "Yes" : "No"} />
+        <Row label="Dependents (Children)" value={`$${submission.dependentsChildAmount ?? 0}`} />
+        <Row label="Dependents (Other)" value={`$${submission.dependentsOtherAmount ?? 0}`} />
+        <Row label="Other Income" value={`$${submission.otherIncome ?? 0}`} />
+        <Row label="Deductions" value={`$${submission.deductions ?? 0}`} />
+        <Row label="Extra Withholding" value={`$${submission.extraWithholding ?? 0}`} />
       </Section>
       <Section title="Direct Deposit">
         <Row label="Bank" value={submission.bankName || "Not provided"} />
@@ -600,6 +629,25 @@ function StepCompletion({ submission, invite }: { submission: any; invite: Onboa
             <span className="text-muted-foreground">Non-Compete</span>
             <span className={submission?.nonCompeteAcknowledged ? "text-green-600 font-medium" : "text-muted-foreground"}>{submission?.nonCompeteAcknowledged ? "Signed" : "—"}</span>
           </div>
+          {invite.hourlyWage && (
+            <div className="flex justify-between pt-1 mt-1 border-t">
+              <span className="text-muted-foreground flex items-center gap-1"><DollarSign className="w-3 h-3" />Hourly Wage</span>
+              <span className="text-foreground font-medium">${invite.hourlyWage}/hr</span>
+            </div>
+          )}
+        </div>
+      )}
+      {isComplete && submission && (
+        <div className="flex gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`/api/hr/onboarding/w4/${invite.id}`, "_blank")}
+            data-testid="button-download-w4"
+          >
+            <FileText className="w-4 h-4 mr-1" />
+            Download W-4
+          </Button>
         </div>
       )}
     </div>
@@ -918,6 +966,338 @@ function SecurityInfoCard() {
   );
 }
 
+const ADP_SETUP_STEPS = [
+  "Create employees in ADP RUN's New Hire Wizard (enter name, SSN, direct deposit, W-4 there)",
+  "Enable Marketplace Connector for PayData Input in RUN Settings > General Settings > Features and services",
+  "Set ADP_CLIENT_ID, ADP_CLIENT_SECRET, ADP_SSL_CERT, and ADP_SSL_KEY in Jarvis environment",
+  "Link Jarvis employees to ADP workers using the section below",
+  "Use Payroll Review to compile and push payroll each period",
+];
+
+const CODE_LIST_TYPES = [
+  { key: "earning-codes", label: "Earning Codes" },
+  { key: "pay-cycles", label: "Pay Cycles" },
+  { key: "pay-rates", label: "Pay Rates" },
+  { key: "department-codes", label: "Departments" },
+];
+
+function ADPIntegrationSection() {
+  const { toast } = useToast();
+  const [selectedCodeList, setSelectedCodeList] = useState<string | null>(null);
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
+  const [selectedADPWorker, setSelectedADPWorker] = useState<string>("");
+
+  const { data: adpStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<{
+    configured: boolean;
+    connected?: boolean;
+    apiUrl?: string;
+  }>({
+    queryKey: ["/api/hr/adp/status"],
+  });
+
+  const { data: teamMembers = [], isLoading: teamLoading } = useQuery<User[]>({
+    queryKey: ["/api/team-members"],
+  });
+
+  const { data: adpWorkers, isLoading: workersLoading, refetch: refetchWorkers } = useQuery<{
+    configured: boolean;
+    data?: { workers: any[]; total?: number };
+  }>({
+    queryKey: ["/api/hr/adp/workers"],
+    enabled: adpStatus?.configured === true && adpStatus?.connected === true,
+  });
+
+  const { data: codeListData, isLoading: codeListLoading } = useQuery<{
+    configured: boolean;
+    data?: { codeListTitle?: string; listItems: any[] };
+  }>({
+    queryKey: ["/api/hr/adp/codelists", selectedCodeList],
+    queryFn: async () => {
+      if (!selectedCodeList) return null;
+      const res = await fetch(`/api/hr/adp/codelists/${selectedCodeList}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch code list");
+      return res.json();
+    },
+    enabled: !!selectedCodeList && adpStatus?.configured === true,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: async ({ userId, adpAssociateOID }: { userId: string; adpAssociateOID: string }) => {
+      await apiRequest("POST", `/api/hr/adp/link/${userId}`, { adpAssociateOID });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/team-members"] });
+      setLinkingUserId(null);
+      setSelectedADPWorker("");
+      toast({ title: "Employee linked to ADP worker" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Link failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      await apiRequest("POST", `/api/hr/adp/unlink/${userId}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/team-members"] });
+      toast({ title: "ADP link removed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Unlink failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("POST", `/api/hr/adp/sync-worker/${userId}`, {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Sync complete", description: data.message || "Worker data pushed to ADP" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!adpStatus?.configured && !statusLoading) return null;
+
+  const adpWorkerList = adpWorkers?.data?.workers || [];
+
+  return (
+    <Card data-testid="card-adp-integration">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ExternalLink className="w-5 h-5" /> ADP Integration
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {statusLoading ? (
+              <Badge variant="secondary" data-testid="badge-adp-status-loading">
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Checking
+              </Badge>
+            ) : adpStatus?.connected ? (
+              <Badge className="bg-green-100 text-green-700" data-testid="badge-adp-status-connected">
+                <Wifi className="w-3 h-3 mr-1" /> Connected
+              </Badge>
+            ) : adpStatus?.configured ? (
+              <Badge className="bg-red-100 text-red-700" data-testid="badge-adp-status-disconnected">
+                <WifiOff className="w-3 h-3 mr-1" /> Disconnected
+              </Badge>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => refetchStatus()}
+              data-testid="button-refresh-adp-status"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {adpStatus?.apiUrl && (
+          <p className="text-xs text-muted-foreground">
+            API Endpoint: <span className="font-mono">{adpStatus.apiUrl}</span>
+          </p>
+        )}
+
+        <div>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="heading-worker-linking">
+            <Link2 className="w-4 h-4" /> Worker Linking
+          </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Link Jarvis employees to their ADP worker profiles. Linked employees can have payroll data pushed to ADP.
+          </p>
+          {teamLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {teamMembers.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-card gap-2"
+                  data-testid={`row-adp-employee-${member.id}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm shrink-0">
+                      {(member.firstName || "?")[0].toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate" data-testid={`text-adp-employee-name-${member.id}`}>
+                        {member.firstName} {member.lastName || ""}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {member.department || "—"}
+                        {member.hourlyRate ? ` · $${member.hourlyRate}/hr` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {member.adpAssociateOID ? (
+                      <>
+                        <Badge className="bg-green-100 text-green-700 text-xs" data-testid={`badge-adp-linked-${member.id}`}>
+                          <CheckCircle2 className="w-3 h-3 mr-1" /> Linked
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => syncMutation.mutate(member.id)}
+                          disabled={syncMutation.isPending}
+                          data-testid={`button-adp-sync-${member.id}`}
+                        >
+                          {syncMutation.isPending ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => unlinkMutation.mutate(member.id)}
+                          disabled={unlinkMutation.isPending}
+                          data-testid={`button-adp-unlink-${member.id}`}
+                        >
+                          <Unlink className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
+                    ) : linkingUserId === member.id ? (
+                      <div className="flex items-center gap-2">
+                        {workersLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        ) : (
+                          <Select value={selectedADPWorker} onValueChange={setSelectedADPWorker}>
+                            <SelectTrigger className="w-48" data-testid={`select-adp-worker-${member.id}`}>
+                              <SelectValue placeholder="Select ADP worker" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {adpWorkerList.map((w: any) => (
+                                <SelectItem key={w.associateOID} value={w.associateOID}>
+                                  {w.person?.legalName?.formattedName ||
+                                    `${w.person?.legalName?.givenName || ""} ${w.person?.legalName?.familyName1 || ""}`.trim() ||
+                                    w.associateOID}
+                                </SelectItem>
+                              ))}
+                              {adpWorkerList.length === 0 && (
+                                <SelectItem value="_none" disabled>No ADP workers found</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        <Button
+                          size="sm"
+                          disabled={!selectedADPWorker || linkMutation.isPending}
+                          onClick={() => linkMutation.mutate({ userId: member.id, adpAssociateOID: selectedADPWorker })}
+                          data-testid={`button-confirm-link-${member.id}`}
+                        >
+                          {linkMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Link"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setLinkingUserId(null); setSelectedADPWorker(""); }}
+                          data-testid={`button-cancel-link-${member.id}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setLinkingUserId(member.id);
+                          setSelectedADPWorker("");
+                          if (adpStatus?.connected) refetchWorkers();
+                        }}
+                        data-testid={`button-adp-link-${member.id}`}
+                      >
+                        <Link2 className="w-3.5 h-3.5 mr-1" /> Link
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {teamMembers.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No team members found</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="heading-code-lists">
+            <ListChecks className="w-4 h-4" /> ADP Code Lists
+          </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            View cached ADP code lists for earning codes, pay frequencies, and departments.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {CODE_LIST_TYPES.map((cl) => (
+              <Button
+                key={cl.key}
+                variant={selectedCodeList === cl.key ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedCodeList(selectedCodeList === cl.key ? null : cl.key)}
+                data-testid={`button-codelist-${cl.key}`}
+              >
+                {cl.label}
+              </Button>
+            ))}
+          </div>
+          {selectedCodeList && (
+            <div className="rounded-lg border bg-muted/30 p-3">
+              {codeListLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : codeListData?.data?.listItems && codeListData.data.listItems.length > 0 ? (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {codeListData.data.codeListTitle && (
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">{codeListData.data.codeListTitle}</p>
+                  )}
+                  {codeListData.data.listItems.map((item: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between text-xs py-1 border-b border-muted last:border-0" data-testid={`row-codelist-item-${idx}`}>
+                      <span className="font-mono font-medium">{item.codeValue}</span>
+                      <span className="text-muted-foreground">{item.shortName || item.longName || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {!adpStatus?.connected ? "ADP is not connected. Configure credentials to view code lists." : "No items found for this code list."}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="heading-setup-guide">
+            <FileText className="w-4 h-4" /> Setup Guide
+          </h3>
+          <div className="space-y-2">
+            {ADP_SETUP_STEPS.map((step, i) => (
+              <div key={i} className="flex items-start gap-3 text-sm" data-testid={`text-setup-step-${i}`}>
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0 mt-0.5">
+                  {i + 1}
+                </div>
+                <p className="text-muted-foreground leading-relaxed">{step}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DeleteInviteButton({ invite }: { invite: OnboardingInvite }) {
   const { toast } = useToast();
   const deleteMutation = useMutation({
@@ -1012,6 +1392,8 @@ export default function HR() {
       </Card>
 
       <DocumentManagement />
+
+      {isOwner && <ADPIntegrationSection />}
 
       <SecurityInfoCard />
 

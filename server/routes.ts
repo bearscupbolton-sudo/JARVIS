@@ -8769,7 +8769,7 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
     try {
       const { randomUUID } = await import("crypto");
       const token = randomUUID();
-      const { firstName, lastName, email, position, department, locationId } = req.body;
+      const { firstName, lastName, email, position, department, locationId, hourlyWage } = req.body;
       if (!firstName) {
         return res.status(400).json({ message: "First name is required" });
       }
@@ -8781,6 +8781,7 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
         position: position || null,
         department: department || null,
         locationId: locationId || null,
+        hourlyWage: hourlyWage || null,
         status: "pending",
         createdBy: req.appUser.id,
       });
@@ -8856,6 +8857,12 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
           federalFilingStatus: sub.federalFilingStatus || "",
           stateFilingStatus: sub.stateFilingStatus || "",
           allowances: String(sub.allowances ?? 0),
+          multipleJobs: sub.multipleJobs ? "Yes" : "No",
+          dependentsChild: String(sub.dependentsChildAmount ?? 0),
+          dependentsOther: String(sub.dependentsOtherAmount ?? 0),
+          otherIncome: String(sub.otherIncome ?? 0),
+          deductions: String(sub.deductions ?? 0),
+          extraWithholding: String(sub.extraWithholding ?? 0),
           bankName: sub.bankName || "",
           accountType: sub.accountType || "",
           routingNumber: decryptedRouting || "",
@@ -8863,6 +8870,7 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
           hireDate: invite.createdAt ? new Date(invite.createdAt).toLocaleDateString("en-US") : "",
           position: invite.position || "",
           department: invite.department || "",
+          hourlyWage: invite.hourlyWage || "",
         });
       }
 
@@ -8871,8 +8879,10 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
         "Address", "City", "State", "ZIP", "Phone", "Personal Email",
         "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relation",
         "Federal Filing Status", "State Filing Status", "Allowances",
+        "Multiple Jobs", "Dependents (Children)", "Dependents (Other)",
+        "Other Income", "Deductions", "Extra Withholding",
         "Bank Name", "Account Type", "Routing Number", "Account Number",
-        "Hire Date", "Position", "Department"
+        "Hire Date", "Position", "Department", "Hourly Wage"
       ];
 
       const sanitizeCell = (val: string): string => {
@@ -8894,6 +8904,34 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
       res.setHeader("Content-Disposition", "attachment; filename=adp-onboarding-export.csv");
       res.send(csv);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/w4/:inviteId", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const inviteId = parseInt(req.params.inviteId);
+      if (!Number.isInteger(inviteId) || inviteId <= 0) {
+        return res.status(400).json({ message: "Invalid invite ID" });
+      }
+      const invite = await storage.getOnboardingInviteById(inviteId);
+      if (!invite) {
+        return res.status(404).json({ message: "Invite not found" });
+      }
+      const submission = await storage.getOnboardingSubmissionByInviteId(inviteId);
+      if (!submission) {
+        return res.status(404).json({ message: "No submission found for this invite" });
+      }
+      const { decryptOrFallback } = await import("./encryption");
+      const decryptedSSN = decryptOrFallback(submission.ssn);
+      const { generateW4PDF } = await import("./w4-pdf");
+      const pdfBytes = await generateW4PDF(submission, invite, decryptedSSN);
+      const fileName = `W4_${submission.legalLastName}_${submission.legalFirstName}.pdf`.replace(/\s+/g, "_");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.send(Buffer.from(pdfBytes));
+    } catch (err: any) {
+      console.error("[W-4 PDF] Error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
@@ -9077,6 +9115,12 @@ IMPORTANT GUIDELINES:
         routingNumber: z.string().optional().nullable(),
         accountNumber: z.string().optional().nullable(),
         accountType: z.enum(["checking", "savings"]).optional().nullable(),
+        multipleJobs: z.boolean().optional(),
+        dependentsChildAmount: z.number().int().min(0).optional(),
+        dependentsOtherAmount: z.number().int().min(0).optional(),
+        otherIncome: z.number().int().min(0).optional(),
+        deductions: z.number().int().min(0).optional(),
+        extraWithholding: z.number().int().min(0).optional(),
       });
       const parsed = submissionSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -9596,6 +9640,217 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     } catch (err: any) {
       console.error("Firm Jarvis insight error:", err.message);
       res.json({ insight: "I'm having trouble analyzing the finances right now. The data is all here — try again in a moment." });
+    }
+  });
+
+  // === ADP RUN API ROUTES ===
+  app.get("/api/hr/adp/status", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const status = await adpClient.getStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/adp/workers", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const result = await adpClient.getWorkers();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/adp/link/:userId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const { adpAssociateOID } = req.body;
+      if (!adpAssociateOID) {
+        return res.status(400).json({ message: "ADP Associate OID is required" });
+      }
+      await storage.updateUserAdpOID(userId, adpAssociateOID);
+      res.json({ message: "Employee linked to ADP worker successfully" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/adp/unlink/:userId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      await storage.updateUserAdpOID(userId, null);
+      res.json({ message: "ADP link removed" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hr/adp/sync-worker/:userId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const status = await adpClient.getStatus();
+      if (!status.configured) {
+        return res.status(400).json({ message: "ADP is not configured" });
+      }
+      const { userId } = req.params;
+      const { db } = await import("./db");
+      const { users } = await import("@shared/models/auth");
+      const { eq } = await import("drizzle-orm");
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user || !user.adpAssociateOID) {
+        return res.status(400).json({ message: "User not found or not linked to ADP" });
+      }
+      const results: string[] = [];
+      if (user.firstName || user.lastName) {
+        try {
+          await adpClient.updateWorkerEvent(user.adpAssociateOID, "legal-name", "change", {
+            person: { legalName: { givenName: user.firstName || "", familyName1: user.lastName || "" } }
+          });
+          results.push("Legal name updated");
+        } catch (e: any) { results.push(`Legal name failed: ${e.message}`); }
+      }
+      if (user.hourlyRate) {
+        try {
+          await adpClient.updateWorkerEvent(user.adpAssociateOID, "work-assignment.base-remuneration", "change", {
+            workAssignment: { baseRemuneration: { payRateAmount: { amountValue: user.hourlyRate } } }
+          });
+          results.push("Pay rate updated");
+        } catch (e: any) { results.push(`Pay rate failed: ${e.message}`); }
+      }
+      res.json({ message: "Sync completed", results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/adp/codelists/:type", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const result = await adpClient.getCodeLists(req.params.type);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PAYROLL ROUTES ===
+  app.get("/api/payroll/compile", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { start, end, locationId } = req.query;
+      if (!start || !end) {
+        return res.status(400).json({ message: "start and end dates are required (YYYY-MM-DD)" });
+      }
+      const { compilePayroll } = await import("./payroll-compiler");
+      const summary = await compilePayroll(
+        start as string,
+        end as string,
+        locationId ? parseInt(locationId as string) : undefined,
+      );
+      res.json(summary);
+    } catch (err: any) {
+      console.error("[Payroll Compile] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/payroll/push-to-adp", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const status = await adpClient.getStatus();
+      if (!status.configured) {
+        return res.status(400).json({ message: "ADP is not configured. Set ADP_CLIENT_ID, ADP_CLIENT_SECRET, ADP_SSL_CERT, and ADP_SSL_KEY." });
+      }
+      const { payPeriodStart, payPeriodEnd, locationId } = req.body;
+      if (!payPeriodStart || !payPeriodEnd) {
+        return res.status(400).json({ message: "payPeriodStart and payPeriodEnd are required" });
+      }
+
+      const { compilePayroll } = await import("./payroll-compiler");
+      const compiledData = await compilePayroll(payPeriodStart, payPeriodEnd, locationId ? parseInt(locationId) : undefined);
+
+      const linkedEmployees = compiledData.employees.filter((e: any) => e.adpAssociateOID);
+      if (linkedEmployees.length === 0) {
+        return res.status(400).json({ message: "No employees are linked to ADP workers" });
+      }
+
+      const payDataInput = {
+        payrollGroupCode: { codeValue: "DEFAULT" },
+        payPeriod: {
+          startDate: payPeriodStart,
+          endDate: payPeriodEnd,
+        },
+        payeePayInputs: linkedEmployees.map((emp: any) => ({
+          associateOID: emp.adpAssociateOID,
+          earningInputs: [
+            ...(emp.regularHours > 0 ? [{
+              earningCode: { codeValue: "REG" },
+              numberOfHours: emp.regularHours,
+              rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
+            }] : []),
+            ...(emp.overtimeHours > 0 ? [{
+              earningCode: { codeValue: "OT" },
+              numberOfHours: emp.overtimeHours,
+              rate: { rateValue: emp.hourlyRate * 1.5, baseUnitCode: { codeValue: "HOUR" } },
+            }] : []),
+            ...(emp.vacationHours > 0 ? [{
+              earningCode: { codeValue: "VAC" },
+              numberOfHours: emp.vacationHours,
+              rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
+            }] : []),
+            ...(emp.sickHours > 0 ? [{
+              earningCode: { codeValue: "SICK" },
+              numberOfHours: emp.sickHours,
+              rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
+            }] : []),
+            ...(emp.tips > 0 ? [{
+              earningCode: { codeValue: "TIPS" },
+              numberOfHours: 0,
+              rate: { rateValue: emp.tips, baseUnitCode: { codeValue: "FLAT" } },
+            }] : []),
+          ],
+        })),
+      };
+
+      const result = await adpClient.addPayDataInput(payDataInput);
+      const batch = await storage.createPayrollBatch({
+        payPeriodStart: new Date(payPeriodStart),
+        payPeriodEnd: new Date(payPeriodEnd),
+        status: "submitted",
+        employeeCount: linkedEmployees.length,
+        totalHours: compiledData.totals.regularHours + compiledData.totals.overtimeHours,
+        totalGross: compiledData.totals.grossEstimate,
+        adpBatchId: result?.data?.batchId || null,
+        compiledData,
+        submittedAt: new Date(),
+        submittedBy: req.appUser.id,
+      });
+
+      res.json({ success: true, batch, adpResult: result });
+    } catch (err: any) {
+      console.error("[Payroll Push] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/payroll/history", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const batches = await storage.getPayrollBatches();
+      res.json(batches);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/payroll/adp-status", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { adpClient } = await import("./adp-api");
+      const status = await adpClient.getStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

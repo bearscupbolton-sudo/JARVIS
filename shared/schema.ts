@@ -1418,6 +1418,7 @@ export const onboardingInvites = pgTable("onboarding_invites", {
   position: varchar("position", { length: 255 }),
   department: varchar("department", { length: 100 }),
   locationId: integer("location_id"),
+  hourlyWage: text("hourly_wage"),
   status: varchar("status", { length: 50 }).default("pending").notNull(),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1452,6 +1453,13 @@ export const onboardingSubmissions = pgTable("onboarding_submissions", {
   routingNumber: text("routing_number"),
   accountNumber: text("account_number"),
   accountType: text("account_type"),
+  multipleJobs: boolean("multiple_jobs").default(false),
+  dependentsChildAmount: integer("dependents_child_amount").default(0),
+  dependentsOtherAmount: integer("dependents_other_amount").default(0),
+  otherIncome: integer("other_income").default(0),
+  deductions: integer("deductions").default(0),
+  extraWithholding: integer("extra_withholding").default(0),
+  w4SignedAt: timestamp("w4_signed_at"),
   handbookAcknowledged: boolean("handbook_acknowledged").default(false).notNull(),
   handbookAcknowledgedAt: timestamp("handbook_acknowledged_at"),
   nonCompeteAcknowledged: boolean("non_compete_acknowledged").default(false).notNull(),
@@ -1658,4 +1666,25 @@ export const firmCashCounts = pgTable("firm_cash_counts", {
 export const insertFirmCashCountSchema = createInsertSchema(firmCashCounts).omit({ id: true, createdAt: true });
 export type FirmCashCount = typeof firmCashCounts.$inferSelect;
 export type InsertFirmCashCount = z.infer<typeof insertFirmCashCountSchema>;
+
+// === PAYROLL BATCHES ===
+export const payrollBatches = pgTable("payroll_batches", {
+  id: serial("id").primaryKey(),
+  payPeriodStart: timestamp("pay_period_start").notNull(),
+  payPeriodEnd: timestamp("pay_period_end").notNull(),
+  status: varchar("status", { length: 50 }).default("draft").notNull(),
+  employeeCount: integer("employee_count").default(0).notNull(),
+  totalHours: doublePrecision("total_hours").default(0),
+  totalGross: doublePrecision("total_gross").default(0),
+  adpBatchId: text("adp_batch_id"),
+  compiledData: jsonb("compiled_data"),
+  submittedAt: timestamp("submitted_at"),
+  submittedBy: text("submitted_by"),
+  errorDetails: text("error_details"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPayrollBatchSchema = createInsertSchema(payrollBatches).omit({ id: true, createdAt: true });
+export type PayrollBatch = typeof payrollBatches.$inferSelect;
+export type InsertPayrollBatch = z.infer<typeof insertPayrollBatchSchema>;
 

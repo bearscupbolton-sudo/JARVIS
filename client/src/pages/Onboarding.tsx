@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ChevronRight, CheckCircle2, User, FileText, ShieldCheck, Heart, Shield, Lock, Eye, Link2, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ChevronRight, CheckCircle2, User, FileText, ShieldCheck, Heart, Shield, Lock, Eye, Link2, ChevronDown, ChevronUp, DollarSign, Info } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 
 const US_STATES = [
@@ -306,6 +306,12 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
     federalFilingStatus: "single",
     stateFilingStatus: "",
     allowances: 0,
+    multipleJobs: false,
+    dependentsChildAmount: 0,
+    dependentsOtherAmount: 0,
+    otherIncome: 0,
+    deductions: 0,
+    extraWithholding: 0,
     bankName: "",
     routingNumber: "",
     accountNumber: "",
@@ -521,6 +527,149 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
               </Select>
             </div>
             <OnboardingField label="Allowances" field="allowances" type="number" placeholder="0" value={form.allowances} error={errors.allowances} onChange={update} />
+          </div>
+        </div>
+
+        <div>
+          <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <FileText className="w-4 h-4" /> W-4 Federal Tax Withholding <span className="text-gray-400 font-normal text-sm">(Optional)</span>
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Complete the fields below to match your IRS Form W-4 preferences. All fields are optional — if left blank, defaults will apply (no additional withholding). Only Step 1 (filing status above) and your signature are required by the IRS.
+          </p>
+
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-gray-50 border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 2</span>
+                <span className="text-sm font-medium text-gray-700">Multiple Jobs or Spouse Works</span>
+              </div>
+              <div className="flex items-start gap-3 mt-2">
+                <Checkbox
+                  id="w4-multiple-jobs"
+                  checked={form.multipleJobs}
+                  onCheckedChange={(v) => update("multipleJobs", !!v)}
+                  data-testid="checkbox-multiple-jobs"
+                />
+                <Label htmlFor="w4-multiple-jobs" className="text-sm leading-relaxed text-gray-600">
+                  Check this if you hold more than one job at a time, or if you're married filing jointly and your spouse also works
+                </Label>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 3</span>
+                <span className="text-sm font-medium text-gray-700">Claim Dependents</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Qualifying children under 17</Label>
+                  <p className="text-xs text-gray-500 mb-1">Multiply number of children by $2,000</p>
+                  <div className="relative">
+                    <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={2000}
+                      value={form.dependentsChildAmount || ""}
+                      onChange={(e) => update("dependentsChildAmount", parseInt(e.target.value) || 0)}
+                      placeholder="0"
+                      className="pl-7"
+                      data-testid="input-dependentsChildAmount"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Other dependents</Label>
+                  <p className="text-xs text-gray-500 mb-1">Multiply number of other dependents by $500</p>
+                  <div className="relative">
+                    <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={500}
+                      value={form.dependentsOtherAmount || ""}
+                      onChange={(e) => update("dependentsOtherAmount", parseInt(e.target.value) || 0)}
+                      placeholder="0"
+                      className="pl-7"
+                      data-testid="input-dependentsOtherAmount"
+                    />
+                  </div>
+                </div>
+              </div>
+              {(form.dependentsChildAmount > 0 || form.dependentsOtherAmount > 0) && (
+                <div className="mt-3 p-2 rounded bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center gap-2" data-testid="text-dependents-total">
+                  <Info className="w-4 h-4 shrink-0" />
+                  Total dependents claim: <strong>${(form.dependentsChildAmount + form.dependentsOtherAmount).toLocaleString()}</strong>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 4a</span>
+                <span className="text-sm font-medium text-gray-700">Other Income</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-2">Income you expect this year from sources not subject to withholding, such as interest or dividends</p>
+              <div className="relative max-w-xs">
+                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={form.otherIncome || ""}
+                  onChange={(e) => update("otherIncome", parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                  className="pl-7"
+                  data-testid="input-otherIncome"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 4b</span>
+                <span className="text-sm font-medium text-gray-700">Deductions</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-2">Only fill this in if you plan to itemize deductions or claim adjustments to income beyond the standard deduction</p>
+              <div className="relative max-w-xs">
+                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={form.deductions || ""}
+                  onChange={(e) => update("deductions", parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                  className="pl-7"
+                  data-testid="input-deductions"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Step 4c</span>
+                <span className="text-sm font-medium text-gray-700">Extra Withholding</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-2">Any additional tax you want withheld from each paycheck</p>
+              <div className="relative max-w-xs">
+                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={form.extraWithholding || ""}
+                  onChange={(e) => update("extraWithholding", parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                  className="pl-7"
+                  data-testid="input-extraWithholding"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
