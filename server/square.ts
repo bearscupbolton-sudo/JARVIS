@@ -815,6 +815,198 @@ export async function syncSquareTimecards(startDate: string, endDate: string, lo
   }
 }
 
+let lastWebhookEventAt: Date | null = null;
+
+export function getLastWebhookEventAt(): Date | null {
+  return lastWebhookEventAt;
+}
+
+export async function handleSquareWebhook(eventType: string, data: any): Promise<void> {
+  lastWebhookEventAt = new Date();
+  console.log(`[Square Webhook] Received event: ${eventType}`);
+
+  try {
+    switch (eventType) {
+      case "labor.timecard.created":
+        await handleTimecardCreated(data);
+        break;
+      case "labor.timecard.updated":
+        await handleTimecardUpdated(data);
+        break;
+      case "labor.timecard.deleted":
+        await handleTimecardDeleted(data);
+        break;
+      case "labor.shift.created":
+        await handleTimecardCreated(data);
+        break;
+      case "labor.shift.updated":
+        await handleTimecardUpdated(data);
+        break;
+      case "labor.shift.deleted":
+        await handleTimecardDeleted(data);
+        break;
+      default:
+        console.log(`[Square Webhook] Ignoring unhandled event type: ${eventType}`);
+    }
+  } catch (error: any) {
+    console.error(`[Square Webhook] Error processing ${eventType}:`, error.message);
+  }
+}
+
+async function resolveTimecardFromData(data: any): Promise<any | null> {
+  const timecard = data?.object?.timecard || data?.object?.shift || null;
+  return timecard;
+}
+
+async function findLinkedUser(teamMemberId: string): Promise<{ id: string; firstName: string | null; lastName: string | null } | null> {
+  if (!teamMemberId) return null;
+  const [user] = await db.select({
+    id: users.id,
+    firstName: users.firstName,
+    lastName: users.lastName,
+  })
+    .from(users)
+    .where(eq(users.squareTeamMemberId, teamMemberId))
+    .limit(1);
+  return user || null;
+}
+
+async function handleTimecardCreated(data: any): Promise<void> {
+  const timecard = await resolveTimecardFromData(data);
+  if (!timecard) {
+    console.warn("[Square Webhook] No timecard data in created event");
+    return;
+  }
+
+  const squareId = timecard.id;
+  const teamMemberId = timecard.teamMemberId || timecard.team_member_id;
+
+  const jarvisUser = await findLinkedUser(teamMemberId);
+  if (!jarvisUser) {
+    console.log(`[Square Webhook] Unlinked team member ${teamMemberId}, skipping clock-in`);
+    return;
+  }
+
+  const [existing] = await db.select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(and(eq(timeEntries.source, "square"), eq(timeEntries.squareShiftId, squareId)))
+    .limit(1);
+
+  if (existing) {
+    console.log(`[Square Webhook] Time entry already exists for Square shift ${squareId}, skipping`);
+    return;
+  }
+
+  const clockIn = timecard.startAt || timecard.start_at;
+  if (!clockIn) {
+    console.warn(`[Square Webhook] No start time for shift ${squareId}`);
+    return;
+  }
+
+  const clockOut = timecard.endAt || timecard.end_at || null;
+  const status = clockOut ? "completed" : "active";
+
+  const [inserted] = await db.insert(timeEntries).values({
+    userId: jarvisUser.id,
+    clockIn: new Date(clockIn),
+    clockOut: clockOut ? new Date(clockOut) : null,
+    status,
+    source: "square",
+    squareShiftId: squareId,
+    notes: "Synced from Square POS (real-time)",
+    locationId: null,
+  }).returning({ id: timeEntries.id });
+
+  if (inserted && timecard.breaks?.length) {
+    await syncBreaksForTimecard(inserted.id, timecard);
+  }
+
+  console.log(`[Square Webhook] Created time entry for ${jarvisUser.firstName} ${jarvisUser.lastName} (shift ${squareId})`);
+}
+
+async function handleTimecardUpdated(data: any): Promise<void> {
+  const timecard = await resolveTimecardFromData(data);
+  if (!timecard) {
+    console.warn("[Square Webhook] No timecard data in updated event");
+    return;
+  }
+
+  const squareId = timecard.id;
+  const teamMemberId = timecard.teamMemberId || timecard.team_member_id;
+
+  const [existing] = await db.select({ id: timeEntries.id, clockOut: timeEntries.clockOut, status: timeEntries.status })
+    .from(timeEntries)
+    .where(and(eq(timeEntries.source, "square"), eq(timeEntries.squareShiftId, squareId)))
+    .limit(1);
+
+  if (!existing) {
+    const jarvisUser = await findLinkedUser(teamMemberId);
+    if (!jarvisUser) {
+      console.log(`[Square Webhook] Unlinked team member ${teamMemberId}, skipping update`);
+      return;
+    }
+
+    const clockIn = timecard.startAt || timecard.start_at;
+    if (!clockIn) return;
+    const clockOut = timecard.endAt || timecard.end_at || null;
+    const status = clockOut ? "completed" : "active";
+
+    const [inserted] = await db.insert(timeEntries).values({
+      userId: jarvisUser.id,
+      clockIn: new Date(clockIn),
+      clockOut: clockOut ? new Date(clockOut) : null,
+      status,
+      source: "square",
+      squareShiftId: squareId,
+      notes: "Synced from Square POS (real-time)",
+      locationId: null,
+    }).returning({ id: timeEntries.id });
+
+    if (inserted && timecard.breaks?.length) {
+      await syncBreaksForTimecard(inserted.id, timecard);
+    }
+    console.log(`[Square Webhook] Created missing time entry on update for shift ${squareId}`);
+    return;
+  }
+
+  const clockIn = timecard.startAt || timecard.start_at || null;
+  const clockOut = timecard.endAt || timecard.end_at || null;
+  const status = clockOut ? "completed" : "active";
+
+  await db.update(timeEntries)
+    .set({
+      ...(clockIn ? { clockIn: new Date(clockIn) } : {}),
+      clockOut: clockOut ? new Date(clockOut) : null,
+      status,
+    })
+    .where(eq(timeEntries.id, existing.id));
+
+  await syncBreaksForTimecard(existing.id, timecard);
+  console.log(`[Square Webhook] Updated time entry for shift ${squareId} (status: ${status})`);
+}
+
+async function handleTimecardDeleted(data: any): Promise<void> {
+  const timecard = await resolveTimecardFromData(data);
+  const squareId = timecard?.id || data?.id;
+  if (!squareId) {
+    console.warn("[Square Webhook] No shift ID in deleted event");
+    return;
+  }
+
+  const [existing] = await db.select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(and(eq(timeEntries.source, "square"), eq(timeEntries.squareShiftId, squareId)))
+    .limit(1);
+
+  if (!existing) {
+    console.log(`[Square Webhook] No time entry found for deleted shift ${squareId}, skipping`);
+    return;
+  }
+
+  await db.delete(timeEntries).where(eq(timeEntries.id, existing.id));
+  console.log(`[Square Webhook] Deleted time entry for shift ${squareId}`);
+}
+
 async function syncBreaksForTimecard(timeEntryId: number, timecard: any) {
   const breaks = timecard.breaks || [];
   if (breaks.length === 0) return;

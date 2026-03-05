@@ -39,6 +39,11 @@ interface SyncStatus {
   hasSquareToken: boolean;
 }
 
+interface WebhookStatus {
+  configured: boolean;
+  lastEventAt: string | null;
+}
+
 export default function SquareLaborSync() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -59,6 +64,12 @@ export default function SquareLaborSync() {
   const { data: syncStatus, isLoading: statusLoading } = useQuery<SyncStatus>({
     queryKey: ["/api/square/timecards/status"],
     enabled: isOwner,
+  });
+
+  const { data: webhookStatus } = useQuery<WebhookStatus>({
+    queryKey: ["/api/square/webhook-status"],
+    enabled: isOwner,
+    refetchInterval: 30000,
   });
 
   const { data: teamData, isLoading: teamLoading, refetch: refetchTeam } = useQuery<{
@@ -211,6 +222,58 @@ export default function SquareLaborSync() {
         </Card>
       </div>
 
+      {syncStatus?.hasSquareToken && (
+        <Card data-testid="card-realtime-sync">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              {webhookStatus?.configured ? (
+                <>
+                  <div className="p-2 rounded-full bg-green-100 dark:bg-green-950/30">
+                    <Zap className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-green-700 dark:text-green-400">Real-Time Sync Active</span>
+                      <Badge className="bg-green-600 text-white text-[10px]" data-testid="badge-realtime-active">Live</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Square clock-ins and clock-outs are automatically synced to Jarvis in real time.
+                    </p>
+                    {webhookStatus.lastEventAt && (
+                      <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-webhook-event">
+                        Last event: {new Date(webhookStatus.lastEventAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-2 rounded-full bg-amber-100 dark:bg-amber-950/30">
+                    <Zap className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="font-medium text-amber-700 dark:text-amber-400">Real-Time Sync Not Set Up</span>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Set up Square webhooks so clock-ins and clock-outs sync to Jarvis automatically. Without this, you need to manually sync from the section below.
+                    </p>
+                    <div className="mt-3 bg-muted/50 rounded-md p-3 space-y-2 text-sm">
+                      <p className="font-medium">Setup Steps:</p>
+                      <ol className="list-decimal list-inside space-y-1.5 text-muted-foreground text-xs">
+                        <li>Go to <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">Square Developer Dashboard</a> and select your app</li>
+                        <li>Go to <strong>Webhooks</strong> and add a new subscription</li>
+                        <li>Set the notification URL to: <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] break-all">https://jarvisbc.com/api/square/webhooks</code></li>
+                        <li>Select events: <code className="bg-muted px-1 py-0.5 rounded text-[11px]">labor.timecard.created</code>, <code className="bg-muted px-1 py-0.5 rounded text-[11px]">labor.timecard.updated</code>, <code className="bg-muted px-1 py-0.5 rounded text-[11px]">labor.timecard.deleted</code></li>
+                        <li>Copy the <strong>Signature Key</strong> and add it as <code className="bg-muted px-1 py-0.5 rounded text-[11px]">SQUARE_WEBHOOK_SIGNATURE_KEY</code> in your Jarvis environment secrets</li>
+                      </ol>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {!syncStatus?.hasSquareToken && !statusLoading && (
         <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
           <CardContent className="p-4">
@@ -230,13 +293,14 @@ export default function SquareLaborSync() {
       <Card data-testid="card-sync-section">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
-            <Clock className="w-5 h-5" /> Sync Timecards
+            <Clock className="w-5 h-5" /> {webhookStatus?.configured ? "Backfill Sync" : "Sync Timecards"}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Pull clock-in and clock-out records from Square for the selected date range. 
-            Only linked team members' timecards will be imported. Existing entries are updated rather than duplicated.
+            {webhookStatus?.configured
+              ? "Real-time sync handles new clock-ins automatically. Use this to backfill historical timecards for a specific date range."
+              : "Pull clock-in and clock-out records from Square for the selected date range. Only linked team members' timecards will be imported. Existing entries are updated rather than duplicated."}
           </p>
           <div className="grid gap-3 sm:grid-cols-3 items-end">
             <div>

@@ -23,6 +23,7 @@ import {
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
   getLiveInventoryDashboard, fetchSquareTips,
   fetchSquareTeamMembers, syncSquareTimecards,
+  handleSquareWebhook, getLastWebhookEventAt,
 } from "./square";
 
 async function getUserFromReq(req: any) {
@@ -2458,6 +2459,67 @@ Rules:
         linkedTeamMembers: linkedCount.length,
         recentSquareEntries: recentSquareEntries.length,
         hasSquareToken: !!process.env.SQUARE_ACCESS_TOKEN,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/webhooks", async (req: any, res) => {
+    try {
+      const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
+      if (!signatureKey) {
+        console.warn("[Square Webhook] No SQUARE_WEBHOOK_SIGNATURE_KEY configured, rejecting");
+        return res.status(403).json({ message: "Webhook not configured" });
+      }
+
+      const signature = req.headers["x-square-hmacsha256-signature"];
+      if (!signature) {
+        return res.status(403).json({ message: "Missing signature" });
+      }
+
+      const { WebhooksHelper } = await import("square");
+
+      const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : String(req.rawBody || "");
+
+      const forwardedProto = req.headers["x-forwarded-proto"] || req.protocol;
+      const forwardedHost = req.headers["x-forwarded-host"] || req.get("host");
+      const notificationUrl = process.env.SQUARE_WEBHOOK_URL || `${forwardedProto}://${forwardedHost}/api/square/webhooks`;
+
+      const isValid = WebhooksHelper.verifySignature({
+        requestBody: rawBody,
+        signatureHeader: signature,
+        signatureKey: signatureKey,
+        notificationUrl: notificationUrl,
+      });
+
+      if (!isValid) {
+        console.warn("[Square Webhook] Invalid signature, rejecting");
+        return res.status(403).json({ message: "Invalid signature" });
+      }
+
+      res.status(200).json({ received: true });
+
+      const eventType = req.body?.type;
+      const eventData = req.body?.data;
+      if (eventType && eventData) {
+        handleSquareWebhook(eventType, eventData).catch(err => {
+          console.error("[Square Webhook] Async processing error:", err);
+        });
+      }
+    } catch (error: any) {
+      console.error("[Square Webhook] Error:", error.message);
+      res.status(500).json({ message: "Webhook processing error" });
+    }
+  });
+
+  app.get("/api/square/webhook-status", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const configured = !!process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
+      const lastEventAt = getLastWebhookEventAt();
+      res.json({
+        configured,
+        lastEventAt: lastEventAt?.toISOString() || null,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
