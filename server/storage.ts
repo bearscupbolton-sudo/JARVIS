@@ -656,6 +656,8 @@ export interface IStorage {
   getOnboardingInvites(): Promise<OnboardingInvite[]>;
   getOnboardingInviteByToken(token: string): Promise<OnboardingInvite | undefined>;
   updateOnboardingInviteStatus(id: number, status: string, completedAt?: Date): Promise<OnboardingInvite>;
+  deleteOnboardingInvite(id: number): Promise<void>;
+  getOnboardingInviteById(id: number): Promise<OnboardingInvite | undefined>;
   createOnboardingSubmission(submission: InsertOnboardingSubmission): Promise<OnboardingSubmission>;
   getOnboardingSubmissionByInviteId(inviteId: number): Promise<OnboardingSubmission | undefined>;
   updateOnboardingSubmission(id: number, updates: Partial<InsertOnboardingSubmission>): Promise<OnboardingSubmission>;
@@ -3909,6 +3911,15 @@ export class DatabaseStorage implements IStorage {
     const updates: any = { status };
     if (completedAt) updates.completedAt = completedAt;
     const [result] = await db.update(onboardingInvites).set(updates).where(eq(onboardingInvites.id, id)).returning();
+    return result;
+  }
+
+  async deleteOnboardingInvite(id: number): Promise<void> {
+    await db.delete(onboardingInvites).where(eq(onboardingInvites.id, id));
+  }
+
+  async getOnboardingInviteById(id: number): Promise<OnboardingInvite | undefined> {
+    const [result] = await db.select().from(onboardingInvites).where(eq(onboardingInvites.id, id));
     return result;
   }
 

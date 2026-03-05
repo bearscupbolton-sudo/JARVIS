@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight, Upload, Pencil, Camera, Sparkles, Save } from "lucide-react";
+import { Briefcase, UserPlus, CalendarOff, Star, ShieldCheck, DollarSign, FileText, BarChart3, Link2, Copy, Check, Eye, Clock, CheckCircle2, Loader2, X, Lock, User, Hash, KeyRound, ChevronRight, Upload, Pencil, Camera, Sparkles, Save, Trash2, Download, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { compressForUpload } from "@/lib/image-utils";
+import { useAuth } from "@/hooks/use-auth";
 import type { OnboardingInvite, OnboardingDocument } from "@shared/schema";
 
 const futureSections = [
@@ -245,8 +246,9 @@ function getStepStatus(step: number, submission: any, inviteStatus: string): "co
 
 function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
   const [open, setOpen] = useState(false);
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, setActiveStep] = useState(invite.status === "completed" ? 3 : 0);
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const { toast } = useToast();
 
   const { data: submission, isLoading } = useQuery({
@@ -259,6 +261,19 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
     enabled: open,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/hr/onboarding/invite/${invite.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/hr/onboarding/invites"] });
+      toast({ title: "Invite deleted" });
+      setOpen(false);
+      setConfirmDelete(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const onboardingLink = `${window.location.origin}/onboarding/${invite.token}`;
 
   const handleCopyLink = () => {
@@ -269,7 +284,7 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setActiveStep(0); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setActiveStep(invite.status === "completed" ? 3 : 0); setConfirmDelete(false); } }}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm" data-testid={`button-manage-onboarding-${invite.id}`}>
           <Eye className="w-4 h-4 mr-1" />
@@ -296,12 +311,29 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
                 {invite.createdAt && <>Created {new Date(invite.createdAt).toLocaleDateString()}</>}
               </p>
             </div>
-            {invite.status !== "completed" && (
-              <Button variant="outline" size="sm" onClick={handleCopyLink} data-testid={`button-copy-onboarding-link-${invite.id}`}>
-                {copied ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                <span className="text-xs">{copied ? "Copied" : "Copy Link"}</span>
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {invite.status === "pending" && (
+                confirmDelete ? (
+                  <div className="flex items-center gap-1">
+                    <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} data-testid={`button-confirm-delete-invite-${invite.id}`}>
+                      {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, Delete"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)} data-testid="button-cancel-delete">Cancel</Button>
+                  </div>
+                ) : (
+                  <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDelete(true)} data-testid={`button-delete-invite-${invite.id}`}>
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    <span className="text-xs">Delete</span>
+                  </Button>
+                )
+              )}
+              {invite.status !== "completed" && !confirmDelete && (
+                <Button variant="outline" size="sm" onClick={handleCopyLink} data-testid={`button-copy-onboarding-link-${invite.id}`}>
+                  {copied ? <Check className="w-3.5 h-3.5 mr-1 text-green-500" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  <span className="text-xs">{copied ? "Copied" : "Copy Link"}</span>
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1" data-testid="onboarding-step-nav">
@@ -358,9 +390,9 @@ function StepPersonalInfo({ submission }: { submission: any }) {
   if (!submission) {
     return (
       <div className="text-center py-8 text-muted-foreground">
-        <User className="w-10 h-10 mx-auto mb-3 opacity-30" />
-        <p className="font-medium">Not yet submitted</p>
-        <p className="text-sm mt-1">The applicant has not filled out their personal information yet.</p>
+        <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="font-medium">Waiting for Employee</p>
+        <p className="text-sm mt-1">This person hasn't started their onboarding yet. Share the invite link so they can begin.</p>
       </div>
     );
   }
@@ -870,10 +902,46 @@ function SecurityInfoCard() {
   );
 }
 
+function DeleteInviteButton({ invite }: { invite: OnboardingInvite }) {
+  const { toast } = useToast();
+  const deleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/hr/onboarding/invite/${invite.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/hr/onboarding/invites"] });
+      toast({ title: "Invite deleted" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (invite.status !== "pending") return null;
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground hover:text-red-600 hover:bg-red-50 h-7 w-7 p-0"
+      onClick={() => { if (confirm(`Delete the pending invite for ${invite.firstName}?`)) deleteMutation.mutate(); }}
+      disabled={deleteMutation.isPending}
+      data-testid={`button-quick-delete-${invite.id}`}
+    >
+      {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+    </Button>
+  );
+}
+
 export default function HR() {
   const { data: invites = [], isLoading } = useQuery<OnboardingInvite[]>({
     queryKey: ["/api/hr/onboarding/invites"],
   });
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
+  const completedCount = invites.filter(i => i.status === "completed").length;
+
+  const handleExportADP = () => {
+    window.open("/api/hr/onboarding/export/adp", "_blank");
+  };
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6" data-testid="hr-page">
@@ -887,7 +955,16 @@ export default function HR() {
             <p className="text-sm text-muted-foreground">People management tools for Bear's Cup Bakehouse</p>
           </div>
         </div>
-        <CreateInviteDialog />
+        <div className="flex items-center gap-2">
+          {isOwner && completedCount > 0 && (
+            <Button variant="outline" size="sm" onClick={handleExportADP} data-testid="button-export-adp">
+              <Download className="w-4 h-4 mr-1" />
+              <span className="hidden sm:inline">Export for ADP</span>
+              <span className="sm:hidden">ADP</span>
+            </Button>
+          )}
+          <CreateInviteDialog />
+        </div>
       </div>
 
       <Card data-testid="card-onboarding-section">
@@ -932,6 +1009,7 @@ export default function HR() {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={invite.status} />
+                    <DeleteInviteButton invite={invite} />
                     <OnboardingDetailDialog invite={invite} />
                   </div>
                 </div>

@@ -8799,6 +8799,95 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
     }
   });
 
+  app.delete("/api/hr/onboarding/invite/:id", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid invite ID" });
+      }
+      const invite = await storage.getOnboardingInviteById(id);
+      if (!invite) {
+        return res.status(404).json({ message: "Invite not found" });
+      }
+      if (invite.status !== "pending") {
+        return res.status(400).json({ message: "Only pending invites can be deleted. Completed or in-progress invites are legal records." });
+      }
+      await storage.deleteOnboardingInvite(id);
+      res.json({ message: "Invite deleted" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hr/onboarding/export/adp", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const invites = await storage.getOnboardingInvites();
+      const completedInvites = invites.filter(i => i.status === "completed");
+
+      const rows: any[] = [];
+      for (const invite of completedInvites) {
+        const sub = await storage.getOnboardingSubmissionByInviteId(invite.id);
+        if (!sub) continue;
+        rows.push({
+          firstName: sub.legalFirstName || "",
+          lastName: sub.legalLastName || "",
+          middleName: sub.middleName || "",
+          ssn: sub.ssn ? `***-**-${sub.ssn.slice(-4)}` : "",
+          dateOfBirth: sub.dateOfBirth || "",
+          address: sub.address || "",
+          city: sub.city || "",
+          state: sub.state || "",
+          zipCode: sub.zipCode || "",
+          phone: sub.phone || "",
+          personalEmail: sub.personalEmail || "",
+          emergencyContactName: sub.emergencyContactName || "",
+          emergencyContactPhone: sub.emergencyContactPhone || "",
+          emergencyContactRelation: sub.emergencyContactRelation || "",
+          federalFilingStatus: sub.federalFilingStatus || "",
+          stateFilingStatus: sub.stateFilingStatus || "",
+          allowances: String(sub.allowances ?? 0),
+          bankName: sub.bankName || "",
+          accountType: sub.accountType || "",
+          routingNumber: sub.routingNumber ? `****${sub.routingNumber.slice(-4)}` : "",
+          accountNumber: sub.accountNumber ? `****${sub.accountNumber.slice(-4)}` : "",
+          hireDate: invite.createdAt ? new Date(invite.createdAt).toLocaleDateString("en-US") : "",
+          position: invite.position || "",
+          department: invite.department || "",
+        });
+      }
+
+      const headers = [
+        "First Name", "Last Name", "Middle Name", "SSN (Last 4)", "Date of Birth",
+        "Address", "City", "State", "ZIP", "Phone", "Personal Email",
+        "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relation",
+        "Federal Filing Status", "State Filing Status", "Allowances",
+        "Bank Name", "Account Type", "Routing Number (Last 4)", "Account Number (Last 4)",
+        "Hire Date", "Position", "Department"
+      ];
+
+      const sanitizeCell = (val: string): string => {
+        let s = String(val).replace(/"/g, '""');
+        if (/^[=+\-@\t\r]/.test(s)) {
+          s = "'" + s;
+        }
+        return `"${s}"`;
+      };
+
+      const csvLines = [headers.map(h => sanitizeCell(h)).join(",")];
+      for (const row of rows) {
+        const values = Object.values(row).map((v: any) => sanitizeCell(String(v)));
+        csvLines.push(values.join(","));
+      }
+
+      const csv = csvLines.join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=adp-onboarding-export.csv");
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/hr/onboarding/submission/:inviteId", isAuthenticated, isManager, async (req, res) => {
     try {
       const inviteId = parseInt(req.params.inviteId);
