@@ -75,7 +75,7 @@ export default function Vendors() {
 
   const { data: allVendors, isLoading } = useQuery<Vendor[]>({ queryKey: ["/api/vendors"] });
   const { data: todayVendors } = useQuery<Vendor[]>({ queryKey: ["/api/vendors/today-orders"] });
-  const { data: inventoryItemsList } = useQuery<InventoryItem[]>({ queryKey: ["/api/inventory"] });
+  const { data: inventoryItemsList } = useQuery<InventoryItem[]>({ queryKey: ["/api/inventory-items"] });
 
   const selectedVendor = allVendors?.find(v => v.id === selectedVendorId);
 

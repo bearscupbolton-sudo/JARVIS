@@ -1379,6 +1379,23 @@ export class DatabaseStorage implements IStorage {
   ): Promise<Invoice & { lines: InvoiceLine[] }> {
     const [invoice] = await db.insert(invoices).values(invoiceData).returning();
 
+    let vendorId: number | null = null;
+    if (invoiceData.vendorName) {
+      const vendorNameTrimmed = invoiceData.vendorName.trim();
+      const [existingVendor] = await db.select().from(vendors)
+        .where(ilike(vendors.name, vendorNameTrimmed));
+      if (existingVendor) {
+        vendorId = existingVendor.id;
+      } else {
+        const [newVendor] = await db.insert(vendors).values({
+          name: vendorNameTrimmed,
+          isActive: true,
+          orderDays: [],
+        }).returning();
+        vendorId = newVendor.id;
+      }
+    }
+
     const allItems = await this.getInventoryItems();
     const createdLines: InvoiceLine[] = [];
 
@@ -1432,6 +1449,29 @@ export class DatabaseStorage implements IStorage {
                 .set({ aliases: [...existingAliases, line.itemDescription.trim()] })
                 .where(eq(inventoryItems.id, matchedItemId));
             }
+          }
+        }
+
+        if (vendorId) {
+          const [existingLink] = await db.select().from(vendorItems)
+            .where(and(
+              eq(vendorItems.vendorId, vendorId),
+              eq(vendorItems.inventoryItemId, matchedItemId)
+            ));
+          if (existingLink) {
+            await db.update(vendorItems)
+              .set({
+                vendorDescription: line.itemDescription.trim(),
+                preferredUnit: line.unit || existingLink.preferredUnit,
+              })
+              .where(eq(vendorItems.id, existingLink.id));
+          } else {
+            await db.insert(vendorItems).values({
+              vendorId,
+              inventoryItemId: matchedItemId,
+              vendorDescription: line.itemDescription.trim(),
+              preferredUnit: line.unit || null,
+            });
           }
         }
       }
