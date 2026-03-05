@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ChevronRight, CheckCircle2, User, FileText, ShieldCheck, Heart } from "lucide-react";
+import { Loader2, ChevronRight, CheckCircle2, User, FileText, ShieldCheck, Heart, Shield, Lock, Eye, Link2, ChevronDown, ChevronUp } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 
 const US_STATES = [
@@ -334,7 +334,7 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
     if (errors[field]) setErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
   };
 
-  const Field = ({ label, field, type = "text", required = false, placeholder = "" }: { label: string; field: string; type?: string; required?: boolean; placeholder?: string }) => (
+  const Field = ({ label, field, type = "text", required = false, placeholder = "", inputMode, pattern, maxLength, autoComplete }: { label: string; field: string; type?: string; required?: boolean; placeholder?: string; inputMode?: "numeric" | "tel" | "text" | "decimal"; pattern?: string; maxLength?: number; autoComplete?: string }) => (
     <div>
       <Label className="text-sm font-medium text-gray-700">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</Label>
       <Input
@@ -344,16 +344,63 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
         placeholder={placeholder}
         className={`mt-1 ${errors[field] ? "border-red-400" : ""}`}
         data-testid={`input-${field}`}
+        {...(inputMode ? { inputMode } : {})}
+        {...(pattern ? { pattern } : {})}
+        {...(maxLength ? { maxLength } : {})}
+        {...(autoComplete ? { autoComplete } : {})}
       />
       {errors[field] && <p className="text-red-500 text-xs mt-0.5">{errors[field]}</p>}
     </div>
   );
 
+  const [securityOpen, setSecurityOpen] = useState(false);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Personal Information</CardTitle>
-        <p className="text-sm text-gray-500">This information is used for payroll and employment records. Fields marked with * are required.</p>
+        <p className="text-sm text-gray-500">Fields marked with * are required.</p>
+        <button
+          onClick={() => setSecurityOpen(!securityOpen)}
+          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors w-fit"
+          data-testid="badge-data-security"
+        >
+          <Shield className="w-3.5 h-3.5" />
+          Your data is protected
+          {securityOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {securityOpen && (
+          <div className="mt-3 p-4 rounded-lg bg-green-50 border border-green-200 space-y-3" data-testid="security-details">
+            <div className="flex items-start gap-2">
+              <Lock className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-medium text-green-800">Hashed Before Storage</div>
+                <div className="text-xs text-green-700">Your SSN, routing number, and account number are cryptographically hashed before being stored. Only the last 4 digits are retained for verification — the full numbers are not kept in readable form.</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Eye className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-medium text-green-800">Masked Display</div>
+                <div className="text-xs text-green-700">Only the last 4 digits of sensitive numbers are kept for verification. Managers only ever see masked values (e.g., ***-**-1234).</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-medium text-green-800">Access Control</div>
+                <div className="text-xs text-green-700">Only authorized managers can view submissions, and all sensitive fields are always displayed in masked format.</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Link2 className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-medium text-green-800">Secure Links</div>
+                <div className="text-xs text-green-700">Your onboarding link is unique and single-use. Once completed, it cannot be reused to access or edit your information.</div>
+              </div>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
@@ -370,7 +417,30 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Identification</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Social Security Number" field="ssn" required placeholder="123456789" />
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Social Security Number<span className="text-red-500 ml-0.5">*</span></Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9-]*"
+                maxLength={11}
+                autoComplete="off"
+                value={(() => {
+                  const raw = form.ssn.replace(/\D/g, "");
+                  if (raw.length <= 3) return raw;
+                  if (raw.length <= 5) return `${raw.slice(0, 3)}-${raw.slice(3)}`;
+                  return `${raw.slice(0, 3)}-${raw.slice(3, 5)}-${raw.slice(5, 9)}`;
+                })()}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 9);
+                  update("ssn", digits);
+                }}
+                placeholder="XXX-XX-XXXX"
+                className={`mt-1 ${errors.ssn ? "border-red-400" : ""}`}
+                data-testid="input-ssn"
+              />
+              {errors.ssn && <p className="text-red-500 text-xs mt-0.5">{errors.ssn}</p>}
+            </div>
             <Field label="Date of Birth" field="dateOfBirth" type="date" required />
           </div>
         </div>
@@ -395,7 +465,7 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
                 </Select>
                 {errors.state && <p className="text-red-500 text-xs mt-0.5">{errors.state}</p>}
               </div>
-              <Field label="ZIP Code" field="zipCode" required placeholder="12345" />
+              <Field label="ZIP Code" field="zipCode" required placeholder="12345" inputMode="numeric" pattern="[0-9-]*" maxLength={10} />
             </div>
           </div>
         </div>
@@ -403,7 +473,7 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Contact Information</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Phone Number" field="phone" required placeholder="(555) 123-4567" />
+            <Field label="Phone Number" field="phone" type="tel" required placeholder="(555) 123-4567" />
             <Field label="Personal Email" field="personalEmail" type="email" required />
           </div>
         </div>
@@ -412,7 +482,7 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
           <h3 className="font-semibold text-gray-700 mb-3">Emergency Contact</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Full Name" field="emergencyContactName" required />
-            <Field label="Phone Number" field="emergencyContactPhone" required />
+            <Field label="Phone Number" field="emergencyContactPhone" type="tel" required />
             <Field label="Relationship" field="emergencyContactRelation" required placeholder="e.g. Spouse, Parent" />
           </div>
         </div>
@@ -468,8 +538,37 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
                 </SelectContent>
               </Select>
             </div>
-            <Field label="Routing Number" field="routingNumber" placeholder="9-digit routing number" />
-            <Field label="Account Number" field="accountNumber" placeholder="Account number" />
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Routing Number</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={9}
+                autoComplete="off"
+                value={form.routingNumber}
+                onChange={(e) => update("routingNumber", e.target.value.replace(/\D/g, "").slice(0, 9))}
+                placeholder="9-digit routing number"
+                className={`mt-1 ${errors.routingNumber ? "border-red-400" : ""}`}
+                data-testid="input-routingNumber"
+              />
+              {errors.routingNumber && <p className="text-red-500 text-xs mt-0.5">{errors.routingNumber}</p>}
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-gray-700">Account Number</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="off"
+                value={form.accountNumber}
+                onChange={(e) => update("accountNumber", e.target.value.replace(/\D/g, ""))}
+                placeholder="Account number"
+                className={`mt-1 ${errors.accountNumber ? "border-red-400" : ""}`}
+                data-testid="input-accountNumber"
+              />
+              {errors.accountNumber && <p className="text-red-500 text-xs mt-0.5">{errors.accountNumber}</p>}
+            </div>
           </div>
         </div>
 
