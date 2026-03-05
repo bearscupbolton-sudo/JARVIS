@@ -29,6 +29,7 @@ const routeImportMap: Record<string, () => Promise<unknown>> = {
   "/time-cards": () => import("@/pages/TimeCards"),
   "/time-review": () => import("@/pages/TimeReview"),
   "/admin/square": () => import("@/pages/SquareSettings"),
+  "/square-labor": () => import("@/pages/SquareLaborSync"),
   "/pastry-goals": () => import("@/pages/PastryGoals"),
   "/live-inventory": () => import("@/pages/LiveInventory"),
   "/admin/ttis": () => import("@/pages/TTIS"),

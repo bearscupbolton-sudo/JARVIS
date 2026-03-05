@@ -21,7 +21,8 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Invoice Capture:** AI vision model processes multi-image bakery invoices.
 *   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI-driven import (CSV/images), smart time parsing, shift pickups/claims, department/shift-type filtering, predefined presets, inline modification, color-coding for modified shifts, weekly hour counters, and reusable templates.
 *   **Events & Calendar:** Manages events with team member tagging and personalized views.
-*   **Time Card System:** Features a persistent Clock Bar, PIN-based Kiosk Clock, personal management, and "Time Review."
+*   **Time Card System:** Features a persistent Clock Bar, PIN-based Kiosk Clock, personal management, "Time Review," and Square Labor Sync (pulls clock-in/clock-out data from Square POS timecards into Jarvis `time_entries` with `source: "square"`).
+*   **Square Labor Sync:** Owner-only page (`/square-labor`) that connects Square POS team members to Jarvis users and syncs timecards. Supports auto-linking by name, manual linking, date-range sync with deduplication via `squareShiftId`, and break entry import. Uses Square SDK v44 Labor API (`searchTimecards`, `teamMembers.search`).
 *   **Shift Notes:** Private manager feedback system with AI-rewritten constructive notes visible to employees.
 *   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions and role-based (`owner`, `manager`, `member`) permissions.
 *   **User Customization:** Owners can configure sidebar visibility, landing pages, default departments, and section access.

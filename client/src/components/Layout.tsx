@@ -155,6 +155,7 @@ const GM_NAV_ITEMS = [
 const OWNER_ONLY_NAV_ITEMS = [
   { href: "/the-firm", label: "The Firm", icon: Landmark },
   { href: "/payroll", label: "Payroll Review", icon: DollarSign },
+  { href: "/square-labor", label: "Square Labor", icon: Zap },
   { href: "/admin/square", label: "Square Settings", icon: Settings2 },
   { href: "/admin/insights", label: "Insights", icon: Eye },
   { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },

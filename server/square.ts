@@ -1,7 +1,8 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
-import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems } from "@shared/schema";
-import { eq, and, gte, lte, inArray, isNull } from "drizzle-orm";
+import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems, timeEntries, breakEntries } from "@shared/schema";
+import { users } from "@shared/models/auth";
+import { eq, and, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 
 function getSquareClient() {
   return new SquareClient({
@@ -583,4 +584,269 @@ export async function createSquareOrder(params: {
     orderId: order.id,
     totalAmount,
   };
+}
+
+export async function fetchSquareTeamMembers(): Promise<{ success: boolean; members: any[]; error?: string }> {
+  try {
+    const client = getSquareClient();
+    const allMembers: any[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const response: any = await client.teamMembers.search({
+        query: {
+          filter: {
+            status: "ACTIVE",
+          },
+        },
+        limit: 100,
+        cursor,
+      });
+      const members = response.teamMembers || [];
+      allMembers.push(...members.map((m: any) => ({
+        id: m.id,
+        firstName: m.givenName || "",
+        lastName: m.familyName || "",
+        email: m.emailAddress || null,
+        phone: m.phoneNumber || null,
+        status: m.status,
+        isOwner: m.isOwner || false,
+        createdAt: m.createdAt,
+      })));
+      cursor = response.cursor;
+    } while (cursor);
+
+    return { success: true, members: allMembers };
+  } catch (error: any) {
+    console.error("[Square Labor] Failed to fetch team members:", error.message);
+    return { success: false, members: [], error: error.message || "Failed to fetch team members" };
+  }
+}
+
+export async function fetchSquareTimecards(startDate: string, endDate: string, teamMemberIds?: string[], locationIds?: string[]): Promise<{ success: boolean; timecards: any[]; error?: string }> {
+  try {
+    const client = getSquareClient();
+    const allTimecards: any[] = [];
+    let cursor: string | undefined;
+
+    const filter: any = {
+      start: {
+        startAt: startDate + "T00:00:00Z",
+      },
+      end: {
+        endAt: endDate + "T23:59:59Z",
+      },
+    };
+
+    if (teamMemberIds && teamMemberIds.length > 0) {
+      filter.teamMemberIds = teamMemberIds;
+    }
+
+    if (locationIds && locationIds.length > 0) {
+      filter.locationIds = locationIds;
+    }
+
+    do {
+      const response: any = await client.labor.searchTimecards({
+        query: { filter },
+        limit: 100,
+        cursor,
+      });
+      const timecards = response.timecards || [];
+      allTimecards.push(...timecards);
+      cursor = response.cursor;
+    } while (cursor);
+
+    return { success: true, timecards: allTimecards };
+  } catch (error: any) {
+    console.error("[Square Labor] Failed to fetch timecards:", error.message);
+    return { success: false, timecards: [], error: error.message || "Failed to fetch timecards" };
+  }
+}
+
+export async function syncSquareTimecards(startDate: string, endDate: string, locationId?: number): Promise<{
+  success: boolean;
+  synced: number;
+  updated: number;
+  skipped: number;
+  unlinked: string[];
+  error?: string;
+}> {
+  try {
+    const linkedUsers = await db.select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      squareTeamMemberId: users.squareTeamMemberId,
+    })
+      .from(users)
+      .where(isNotNull(users.squareTeamMemberId));
+
+    const linkedBySquareId = new Map<string, { id: string; firstName: string | null; lastName: string | null }>();
+    for (const u of linkedUsers) {
+      if (u.squareTeamMemberId) {
+        linkedBySquareId.set(u.squareTeamMemberId, { id: u.id, firstName: u.firstName, lastName: u.lastName });
+      }
+    }
+
+    if (linkedBySquareId.size === 0) {
+      return { success: true, synced: 0, updated: 0, skipped: 0, unlinked: [], error: "No users are linked to Square team members. Link team members first." };
+    }
+
+    const squareTeamMemberIds = Array.from(linkedBySquareId.keys());
+    const result = await fetchSquareTimecards(startDate, endDate, squareTeamMemberIds);
+    if (!result.success) {
+      return { success: false, synced: 0, updated: 0, skipped: 0, unlinked: [], error: result.error };
+    }
+
+    const squareShiftIds = result.timecards
+      .map((tc: any) => tc.id)
+      .filter(Boolean);
+
+    let existingBySquareId = new Map<string, { id: number; squareShiftId: string | null; clockIn: Date; clockOut: Date | null; status: string }>();
+    if (squareShiftIds.length > 0) {
+      const batchSize = 500;
+      for (let i = 0; i < squareShiftIds.length; i += batchSize) {
+        const batch = squareShiftIds.slice(i, i + batchSize);
+        const existingEntries = await db.select({
+          id: timeEntries.id,
+          squareShiftId: timeEntries.squareShiftId,
+          clockIn: timeEntries.clockIn,
+          clockOut: timeEntries.clockOut,
+          status: timeEntries.status,
+        })
+          .from(timeEntries)
+          .where(
+            and(
+              eq(timeEntries.source, "square"),
+              inArray(timeEntries.squareShiftId, batch)
+            )
+          );
+        for (const e of existingEntries) {
+          if (e.squareShiftId) {
+            existingBySquareId.set(e.squareShiftId, e);
+          }
+        }
+      }
+    }
+
+    let synced = 0;
+    let updated = 0;
+    let skipped = 0;
+    const unlinkedTeamMemberIds = new Set<string>();
+
+    for (const tc of result.timecards) {
+      const squareId = tc.id;
+      const teamMemberId = tc.teamMemberId;
+
+      if (!teamMemberId || !linkedBySquareId.has(teamMemberId)) {
+        if (teamMemberId) unlinkedTeamMemberIds.add(teamMemberId);
+        skipped++;
+        continue;
+      }
+
+      const jarvisUser = linkedBySquareId.get(teamMemberId)!;
+      const clockIn = tc.clockInAt ? new Date(tc.clockInAt) : null;
+      const clockOut = tc.clockOutAt ? new Date(tc.clockOutAt) : null;
+      const status = clockOut ? "completed" : "active";
+
+      if (!clockIn) {
+        skipped++;
+        continue;
+      }
+
+      const existing = existingBySquareId.get(squareId);
+
+      if (existing) {
+        const clockOutChanged = (clockOut?.getTime() || null) !== (existing.clockOut?.getTime() || null);
+        const statusChanged = status !== existing.status;
+        if (clockOutChanged || statusChanged) {
+          await db.update(timeEntries)
+            .set({
+              clockOut: clockOut,
+              status: status,
+            })
+            .where(eq(timeEntries.id, existing.id));
+          updated++;
+        } else {
+          skipped++;
+        }
+
+        await syncBreaksForTimecard(existing.id, tc);
+      } else {
+        const [inserted] = await db.insert(timeEntries).values({
+          userId: jarvisUser.id,
+          clockIn: clockIn,
+          clockOut: clockOut,
+          status: status,
+          source: "square",
+          squareShiftId: squareId,
+          notes: `Synced from Square POS`,
+          locationId: locationId || null,
+        }).returning({ id: timeEntries.id });
+
+        if (inserted) {
+          await syncBreaksForTimecard(inserted.id, tc);
+        }
+        synced++;
+      }
+    }
+
+    const unlinkedNames: string[] = [];
+    if (unlinkedTeamMemberIds.size > 0) {
+      const membersResult = await fetchSquareTeamMembers();
+      if (membersResult.success) {
+        for (const uid of unlinkedTeamMemberIds) {
+          const member = membersResult.members.find((m: any) => m.id === uid);
+          if (member) {
+            unlinkedNames.push(`${member.firstName} ${member.lastName}`.trim());
+          } else {
+            unlinkedNames.push(`Unknown (${uid})`);
+          }
+        }
+      }
+    }
+
+    console.log(`[Square Labor] Sync complete: ${synced} new, ${updated} updated, ${skipped} skipped, ${unlinkedNames.length} unlinked`);
+    return { success: true, synced, updated, skipped, unlinked: unlinkedNames };
+  } catch (error: any) {
+    console.error("[Square Labor] Sync error:", error);
+    return { success: false, synced: 0, updated: 0, skipped: 0, unlinked: [], error: error.message || "Sync failed" };
+  }
+}
+
+async function syncBreaksForTimecard(timeEntryId: number, timecard: any) {
+  const breaks = timecard.breaks || [];
+  if (breaks.length === 0) return;
+
+  const existingBreaks = await db.select()
+    .from(breakEntries)
+    .where(eq(breakEntries.timeEntryId, timeEntryId));
+
+  for (const b of breaks) {
+    const startAt = b.startAt ? new Date(b.startAt) : null;
+    const endAt = b.endAt ? new Date(b.endAt) : null;
+    if (!startAt) continue;
+
+    const alreadyExists = existingBreaks.some(
+      (eb) => Math.abs(eb.startAt.getTime() - startAt.getTime()) < 60000
+    );
+
+    if (!alreadyExists) {
+      await db.insert(breakEntries).values({
+        timeEntryId,
+        startAt,
+        endAt,
+      });
+    } else if (endAt) {
+      const match = existingBreaks.find(
+        (eb) => Math.abs(eb.startAt.getTime() - startAt.getTime()) < 60000
+      );
+      if (match && !match.endAt) {
+        await db.update(breakEntries)
+          .set({ endAt })
+          .where(eq(breakEntries.id, match.id));
+      }
+    }
+  }
 }

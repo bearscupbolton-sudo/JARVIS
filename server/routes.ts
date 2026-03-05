@@ -22,6 +22,7 @@ import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
   getSquareSalesForDate, generateForecast, autoPopulatePastryGoals,
   getLiveInventoryDashboard, fetchSquareTips,
+  fetchSquareTeamMembers, syncSquareTimecards,
 } from "./square";
 
 async function getUserFromReq(req: any) {
@@ -2292,6 +2293,175 @@ Rules:
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
     const sales = await getSquareSalesForDate(date, locationId);
     res.json(sales);
+  });
+
+  app.get("/api/square/team-members", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const result = await fetchSquareTeamMembers();
+      if (!result.success) {
+        return res.status(500).json({ message: result.error });
+      }
+
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        squareTeamMemberId: users.squareTeamMemberId,
+      }).from(users);
+
+      const membersWithLinks = result.members.map((m: any) => {
+        const linkedUser = allUsers.find(u => u.squareTeamMemberId === m.id);
+        return {
+          ...m,
+          jarvisUserId: linkedUser?.id || null,
+          jarvisUserName: linkedUser ? `${linkedUser.firstName || ""} ${linkedUser.lastName || ""}`.trim() : null,
+        };
+      });
+
+      const unlinkedJarvisUsers = allUsers
+        .filter(u => !u.squareTeamMemberId)
+        .map(u => ({
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+        }));
+
+      res.json({ members: membersWithLinks, unlinkedJarvisUsers });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/team-members/link", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { userId, squareTeamMemberId } = req.body;
+      if (!userId || !squareTeamMemberId) {
+        return res.status(400).json({ message: "userId and squareTeamMemberId are required" });
+      }
+
+      await db.update(users)
+        .set({ squareTeamMemberId })
+        .where(eq(users.id, userId));
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/team-members/unlink", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ message: "userId is required" });
+      }
+
+      await db.update(users)
+        .set({ squareTeamMemberId: null })
+        .where(eq(users.id, userId));
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/team-members/auto-link", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const result = await fetchSquareTeamMembers();
+      if (!result.success) {
+        return res.status(500).json({ message: result.error });
+      }
+
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        squareTeamMemberId: users.squareTeamMemberId,
+      }).from(users);
+
+      let linked = 0;
+      const matches: Array<{ jarvisUser: string; squareMember: string }> = [];
+
+      for (const member of result.members) {
+        const alreadyLinked = allUsers.find(u => u.squareTeamMemberId === member.id);
+        if (alreadyLinked) continue;
+
+        const nameMatch = allUsers.find(u => {
+          if (u.squareTeamMemberId) return false;
+          const jFirst = (u.firstName || "").toLowerCase().trim();
+          const jLast = (u.lastName || "").toLowerCase().trim();
+          const sFirst = (member.firstName || "").toLowerCase().trim();
+          const sLast = (member.lastName || "").toLowerCase().trim();
+          return jFirst === sFirst && jLast === sLast;
+        });
+
+        if (nameMatch) {
+          await db.update(users)
+            .set({ squareTeamMemberId: member.id })
+            .where(eq(users.id, nameMatch.id));
+          nameMatch.squareTeamMemberId = member.id;
+          linked++;
+          matches.push({
+            jarvisUser: `${nameMatch.firstName} ${nameMatch.lastName}`,
+            squareMember: `${member.firstName} ${member.lastName}`,
+          });
+        }
+      }
+
+      res.json({ success: true, linked, matches });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/square/timecards/sync", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate, locationId } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required (YYYY-MM-DD)" });
+      }
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "startDate must be before or equal to endDate" });
+      }
+      const daySpan = (new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24);
+      if (daySpan > 90) {
+        return res.status(400).json({ message: "Date range cannot exceed 90 days" });
+      }
+
+      const result = await syncSquareTimecards(startDate, endDate, locationId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/square/timecards/status", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const linkedCount = await db.select({ id: users.id })
+        .from(users)
+        .where(isNotNull(users.squareTeamMemberId));
+
+      const today = new Date().toISOString().split("T")[0];
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+      const recentSquareEntries = await db.select({ id: timeEntries.id })
+        .from(timeEntries)
+        .where(
+          and(
+            eq(timeEntries.source, "square"),
+            gte(timeEntries.clockIn, new Date(weekAgo + "T00:00:00Z"))
+          )
+        );
+
+      res.json({
+        linkedTeamMembers: linkedCount.length,
+        recentSquareEntries: recentSquareEntries.length,
+        hasSquareToken: !!process.env.SQUARE_ACCESS_TOKEN,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
   });
 
   // === FORECASTING & SMART GOALS ===

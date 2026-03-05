@@ -965,6 +965,7 @@ export const timeEntries = pgTable("time_entries", {
   clockOut: timestamp("clock_out"),
   status: text("status").notNull().default("active"),
   source: text("source").notNull().default("web"),
+  squareShiftId: text("square_shift_id"),
   notes: text("notes"),
   locationId: integer("location_id"),
   adjustmentRequested: boolean("adjustment_requested").default(false).notNull(),

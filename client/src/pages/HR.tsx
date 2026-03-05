@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { compressForUpload } from "@/lib/image-utils";
 import { useAuth } from "@/hooks/use-auth";
-import type { OnboardingInvite, OnboardingDocument, User } from "@shared/schema";
+import type { OnboardingInvite, OnboardingDocument, User as UserType } from "@shared/schema";
 
 const futureSections = [
   {
@@ -995,7 +995,7 @@ function ADPIntegrationSection() {
     queryKey: ["/api/hr/adp/status"],
   });
 
-  const { data: teamMembers = [], isLoading: teamLoading } = useQuery<User[]>({
+  const { data: teamMembers = [], isLoading: teamLoading } = useQuery<UserType[]>({
     queryKey: ["/api/team-members"],
   });
 

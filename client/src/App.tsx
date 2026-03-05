@@ -78,6 +78,7 @@ const PortalOrders = lazy(() => import("@/pages/portal/PortalOrders"));
 const PortalProfile = lazy(() => import("@/pages/portal/PortalProfile"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
+const SquareLaborSync = lazy(() => import("@/pages/SquareLaborSync"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
@@ -354,6 +355,9 @@ function Router() {
         </Route>
         <Route path="/payroll">
           {() => <ProtectedRoute component={PayrollReview} />}
+        </Route>
+        <Route path="/square-labor">
+          {() => <ProtectedRoute component={SquareLaborSync} />}
         </Route>
         <Route path="/prep-eq">
           {() => <ProtectedRoute component={PrepEQ} />}
