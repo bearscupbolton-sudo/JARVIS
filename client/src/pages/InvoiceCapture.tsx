@@ -29,7 +29,7 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft, Plus, Trash2, FileText, CheckCircle2, AlertCircle,
-  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus
+  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus, FileUp
 } from "lucide-react";
 import type { Invoice, InventoryItem } from "@shared/schema";
 
@@ -81,6 +81,8 @@ export default function InvoiceCapture() {
   const addMoreFileRef = useRef<HTMLInputElement>(null);
   const addMoreCameraRef = useRef<HTMLInputElement>(null);
   const [stagedImages, setStagedImages] = useState<string[]>([]);
+  const [processingPdfCount, setProcessingPdfCount] = useState(0);
+  const processingPdf = processingPdfCount > 0;
 
   const { data: invoiceHistory = [] } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
@@ -216,10 +218,75 @@ export default function InvoiceCapture() {
     scanMutation.mutate(stagedImages);
   }
 
+  async function stagePdfFile(file: File) {
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ title: "PDF too large", description: "Maximum file size is 50 MB.", variant: "destructive" });
+      return;
+    }
+    setProcessingPdfCount(c => c + 1);
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.mjs",
+          import.meta.url,
+        ).toString();
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pageCount = pdf.numPages;
+
+      if (pageCount === 0) {
+        toast({ title: "Empty PDF", description: "This PDF has no pages.", variant: "destructive" });
+        return;
+      }
+
+      const maxPages = Math.min(pageCount, 10);
+      if (pageCount > 10) {
+        toast({ title: "Large PDF", description: `Only the first 10 of ${pageCount} pages will be processed.` });
+      }
+
+      const { compressForUpload } = await import("@/lib/image-utils");
+
+      for (let i = 1; i <= maxPages; i++) {
+        const page = await pdf.getPage(i);
+        const scale = 2;
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d")!;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        const compressed = await compressForUpload(dataUrl);
+        setStagedImages(prev => [...prev, compressed]);
+        if (i === 1 && scanMode === "idle") setScanMode("capturing");
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("password")) {
+        toast({ title: "Password-protected PDF", description: "This PDF requires a password and cannot be processed.", variant: "destructive" });
+      } else {
+        toast({ title: "Could not process PDF", description: "The file may be corrupted. Try a different file.", variant: "destructive" });
+      }
+    } finally {
+      setProcessingPdfCount(c => c - 1);
+    }
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (files) {
-      Array.from(files).forEach(f => stageImage(f));
+      Array.from(files).forEach(f => {
+        if (f.type === "application/pdf") {
+          stagePdfFile(f);
+        } else {
+          stageImage(f);
+        }
+      });
     }
     e.target.value = "";
   }
@@ -353,7 +420,7 @@ export default function InvoiceCapture() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,application/pdf"
         multiple
         className="hidden"
         onChange={handleFileChange}
@@ -362,7 +429,7 @@ export default function InvoiceCapture() {
       <input
         ref={addMoreFileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,application/pdf"
         multiple
         className="hidden"
         onChange={handleFileChange}
@@ -392,7 +459,7 @@ export default function InvoiceCapture() {
                 <p className="text-sm text-muted-foreground max-w-md">
                   {stagedImages.length > 0
                     ? "Add more photos if the invoice has multiple pages, or scan now."
-                    : "Take a photo or upload images of a vendor invoice. They will be read and all the details extracted automatically."}
+                    : "Take a photo or upload images/PDFs of a vendor invoice. They will be read and all the details extracted automatically."}
                 </p>
               </div>
 
@@ -426,10 +493,11 @@ export default function InvoiceCapture() {
                 <Button
                   variant="outline"
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={processingPdf}
                   data-testid="button-upload-photo"
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {stagedImages.length > 0 ? "Add Images" : "Upload Images"}
+                  {processingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                  {processingPdf ? "Processing PDF..." : stagedImages.length > 0 ? "Add Files" : "Upload Files"}
                 </Button>
               </div>
 
