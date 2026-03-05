@@ -266,6 +266,27 @@ export default function Onboarding() {
   );
 }
 
+function OnboardingField({ label, field, type = "text", required = false, placeholder = "", inputMode, pattern, maxLength, autoComplete, value, error, onChange }: { label: string; field: string; type?: string; required?: boolean; placeholder?: string; inputMode?: "numeric" | "tel" | "text" | "decimal"; pattern?: string; maxLength?: number; autoComplete?: string; value: any; error?: string; onChange: (field: string, value: any) => void }) {
+  return (
+    <div>
+      <Label className="text-sm font-medium text-gray-700">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</Label>
+      <Input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(field, type === "number" ? parseInt(e.target.value) || 0 : e.target.value)}
+        placeholder={placeholder}
+        className={`mt-1 ${error ? "border-red-400" : ""}`}
+        data-testid={`input-${field}`}
+        {...(inputMode ? { inputMode } : {})}
+        {...(pattern ? { pattern } : {})}
+        {...(maxLength ? { maxLength } : {})}
+        {...(autoComplete ? { autoComplete } : {})}
+      />
+      {error && <p className="text-red-500 text-xs mt-0.5">{error}</p>}
+    </div>
+  );
+}
+
 function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: any; onNext: () => void }) {
   const [form, setForm] = useState({
     legalFirstName: invite.firstName || "",
@@ -334,25 +355,6 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
     if (errors[field]) setErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
   };
 
-  const Field = ({ label, field, type = "text", required = false, placeholder = "", inputMode, pattern, maxLength, autoComplete }: { label: string; field: string; type?: string; required?: boolean; placeholder?: string; inputMode?: "numeric" | "tel" | "text" | "decimal"; pattern?: string; maxLength?: number; autoComplete?: string }) => (
-    <div>
-      <Label className="text-sm font-medium text-gray-700">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</Label>
-      <Input
-        type={type}
-        value={(form as any)[field]}
-        onChange={(e) => update(field, type === "number" ? parseInt(e.target.value) || 0 : e.target.value)}
-        placeholder={placeholder}
-        className={`mt-1 ${errors[field] ? "border-red-400" : ""}`}
-        data-testid={`input-${field}`}
-        {...(inputMode ? { inputMode } : {})}
-        {...(pattern ? { pattern } : {})}
-        {...(maxLength ? { maxLength } : {})}
-        {...(autoComplete ? { autoComplete } : {})}
-      />
-      {errors[field] && <p className="text-red-500 text-xs mt-0.5">{errors[field]}</p>}
-    </div>
-  );
-
   const [securityOpen, setSecurityOpen] = useState(false);
 
   return (
@@ -408,9 +410,9 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
             <User className="w-4 h-4" /> Legal Name
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="First Name" field="legalFirstName" required />
-            <Field label="Middle Name" field="middleName" />
-            <Field label="Last Name" field="legalLastName" required />
+            <OnboardingField label="First Name" field="legalFirstName" required value={form.legalFirstName} error={errors.legalFirstName} onChange={update} />
+            <OnboardingField label="Middle Name" field="middleName" value={form.middleName} error={errors.middleName} onChange={update} />
+            <OnboardingField label="Last Name" field="legalLastName" required value={form.legalLastName} error={errors.legalLastName} onChange={update} />
           </div>
         </div>
 
@@ -441,17 +443,17 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
               />
               {errors.ssn && <p className="text-red-500 text-xs mt-0.5">{errors.ssn}</p>}
             </div>
-            <Field label="Date of Birth" field="dateOfBirth" type="date" required />
+            <OnboardingField label="Date of Birth" field="dateOfBirth" type="date" required value={form.dateOfBirth} error={errors.dateOfBirth} onChange={update} />
           </div>
         </div>
 
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Home Address</h3>
           <div className="space-y-3">
-            <Field label="Street Address" field="address" required placeholder="123 Main Street, Apt 4" />
+            <OnboardingField label="Street Address" field="address" required placeholder="123 Main Street, Apt 4" value={form.address} error={errors.address} onChange={update} />
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="col-span-2 sm:col-span-2">
-                <Field label="City" field="city" required />
+                <OnboardingField label="City" field="city" required value={form.city} error={errors.city} onChange={update} />
               </div>
               <div>
                 <Label className="text-sm font-medium text-gray-700">State<span className="text-red-500 ml-0.5">*</span></Label>
@@ -465,7 +467,7 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
                 </Select>
                 {errors.state && <p className="text-red-500 text-xs mt-0.5">{errors.state}</p>}
               </div>
-              <Field label="ZIP Code" field="zipCode" required placeholder="12345" inputMode="numeric" pattern="[0-9-]*" maxLength={10} />
+              <OnboardingField label="ZIP Code" field="zipCode" required placeholder="12345" inputMode="numeric" pattern="[0-9-]*" maxLength={10} value={form.zipCode} error={errors.zipCode} onChange={update} />
             </div>
           </div>
         </div>
@@ -473,17 +475,17 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Contact Information</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Phone Number" field="phone" type="tel" required placeholder="(555) 123-4567" />
-            <Field label="Personal Email" field="personalEmail" type="email" required />
+            <OnboardingField label="Phone Number" field="phone" type="tel" required placeholder="(555) 123-4567" value={form.phone} error={errors.phone} onChange={update} />
+            <OnboardingField label="Personal Email" field="personalEmail" type="email" required value={form.personalEmail} error={errors.personalEmail} onChange={update} />
           </div>
         </div>
 
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Emergency Contact</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Full Name" field="emergencyContactName" required />
-            <Field label="Phone Number" field="emergencyContactPhone" type="tel" required />
-            <Field label="Relationship" field="emergencyContactRelation" required placeholder="e.g. Spouse, Parent" />
+            <OnboardingField label="Full Name" field="emergencyContactName" required value={form.emergencyContactName} error={errors.emergencyContactName} onChange={update} />
+            <OnboardingField label="Phone Number" field="emergencyContactPhone" type="tel" required value={form.emergencyContactPhone} error={errors.emergencyContactPhone} onChange={update} />
+            <OnboardingField label="Relationship" field="emergencyContactRelation" required placeholder="e.g. Spouse, Parent" value={form.emergencyContactRelation} error={errors.emergencyContactRelation} onChange={update} />
           </div>
         </div>
 
@@ -518,14 +520,14 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
                 </SelectContent>
               </Select>
             </div>
-            <Field label="Allowances" field="allowances" type="number" placeholder="0" />
+            <OnboardingField label="Allowances" field="allowances" type="number" placeholder="0" value={form.allowances} error={errors.allowances} onChange={update} />
           </div>
         </div>
 
         <div>
           <h3 className="font-semibold text-gray-700 mb-3">Direct Deposit <span className="text-gray-400 font-normal text-sm">(Optional)</span></h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Bank Name" field="bankName" placeholder="First National Bank" />
+            <OnboardingField label="Bank Name" field="bankName" placeholder="First National Bank" value={form.bankName} error={errors.bankName} onChange={update} />
             <div>
               <Label className="text-sm font-medium text-gray-700">Account Type</Label>
               <Select value={form.accountType} onValueChange={(v) => update("accountType", v)}>
