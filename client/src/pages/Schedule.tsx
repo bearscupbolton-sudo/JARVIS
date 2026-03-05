@@ -1563,9 +1563,8 @@ export default function Schedule() {
                                                       <input
                                                         className={`w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 ${openShiftMode ? "focus:ring-green-500 border-green-500/40" : "focus:ring-primary"}`}
                                                         placeholder={openShiftMode ? 'Type time for open shift' : 'Type "7-2" then Enter'}
-                                                        value={inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr ? inlineEditValue : ""}
+                                                        value={isPresetOpen ? inlineEditValue : ""}
                                                         onChange={(e) => {
-                                                          setInlineEditCell({ userId: uid, dateStr });
                                                           setInlineEditValue(e.target.value);
                                                         }}
                                                         onKeyDown={(e) => {
