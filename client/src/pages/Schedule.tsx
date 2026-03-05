@@ -955,6 +955,20 @@ export default function Schedule() {
 
   const pendingRequests = (timeOffData || []).filter(r => r.status === "pending");
   const myRequests = (timeOffData || []).filter(r => r.userId === user?.id);
+
+  const approvedTimeOffSet = useMemo(() => {
+    const set = new Set<string>();
+    const approved = (timeOffData || []).filter(r => r.status === "approved");
+    for (const req of approved) {
+      let current = new Date(req.startDate + "T00:00:00");
+      const end = new Date(req.endDate + "T00:00:00");
+      while (current <= end) {
+        set.add(`${req.userId}_${format(current, "yyyy-MM-dd")}`);
+        current = addDays(current, 1);
+      }
+    }
+    return set;
+  }, [timeOffData]);
   const members = teamMembers || [];
   const activeMessages = (messagesData || []).filter(m => !m.resolved);
   const resolvedMessages = (messagesData || []).filter(m => m.resolved);
@@ -1303,13 +1317,24 @@ export default function Schedule() {
                                   const today = isSameDay(day, new Date());
                                   const isInlineEditing = inlineEditCell?.userId === uid && inlineEditCell?.dateStr === dateStr;
                                   const isPresetOpen = presetPopoverCell?.userId === uid && presetPopoverCell?.dateStr === dateStr;
+                                  const hasApprovedOff = approvedTimeOffSet.has(`${uid}_${dateStr}`);
                                   return (
                                     <td
                                       key={dateStr}
-                                      className={`p-1 border-r border-border text-center align-top min-w-[80px] ${today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
+                                      className={`p-1 border-r border-border text-center align-top min-w-[80px] ${hasApprovedOff ? "bg-violet-50 dark:bg-violet-950/20" : today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
                                       data-testid={`cell-${uid}-${dateStr}`}
                                     >
                                       <div className="space-y-1">
+                                        {hasApprovedOff && dayShifts.length === 0 && (
+                                          <div className="w-full px-1.5 py-1.5 rounded text-xs font-medium text-violet-400 dark:text-violet-500 italic" data-testid={`off-badge-${uid}-${dateStr}`}>
+                                            OFF
+                                          </div>
+                                        )}
+                                        {hasApprovedOff && dayShifts.length > 0 && (
+                                          <div className="text-[9px] font-medium text-violet-400 dark:text-violet-500 italic leading-none" data-testid={`off-label-${uid}-${dateStr}`}>
+                                            OFF
+                                          </div>
+                                        )}
                                         {dayShifts.map(shift => {
                                           const isPending = shift.status === "pending";
                                           const isModified = !!(shift.notes && shift.notes.trim());
