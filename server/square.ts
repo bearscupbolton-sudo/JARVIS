@@ -2,7 +2,7 @@ import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
 import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems, timeEntries, breakEntries } from "@shared/schema";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, or, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 
 function getSquareClient() {
   return new SquareClient({
@@ -242,16 +242,19 @@ export async function generateForecast(date: string, locationId?: number): Promi
   }
 
   const salesConditions = [inArray(squareSales.date, pastDates)];
-  if (locationId) salesConditions.push(eq(squareSales.locationId, locationId));
+  if (locationId) salesConditions.push(or(eq(squareSales.locationId, locationId), isNull(squareSales.locationId))!);
   const allSalesData = pastDates.length > 0
     ? await db.select().from(squareSales).where(and(...salesConditions))
     : [];
 
   const goalsConditions = [inArray(pastryTotals.date, pastDates)];
-  if (locationId) goalsConditions.push(eq(pastryTotals.locationId, locationId));
+  if (locationId) goalsConditions.push(or(eq(pastryTotals.locationId, locationId), isNull(pastryTotals.locationId))!);
   const pastryGoalsData = pastDates.length > 0
     ? await db.select().from(pastryTotals).where(and(...goalsConditions))
     : [];
+
+  const activePastries = await db.select().from(pastryItems).where(eq(pastryItems.isActive, true));
+  const pastryNameSet = new Set(activePastries.map(p => p.name.toLowerCase().trim()));
 
   const itemHistory = new Map<string, number[]>();
   for (const sale of allSalesData) {
@@ -295,7 +298,8 @@ export async function generateForecast(date: string, locationId?: number): Promi
     }
   }
 
-  return forecasts.sort((a, b) => a.itemName.localeCompare(b.itemName));
+  const filtered = forecasts.filter(f => pastryNameSet.has(f.itemName.toLowerCase().trim()));
+  return filtered.sort((a, b) => a.itemName.localeCompare(b.itemName));
 }
 
 export async function autoPopulatePastryGoals(date: string, locationId?: number): Promise<{ populated: number; skipped: number }> {
@@ -342,11 +346,11 @@ export async function autoPopulatePastryGoals(date: string, locationId?: number)
 
 export async function getLiveInventoryDashboard(date: string, locationId?: number) {
   const goalsCond = [eq(pastryTotals.date, date)];
-  if (locationId) goalsCond.push(eq(pastryTotals.locationId, locationId));
+  if (locationId) goalsCond.push(or(eq(pastryTotals.locationId, locationId), isNull(pastryTotals.locationId))!);
   const salesCond = [eq(squareSales.date, date)];
-  if (locationId) salesCond.push(eq(squareSales.locationId, locationId));
+  if (locationId) salesCond.push(or(eq(squareSales.locationId, locationId), isNull(squareSales.locationId))!);
   const bakedCond = [eq(bakeoffLogs.date, date)];
-  if (locationId) bakedCond.push(eq(bakeoffLogs.locationId, locationId));
+  if (locationId) bakedCond.push(or(eq(bakeoffLogs.locationId, locationId), isNull(bakeoffLogs.locationId))!);
   const [activePastryItems, goals, baked, sales] = await Promise.all([
     db.select().from(pastryItems).where(eq(pastryItems.isActive, true)),
     db.select().from(pastryTotals).where(and(...goalsCond)),
@@ -452,6 +456,11 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
     dayProgress: Math.round(dayProgress * 100),
     lastSyncTime: sales.length > 0 ? sales[0].lastSyncedAt : null,
     items: inventory.sort((a, b) => a.itemName.localeCompare(b.itemName)),
+    pipelineStatus: {
+      activePastryCount: activePastryItems.length,
+      bakeoffCount: baked.length,
+      salesSynced: sales.length > 0,
+    },
   };
 }
 

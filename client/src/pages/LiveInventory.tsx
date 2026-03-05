@@ -55,6 +55,11 @@ type DashboardData = {
   dayProgress: number;
   lastSyncTime: string | null;
   items: InventoryItem[];
+  pipelineStatus?: {
+    activePastryCount: number;
+    bakeoffCount: number;
+    salesSynced: boolean;
+  };
 };
 
 function formatDate(dateStr: string) {
@@ -267,6 +272,23 @@ export default function LiveInventory() {
             </div>
             <Progress value={dashboard?.dayProgress ?? 0} className="h-2" data-testid="progress-day" />
           </div>
+
+          {dashboard?.pipelineStatus && (
+            <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2 border border-border" data-testid="pipeline-status">
+              <span className="flex items-center gap-1">
+                {dashboard.pipelineStatus.activePastryCount > 0 ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <AlertTriangle className="w-3 h-3 text-amber-500" />}
+                {dashboard.pipelineStatus.activePastryCount} pastry items
+              </span>
+              <span className="flex items-center gap-1">
+                {dashboard.pipelineStatus.bakeoffCount > 0 ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Clock className="w-3 h-3 text-muted-foreground" />}
+                {dashboard.pipelineStatus.bakeoffCount} bake-off{dashboard.pipelineStatus.bakeoffCount !== 1 ? "s" : ""} today
+              </span>
+              <span className="flex items-center gap-1">
+                {dashboard.pipelineStatus.salesSynced ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Clock className="w-3 h-3 text-muted-foreground" />}
+                {dashboard.pipelineStatus.salesSynced ? "Sales synced" : "Sales not synced"}
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Card>
