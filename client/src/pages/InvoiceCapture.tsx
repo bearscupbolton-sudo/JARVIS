@@ -383,7 +383,16 @@ export default function InvoiceCapture() {
       toast({ title: "Add at least one line item", variant: "destructive" });
       return;
     }
-    submitMutation.mutate({ ...data, lines });
+    const validLines = lines.filter(l => l.quantity > 0);
+    const skipped = lines.length - validLines.length;
+    if (validLines.length === 0) {
+      toast({ title: "No valid line items", description: "All items have a quantity of 0.", variant: "destructive" });
+      return;
+    }
+    if (skipped > 0) {
+      toast({ title: `${skipped} item${skipped > 1 ? "s" : ""} with zero quantity skipped` });
+    }
+    submitMutation.mutate({ ...data, lines: validLines });
   }
 
   function clearScan() {

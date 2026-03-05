@@ -336,7 +336,7 @@ export const api = {
         enteredBy: z.string().nullable().optional(),
         lines: z.array(z.object({
           itemDescription: z.string().min(1),
-          quantity: z.number().positive(),
+          quantity: z.number().min(0),
           unit: z.string().nullable().optional(),
           unitPrice: z.number().nullable().optional(),
           lineTotal: z.number().nullable().optional(),
