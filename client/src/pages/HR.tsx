@@ -286,10 +286,26 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setActiveStep(invite.status === "completed" ? 3 : 0); setConfirmDelete(false); } }}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" data-testid={`button-manage-onboarding-${invite.id}`}>
-          <Eye className="w-4 h-4 mr-1" />
-          <span className="hidden sm:inline text-xs">Manage</span>
-        </Button>
+        <button className="flex items-center justify-between w-full p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors cursor-pointer text-left" data-testid={`row-invite-${invite.id}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm shrink-0">
+              {(invite.firstName || "?")[0].toUpperCase()}
+            </div>
+            <div>
+              <p className="font-medium text-sm" data-testid={`text-invite-name-${invite.id}`}>
+                {invite.firstName} {invite.lastName || ""}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {invite.position || invite.department || "New Hire"}
+                {invite.createdAt && <> · {new Date(invite.createdAt).toLocaleDateString()}</>}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={invite.status} />
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </div>
+        </button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -988,31 +1004,7 @@ export default function HR() {
           ) : (
             <div className="space-y-2">
               {invites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
-                  data-testid={`row-invite-${invite.id}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm">
-                      {(invite.firstName || "?")[0].toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm" data-testid={`text-invite-name-${invite.id}`}>
-                        {invite.firstName} {invite.lastName || ""}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {invite.position || invite.department || "New Hire"}
-                        {invite.createdAt && <> · {new Date(invite.createdAt).toLocaleDateString()}</>}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={invite.status} />
-                    <DeleteInviteButton invite={invite} />
-                    <OnboardingDetailDialog invite={invite} />
-                  </div>
-                </div>
+                <OnboardingDetailDialog key={invite.id} invite={invite} />
               ))}
             </div>
           )}
