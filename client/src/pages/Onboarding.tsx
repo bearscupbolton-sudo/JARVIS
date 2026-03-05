@@ -376,8 +376,8 @@ function PersonalInfoStep({ token, invite, onNext }: { token: string; invite: an
             <div className="flex items-start gap-2">
               <Lock className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
               <div>
-                <div className="text-sm font-medium text-green-800">Hashed Before Storage</div>
-                <div className="text-xs text-green-700">Your SSN, routing number, and account number are cryptographically hashed before being stored. Only the last 4 digits are retained for verification — the full numbers are not kept in readable form.</div>
+                <div className="text-sm font-medium text-green-800">Encrypted Before Storage</div>
+                <div className="text-xs text-green-700">Your SSN, routing number, and account number are encrypted using AES-256 military-grade encryption before being stored. They are never saved in plain text.</div>
               </div>
             </div>
             <div className="flex items-start gap-2">

@@ -8824,15 +8824,25 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
       const invites = await storage.getOnboardingInvites();
       const completedInvites = invites.filter(i => i.status === "completed");
 
+      const { decryptOrFallback } = await import("./encryption");
       const rows: any[] = [];
       for (const invite of completedInvites) {
         const sub = await storage.getOnboardingSubmissionByInviteId(invite.id);
         if (!sub) continue;
+        const decryptedSSN = decryptOrFallback(sub.ssn);
+        const decryptedRouting = decryptOrFallback(sub.routingNumber);
+        const decryptedAccount = decryptOrFallback(sub.accountNumber);
+        const formatSSN = (val: string | null) => {
+          if (!val) return "";
+          const digits = val.replace(/\D/g, "");
+          if (digits.length === 9) return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+          return val;
+        };
         rows.push({
           firstName: sub.legalFirstName || "",
           lastName: sub.legalLastName || "",
           middleName: sub.middleName || "",
-          ssn: sub.ssn ? `***-**-${sub.ssn.slice(-4)}` : "",
+          ssn: formatSSN(decryptedSSN),
           dateOfBirth: sub.dateOfBirth || "",
           address: sub.address || "",
           city: sub.city || "",
@@ -8848,8 +8858,8 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
           allowances: String(sub.allowances ?? 0),
           bankName: sub.bankName || "",
           accountType: sub.accountType || "",
-          routingNumber: sub.routingNumber ? `****${sub.routingNumber.slice(-4)}` : "",
-          accountNumber: sub.accountNumber ? `****${sub.accountNumber.slice(-4)}` : "",
+          routingNumber: decryptedRouting || "",
+          accountNumber: decryptedAccount || "",
           hireDate: invite.createdAt ? new Date(invite.createdAt).toLocaleDateString("en-US") : "",
           position: invite.position || "",
           department: invite.department || "",
@@ -8857,11 +8867,11 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
       }
 
       const headers = [
-        "First Name", "Last Name", "Middle Name", "SSN (Last 4)", "Date of Birth",
+        "First Name", "Last Name", "Middle Name", "SSN", "Date of Birth",
         "Address", "City", "State", "ZIP", "Phone", "Personal Email",
         "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relation",
         "Federal Filing Status", "State Filing Status", "Allowances",
-        "Bank Name", "Account Type", "Routing Number (Last 4)", "Account Number (Last 4)",
+        "Bank Name", "Account Type", "Routing Number", "Account Number",
         "Hire Date", "Position", "Department"
       ];
 
@@ -8895,11 +8905,12 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
       if (!submission) {
         return res.status(404).json({ message: "No submission found for this invite" });
       }
+      const { maskSSN, maskBankNumber } = await import("./encryption");
       const masked = {
         ...submission,
-        ssn: submission.ssn ? `***-**-${submission.ssn.slice(-4)}` : null,
-        routingNumber: submission.routingNumber ? `****${submission.routingNumber.slice(-4)}` : null,
-        accountNumber: submission.accountNumber ? `****${submission.accountNumber.slice(-4)}` : null,
+        ssn: maskSSN(submission.ssn),
+        routingNumber: maskBankNumber(submission.routingNumber),
+        accountNumber: maskBankNumber(submission.accountNumber),
       };
       res.json(masked);
     } catch (err: any) {
@@ -9072,16 +9083,12 @@ IMPORTANT GUIDELINES:
         return res.status(400).json({ message: parsed.error.errors[0]?.message || "Validation failed" });
       }
       const data = parsed.data;
-      const crypto = await import("crypto");
-      const hashSensitive = (val: string | null | undefined) => {
-        if (!val) return null;
-        return crypto.createHash("sha256").update(val).digest("hex").slice(0, 8) + ":" + val.slice(-4);
-      };
+      const { encryptSensitive } = await import("./encryption");
       const securedData = {
         ...data,
-        ssn: hashSensitive(data.ssn),
-        routingNumber: data.routingNumber ? hashSensitive(data.routingNumber) : null,
-        accountNumber: data.accountNumber ? hashSensitive(data.accountNumber) : null,
+        ssn: encryptSensitive(data.ssn),
+        routingNumber: data.routingNumber ? encryptSensitive(data.routingNumber) : null,
+        accountNumber: data.accountNumber ? encryptSensitive(data.accountNumber) : null,
       };
       const existing = await storage.getOnboardingSubmissionByInviteId(invite.id);
       if (existing) {

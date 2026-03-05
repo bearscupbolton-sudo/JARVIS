@@ -64,8 +64,8 @@ const futureSections = [
 const SECURITY_ITEMS = [
   {
     icon: Hash,
-    title: "Sensitive Data is Hashed",
-    description: "Social Security numbers, bank routing numbers, and account numbers are encrypted using industry-standard SHA-256 hashing before they are stored. The original values are never saved in the database.",
+    title: "Sensitive Data is Encrypted",
+    description: "Social Security numbers, bank routing numbers, and account numbers are encrypted using AES-256 encryption before they are stored. They are never saved in plain text in the database.",
   },
   {
     icon: Eye,
