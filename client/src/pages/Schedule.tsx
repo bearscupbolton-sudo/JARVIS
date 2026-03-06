@@ -1272,8 +1272,8 @@ export default function Schedule() {
                 <TooltipProvider delayDuration={200}>
                   <table className="w-full min-w-[800px] border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
-                      <tr className="bg-muted/50">
-                        <th className="text-left text-xs font-semibold p-2 border-b border-r border-border w-[130px] min-w-[130px] sticky left-0 bg-muted z-30" data-testid="header-employee">
+                      <tr className="bg-muted">
+                        <th className="text-left text-[11px] font-semibold px-1.5 py-1 border-b border-r border-border w-[120px] min-w-[120px] sticky left-0 bg-muted z-30" data-testid="header-employee">
                           Employee
                         </th>
                         {weekDays.map((day) => {
@@ -1281,7 +1281,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-1.5 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
+                              className={`text-center text-[11px] font-semibold px-1 py-1 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted"}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -1292,7 +1292,7 @@ export default function Schedule() {
                           );
                         })}
                         {isLeadOrAbove && (
-                          <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px] bg-muted/50" data-testid="header-hours">
+                          <th className="text-center text-[11px] font-semibold px-1 py-1 border-b border-border w-[48px] bg-muted" data-testid="header-hours">
                             <div>Hrs</div>
                             <div className="text-[10px] text-muted-foreground font-normal">Total</div>
                           </th>
@@ -1313,8 +1313,8 @@ export default function Schedule() {
                             const empShifts = shiftsByUser.get(uid) || [];
                             const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
-                              <tr key={uid} className="group/row border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                                <td className="text-xs font-medium p-2 border-r border-border sticky left-0 z-10 truncate w-[130px] min-w-[130px] max-w-[130px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
+                              <tr key={uid} className="group/row border-b border-border hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
+                                <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 z-10 truncate w-[120px] min-w-[120px] max-w-[120px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
                                   {getDisplayName(member)}
                                 </td>
                                 {weekDays.map((day) => {
@@ -1327,12 +1327,12 @@ export default function Schedule() {
                                   return (
                                     <td
                                       key={dateStr}
-                                      className={`p-1 border-r border-border text-center align-top ${hasApprovedOff ? "bg-violet-50 dark:bg-violet-950/20" : today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
+                                      className={`px-0.5 py-0.5 border-r border-b border-border text-center align-top ${hasApprovedOff ? "bg-violet-50 dark:bg-violet-950/20" : today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
                                       data-testid={`cell-${uid}-${dateStr}`}
                                     >
-                                      <div className="space-y-1">
+                                      <div className="space-y-0.5">
                                         {hasApprovedOff && dayShifts.length === 0 && (
-                                          <div className="w-full px-1.5 py-1.5 rounded text-xs font-medium text-violet-400 dark:text-violet-500 italic" data-testid={`off-badge-${uid}-${dateStr}`}>
+                                          <div className="w-full px-1 py-0.5 rounded text-[11px] font-medium text-violet-400 dark:text-violet-500 italic" data-testid={`off-badge-${uid}-${dateStr}`}>
                                             OFF
                                           </div>
                                         )}
@@ -1411,7 +1411,7 @@ export default function Schedule() {
                                                   <Tooltip>
                                                     <TooltipTrigger asChild>
                                                       <button
-                                                        className={`w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center ${
+                                                        className={`w-full px-1 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors text-center leading-tight ${
                                                           isPending
                                                             ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-900/60"
                                                             : isModified
@@ -1469,10 +1469,10 @@ export default function Schedule() {
                                           }}>
                                             <PopoverTrigger asChild>
                                               <button
-                                                className={`w-full ${dayShifts.length === 0 ? "h-7" : "h-5"} rounded text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-muted/40 transition-colors flex items-center justify-center group/add`}
+                                                className={`w-full ${dayShifts.length === 0 ? "h-5" : "h-4"} rounded text-muted-foreground/30 hover:text-muted-foreground/60 hover:bg-muted/40 transition-colors flex items-center justify-center group/add`}
                                                 data-testid={`button-quick-add-${uid}-${dateStr}`}
                                               >
-                                                <Plus className={`${dayShifts.length === 0 ? "w-3.5 h-3.5" : "w-2.5 h-2.5"} opacity-0 group-hover/add:opacity-100 transition-opacity`} />
+                                                <Plus className={`${dayShifts.length === 0 ? "w-3 h-3" : "w-2.5 h-2.5"} opacity-0 group-hover/add:opacity-100 transition-opacity`} />
                                               </button>
                                             </PopoverTrigger>
                                             <PopoverContent className="w-48 p-2" side="bottom" align="center">
@@ -1614,8 +1614,8 @@ export default function Schedule() {
                                   );
                                 })}
                                 {isLeadOrAbove && (
-                                  <td className="p-2 text-center align-middle border-l border-border" data-testid={`cell-hours-${uid}`}>
-                                    <span className={`text-xs font-semibold tabular-nums ${weeklyHours > 40 ? "text-red-600 dark:text-red-400" : weeklyHours >= 32 ? "text-foreground" : "text-muted-foreground"}`}>
+                                  <td className="px-1 py-0.5 text-center align-middle border-l border-b border-border" data-testid={`cell-hours-${uid}`}>
+                                    <span className={`text-[11px] font-semibold tabular-nums ${weeklyHours > 40 ? "text-red-600 dark:text-red-400" : weeklyHours >= 32 ? "text-foreground" : "text-muted-foreground"}`}>
                                       {weeklyHours > 0 ? weeklyHours.toFixed(weeklyHours % 1 === 0 ? 0 : 1) : "—"}
                                     </span>
                                   </td>
@@ -1624,8 +1624,8 @@ export default function Schedule() {
                             );
                           })}
                           {hasOpenShifts && (
-                            <tr className="border-b border-border last:border-b-0" data-testid="row-open-shifts">
-                              <td className="text-xs font-medium p-2 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[130px] min-w-[130px] max-w-[130px]">
+                            <tr className="border-b border-border" data-testid="row-open-shifts">
+                              <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[120px] min-w-[120px] max-w-[120px]">
                                 Open Shifts
                               </td>
                               {weekDays.map((day) => {
@@ -1635,7 +1635,7 @@ export default function Schedule() {
                                 return (
                                   <td
                                     key={dateStr}
-                                    className={`p-1 border-r border-border last:border-r-0 text-center align-top ${today ? "bg-primary/5" : ""}`}
+                                    className={`px-0.5 py-0.5 border-r border-b border-border text-center align-top ${today ? "bg-primary/5" : ""}`}
                                     data-testid={`cell-open-${dateStr}`}
                                   >
                                     {dayOpenShifts.length > 0 ? (
@@ -1645,7 +1645,7 @@ export default function Schedule() {
                                             <Tooltip>
                                               <TooltipTrigger asChild>
                                                 <button
-                                                  className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 border border-emerald-200/60 dark:border-emerald-700/40"
+                                                  className="w-full px-1 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors text-center leading-tight bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 border border-emerald-200/60 dark:border-emerald-700/40"
                                                   onClick={() => {
                                                     if (isLeadOrAbove) {
                                                       openEditShift(shift);
