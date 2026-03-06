@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -53,7 +53,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import { PrepEQButton } from "@/components/PrepEQButton";
-import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig, PastryTotal } from "@shared/schema";
+import type { LaminationDough, PastryItem, PastryPassport, DoughTypeConfig, PastryTotal, KioskTimer } from "@shared/schema";
 
 const DEFAULT_DOUGH_TYPES = ["Croissant", "Danish"];
 const FOLD_OPTIONS = ["3-fold", "4-fold"];
@@ -211,6 +211,50 @@ export default function LaminationStudio() {
 
   const doughs = activeDoughs;
   const isLoading = isLoadingActive;
+
+  const { data: ovenTimers = [] } = useQuery<KioskTimer[]>({
+    queryKey: ["/api/kiosk/timers"],
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+  });
+
+  const [showOvenTimers, setShowOvenTimers] = useState(false);
+  const ovenTimerRef = useRef<HTMLDivElement>(null);
+  const [, forceUpdate] = useState(0);
+
+  const activeOvenTimers = useMemo(() =>
+    ovenTimers.filter(t => !t.dismissed && new Date(t.expiresAt).getTime() > Date.now()),
+    [ovenTimers]
+  );
+
+  const expiredOvenTimers = useMemo(() =>
+    ovenTimers.filter(t => !t.dismissed && new Date(t.expiresAt).getTime() <= Date.now()),
+    [ovenTimers]
+  );
+
+  useEffect(() => {
+    if (activeOvenTimers.length === 0 && expiredOvenTimers.length === 0) return;
+    const interval = setInterval(() => forceUpdate(n => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [activeOvenTimers.length, expiredOvenTimers.length]);
+
+  useEffect(() => {
+    if (!showOvenTimers) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (ovenTimerRef.current && !ovenTimerRef.current.contains(e.target as Node)) {
+        setShowOvenTimers(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showOvenTimers]);
+
+  const dismissTimerMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/kiosk/timers/${id}/dismiss`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/timers"] });
+    },
+  });
 
   const { data: userNames = {} } = useQuery<Record<string, string>>({
     queryKey: ["/api/user-names"],
@@ -930,6 +974,98 @@ export default function LaminationStudio() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {(activeOvenTimers.length > 0 || expiredOvenTimers.length > 0) && (
+            <div className="relative" ref={ovenTimerRef}>
+              <Button
+                variant={expiredOvenTimers.length > 0 ? "destructive" : "outline"}
+                onClick={() => setShowOvenTimers(!showOvenTimers)}
+                className="gap-2 relative"
+                data-testid="button-oven-timers"
+              >
+                <Timer className={`w-4 h-4 ${activeOvenTimers.length > 0 && expiredOvenTimers.length === 0 ? "animate-pulse" : ""}`} />
+                {expiredOvenTimers.length > 0 ? (
+                  <span>Timer Done!</span>
+                ) : (
+                  <span>
+                    {(() => {
+                      const nearest = activeOvenTimers[0];
+                      if (!nearest) return "Oven";
+                      const remaining = new Date(nearest.expiresAt).getTime() - Date.now();
+                      return formatTime(Math.max(0, remaining));
+                    })()}
+                  </span>
+                )}
+                <Badge variant="secondary" className="ml-1 text-xs h-5 min-w-[20px] flex items-center justify-center rounded-full">
+                  {activeOvenTimers.length + expiredOvenTimers.length}
+                </Badge>
+              </Button>
+
+              {showOvenTimers && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-background border rounded-lg shadow-lg z-50 overflow-hidden" data-testid="dropdown-oven-timers">
+                  <div className="px-4 py-3 border-b bg-muted/30">
+                    <h3 className="font-semibold text-sm flex items-center gap-2">
+                      <Flame className="w-4 h-4 text-orange-500" />
+                      Oven Timers
+                    </h3>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {expiredOvenTimers.map(timer => (
+                      <div key={timer.id} className="px-4 py-3 border-b last:border-b-0 bg-destructive/10" data-testid={`timer-expired-${timer.id}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{timer.label}</p>
+                            <p className="text-xs text-destructive font-semibold mt-0.5">
+                              Done {formatTime(Date.now() - new Date(timer.expiresAt).getTime())} ago
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => dismissTimerMutation.mutate(timer.id)}
+                            data-testid={`button-dismiss-timer-${timer.id}`}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {activeOvenTimers.map(timer => {
+                      const remaining = new Date(timer.expiresAt).getTime() - Date.now();
+                      const total = timer.durationSeconds * 1000;
+                      const elapsed = total - remaining;
+                      const pct = Math.min(100, (elapsed / total) * 100);
+                      return (
+                        <div key={timer.id} className="px-4 py-3 border-b last:border-b-0" data-testid={`timer-active-${timer.id}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">{timer.label}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {formatTime(Math.max(0, remaining))} remaining
+                              </p>
+                              <div className="w-full bg-muted rounded-full h-1.5 mt-1.5">
+                                <div
+                                  className="bg-primary rounded-full h-1.5 transition-all"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => dismissTimerMutation.mutate(timer.id)}
+                              data-testid={`button-dismiss-timer-${timer.id}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <Button
             variant="outline"
             onClick={() => setShowQuickLog(true)}
