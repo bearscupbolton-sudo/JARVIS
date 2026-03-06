@@ -1261,18 +1261,19 @@ export default function Schedule() {
             const hasOpenShifts = openShiftsList.length > 0;
 
             return (
-              <div className="overflow-x-auto border border-border rounded-lg" data-testid="schedule-grid">
+              <div className="border border-border rounded-lg" data-testid="schedule-grid">
                 {isLeadOrAbove && (
                   <div className="bg-muted/30 border-b border-border px-3 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Plus className="w-3 h-3" />
                     <span>Click any cell to pick a preset shift or type a custom time. Click an existing shift to modify it.</span>
                   </div>
                 )}
+                <div className="overflow-auto max-h-[70vh]">
                 <TooltipProvider delayDuration={200}>
                   <table className="w-full min-w-[800px] border-collapse">
-                    <thead>
+                    <thead className="sticky top-0 z-20">
                       <tr className="bg-muted/50">
-                        <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-10" data-testid="header-employee">
+                        <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-30" data-testid="header-employee">
                           Employee
                         </th>
                         {weekDays.map((day) => {
@@ -1280,7 +1281,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border ${today ? "bg-primary/10" : ""}`}
+                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -1291,7 +1292,7 @@ export default function Schedule() {
                           );
                         })}
                         {isLeadOrAbove && (
-                          <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px]" data-testid="header-hours">
+                          <th className="text-center text-xs font-semibold p-2 border-b border-border w-[56px] bg-muted/50" data-testid="header-hours">
                             <div>Hrs</div>
                             <div className="text-[10px] text-muted-foreground font-normal">Total</div>
                           </th>
@@ -1700,6 +1701,7 @@ export default function Schedule() {
                     </tbody>
                   </table>
                 </TooltipProvider>
+                </div>
               </div>
             );
           })()}
