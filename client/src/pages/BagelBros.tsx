@@ -98,12 +98,14 @@ export default function BagelBros() {
 
   const { data: sessionData, isLoading } = useQuery<SessionData>({
     queryKey: ["/api/bagel-bros/session"],
-    refetchInterval: 5000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: alertData } = useQuery<{ active: boolean; alertType: string | null }>({
     queryKey: ["/api/bagel-bros/alert"],
-    refetchInterval: 5000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {

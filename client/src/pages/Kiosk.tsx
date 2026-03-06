@@ -57,7 +57,8 @@ export default function Kiosk() {
 
   const { data: activeTimers = [], refetch: refetchTimers } = useQuery<KioskTimer[]>({
     queryKey: ["/api/kiosk/timers"],
-    refetchInterval: 5000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: bakeoffLogs = [] } = useQuery<BakeoffLog[]>({

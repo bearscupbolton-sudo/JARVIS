@@ -23,7 +23,8 @@ export default function BakeryTimerAlert() {
 
   const { data: timers = [] } = useQuery<KioskTimer[]>({
     queryKey: ["/api/kiosk/timers?department=bakery"],
-    refetchInterval: 10000,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
     enabled,
   });
 

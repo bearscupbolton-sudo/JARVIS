@@ -57,6 +57,16 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **The Firm (Financial Hub):** Owner-only forensic-level financial reconciliation system with overview, accounts, ledger, obligations, payroll, and cash management. Includes Jarvis AI financial analysis and educational tooltips.
 *   **La Carte Customer Portal:** Customer-facing subscription portal with Square catalog, "What's Fresh Today," "Coming Soon," Skip the Line ordering via Square Orders API, and order history.
 
+## Performance Optimizations (March 2026)
+*   **Database Indexes**: 50+ indexes on FK columns (shifts, time_entries, bakeoff_logs, recipes, pastry_passports, etc.) for fast queries.
+*   **Recipe List Optimization**: `GET /api/recipes` returns lightweight summaries (no ingredients/instructions JSONB). Individual recipe endpoint still returns full data.
+*   **N+1 Query Fixes**: `getPastryPassport`, `getProblemContacts`, `getBOM` use batched `inArray` queries instead of per-item loops.
+*   **Vite Manual Chunks**: Vendor splitting (react, radix, recharts, date-fns, react-hook-form) for smaller, cacheable bundles.
+*   **Polling Optimization**: BagelBros/Kiosk/Platform934 polls at 15s (was 5s), LaminationStudio/BakeryTimerAlert at 30s (was 10s), all with `refetchOnWindowFocus: true`.
+*   **HTTP Compression**: `compression` middleware enabled on Express.
+*   **Static Asset Caching**: Hashed Vite assets get 1-year immutable cache headers.
+*   **Log Truncation**: Response body logging truncated to 200 chars to avoid stringify overhead on large payloads.
+
 ## External Dependencies
 
 *   **PostgreSQL**: Primary database.

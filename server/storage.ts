@@ -747,7 +747,22 @@ export class DatabaseStorage implements IStorage {
 
   // Recipes
   async getRecipes(): Promise<Recipe[]> {
-    return await db.select().from(recipes).orderBy(desc(recipes.createdAt));
+    return await db.select({
+      id: recipes.id,
+      title: recipes.title,
+      description: recipes.description,
+      yieldAmount: recipes.yieldAmount,
+      yieldUnit: recipes.yieldUnit,
+      ingredients: sql`'[]'::jsonb`.as('ingredients'),
+      instructions: sql`'[]'::jsonb`.as('instructions'),
+      category: recipes.category,
+      department: recipes.department,
+      servingSize: recipes.servingSize,
+      prepTime: recipes.prepTime,
+      videoUrl: recipes.videoUrl,
+      createdAt: recipes.createdAt,
+      updatedAt: recipes.updatedAt,
+    }).from(recipes).orderBy(desc(recipes.createdAt));
   }
 
   async getRecipe(id: number): Promise<Recipe | undefined> {
@@ -915,12 +930,11 @@ export class DatabaseStorage implements IStorage {
   // Problem Contacts
   async getProblemContacts(problemId: number): Promise<(ProblemContact & { contact?: ServiceContact })[]> {
     const links = await db.select().from(problemContacts).where(eq(problemContacts.problemId, problemId)).orderBy(desc(problemContacts.createdAt));
-    const result = [];
-    for (const link of links) {
-      const [contact] = await db.select().from(serviceContacts).where(eq(serviceContacts.id, link.serviceContactId));
-      result.push({ ...link, contact: contact || undefined });
-    }
-    return result;
+    if (links.length === 0) return [];
+    const contactIds = [...new Set(links.map(l => l.serviceContactId))];
+    const contacts = await db.select().from(serviceContacts).where(inArray(serviceContacts.id, contactIds));
+    const contactMap = new Map(contacts.map(c => [c.id, c]));
+    return links.map(link => ({ ...link, contact: contactMap.get(link.serviceContactId) || undefined }));
   }
 
   async linkContactToProblem(data: InsertProblemContact): Promise<ProblemContact> {
@@ -1752,27 +1766,33 @@ export class DatabaseStorage implements IStorage {
     const [passport] = await db.select().from(pastryPassports).where(eq(pastryPassports.id, id));
     if (!passport) return undefined;
 
-    const media = await db.select().from(pastryMedia).where(eq(pastryMedia.pastryId, id)).orderBy(pastryMedia.sortOrder);
-    const componentsRaw = await db.select().from(pastryComponents).where(eq(pastryComponents.pastryId, id));
-    const addins = await db.select().from(pastryAddins).where(eq(pastryAddins.pastryId, id));
+    const [media, componentsRaw, addins] = await Promise.all([
+      db.select().from(pastryMedia).where(eq(pastryMedia.pastryId, id)).orderBy(pastryMedia.sortOrder),
+      db.select().from(pastryComponents).where(eq(pastryComponents.pastryId, id)),
+      db.select().from(pastryAddins).where(eq(pastryAddins.pastryId, id)),
+    ]);
+
+    const allRecipeIds = [
+      ...componentsRaw.map(c => c.recipeId),
+      ...(passport.motherRecipeId ? [passport.motherRecipeId] : []),
+      ...(passport.primaryRecipeId ? [passport.primaryRecipeId] : []),
+    ].filter(Boolean) as number[];
+
+    const recipesMap = new Map<number, Recipe>();
+    if (allRecipeIds.length > 0) {
+      const uniqueIds = [...new Set(allRecipeIds)];
+      const fetchedRecipes = await db.select().from(recipes).where(inArray(recipes.id, uniqueIds));
+      for (const r of fetchedRecipes) recipesMap.set(r.id, r);
+    }
 
     const components: (PastryComponent & { recipe: Recipe })[] = [];
     for (const comp of componentsRaw) {
-      const [recipe] = await db.select().from(recipes).where(eq(recipes.id, comp.recipeId));
+      const recipe = recipesMap.get(comp.recipeId);
       if (recipe) components.push({ ...comp, recipe });
     }
 
-    let motherRecipe: Recipe | null = null;
-    if (passport.motherRecipeId) {
-      const [r] = await db.select().from(recipes).where(eq(recipes.id, passport.motherRecipeId));
-      motherRecipe = r || null;
-    }
-
-    let primaryRecipe: Recipe | null = null;
-    if (passport.primaryRecipeId) {
-      const [r] = await db.select().from(recipes).where(eq(recipes.id, passport.primaryRecipeId));
-      primaryRecipe = r || null;
-    }
+    const motherRecipe = passport.motherRecipeId ? recipesMap.get(passport.motherRecipeId) ?? null : null;
+    const primaryRecipe = passport.primaryRecipeId ? recipesMap.get(passport.primaryRecipeId) ?? null : null;
 
     return { ...passport, media, components, addins, motherRecipe, primaryRecipe };
   }
@@ -4107,12 +4127,11 @@ export class DatabaseStorage implements IStorage {
   // === PREP EQ — BOM ===
   async getBOM(pastryPassportId: number): Promise<(ComponentBom & { component?: ProductionComponent })[]> {
     const items = await db.select().from(componentBom).where(eq(componentBom.pastryPassportId, pastryPassportId));
-    const result = [];
-    for (const item of items) {
-      const [comp] = await db.select().from(productionComponents).where(eq(productionComponents.id, item.componentId));
-      result.push({ ...item, component: comp || undefined });
-    }
-    return result;
+    if (items.length === 0) return [];
+    const compIds = [...new Set(items.map(i => i.componentId))];
+    const comps = await db.select().from(productionComponents).where(inArray(productionComponents.id, compIds));
+    const compMap = new Map(comps.map(c => [c.id, c]));
+    return items.map(item => ({ ...item, component: compMap.get(item.componentId) || undefined }));
   }
 
   async setBOMItem(data: InsertComponentBom): Promise<ComponentBom> {

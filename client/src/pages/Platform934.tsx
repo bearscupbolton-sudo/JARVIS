@@ -152,7 +152,8 @@ export default function Platform934() {
 
   const { data: ovenTimers = [] } = useQuery<KioskTimer[]>({
     queryKey: ["/api/kiosk/timers?department=bakery"],
-    refetchInterval: 5000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const dismissTimerMutation = useMutation({

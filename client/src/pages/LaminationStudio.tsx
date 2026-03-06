@@ -194,7 +194,8 @@ export default function LaminationStudio() {
       if (!res.ok) throw new Error("Failed to fetch active lamination doughs");
       return res.json();
     },
-    refetchInterval: 10000,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: todayDoughs } = useQuery<LaminationDough[]>({
@@ -204,7 +205,8 @@ export default function LaminationStudio() {
       if (!res.ok) throw new Error("Failed to fetch lamination doughs");
       return res.json();
     },
-    refetchInterval: 10000,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const doughs = activeDoughs;
