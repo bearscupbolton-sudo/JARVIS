@@ -1268,12 +1268,12 @@ export default function Schedule() {
                     <span>Click any cell to pick a preset shift or type a custom time. Click an existing shift to modify it.</span>
                   </div>
                 )}
-                <div className="overflow-auto max-h-[70vh]">
+                <div className="overflow-auto max-h-[70vh]" style={{ WebkitOverflowScrolling: 'touch' }}>
                 <TooltipProvider delayDuration={200}>
-                  <table className="min-w-[800px] border-separate border-spacing-0" style={{ width: 'max-content', minWidth: '100%' }}>
+                  <table className="w-full min-w-[800px] border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-muted/50">
-                        <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-30" data-testid="header-employee">
+                        <th className="text-left text-xs font-semibold p-2 border-b border-r border-border w-[130px] min-w-[130px] sticky left-0 bg-muted z-30" data-testid="header-employee">
                           Employee
                         </th>
                         {weekDays.map((day) => {
@@ -1281,7 +1281,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border min-w-[120px] ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
+                              className={`text-center text-xs font-semibold p-1.5 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -1314,7 +1314,7 @@ export default function Schedule() {
                             const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
                               <tr key={uid} className="group/row border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                                <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 z-10 truncate max-w-[140px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
+                                <td className="text-xs font-medium p-2 border-r border-border sticky left-0 z-10 truncate w-[130px] min-w-[130px] max-w-[130px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
                                   {getDisplayName(member)}
                                 </td>
                                 {weekDays.map((day) => {
@@ -1327,7 +1327,7 @@ export default function Schedule() {
                                   return (
                                     <td
                                       key={dateStr}
-                                      className={`p-1 border-r border-border text-center align-top min-w-[80px] ${hasApprovedOff ? "bg-violet-50 dark:bg-violet-950/20" : today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
+                                      className={`p-1 border-r border-border text-center align-top ${hasApprovedOff ? "bg-violet-50 dark:bg-violet-950/20" : today ? "bg-primary/5" : ""} ${isInlineEditing ? "ring-2 ring-primary ring-inset" : ""}`}
                                       data-testid={`cell-${uid}-${dateStr}`}
                                     >
                                       <div className="space-y-1">
@@ -1625,7 +1625,7 @@ export default function Schedule() {
                           })}
                           {hasOpenShifts && (
                             <tr className="border-b border-border last:border-b-0" data-testid="row-open-shifts">
-                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic">
+                              <td className="text-xs font-medium p-2 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[130px] min-w-[130px] max-w-[130px]">
                                 Open Shifts
                               </td>
                               {weekDays.map((day) => {
