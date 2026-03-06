@@ -5596,13 +5596,31 @@ ${sopsHtml}
       const h = hours % 12 || 12;
       const bakedAtTime = `${h}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-      await storage.createBakeoffLog({
-        date: today,
-        itemName: dough.pastryType || dough.doughType,
-        quantity: dough.proofPieces || dough.totalPieces || 1,
-        bakedAt: bakedAtTime,
-        locationId: null,
-      });
+      const shapings = dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }> | null;
+      if (shapings && shapings.length > 0) {
+        for (const shaping of shapings) {
+          await storage.createBakeoffLog({
+            date: today,
+            itemName: shaping.pastryType,
+            quantity: shaping.pieces || 1,
+            bakedAt: bakedAtTime,
+            locationId: null,
+          });
+          const pid = await storage.resolvePastryItemId(shaping.pastryType);
+          createOvenTimersForItem(shaping.pastryType, pid, user?.id || null).catch(() => {});
+        }
+      } else {
+        const itemName = dough.pastryType || dough.doughType;
+        await storage.createBakeoffLog({
+          date: today,
+          itemName,
+          quantity: dough.proofPieces || dough.totalPieces || 1,
+          bakedAt: bakedAtTime,
+          locationId: null,
+        });
+        const pastryItemId = await storage.resolvePastryItemId(itemName);
+        createOvenTimersForItem(itemName, pastryItemId, user?.id || null).catch(() => {});
+      }
 
       const updated = await storage.updateLaminationDough(id, {
         status: "baked",
@@ -5610,10 +5628,6 @@ ${sopsHtml}
         bakedBy: user?.id || null,
       });
       storage.clearAllBriefingCaches().catch(() => {});
-
-      const itemName = dough.pastryType || dough.doughType;
-      const pastryItemId = await storage.resolvePastryItemId(itemName);
-      createOvenTimersForItem(itemName, pastryItemId, user?.id || null).catch(() => {});
 
       res.json(updated);
     } catch (err: any) {
