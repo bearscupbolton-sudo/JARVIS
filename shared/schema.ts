@@ -1234,6 +1234,7 @@ export const bagelSessions = pgTable("bagel_sessions", {
   id: serial("id").primaryKey(),
   date: text("date").notNull(),
   troughCount: integer("trough_count").default(0).notNull(),
+  totalBoardDumps: integer("total_board_dumps").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

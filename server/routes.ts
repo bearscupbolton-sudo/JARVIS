@@ -6036,6 +6036,7 @@ ${sopsHtml}
         durationSeconds: durationSeconds || 1080,
         status: "baking",
       });
+      await storage.resetDrainTable(session.id);
       res.json(load);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6297,6 +6298,15 @@ ${sopsHtml}
       const days = req.query.days ? Number(req.query.days) : 30;
       const drilldown = await storage.getUserDrilldown(req.params.userId, days);
       res.json(drilldown);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/insights/bagel-production", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const data = await storage.getBagelInsights();
+      res.json(data);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

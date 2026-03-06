@@ -587,9 +587,11 @@ export interface IStorage {
   // Bagel Bros
   getOrCreateBagelSession(date: string): Promise<BagelSession>;
   addToTrough(sessionId: number, count: number): Promise<BagelSession>;
+  resetDrainTable(sessionId: number): Promise<BagelSession>;
   createOvenLoad(data: InsertBagelOvenLoad): Promise<BagelOvenLoad>;
   getOvenLoads(sessionId: number): Promise<BagelOvenLoad[]>;
   finishOvenLoad(id: number): Promise<BagelOvenLoad>;
+  getBagelInsights(): Promise<{ daily: any[]; byType: any[]; cumulative: number }>;
 
   // App Settings
   getAppSetting(key: string): Promise<string | null>;
@@ -3645,7 +3647,18 @@ export class DatabaseStorage implements IStorage {
 
   async addToTrough(sessionId: number, count: number): Promise<BagelSession> {
     const [updated] = await db.update(bagelSessions)
-      .set({ troughCount: sql`${bagelSessions.troughCount} + ${count}` })
+      .set({
+        troughCount: sql`${bagelSessions.troughCount} + ${count}`,
+        totalBoardDumps: sql`${bagelSessions.totalBoardDumps} + 1`,
+      })
+      .where(eq(bagelSessions.id, sessionId))
+      .returning();
+    return updated;
+  }
+
+  async resetDrainTable(sessionId: number): Promise<BagelSession> {
+    const [updated] = await db.update(bagelSessions)
+      .set({ troughCount: 0 })
       .where(eq(bagelSessions.id, sessionId))
       .returning();
     return updated;
@@ -3668,6 +3681,46 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bagelOvenLoads.id, id))
       .returning();
     return updated;
+  }
+
+  async getBagelInsights(): Promise<{ daily: any[]; byType: any[]; cumulative: number }> {
+    const sessions = await db.select().from(bagelSessions).orderBy(desc(bagelSessions.date));
+    const allLoads = await db.select().from(bagelOvenLoads)
+      .where(eq(bagelOvenLoads.status, "done"));
+
+    const loadsBySession = new Map<number, typeof allLoads>();
+    for (const load of allLoads) {
+      const arr = loadsBySession.get(load.sessionId) || [];
+      arr.push(load);
+      loadsBySession.set(load.sessionId, arr);
+    }
+
+    const daily = sessions.map(s => {
+      const sLoads = loadsBySession.get(s.id) || [];
+      const bakedTotal = sLoads.reduce((sum, l) => sum + l.bagelCount, 0);
+      const byType: Record<string, number> = {};
+      for (const l of sLoads) {
+        byType[l.bagelType] = (byType[l.bagelType] || 0) + l.bagelCount;
+      }
+      return {
+        date: s.date,
+        boardDumps: s.totalBoardDumps,
+        totalFromBoards: s.totalBoardDumps * 20,
+        bakedTotal,
+        byType,
+      };
+    });
+
+    const typeAgg: Record<string, number> = {};
+    for (const load of allLoads) {
+      typeAgg[load.bagelType] = (typeAgg[load.bagelType] || 0) + load.bagelCount;
+    }
+    const byType = Object.entries(typeAgg).map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const cumulative = allLoads.reduce((sum, l) => sum + l.bagelCount, 0);
+
+    return { daily, byType, cumulative };
   }
 
   // App Settings

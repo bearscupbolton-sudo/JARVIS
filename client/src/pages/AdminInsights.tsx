@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X, Trash2, Percent, Timer, Download, FileSpreadsheet } from "lucide-react";
+import { Loader2, MessageSquare, Users, BarChart3, Mail, MailOpen, CheckCircle2, Clock, Activity, ChefHat, TrendingUp, Eye, Layers, CookingPot, UserCheck, ArrowUpRight, ArrowDownRight, DollarSign, X, Trash2, Percent, Timer, Download, FileSpreadsheet, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
@@ -425,6 +425,9 @@ export default function AdminInsights() {
           </TabsTrigger>
           <TabsTrigger value="performance" data-testid="tab-performance">
             <Timer className="w-4 h-4 mr-1.5" />Performance
+          </TabsTrigger>
+          <TabsTrigger value="bagels" data-testid="tab-bagels">
+            <CircleDot className="w-4 h-4 mr-1.5" />Bagels
           </TabsTrigger>
         </TabsList>
 
@@ -1283,6 +1286,11 @@ export default function AdminInsights() {
         <TabsContent value="performance" className="mt-4 space-y-6">
           <PerformancePanel />
         </TabsContent>
+
+        {/* ===== BAGELS TAB ===== */}
+        <TabsContent value="bagels" className="mt-4 space-y-6">
+          <BagelInsightsPanel />
+        </TabsContent>
       </Tabs>
 
       {/* ===== KPI DRILL-DOWN DIALOG ===== */}
@@ -1789,6 +1797,138 @@ export default function AdminInsights() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+const BAGEL_COLORS: Record<string, string> = {
+  plain: "#f59e0b",
+  poppy: "#374151",
+  sesame: "#fb923c",
+  everything: "#d97706",
+};
+const BAGEL_PIE_COLORS = ["#f59e0b", "#374151", "#fb923c", "#d97706", "#92400e"];
+
+type BagelInsightsData = {
+  daily: { date: string; boardDumps: number; totalFromBoards: number; bakedTotal: number; byType: Record<string, number> }[];
+  byType: { type: string; count: number }[];
+  cumulative: number;
+};
+
+function BagelInsightsPanel() {
+  const { data, isLoading } = useQuery<BagelInsightsData>({
+    queryKey: ["/api/admin/insights/bagel-production"],
+  });
+
+  if (isLoading) return <LoadingState />;
+  if (!data || data.daily.length === 0) return (
+    <Card>
+      <CardContent className="py-12 text-center text-muted-foreground">
+        No bagel production data yet. Start using Bagel Bros to see insights here.
+      </CardContent>
+    </Card>
+  );
+
+  const { daily, byType, cumulative } = data;
+  const recentDays = daily.slice(0, 30);
+  const chartData = [...recentDays].reverse();
+  const todayData = daily[0];
+  const todayTotal = todayData?.bakedTotal || 0;
+  const todayBoards = todayData?.boardDumps || 0;
+  const avgDaily = daily.length > 0 ? Math.round(daily.reduce((s, d) => s + d.bakedTotal, 0) / daily.length) : 0;
+
+  return (
+    <div className="space-y-6" data-testid="bagel-insights-panel">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard title="Today's Bagels" value={todayTotal} icon={CircleDot} subtitle={`${todayBoards} boards dumped`} />
+        <KpiCard title="Cumulative Total" value={cumulative.toLocaleString()} icon={TrendingUp} subtitle="All-time bagels baked" />
+        <KpiCard title="Avg Daily" value={avgDaily} icon={BarChart3} subtitle={`Over ${daily.length} days`} />
+        <KpiCard title="Production Days" value={daily.length} icon={Activity} subtitle="Days with bagel production" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader><CardTitle className="text-base">Bagels by Type (All-Time)</CardTitle></CardHeader>
+          <CardContent>
+            {byType.length > 0 ? (
+              <div className="space-y-4">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={byType} dataKey="count" nameKey="type" cx="50%" cy="50%" outerRadius={80} label={({ type, count }) => `${type} (${count})`}>
+                      {byType.map((_, i) => <Cell key={i} fill={BAGEL_PIE_COLORS[i % BAGEL_PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2">
+                  {byType.map(b => (
+                    <div key={b.type} className="flex items-center justify-between" data-testid={`bagel-type-row-${b.type}`}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: BAGEL_COLORS[b.type] || "#888" }} />
+                        <span className="capitalize text-sm font-medium">{b.type}</span>
+                      </div>
+                      <span className="font-mono text-sm">{b.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">No type data yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="text-base">Daily Production (Last 30 Days)</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" tickFormatter={(d: string) => format(new Date(d + "T12:00:00"), "M/d")} tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip labelFormatter={(d: string) => format(new Date(d + "T12:00:00"), "MMM d, yyyy")} />
+                <Bar dataKey="bakedTotal" fill="#f59e0b" name="Bagels Baked" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {daily.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Daily Breakdown</CardTitle></CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="bagel-daily-table">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="pb-2 pr-4">Date</th>
+                    <th className="pb-2 pr-4 text-right">Boards</th>
+                    <th className="pb-2 pr-4 text-right">Total Baked</th>
+                    <th className="pb-2 pr-4 text-right">Plain</th>
+                    <th className="pb-2 pr-4 text-right">Poppy</th>
+                    <th className="pb-2 pr-4 text-right">Sesame</th>
+                    <th className="pb-2 text-right">Everything</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentDays.map(day => (
+                    <tr key={day.date} className="border-b last:border-b-0 hover:bg-muted/30" data-testid={`bagel-day-${day.date}`}>
+                      <td className="py-2 pr-4 font-medium">{format(new Date(day.date + "T12:00:00"), "EEE, MMM d")}</td>
+                      <td className="py-2 pr-4 text-right font-mono">{day.boardDumps}</td>
+                      <td className="py-2 pr-4 text-right font-mono font-semibold text-amber-600">{day.bakedTotal}</td>
+                      <td className="py-2 pr-4 text-right font-mono">{day.byType.plain || 0}</td>
+                      <td className="py-2 pr-4 text-right font-mono">{day.byType.poppy || 0}</td>
+                      <td className="py-2 pr-4 text-right font-mono">{day.byType.sesame || 0}</td>
+                      <td className="py-2 text-right font-mono">{day.byType.everything || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -46,7 +46,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Platform 9¾ (FOH Command Center):** Full-screen kiosk display for FOH with filtered tasks, 86'd items, live oven timers, and FOH backup alert.
 *   **Vendor Management & Auto-Order Generation:** CRUD for vendors with auto-generated purchase orders based on stock levels.
 *   **Lobby Check Alert:** Recurring, PIN-acknowledged alert system for FOH staff.
-*   **Bagel Bros Display Screen:** Dedicated, full-screen, bilingual bagel production display with timers and FOH backup alert integration.
+*   **Bagel Bros Display Screen:** Dedicated, full-screen bagel production display with drain table tracking (board dump = +20, load oven resets to 0), kettle timer, 4-deck oven with type selection (plain/poppy/sesame/everything), FOH backup alerts. `bagel_sessions` tracks `troughCount` (drain table, resets on load) and `totalBoardDumps` (cumulative per day, never resets). `bagel_oven_loads` tracks each oven load by type/count. Bagel production insights available in Admin Insights "Bagels" tab with daily totals, by-type breakdown (pie chart), daily bar chart, cumulative count, and detailed daily table.
 *   **Global Acknowledgment System:** Supports forced logout and one-time, mandatory, Jarvis-branded overlay messages.
 *   **Session Version & Force Logout:** Owner-initiated system to force-logout all users with an optional Jarvis message.
 *   **Developer Mode & Dev Feedback:** Owner-only toggle for a global feedback system (bug reports, suggestions), AI-processed for categorization.

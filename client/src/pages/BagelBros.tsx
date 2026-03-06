@@ -238,8 +238,8 @@ export default function BagelBros() {
             Bagel Bros
           </h1>
           <div className="text-right">
-            <p className="text-zinc-400 text-xs uppercase tracking-wider">Artesa / Trough</p>
-            <p className="text-3xl font-bold font-mono text-amber-400" data-testid="text-trough-count">
+            <p className="text-zinc-400 text-xs uppercase tracking-wider">Drain Table</p>
+            <p className="text-3xl font-bold font-mono text-amber-400" data-testid="text-drain-count">
               {session?.troughCount || 0}
             </p>
           </div>
@@ -341,11 +341,11 @@ export default function BagelBros() {
                   <div key={i} className="w-6 h-6 md:w-7 md:h-7 rounded-full bg-amber-600/80 border border-amber-500/50" />
                 ))}
               </div>
-              <p className="text-amber-300 font-bold text-sm mt-2">Tap = +20 al artesa</p>
+              <p className="text-amber-300 font-bold text-sm mt-2">Tap = +20 to Drain Table</p>
             </button>
 
             <p className="text-center text-zinc-500 text-xs">
-              Cada toque agrega 20 bagels / Each tap adds 20 bagels
+              Each tap adds 20 bagels to the drain table
             </p>
           </div>
         </div>
