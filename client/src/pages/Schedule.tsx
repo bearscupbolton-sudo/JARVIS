@@ -1273,7 +1273,7 @@ export default function Schedule() {
                   <table className="w-full min-w-[800px] border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-muted">
-                        <th className="text-left text-[11px] font-semibold px-1.5 py-1 border-b border-r border-border w-[120px] min-w-[120px] sticky left-0 bg-muted z-30" data-testid="header-employee">
+                        <th className="text-left text-[11px] font-semibold px-1.5 py-1 border-b border-r border-border w-[110px] min-w-[110px] sticky left-0 bg-muted z-30" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }} data-testid="header-employee">
                           Employee
                         </th>
                         {weekDays.map((day) => {
@@ -1314,7 +1314,7 @@ export default function Schedule() {
                             const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
                               <tr key={uid} className="group/row border-b border-border hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                                <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 z-10 truncate w-[120px] min-w-[120px] max-w-[120px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
+                                <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 z-10 truncate w-[110px] min-w-[110px] max-w-[110px] bg-background group-hover/row:bg-muted transition-colors" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }} data-testid={`cell-employee-name-${uid}`}>
                                   {getDisplayName(member)}
                                 </td>
                                 {weekDays.map((day) => {
@@ -1625,7 +1625,7 @@ export default function Schedule() {
                           })}
                           {hasOpenShifts && (
                             <tr className="border-b border-border" data-testid="row-open-shifts">
-                              <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[120px] min-w-[120px] max-w-[120px]">
+                              <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[110px] min-w-[110px] max-w-[110px]" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }}>
                                 Open Shifts
                               </td>
                               {weekDays.map((day) => {
