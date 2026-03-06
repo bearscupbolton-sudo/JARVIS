@@ -342,27 +342,7 @@ function ClockBar() {
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {isClockedIn && (
-          <>
-            {onBreak ? (
-              <Button size="sm" variant="outline" onClick={() => breakEndMutation.mutate()} disabled={breakEndMutation.isPending} data-testid="button-end-break">
-                <Coffee className="w-3.5 h-3.5 mr-1.5" />End Break
-              </Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => breakStartMutation.mutate()} disabled={breakStartMutation.isPending} data-testid="button-start-break">
-                <Coffee className="w-3.5 h-3.5 mr-1.5" />Break
-              </Button>
-            )}
-            <Button size="sm" variant="default" onClick={() => clockOutMutation.mutate()} disabled={clockOutMutation.isPending} data-testid="button-clock-out">
-              <LogOut className="w-3.5 h-3.5 mr-1.5" />Clock Out
-            </Button>
-          </>
-        )}
-        {!isClockedIn && (
-          <Button size="sm" variant="default" onClick={() => clockInMutation.mutate()} disabled={clockInMutation.isPending} data-testid="button-clock-in">
-            <LogIn className="w-3.5 h-3.5 mr-1.5" />Clock In
-          </Button>
-        )}
+        <span className="text-[10px] text-muted-foreground italic hidden sm:inline" data-testid="text-clock-via-pos">Via Square POS</span>
       </div>
     </div>
   );
