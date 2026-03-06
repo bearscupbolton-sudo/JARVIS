@@ -1192,7 +1192,7 @@ export default function Schedule() {
               </div>
               <div className="flex items-center gap-3 ml-auto text-[11px] text-muted-foreground">
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-muted border border-border inline-block" /> Assigned</span>
-                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 dark:bg-green-900/50 border border-green-400/50 inline-block" /> Open</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300/50 dark:border-emerald-700/50 inline-block" /> Open</span>
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-200 dark:bg-amber-900/50 border border-amber-400/50 inline-block" /> Pending</span>
               </div>
             </div>
@@ -1270,7 +1270,7 @@ export default function Schedule() {
                 )}
                 <div className="overflow-auto max-h-[70vh]">
                 <TooltipProvider delayDuration={200}>
-                  <table className="w-full min-w-[800px] border-collapse">
+                  <table className="w-full min-w-[800px] border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-muted/50">
                         <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-30" data-testid="header-employee">
@@ -1480,14 +1480,14 @@ export default function Schedule() {
                                                 {openShiftPendingPreset ? (
                                                   <>
                                                     <div className="px-1">
-                                                      <p className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">Pick Department</p>
+                                                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Pick Department</p>
                                                       <p className="text-[10px] text-muted-foreground">Open shift: {openShiftPendingPreset.label}</p>
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-1">
                                                       {DEPARTMENTS.map(d => (
                                                         <button
                                                           key={d.value}
-                                                          className="px-2 py-1.5 text-xs font-medium rounded border border-green-500/40 bg-green-500/10 hover:bg-green-500 hover:text-white transition-colors text-center disabled:opacity-50"
+                                                          className="px-2 py-1.5 text-xs font-medium rounded border border-border bg-muted/50 hover:bg-primary hover:text-primary-foreground transition-colors text-center disabled:opacity-50"
                                                           onClick={() => handleOpenShiftCreate(dateStr, openShiftPendingPreset, d.value)}
                                                           disabled={createShiftMutation.isPending}
                                                           data-testid={`open-shift-dept-${d.value}-${dateStr}`}
@@ -1507,7 +1507,7 @@ export default function Schedule() {
                                                 ) : (
                                                   <>
                                                     <div className="flex items-center justify-between px-1">
-                                                      <p className={`text-[10px] font-medium uppercase tracking-wider ${openShiftMode ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+                                                      <p className={`text-[10px] font-medium uppercase tracking-wider ${openShiftMode ? "text-primary" : "text-muted-foreground"}`}>
                                                         {openShiftMode ? "Pick Time for Open Shift" : "Quick Shifts"}
                                                       </p>
                                                       {isLeadOrAbove && !openShiftMode && (
@@ -1526,7 +1526,7 @@ export default function Schedule() {
                                                           key={preset.label}
                                                           className={`px-2 py-1.5 text-xs font-medium rounded transition-colors text-center disabled:opacity-50 ${
                                                             openShiftMode
-                                                              ? "border border-green-500/60 bg-green-500/10 hover:bg-green-500 hover:text-white"
+                                                              ? "border border-primary/40 bg-primary/10 hover:bg-primary hover:text-primary-foreground"
                                                               : "bg-muted hover:bg-primary hover:text-primary-foreground"
                                                           }`}
                                                           disabled={openShiftMode && createShiftMutation.isPending}
@@ -1557,7 +1557,7 @@ export default function Schedule() {
                                                       </button>
                                                     ) : (
                                                       <button
-                                                        className="w-full text-[10px] text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors py-0.5 text-center"
+                                                        className="w-full text-[10px] text-muted-foreground hover:text-primary transition-colors py-0.5 text-center"
                                                         onClick={() => setOpenShiftMode(true)}
                                                         data-testid={`button-open-shift-${uid}-${dateStr}`}
                                                       >
@@ -1567,7 +1567,7 @@ export default function Schedule() {
                                                     <div className="border-t border-border pt-1.5">
                                                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">Custom</p>
                                                       <input
-                                                        className={`w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 ${openShiftMode ? "focus:ring-green-500 border-green-500/40" : "focus:ring-primary"}`}
+                                                        className={`w-full px-2 py-1 rounded text-xs border bg-background text-foreground text-center outline-none focus:ring-1 ${openShiftMode ? "focus:ring-primary border-primary/40" : "focus:ring-primary"}`}
                                                         placeholder={openShiftMode ? 'Type time for open shift' : 'Type "7-2" then Enter'}
                                                         value={isPresetOpen ? inlineEditValue : ""}
                                                         onChange={(e) => {
@@ -1625,7 +1625,7 @@ export default function Schedule() {
                           })}
                           {hasOpenShifts && (
                             <tr className="border-b border-border last:border-b-0" data-testid="row-open-shifts">
-                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 text-green-700 dark:text-green-400 italic">
+                              <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic">
                                 Open Shifts
                               </td>
                               {weekDays.map((day) => {
@@ -1645,7 +1645,7 @@ export default function Schedule() {
                                             <Tooltip>
                                               <TooltipTrigger asChild>
                                                 <button
-                                                  className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-200 hover:bg-green-300 dark:hover:bg-green-900/60"
+                                                  className="w-full px-1.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors text-center bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 border border-emerald-200/60 dark:border-emerald-700/40"
                                                   onClick={() => {
                                                     if (isLeadOrAbove) {
                                                       openEditShift(shift);
@@ -1664,7 +1664,7 @@ export default function Schedule() {
                                                   <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
                                                   <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
                                                   {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
-                                                  <div className="text-green-600 font-medium">Available for pickup</div>
+                                                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">Available for pickup</div>
                                                   {!isLeadOrAbove && <div className="text-muted-foreground italic">Click to pick up</div>}
                                                   {isLeadOrAbove && <div className="text-muted-foreground italic">Click to edit</div>}
                                                 </div>
@@ -2023,11 +2023,11 @@ export default function Schedule() {
               <h3 className="text-lg font-semibold">Available Open Shifts</h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {openShifts.map((shift) => (
-                  <Card key={shift.id} className="border-dashed border-green-500/60" data-testid={`card-open-shift-${shift.id}`}>
+                  <Card key={shift.id} className="border-dashed border-emerald-400/40 dark:border-emerald-600/30" data-testid={`card-open-shift-${shift.id}`}>
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <Badge variant="outline" className="text-green-700 dark:text-green-400 border-green-500/60 mb-1">Open Shift</Badge>
+                          <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400/80 border-emerald-400/40 dark:border-emerald-600/30 mb-1">Open Shift</Badge>
                           <p className="text-sm font-medium">{shift.shiftDate}</p>
                           <p className="text-sm text-muted-foreground">{shift.startTime} - {shift.endTime}</p>
                         </div>
@@ -2145,17 +2145,17 @@ export default function Schedule() {
           </DialogHeader>
           {pickupDialogShift && (
             <div className="space-y-4">
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 space-y-1.5 border border-green-200 dark:border-green-800">
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 border border-border">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-green-900 dark:text-green-200">{pickupDialogShift.shiftDate}</span>
+                  <span className="text-sm font-semibold">{pickupDialogShift.shiftDate}</span>
                   <Badge variant="secondary" className="capitalize">{pickupDialogShift.department || "kitchen"}</Badge>
                 </div>
-                <p className="text-sm text-green-800 dark:text-green-300">
+                <p className="text-sm text-muted-foreground">
                   <Clock className="w-3.5 h-3.5 inline mr-1" />
                   {pickupDialogShift.startTime} – {pickupDialogShift.endTime}
                 </p>
                 {pickupDialogShift.position && (
-                  <p className="text-xs text-green-700 dark:text-green-400">{pickupDialogShift.position}</p>
+                  <p className="text-xs text-muted-foreground">{pickupDialogShift.position}</p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -2180,7 +2180,7 @@ export default function Schedule() {
                   Cancel
                 </Button>
                 <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  className="flex-1"
                   onClick={() => claimShiftMutation.mutate({ id: pickupDialogShift.id, note: pickupNote || undefined })}
                   disabled={claimShiftMutation.isPending}
                   data-testid="button-confirm-pickup"
@@ -2207,7 +2207,7 @@ export default function Schedule() {
                   name="isOpenShift"
                   render={({ field }) => (
                     <FormItem>
-                      <div className="flex items-center gap-3 p-3 rounded-md border border-dashed border-green-500/60 bg-green-50/30 dark:bg-green-950/10">
+                      <div className="flex items-center gap-3 p-3 rounded-md border border-dashed border-border bg-muted/30">
                         <Switch
                           checked={field.value}
                           onCheckedChange={field.onChange}
