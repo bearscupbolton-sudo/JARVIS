@@ -3560,6 +3560,7 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
     try {
       const shiftId = Number(req.params.id);
       const userId = (req.appUser as any).id;
+      const claimNote = typeof req.body?.note === "string" ? req.body.note.trim() || null : null;
       const shift = await storage.getShiftById(shiftId);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
       if (shift.status !== "open") return res.status(400).json({ message: "This shift is not available for pickup" });
@@ -3567,13 +3568,21 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         status: "pending",
         claimedBy: userId,
         claimedAt: new Date(),
+        claimNote,
       } as any);
-      const shiftManagers = await authStorage.getAllUsers();
-      const managers = shiftManagers.filter(u => u.isShiftManager || u.role === "owner");
-      for (const mgr of managers) {
+      const claimantUser = await authStorage.getUser(userId);
+      const claimantName = claimantUser ? `${claimantUser.firstName || ""} ${claimantUser.lastName || ""}`.trim() || claimantUser.username : "A team member";
+      const allUsers = await authStorage.getAllUsers();
+      const notifyTargets = allUsers.filter(u =>
+        u.isShiftManager ||
+        u.role === "owner" ||
+        (u.isDepartmentLead && u.department === shift.department)
+      );
+      const noteSnippet = claimNote ? ` — "${claimNote.slice(0, 60)}"` : "";
+      for (const mgr of notifyTargets) {
         sendPushToUser(mgr.id, {
           title: "Shift Pickup Request",
-          body: `A team member has requested to pick up a shift on ${shift.shiftDate} (${shift.startTime} - ${shift.endTime})`,
+          body: `${claimantName} wants to pick up ${shift.shiftDate} (${shift.startTime} - ${shift.endTime})${noteSnippet}`,
           tag: `shift-claim-${shiftId}`,
           url: "/schedule",
         }).catch(err => console.error("[Push] Shift claim notification error:", err));
@@ -3588,12 +3597,14 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
   app.patch("/api/shifts/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
-        return res.status(403).json({ message: "Only shift managers, general managers, or owners can approve shift pickups" });
-      }
       const shiftId = Number(req.params.id);
       const shift = await storage.getShiftById(shiftId);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
+      const canApprove = user.role === "owner" || user.isShiftManager || user.isGeneralManager ||
+        (user.isDepartmentLead && user.department === shift.department);
+      if (!canApprove) {
+        return res.status(403).json({ message: "Only shift managers, general managers, department leads, or owners can approve shift pickups" });
+      }
       if (shift.status !== "pending" || !shift.claimedBy) {
         return res.status(400).json({ message: "This shift has no pending pickup request" });
       }
@@ -3617,12 +3628,14 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
   app.patch("/api/shifts/:id/deny", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
-      if (user.role !== "owner" && !user.isShiftManager && !user.isGeneralManager) {
-        return res.status(403).json({ message: "Only shift managers, general managers, or owners can deny shift pickups" });
-      }
       const shiftId = Number(req.params.id);
       const shift = await storage.getShiftById(shiftId);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
+      const canDeny = user.role === "owner" || user.isShiftManager || user.isGeneralManager ||
+        (user.isDepartmentLead && user.department === shift.department);
+      if (!canDeny) {
+        return res.status(403).json({ message: "Only shift managers, general managers, department leads, or owners can deny shift pickups" });
+      }
       if (shift.status !== "pending" || !shift.claimedBy) {
         return res.status(400).json({ message: "This shift has no pending pickup request" });
       }
@@ -3631,6 +3644,7 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         status: "open",
         claimedBy: null,
         claimedAt: null,
+        claimNote: null,
       } as any);
       sendPushToUser(claimedBy, {
         title: "Shift Pickup Denied",

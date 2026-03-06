@@ -41,6 +41,7 @@ export const users = pgTable("users", {
   jarvisBriefingFocus: varchar("jarvis_briefing_focus").default("all").notNull(),
   isShiftManager: boolean("is_shift_manager").default(false).notNull(),
   isGeneralManager: boolean("is_general_manager").default(false).notNull(),
+  isDepartmentLead: boolean("is_department_lead").default(false).notNull(),
   hourlyRate: doublePrecision("hourly_rate"),
   sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
   sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),

@@ -205,6 +205,11 @@ export default function AdminUsers() {
                         Shift Mgr
                       </Badge>
                     )}
+                    {(u as any).isDepartmentLead && (
+                      <Badge variant="outline" className="text-[10px] border-green-500/60 text-green-700 dark:text-green-400" data-testid={`badge-dept-lead-${u.id}`}>
+                        Dept Lead
+                      </Badge>
+                    )}
                     {u.locked && (
                       <Badge variant="destructive" data-testid={`badge-locked-${u.id}`}>
                         Locked
@@ -571,6 +576,19 @@ function UserDetailDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "General manager status updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const departmentLeadMutation = useMutation({
+    mutationFn: async (isDepartmentLead: boolean) => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/department-lead`, { isDepartmentLead });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Department lead status updated" });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
@@ -982,6 +1000,21 @@ function UserDetailDialog({
                   />
                 </div>
               )}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <Label className="text-sm font-medium">Department Lead</Label>
+                    <p className="text-[11px] text-muted-foreground">Receives shift pickup requests and can approve/deny for their department{(u as any).department ? ` (${(u as any).department})` : ""}</p>
+                  </div>
+                </div>
+                <Switch
+                  checked={!!(u as any).isDepartmentLead}
+                  onCheckedChange={(checked) => departmentLeadMutation.mutate(checked)}
+                  disabled={departmentLeadMutation.isPending}
+                  data-testid={`switch-department-lead-${u.id}`}
+                />
+              </div>
               <DefaultPagePicker
                 value={(u as any).defaultPage || null}
                 onChange={(val) => defaultPageMutation.mutate(val)}

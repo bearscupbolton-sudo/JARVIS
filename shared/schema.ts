@@ -547,6 +547,7 @@ export const shifts = pgTable("shifts", {
   status: text("status").notNull().default("assigned"),
   claimedBy: text("claimed_by"),
   claimedAt: timestamp("claimed_at"),
+  claimNote: text("claim_note"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

@@ -298,7 +298,8 @@ export default function Schedule() {
   const isOwner = user?.role === "owner";
   const isShiftManager = (user as any)?.isShiftManager;
   const isGeneralManager = !!(user as any)?.isGeneralManager;
-  const canManagePickups = isOwner || isShiftManager || isGeneralManager;
+  const isDepartmentLead = !!(user as any)?.isDepartmentLead;
+  const canManagePickups = isOwner || isShiftManager || isGeneralManager || isDepartmentLead;
   const [activeTab, setActiveTab] = useState<"schedule" | "timeoff" | "forum" | "pickups" | "locations">("schedule");
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearRange, setClearRange] = useState<"week" | "custom">("week");
@@ -325,6 +326,8 @@ export default function Schedule() {
   const [newPresetInput, setNewPresetInput] = useState("");
   const [openShiftMode, setOpenShiftMode] = useState(false);
   const [openShiftPendingPreset, setOpenShiftPendingPreset] = useState<ShiftPreset | null>(null);
+  const [pickupDialogShift, setPickupDialogShift] = useState<Shift | null>(null);
+  const [pickupNote, setPickupNote] = useState("");
   const [shiftNoteDialogOpen, setShiftNoteDialogOpen] = useState(false);
   const [shiftNoteShift, setShiftNoteShift] = useState<Shift | null>(null);
   const [shiftNoteText, setShiftNoteText] = useState("");
@@ -441,9 +444,11 @@ export default function Schedule() {
   });
 
   const claimShiftMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/shifts/${id}/claim`),
+    mutationFn: ({ id, note }: { id: number; note?: string }) => apiRequest("POST", `/api/shifts/${id}/claim`, { note }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setPickupDialogShift(null);
+      setPickupNote("");
       toast({ title: "Shift pickup requested", description: "Waiting for lead approval" });
     },
     onError: (e: Error) => toast({ title: "Cannot pick up shift", description: e.message, variant: "destructive" }),
@@ -1644,7 +1649,8 @@ export default function Schedule() {
                                                     if (isLeadOrAbove) {
                                                       openEditShift(shift);
                                                     } else {
-                                                      claimShiftMutation.mutate(shift.id);
+                                                      setPickupDialogShift(shift);
+                                                      setPickupNote("");
                                                     }
                                                   }}
                                                   data-testid={`shift-cell-${shift.id}`}
@@ -2030,8 +2036,7 @@ export default function Schedule() {
                       <Button
                         className="w-full"
                         variant="outline"
-                        onClick={() => claimShiftMutation.mutate(shift.id)}
-                        disabled={claimShiftMutation.isPending}
+                        onClick={() => { setPickupDialogShift(shift); setPickupNote(""); }}
                         data-testid={`button-claim-shift-${shift.id}`}
                       >
                         <HandMetal className="w-4 h-4 mr-2" />
@@ -2061,6 +2066,12 @@ export default function Schedule() {
                         <Badge variant="secondary">{shift.department || "kitchen"}</Badge>
                       </div>
                       {shift.position && <p className="text-xs text-muted-foreground">Position: {shift.position}</p>}
+                      {(shift as any).claimNote && (
+                        <div className="bg-muted/50 rounded-md p-2.5 border border-border" data-testid={`text-claim-note-${shift.id}`}>
+                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Note</p>
+                          <p className="text-sm text-foreground">{(shift as any).claimNote}</p>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <Button
                           variant="default"
@@ -2121,6 +2132,65 @@ export default function Schedule() {
       {activeTab === "locations" && isOwner && (
         <LocationsManager locations={locationsData || []} />
       )}
+
+      <Dialog open={!!pickupDialogShift} onOpenChange={(open) => { if (!open) { setPickupDialogShift(null); setPickupNote(""); } }}>
+        <DialogContent className="max-w-sm" data-testid="dialog-pickup">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HandMetal className="w-5 h-5 text-green-600" />
+              Pick Up Shift
+            </DialogTitle>
+          </DialogHeader>
+          {pickupDialogShift && (
+            <div className="space-y-4">
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 space-y-1.5 border border-green-200 dark:border-green-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-green-900 dark:text-green-200">{pickupDialogShift.shiftDate}</span>
+                  <Badge variant="secondary" className="capitalize">{pickupDialogShift.department || "kitchen"}</Badge>
+                </div>
+                <p className="text-sm text-green-800 dark:text-green-300">
+                  <Clock className="w-3.5 h-3.5 inline mr-1" />
+                  {pickupDialogShift.startTime} – {pickupDialogShift.endTime}
+                </p>
+                {pickupDialogShift.position && (
+                  <p className="text-xs text-green-700 dark:text-green-400">{pickupDialogShift.position}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="pickup-note">Add a note (optional)</label>
+                <textarea
+                  id="pickup-note"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+                  placeholder="Let your manager know anything relevant..."
+                  rows={3}
+                  value={pickupNote}
+                  onChange={(e) => setPickupNote(e.target.value)}
+                  data-testid="input-pickup-note"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setPickupDialogShift(null); setPickupNote(""); }}
+                  data-testid="button-cancel-pickup"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => claimShiftMutation.mutate({ id: pickupDialogShift.id, note: pickupNote || undefined })}
+                  disabled={claimShiftMutation.isPending}
+                  data-testid="button-confirm-pickup"
+                >
+                  {claimShiftMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Check className="w-4 h-4 mr-1" />}
+                  Pick Up Shift
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={shiftDialogOpen} onOpenChange={(open) => { setShiftDialogOpen(open); if (!open) setConfirmDeleteShiftId(null); }}>
         <DialogContent data-testid="dialog-shift">

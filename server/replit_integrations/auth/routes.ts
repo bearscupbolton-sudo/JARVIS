@@ -207,6 +207,23 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/department-lead", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { isDepartmentLead } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const user = await authStorage.updateUserProfile(targetId, { isDepartmentLead: !!isDepartmentLead });
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating department lead status:", error);
+      res.status(500).json({ message: "Failed to update department lead status" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/general-manager", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { isGeneralManager } = req.body;
