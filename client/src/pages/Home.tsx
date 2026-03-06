@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocationContext } from "@/hooks/use-location-context";
 import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -496,6 +497,7 @@ function LayoutCustomizer({ layout, onSave, onClose }: {
 
 export default function Home() {
   const { user } = useAuth();
+  const { selectedLocationId } = useLocationContext();
   const { toast } = useToast();
   const isManager = user?.role === "manager" || user?.role === "owner";
   const [briefingDismissed, setBriefingDismissed] = useState(false);
@@ -775,6 +777,9 @@ export default function Home() {
       title: problemForm.title, description: problemForm.description || null,
       severity: problemForm.severity, location: problemForm.location || null,
       reportedBy: problemForm.reportedBy || null, notes: problemForm.notes || null, completed: false,
+      status: "open",
+      priority: problemForm.severity === "critical" ? "critical" : problemForm.severity === "high" ? "high" : problemForm.severity === "low" ? "low" : "medium",
+      locationId: selectedLocationId || undefined,
     });
     setProblemForm({ title: "", description: "", severity: "medium", location: "", reportedBy: user?.username || user?.firstName || "", notes: "" });
     setShowProblemForm(false);
@@ -1011,7 +1016,7 @@ export default function Home() {
               {activeProblems.map(problem => (
                 <div key={problem.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border hover:border-primary/30 hover:bg-muted/30 transition-colors" data-testid={`card-problem-${problem.id}`}>
                   <button className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border-2 border-muted-foreground/30 transition-colors" onClick={() => updateProblem.mutate({ id: problem.id, completed: true })} data-testid={`button-complete-problem-${problem.id}`} />
-                  <Link href="/maintenance" className="flex-1 min-w-0 cursor-pointer" data-testid={`link-problem-${problem.id}`}>
+                  <Link href={`/maintenance?problem=${problem.id}`} className="flex-1 min-w-0 cursor-pointer" data-testid={`link-problem-${problem.id}`}>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-medium text-sm">{problem.title}</span>
                       <Badge variant={SEVERITY_CONFIG[problem.severity]?.color as any || "secondary"} className="text-[10px]" data-testid={`badge-severity-${problem.id}`}>{SEVERITY_CONFIG[problem.severity]?.label || problem.severity}</Badge>

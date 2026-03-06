@@ -14,7 +14,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Recipe System:** Supports inline scaling, production views, logged sessions, and "Recipe Assist." Recipes link ingredients to inventory and can include how-to video embeds.
 *   **Lamination Studio:** Manages lamination dough lifecycles with FIFO tracking and automatic bake-off log creation, including oven timer integration.
 *   **Production Data Flow:** Centralized through `bakeoff_logs` for reporting, with `pastryItemId` for core tables, a data pipeline health dashboard, Square catalog item matching, and bulk pastry passport creation.
-*   **Maintenance & Solutions Hub:** Manages problems (workflow, priority, assignment), equipment inventory (scheduling, overdue detection), and service contacts.
+*   **Maintenance & Solutions Hub:** Manages problems (workflow, priority, assignment), equipment inventory (scheduling, overdue detection), and service contacts. Problems created from the Home page are fully linked — auto-set `status: "open"`, `priority` mapped from severity, `locationId` from context, and an initial note auto-created. Clicking a problem on Home navigates to `/maintenance?problem=ID` which auto-expands that problem card and relaxes location filtering to ensure visibility.
 *   **Prep EQ (Production Intelligence):** Tracks in-house components (doughs, batters) with current levels, par levels, and demand calculations, generating prep tasks and auto-adjusting inventory. Includes piece-per-dough analytics and Jarvis briefing integration.
 *   **Soldout/86'd Tracking:** Records out-of-stock items with timestamps, attribution, and location.
 *   **COGS System:** Calculates real-time production costs using invoice, inventory, and recipe data.

@@ -846,10 +846,24 @@ FORMAT RULES for the content field:
     res.json(problem);
   });
 
-  app.post(api.problems.create.path, isAuthenticated, isUnlocked, async (req, res) => {
+  app.post(api.problems.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const input = api.problems.create.input.parse(req.body);
       const problem = await storage.createProblem(input);
+
+      const user = await getUserFromReq(req);
+      const authorName = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username : (input.reportedBy || "System");
+      try {
+        await storage.createProblemNote({
+          problemId: problem.id,
+          content: `Problem reported: "${problem.title}"${problem.severity ? ` — Severity: ${problem.severity}` : ""}${problem.description ? `\n\n${problem.description}` : ""}`,
+          authorId: user?.id || "system",
+          authorName,
+        });
+      } catch (noteErr) {
+        console.error("Failed to create initial problem note:", noteErr);
+      }
+
       res.status(201).json(problem);
     } catch (err) {
       if (err instanceof z.ZodError) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -189,13 +189,13 @@ function ContactDialog({
 }
 
 // =========== PROBLEMS TAB ===========
-function ProblemsTab() {
+function ProblemsTab({ focusProblemId }: { focusProblemId?: number | null }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const { selectedLocationId } = useLocationContext();
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(focusProblemId || null);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [showContactDialog, setShowContactDialog] = useState(false);
   const [contactForProblemId, setContactForProblemId] = useState<number | null>(null);
@@ -204,10 +204,10 @@ function ProblemsTab() {
   const qp = new URLSearchParams();
   if (statusFilter !== "all") qp.set("status", statusFilter);
   if (priorityFilter !== "all") qp.set("priority", priorityFilter);
-  if (selectedLocationId) qp.set("locationId", selectedLocationId.toString());
+  if (selectedLocationId && !focusProblemId) qp.set("locationId", selectedLocationId.toString());
 
   const { data: problems = [], isLoading } = useQuery<Problem[]>({
-    queryKey: ["/api/problems", statusFilter, priorityFilter, selectedLocationId],
+    queryKey: ["/api/problems", statusFilter, priorityFilter, focusProblemId ? null : selectedLocationId],
     queryFn: async () => {
       const res = await fetch(`/api/problems?${qp.toString()}`, { credentials: "include" });
       return res.json();
@@ -217,6 +217,17 @@ function ProblemsTab() {
   const { data: teamMembers = [] } = useQuery<any[]>({ queryKey: ["/api/admin/users"] });
   const { data: equipmentList = [] } = useQuery<Equipment[]>({ queryKey: ["/api/equipment"] });
   const { data: allContacts = [] } = useQuery<ServiceContact[]>({ queryKey: ["/api/service-contacts"] });
+
+  const scrolledRef = useRef(false);
+  useEffect(() => {
+    if (focusProblemId && !scrolledRef.current && problems.length > 0) {
+      scrolledRef.current = true;
+      setTimeout(() => {
+        const el = document.querySelector(`[data-testid="card-problem-${focusProblemId}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 200);
+    }
+  }, [focusProblemId, problems]);
 
   return (
     <div className="space-y-4">
@@ -1168,6 +1179,10 @@ function ContactsTab() {
 
 // =========== MAIN PAGE ===========
 export default function MaintenancePage() {
+  const urlProblemParam = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("problem")
+    : null;
+  const urlProblemId = urlProblemParam && !isNaN(Number(urlProblemParam)) ? Number(urlProblemParam) : null;
   const [activeTab, setActiveTab] = useState("problems");
 
   return (
@@ -1195,7 +1210,7 @@ export default function MaintenancePage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="problems"><ProblemsTab /></TabsContent>
+        <TabsContent value="problems"><ProblemsTab focusProblemId={urlProblemId} /></TabsContent>
         <TabsContent value="equipment"><EquipmentTab /></TabsContent>
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
       </Tabs>
