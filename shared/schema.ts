@@ -383,6 +383,31 @@ export const insertPastryTotalSchema = createInsertSchema(pastryTotals).omit({ i
 export type PastryTotal = typeof pastryTotals.$inferSelect;
 export type InsertPastryTotal = z.infer<typeof insertPastryTotalSchema>;
 
+// === DAILY PASTRY TRACKING (comprehensive daily snapshots for Jarvis AI training) ===
+export const dailyPastryTracking = pgTable("daily_pastry_tracking", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  itemName: text("item_name").notNull(),
+  pastryItemId: integer("pastry_item_id"),
+  locationId: integer("location_id"),
+  goal: integer("goal").default(0).notNull(),
+  baked: integer("baked").default(0).notNull(),
+  sold: integer("sold").default(0).notNull(),
+  revenue: integer("revenue_cents").default(0).notNull(),
+  eightySixedAt: text("eighty_sixed_at"),
+  eightySixedBy: text("eighty_sixed_by"),
+  pastryBoxQty: integer("pastry_box_qty").default(0).notNull(),
+  remaining: integer("remaining").default(0).notNull(),
+  paceStatus: text("pace_status"),
+  dayOfWeek: integer("day_of_week"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDailyPastryTrackingSchema = createInsertSchema(dailyPastryTracking).omit({ id: true, createdAt: true, updatedAt: true });
+export type DailyPastryTracking = typeof dailyPastryTracking.$inferSelect;
+export type InsertDailyPastryTracking = z.infer<typeof insertDailyPastryTrackingSchema>;
+
 // === SHAPING LOGS (dough shaped, deducts from totals) ===
 export const shapingLogs = pgTable("shaping_logs", {
   id: serial("id").primaryKey(),

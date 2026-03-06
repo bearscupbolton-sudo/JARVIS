@@ -2588,6 +2588,46 @@ Rules:
     }
   });
 
+  app.post("/api/inventory-dashboard/snapshot", isAuthenticated, async (req: any, res) => {
+    try {
+      const { date, items, locationId } = req.body;
+      if (!date || !items) return res.status(400).json({ message: "date and items required" });
+      const d = new Date(date + "T12:00:00");
+      const dayOfWeek = d.getDay();
+      for (const item of items) {
+        await storage.upsertDailyPastryTracking({
+          date,
+          itemName: item.itemName,
+          locationId: locationId || null,
+          goal: item.goal || 0,
+          baked: item.baked || 0,
+          sold: item.sold || 0,
+          revenue: Math.round((item.revenue || 0) * 100),
+          eightySixedAt: item.eightySixedAt || null,
+          eightySixedBy: item.eightySixedBy || null,
+          pastryBoxQty: item.pastryBoxQty || 0,
+          remaining: item.remaining || 0,
+          paceStatus: item.paceStatus || null,
+          dayOfWeek,
+        });
+      }
+      res.json({ success: true, count: items.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/daily-pastry-tracking", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
+      const data = await storage.getDailyPastryTracking(date, locationId);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // === SOLDOUT LOGS ===
   app.get("/api/soldout-logs", isAuthenticated, async (req, res) => {
     try {
@@ -2602,17 +2642,37 @@ Rules:
 
   app.post("/api/soldout-logs", isAuthenticated, async (req: any, res) => {
     try {
-      const { itemName, date, soldOutAt, notes, locationId } = req.body;
+      const { itemName, date, soldOutAt, notes, locationId, baked, sold } = req.body;
       if (!itemName || !date || !soldOutAt) {
         return res.status(400).json({ message: "itemName, date, and soldOutAt are required" });
       }
+      const reportedBy = req.appUser?.firstName || req.appUser?.username || "Unknown";
       const log = await storage.createSoldoutLog({
         itemName,
         date,
         soldOutAt,
-        reportedBy: req.appUser?.firstName || req.appUser?.username || "Unknown",
+        reportedBy,
         notes: notes || null,
         locationId: locationId || null,
+      });
+      const pastryBoxQty = (baked != null && sold != null && baked > sold) ? baked - sold : 0;
+      const d = new Date(date + "T12:00:00");
+      const existingTracking = await storage.getDailyPastryTracking(date, locationId || undefined);
+      const existing = existingTracking.find(t => t.itemName === itemName);
+      await storage.upsertDailyPastryTracking({
+        date,
+        itemName,
+        locationId: locationId || null,
+        goal: existing?.goal ?? 0,
+        baked: baked || existing?.baked || 0,
+        sold: sold || existing?.sold || 0,
+        revenue: existing?.revenue ?? 0,
+        eightySixedAt: soldOutAt,
+        eightySixedBy: reportedBy,
+        pastryBoxQty,
+        remaining: 0,
+        paceStatus: "sold_out",
+        dayOfWeek: d.getDay(),
       });
       res.json(log);
     } catch (error: any) {

@@ -81,6 +81,8 @@ import {
   bagelSessions, bagelOvenLoads,
   type BagelSession, type InsertBagelSession,
   type BagelOvenLoad, type InsertBagelOvenLoad,
+  dailyPastryTracking,
+  type DailyPastryTracking, type InsertDailyPastryTracking,
   appSettings,
   devFeedback,
   type DevFeedback, type InsertDevFeedback,
@@ -592,6 +594,10 @@ export interface IStorage {
   getOvenLoads(sessionId: number): Promise<BagelOvenLoad[]>;
   finishOvenLoad(id: number): Promise<BagelOvenLoad>;
   getBagelInsights(): Promise<{ daily: any[]; byType: any[]; cumulative: number }>;
+
+  // Daily Pastry Tracking
+  upsertDailyPastryTracking(data: InsertDailyPastryTracking): Promise<DailyPastryTracking>;
+  getDailyPastryTracking(date: string, locationId?: number): Promise<DailyPastryTracking[]>;
 
   // App Settings
   getAppSetting(key: string): Promise<string | null>;
@@ -3721,6 +3727,31 @@ export class DatabaseStorage implements IStorage {
     const cumulative = allLoads.reduce((sum, l) => sum + l.bagelCount, 0);
 
     return { daily, byType, cumulative };
+  }
+
+  // Daily Pastry Tracking
+  async upsertDailyPastryTracking(data: InsertDailyPastryTracking): Promise<DailyPastryTracking> {
+    const [existing] = await db.select().from(dailyPastryTracking)
+      .where(and(
+        eq(dailyPastryTracking.date, data.date),
+        eq(dailyPastryTracking.itemName, data.itemName),
+        data.locationId ? eq(dailyPastryTracking.locationId, data.locationId) : sql`${dailyPastryTracking.locationId} IS NULL`
+      ));
+    if (existing) {
+      const [updated] = await db.update(dailyPastryTracking)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(dailyPastryTracking.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(dailyPastryTracking).values(data).returning();
+    return created;
+  }
+
+  async getDailyPastryTracking(date: string, locationId?: number): Promise<DailyPastryTracking[]> {
+    const conditions = [eq(dailyPastryTracking.date, date)];
+    if (locationId) conditions.push(eq(dailyPastryTracking.locationId, locationId));
+    return await db.select().from(dailyPastryTracking).where(and(...conditions)).orderBy(dailyPastryTracking.itemName);
   }
 
   // App Settings
