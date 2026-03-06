@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -32,6 +32,8 @@ import {
   Pencil,
   Trash2,
   Undo2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useLocationContext } from "@/hooks/use-location-context";
 import type { SoldoutLog } from "@shared/schema";
@@ -144,24 +146,45 @@ export default function LiveInventory() {
   const { data: dashboard, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/inventory-dashboard", date, selectedLocationId],
     queryFn: () => fetch(`/api/inventory-dashboard?date=${date}${locParam}`).then(r => r.json()),
+    refetchInterval: date === today ? 15000 : false,
+  });
+
+  const { data: webhookStatus } = useQuery<{ configured: boolean; lastEventAt: string | null }>({
+    queryKey: ["/api/square/webhook-status"],
+    queryFn: () => fetch("/api/square/webhook-status").then(r => r.ok ? r.json() : { configured: false, lastEventAt: null }),
     refetchInterval: date === today ? 30000 : false,
+    retry: false,
   });
 
-  const soldoutLocParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
-  const { data: soldoutLogs = [] } = useQuery<SoldoutLog[]>({
-    queryKey: ["/api/soldout-logs", date, selectedLocationId],
-    queryFn: () => fetch(`/api/soldout-logs?date=${date}${soldoutLocParam}`).then(r => r.json()),
-  });
-
+  const autoSyncDone = useRef(false);
   const syncMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/square/sync", { date, locationId: selectedLocationId }),
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-dashboard", date, selectedLocationId] });
       queryClient.invalidateQueries({ queryKey: ["/api/square/sales"] });
-      toast({ title: "Sales synced", description: `${data.ordersProcessed} orders processed` });
+      if (autoSyncDone.current) {
+        toast({ title: "Sales synced", description: `${data.ordersProcessed} orders processed` });
+      }
+      autoSyncDone.current = true;
     },
-    onError: (err: Error) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => {
+      autoSyncDone.current = true;
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    if (date === today && !autoSyncDone.current) {
+      autoSyncDone.current = true;
+      syncMutation.mutate();
+    }
+  }, [date]);
+
+  const soldoutLocParam = selectedLocationId ? `&locationId=${selectedLocationId}` : "";
+  const { data: soldoutLogs = [] } = useQuery<SoldoutLog[]>({
+    queryKey: ["/api/soldout-logs", date, selectedLocationId],
+    queryFn: () => fetch(`/api/soldout-logs?date=${date}${soldoutLocParam}`).then(r => r.json()),
   });
 
   const soldOutMutation = useMutation({
@@ -274,7 +297,7 @@ export default function LiveInventory() {
           </div>
 
           {dashboard?.pipelineStatus && (
-            <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2 border border-border" data-testid="pipeline-status">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2 border border-border flex-wrap" data-testid="pipeline-status">
               <span className="flex items-center gap-1">
                 {dashboard.pipelineStatus.activePastryCount > 0 ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <AlertTriangle className="w-3 h-3 text-amber-500" />}
                 {dashboard.pipelineStatus.activePastryCount} pastry items
@@ -286,6 +309,19 @@ export default function LiveInventory() {
               <span className="flex items-center gap-1">
                 {dashboard.pipelineStatus.salesSynced ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Clock className="w-3 h-3 text-muted-foreground" />}
                 {dashboard.pipelineStatus.salesSynced ? "Sales synced" : "Sales not synced"}
+              </span>
+              <span className="flex items-center gap-1" data-testid="webhook-sync-status">
+                {webhookStatus?.configured ? (
+                  <>
+                    <Wifi className="w-3 h-3 text-green-500" />
+                    <span className="text-green-600 dark:text-green-400">Live sync active</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3 h-3 text-muted-foreground" />
+                    <span>Manual sync only</span>
+                  </>
+                )}
               </span>
             </div>
           )}

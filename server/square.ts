@@ -854,11 +854,86 @@ export async function handleSquareWebhook(eventType: string, data: any): Promise
       case "labor.shift.deleted":
         await handleTimecardDeleted(data);
         break;
+      case "order.created":
+      case "order.updated":
+        await handleOrderEvent(data);
+        break;
+      case "payment.created":
+      case "payment.updated":
+        console.log(`[Square Webhook] Payment event received (${eventType}), no action needed`);
+        break;
       default:
         console.log(`[Square Webhook] Ignoring unhandled event type: ${eventType}`);
     }
   } catch (error: any) {
     console.error(`[Square Webhook] Error processing ${eventType}:`, error.message);
+  }
+}
+
+const recentOrderEvents = new Map<string, string>();
+const MAX_ORDER_CACHE = 500;
+
+function pruneOrderCache() {
+  if (recentOrderEvents.size > MAX_ORDER_CACHE) {
+    const keys = Array.from(recentOrderEvents.keys());
+    for (let i = 0; i < keys.length - MAX_ORDER_CACHE / 2; i++) {
+      recentOrderEvents.delete(keys[i]);
+    }
+  }
+}
+
+async function handleOrderEvent(data: any): Promise<void> {
+  const order = data?.object?.order || data?.data?.object?.order || null;
+  if (!order) {
+    console.log("[Square Webhook] No order data in event");
+    return;
+  }
+
+  const orderId = order.id;
+  if (!orderId) {
+    console.log("[Square Webhook] No order ID in event, skipping");
+    return;
+  }
+
+  if (order.state !== "COMPLETED") {
+    console.log(`[Square Webhook] Order ${orderId} state is ${order.state}, skipping (only COMPLETED orders synced)`);
+    return;
+  }
+
+  const orderUpdatedAt = order.updatedAt || order.updated_at || order.createdAt || order.created_at || "";
+  const cacheKey = `${orderId}`;
+  const cachedUpdate = recentOrderEvents.get(cacheKey);
+  if (cachedUpdate && cachedUpdate === orderUpdatedAt) {
+    console.log(`[Square Webhook] Order ${orderId} already processed at ${orderUpdatedAt}, skipping duplicate`);
+    return;
+  }
+  recentOrderEvents.set(cacheKey, orderUpdatedAt);
+  pruneOrderCache();
+
+  const orderDate = order.createdAt || order.created_at;
+  if (!orderDate) {
+    console.log("[Square Webhook] No created_at on order, skipping");
+    return;
+  }
+
+  const dateStr = new Date(orderDate).toISOString().split("T")[0];
+
+  let jarvisLocationId: number | undefined;
+  const squareLocationId = order.locationId || order.location_id;
+  if (squareLocationId) {
+    const [loc] = await db.select().from(locations).where(eq(locations.squareLocationId, squareLocationId));
+    if (loc) {
+      jarvisLocationId = loc.id;
+    }
+  }
+
+  console.log(`[Square Webhook] Order ${orderId} completed — triggering full sync for ${dateStr} (location: ${jarvisLocationId ?? "all"})`);
+
+  try {
+    const result = await syncSquareSales(dateStr, jarvisLocationId);
+    console.log(`[Square Webhook] Sync complete for ${dateStr}: ${result.ordersProcessed} orders, ${result.itemsSynced} items synced`);
+  } catch (err: any) {
+    console.error(`[Square Webhook] Sync failed for ${dateStr}:`, err.message);
   }
 }
 
