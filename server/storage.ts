@@ -300,6 +300,7 @@ export interface IStorage {
   // Kiosk Timers
   getActiveTimers(): Promise<KioskTimer[]>;
   createTimer(timer: InsertKioskTimer): Promise<KioskTimer>;
+  updateTimer(id: number, updates: Partial<InsertKioskTimer>): Promise<KioskTimer>;
   dismissTimer(id: number): Promise<boolean>;
 
   // Inventory Items
@@ -1343,6 +1344,11 @@ export class DatabaseStorage implements IStorage {
 
   async createTimer(timer: InsertKioskTimer): Promise<KioskTimer> {
     const [t] = await db.insert(kioskTimers).values(timer).returning();
+    return t;
+  }
+
+  async updateTimer(id: number, updates: Partial<InsertKioskTimer>): Promise<KioskTimer> {
+    const [t] = await db.update(kioskTimers).set(updates).where(eq(kioskTimers.id, id)).returning();
     return t;
   }
 

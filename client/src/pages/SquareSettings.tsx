@@ -73,7 +73,7 @@ export default function SquareSettings() {
     staleTime: 60000,
   });
 
-  const { data: catalog, isLoading: loadingCatalog, refetch: refreshCatalog } = useQuery<SquareCatalogItem[]>({
+  const { data: catalog, isLoading: loadingCatalog, isFetching: fetchingCatalog, refetch: refreshCatalog } = useQuery<SquareCatalogItem[]>({
     queryKey: ["/api/square/catalog"],
     enabled: !!connectionTest?.success,
     retry: false,
@@ -385,11 +385,14 @@ export default function SquareSettings() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => refreshCatalog()}
-              disabled={loadingCatalog || !connectionTest?.success}
+              onClick={() => {
+                refreshCatalog();
+                toast({ title: "Refreshing catalog from Square..." });
+              }}
+              disabled={fetchingCatalog || !connectionTest?.success}
               data-testid="button-refresh-catalog"
             >
-              {loadingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {fetchingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               <span className="ml-1">Refresh Catalog</span>
             </Button>
           </div>
@@ -436,6 +439,12 @@ export default function SquareSettings() {
               ))}
             </div>
           ) : null}
+
+          {fetchingCatalog && (
+            <div className="flex items-center gap-2 text-muted-foreground py-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading Square catalog items...
+            </div>
+          )}
 
           {catalog && catalog.length > 0 && (
             <div className="space-y-2">

@@ -36,21 +36,28 @@ export async function fetchSquareCatalog(): Promise<any[]> {
     const client = getSquareClient();
     const items: any[] = [];
     let cursor: string | undefined;
-
     do {
       const response: any = await client.catalog.list({ cursor, types: "ITEM" });
-      const objects = response.objects || [];
+      const objects = response.objects || response.data || [];
+
       for (const obj of objects) {
-        if (obj.type === "ITEM" && obj.itemData) {
-          const variations = (obj.itemData.variations || []).map((v: any) => ({
-            id: v.id,
-            name: v.itemVariationData?.name || "Default",
-            priceMoney: v.itemVariationData?.priceMoney,
-          }));
+        const isItem = obj.type === "ITEM";
+        const data = obj.itemData || obj.item_data;
+        if (isItem && data) {
+          const vars = data.variations || data.item_variations || [];
+          const variations = vars.map((v: any) => {
+            const vData = v.itemVariationData || v.item_variation_data || {};
+            const pm = vData.priceMoney || vData.price_money;
+            return {
+              id: v.id,
+              name: vData.name || "Default",
+              priceMoney: pm ? { amount: Number(pm.amount ?? 0), currency: pm.currency } : undefined,
+            };
+          });
           items.push({
             id: obj.id,
-            name: obj.itemData.name,
-            description: obj.itemData.description,
+            name: data.name,
+            description: data.description || data.descriptionPlaintext || data.description_plaintext,
             variations,
           });
         }
@@ -58,7 +65,7 @@ export async function fetchSquareCatalog(): Promise<any[]> {
       cursor = response.cursor || undefined;
     } while (cursor);
 
-    return items;
+    return JSON.parse(JSON.stringify(items, (_, v) => typeof v === "bigint" ? Number(v) : v));
   } catch (error: any) {
     console.error("Error fetching Square catalog:", error);
     throw new Error("Failed to fetch Square catalog");

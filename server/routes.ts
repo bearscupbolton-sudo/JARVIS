@@ -42,6 +42,33 @@ async function createOvenTimersForItem(
     const bakeMinutes = passport.bakeTimeMinutes;
     const now = new Date();
 
+    const activeTimers = await storage.getActiveTimers();
+    const activeBakeTimer = activeTimers.find(
+      (t) => t.label.includes("— Bake") && t.expiresAt > now && !t.dismissed
+    );
+
+    if (activeBakeTimer) {
+      const existingLabels = activeBakeTimer.label.replace(" — Bake", "").split(", ");
+      if (!existingLabels.includes(itemName)) {
+        existingLabels.push(itemName);
+        const newLabel = existingLabels.join(", ") + " — Bake";
+        await storage.updateTimer(activeBakeTimer.id, { label: newLabel });
+      }
+
+      const activeSpinTimer = activeTimers.find(
+        (t) => t.label.includes("— Spin") && t.expiresAt > now && !t.dismissed
+      );
+      if (activeSpinTimer) {
+        const spinLabels = activeSpinTimer.label.replace(" — Spin", "").split(", ");
+        if (!spinLabels.includes(itemName)) {
+          spinLabels.push(itemName);
+          const newSpinLabel = spinLabels.join(", ") + " — Spin";
+          await storage.updateTimer(activeSpinTimer.id, { label: newSpinLabel });
+        }
+      }
+      return;
+    }
+
     await storage.createTimer({
       label: `${itemName} — Bake`,
       durationSeconds: bakeMinutes * 60,
