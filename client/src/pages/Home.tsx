@@ -1009,9 +1009,9 @@ export default function Home() {
           ) : (
             <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
               {activeProblems.map(problem => (
-                <div key={problem.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border" data-testid={`card-problem-${problem.id}`}>
+                <div key={problem.id} className="flex items-start gap-2 p-2.5 rounded-md border border-border hover:border-primary/30 hover:bg-muted/30 transition-colors" data-testid={`card-problem-${problem.id}`}>
                   <button className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border-2 border-muted-foreground/30 transition-colors" onClick={() => updateProblem.mutate({ id: problem.id, completed: true })} data-testid={`button-complete-problem-${problem.id}`} />
-                  <div className="flex-1 min-w-0">
+                  <Link href="/maintenance" className="flex-1 min-w-0 cursor-pointer" data-testid={`link-problem-${problem.id}`}>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-medium text-sm">{problem.title}</span>
                       <Badge variant={SEVERITY_CONFIG[problem.severity]?.color as any || "secondary"} className="text-[10px]" data-testid={`badge-severity-${problem.id}`}>{SEVERITY_CONFIG[problem.severity]?.label || problem.severity}</Badge>
@@ -1021,7 +1021,7 @@ export default function Home() {
                       {problem.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{problem.location}</span>}
                       {problem.reportedBy && <span>by {problem.reportedBy}</span>}
                     </div>
-                  </div>
+                  </Link>
                   <Button size="icon" variant="ghost" className="flex-shrink-0 h-6 w-6" onClick={() => deleteProblem.mutate(problem.id)} data-testid={`button-delete-problem-${problem.id}`}><Trash2 className="w-3 h-3 text-muted-foreground" /></Button>
                 </div>
               ))}
