@@ -50,6 +50,8 @@ export const users = pgTable("users", {
   permissionLevelId: integer("permission_level_id"),
   adpAssociateOID: varchar("adp_associate_oid"),
   squareTeamMemberId: varchar("square_team_member_id"),
+  briefingNotes: text("briefing_notes"),
+  briefingNotesDate: date("briefing_notes_date"),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),
   createdAt: timestamp("created_at").defaultNow(),

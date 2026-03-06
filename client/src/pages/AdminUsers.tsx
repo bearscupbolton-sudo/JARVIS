@@ -500,6 +500,7 @@ function UserDetailDialog({
   const isManagerOrAbove = currentUser?.role === "owner" || currentUser?.role === "manager";
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
+  const [briefingNotes, setBriefingNotes] = useState((u as any).briefingNotes || "");
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -602,6 +603,19 @@ function UserDetailDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Welcome message saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const briefingNotesMutation = useMutation({
+    mutationFn: async (notes: string) => {
+      await apiRequest("PUT", `/api/users/${u.id}/briefing-notes`, { notes: notes || null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Briefing notes saved", description: "Jarvis will work this into their next greeting." });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to save", description: err.message, variant: "destructive" });
@@ -863,6 +877,44 @@ function UserDetailDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">Controls what the briefing highlights. FOH sees pastry availability and customer-facing info. BOH sees dough status, production, and recipes.</p>
+              </div>
+              <div className="space-y-2 border-t pt-3">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
+                  Today's Briefing Notes
+                </Label>
+                <Textarea
+                  placeholder={`Jot anything for ${u.firstName || "them"} — Jarvis will weave it into their greeting naturally. e.g. "Special is a hit. Make brown butter cookies soon as u get in."`}
+                  value={briefingNotes}
+                  onChange={(e) => setBriefingNotes(e.target.value)}
+                  rows={3}
+                  data-testid={`input-briefing-notes-${u.id}`}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => briefingNotesMutation.mutate(briefingNotes)}
+                    disabled={briefingNotesMutation.isPending}
+                    data-testid={`button-save-briefing-notes-${u.id}`}
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1.5" />
+                    {briefingNotesMutation.isPending ? "Saving..." : "Save Notes"}
+                  </Button>
+                  {briefingNotes && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground"
+                      onClick={() => { setBriefingNotes(""); briefingNotesMutation.mutate(""); }}
+                      disabled={briefingNotesMutation.isPending}
+                      data-testid={`button-clear-briefing-notes-${u.id}`}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Write in any style — Jarvis works it into their greeting seamlessly. Clears automatically each day.</p>
               </div>
             </div>
           )}

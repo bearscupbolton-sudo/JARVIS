@@ -3271,6 +3271,8 @@ export class DatabaseStorage implements IStorage {
         jarvisBriefingSeenAt: user.jarvisBriefingSeenAt,
         lastBriefingText: user.lastBriefingText,
         lastBriefingAt: user.lastBriefingAt,
+        briefingNotes: user.briefingNotes,
+        briefingNotesDate: user.briefingNotesDate,
       },
       bakeryState: {
         proofingDoughs: proofing?.count || 0,

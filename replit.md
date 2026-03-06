@@ -30,7 +30,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Permission Levels:** Reusable, owner-configurable templates for sidebar and section permissions.
 *   **AI Integration (Jarvis):** Utilizes OpenAI-compatible APIs for chat, audio (STT/TTS), image generation, and invoice scanning.
 *   **Consolidated Home Page:** Central operational hub with Jarvis greeting/briefing, announcements, stats, production grid, problems, calendar, tasks, vendor orders, messages, quick actions, and "Who's On" sidebar.
-*   **Jarvis Briefing:** AI-generated, personalized, calendar-aware briefings on the Home page.
+*   **Jarvis Briefing:** AI-generated, personalized, calendar-aware briefings on the Home page. Owners can write freeform "Briefing Notes" per team member (via Admin Users profile) — Jarvis weaves them into the greeting naturally without bold text or formatting. Notes auto-clear daily.
 *   **Multi-Location Support:** Operational data tagged by `locationId`.
 *   **Task Manager:** Comprehensive system with assignable task lists, jobs library, department to-dos, and AI-powered daily task generation.
 *   **Employee Skills Tracking:** Ratings for AI-powered task assignment.

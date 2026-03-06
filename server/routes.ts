@@ -6986,6 +6986,15 @@ ${sopsHtml}
         }
       }
 
+      const todayDateStr = new Date().toLocaleDateString("en-CA");
+      const briefingNotes = context.user.briefingNotes;
+      const briefingNotesDate = context.user.briefingNotesDate;
+      if (briefingNotes && briefingNotesDate === todayDateStr) {
+        stateLines.push(`MANAGER NOTE FOR THIS PERSON — ${briefingNotes}`);
+      } else if (briefingNotes && briefingNotesDate !== todayDateStr) {
+        db.update(users).set({ briefingNotes: null, briefingNotesDate: null }).where(eq(users.id, req.appUser.id)).catch(() => {});
+      }
+
       const focusLabels: Record<string, string> = {
         all: "all bakery operations",
         foh: "front-of-house (customer service, display cases, pastry availability, sales)",
@@ -7026,6 +7035,8 @@ PREP EQ AWARENESS — If prep component data is provided:
 - For dough prep recommendations, mention how many doughs need mixing today for tomorrow
 - Keep it actionable but casual, not alarming
 - Lead-time items that need prep today deserve a gentle nudge
+
+MANAGER NOTES — If a "MANAGER NOTE FOR THIS PERSON" appears in the data, it contains a direct instruction or message from their manager about what this person needs to do today. Weave this information into the briefing naturally and seamlessly — do NOT use bold text, special formatting, color changes, or call it out as a "manager note." Just work it into the greeting as if Jarvis naturally knows what they should focus on. For example, if the note says "Make brown butter cookies, special is a hit" — say something like "Oh, and heads up — the brown butter cookie special has been flying, so jump on a batch as soon as you're in."
 
 WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and genuinely uplifting — offer a kind thought, acknowledge something about them, or share a positive note about the day. Be real and human, like a teammate who wants them to have a good day.`;
 
@@ -7111,6 +7122,25 @@ Generate a personalized, empathetic briefing for ${context.user.firstName}. Reme
       await storage.clearBriefingCache(req.params.userId);
       res.json({ success: true });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/users/:userId/briefing-notes", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const schema = z.object({ notes: z.string().max(500).nullable() });
+      const { notes } = schema.parse(req.body);
+      const today = new Date().toLocaleDateString("en-CA");
+      await db.update(users).set({
+        briefingNotes: notes || null,
+        briefingNotesDate: notes ? today : null,
+      }).where(eq(users.id, req.params.userId));
+      await storage.clearBriefingCache(req.params.userId);
+      res.json({ success: true, date: today });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
       res.status(500).json({ message: err.message });
     }
   });
