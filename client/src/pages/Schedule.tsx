@@ -1270,7 +1270,7 @@ export default function Schedule() {
                 )}
                 <div className="overflow-auto max-h-[70vh]">
                 <TooltipProvider delayDuration={200}>
-                  <table className="w-full min-w-[800px] border-separate border-spacing-0">
+                  <table className="min-w-[800px] border-separate border-spacing-0" style={{ width: 'max-content', minWidth: '100%' }}>
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-muted/50">
                         <th className="text-left text-xs font-semibold p-2.5 border-b border-r border-border w-[140px] sticky left-0 bg-muted/50 z-30" data-testid="header-employee">
@@ -1281,7 +1281,7 @@ export default function Schedule() {
                           return (
                             <th
                               key={day.toISOString()}
-                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
+                              className={`text-center text-xs font-semibold p-2 border-b border-r border-border min-w-[120px] ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted/50"}`}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -1313,8 +1313,8 @@ export default function Schedule() {
                             const empShifts = shiftsByUser.get(uid) || [];
                             const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
-                              <tr key={uid} className="border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                                <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 bg-background z-10 truncate max-w-[140px]" data-testid={`cell-employee-name-${uid}`}>
+                              <tr key={uid} className="group/row border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
+                                <td className="text-sm font-medium p-2.5 border-r border-border sticky left-0 z-10 truncate max-w-[140px] bg-background group-hover/row:bg-muted transition-colors" data-testid={`cell-employee-name-${uid}`}>
                                   {getDisplayName(member)}
                                 </td>
                                 {weekDays.map((day) => {
