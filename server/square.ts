@@ -884,24 +884,22 @@ function pruneOrderCache() {
 
 async function handleOrderEvent(data: any): Promise<void> {
   const order = data?.object?.order || data?.data?.object?.order || null;
-  if (!order) {
-    console.log("[Square Webhook] No order data in event");
-    return;
-  }
 
-  const orderId = order.id;
+  const orderId = order?.id || data?.object?.order_updated?.order_id || data?.id || null;
   if (!orderId) {
-    console.log("[Square Webhook] No order ID in event, skipping");
+    console.log("[Square Webhook] No order ID found in event payload, triggering today sync");
+    const today = new Date().toISOString().split("T")[0];
+    try {
+      const result = await syncSquareSales(today);
+      console.log(`[Square Webhook] Today sync complete: ${result.ordersProcessed} orders, ${result.itemsSynced} items synced`);
+    } catch (err: any) {
+      console.error(`[Square Webhook] Today sync failed:`, err.message);
+    }
     return;
   }
 
-  if (order.state !== "COMPLETED") {
-    console.log(`[Square Webhook] Order ${orderId} state is ${order.state}, skipping (only COMPLETED orders synced)`);
-    return;
-  }
-
-  const orderUpdatedAt = order.updatedAt || order.updated_at || order.createdAt || order.created_at || "";
   const cacheKey = `${orderId}`;
+  const orderUpdatedAt = order?.updatedAt || order?.updated_at || order?.createdAt || order?.created_at || new Date().toISOString();
   const cachedUpdate = recentOrderEvents.get(cacheKey);
   if (cachedUpdate && cachedUpdate === orderUpdatedAt) {
     console.log(`[Square Webhook] Order ${orderId} already processed at ${orderUpdatedAt}, skipping duplicate`);
@@ -910,16 +908,21 @@ async function handleOrderEvent(data: any): Promise<void> {
   recentOrderEvents.set(cacheKey, orderUpdatedAt);
   pruneOrderCache();
 
-  const orderDate = order.createdAt || order.created_at;
-  if (!orderDate) {
-    console.log("[Square Webhook] No created_at on order, skipping");
+  if (order && order.state && order.state !== "COMPLETED") {
+    console.log(`[Square Webhook] Order ${orderId} state is ${order.state}, skipping (only COMPLETED orders synced)`);
     return;
   }
 
-  const dateStr = new Date(orderDate).toISOString().split("T")[0];
+  let dateStr: string;
+  const orderDate = order?.createdAt || order?.created_at;
+  if (orderDate) {
+    dateStr = new Date(orderDate).toISOString().split("T")[0];
+  } else {
+    dateStr = new Date().toISOString().split("T")[0];
+  }
 
   let jarvisLocationId: number | undefined;
-  const squareLocationId = order.locationId || order.location_id;
+  const squareLocationId = order?.locationId || order?.location_id;
   if (squareLocationId) {
     const [loc] = await db.select().from(locations).where(eq(locations.squareLocationId, squareLocationId));
     if (loc) {
@@ -927,7 +930,7 @@ async function handleOrderEvent(data: any): Promise<void> {
     }
   }
 
-  console.log(`[Square Webhook] Order ${orderId} completed — triggering full sync for ${dateStr} (location: ${jarvisLocationId ?? "all"})`);
+  console.log(`[Square Webhook] Order ${orderId} — triggering sync for ${dateStr} (location: ${jarvisLocationId ?? "all"})`);
 
   try {
     const result = await syncSquareSales(dateStr, jarvisLocationId);
