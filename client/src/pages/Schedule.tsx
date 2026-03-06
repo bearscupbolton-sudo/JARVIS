@@ -339,6 +339,33 @@ export default function Schedule() {
     }
   }, [user, deptInitialized]);
 
+  const scheduleGridRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const gridEl = scheduleGridRef.current;
+    if (!gridEl) return;
+    let rafId: number;
+    const sync = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const rows = gridEl.querySelectorAll('tr[data-testid^="row-employee-"]');
+        rows.forEach((tr) => {
+          const uid = tr.getAttribute('data-testid')?.replace('row-employee-', '');
+          if (!uid) return;
+          const nameDiv = gridEl.querySelector(`[data-schedule-name="${uid}"]`) as HTMLElement;
+          if (nameDiv) nameDiv.style.height = `${(tr as HTMLElement).offsetHeight}px`;
+        });
+        const openRow = gridEl.querySelector('tr[data-testid="row-open-shifts"]');
+        const openDiv = gridEl.querySelector('[data-schedule-name="open-shifts"]') as HTMLElement;
+        if (openRow && openDiv) openDiv.style.height = `${(openRow as HTMLElement).offsetHeight}px`;
+      });
+    };
+    const timer = setTimeout(sync, 100);
+    const ro = new ResizeObserver(sync);
+    ro.observe(gridEl);
+    return () => { clearTimeout(timer); cancelAnimationFrame(rafId); ro.disconnect(); };
+  });
+
   const shiftForm = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
     defaultValues: {
@@ -1261,27 +1288,71 @@ export default function Schedule() {
             const hasOpenShifts = openShiftsList.length > 0;
 
             return (
-              <div className="border border-border rounded-lg" data-testid="schedule-grid">
+              <div className="border border-border rounded-lg" data-testid="schedule-grid" ref={scheduleGridRef}>
                 {isLeadOrAbove && (
                   <div className="bg-muted/30 border-b border-border px-3 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Plus className="w-3 h-3" />
                     <span>Click any cell to pick a preset shift or type a custom time. Click an existing shift to modify it.</span>
                   </div>
                 )}
-                <div className="overflow-auto max-h-[70vh]" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <div className="flex max-h-[70vh]">
+                  <div
+                    className="flex-shrink-0 w-[110px] border-r border-border overflow-hidden bg-background z-10"
+                    style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.1)' }}
+                    ref={(el) => { (window as any).__schedNameCol = el; }}
+                  >
+                    <div className="bg-muted px-1.5 py-1 border-b border-border text-[11px] font-semibold h-[38px] flex items-center" data-testid="header-employee">
+                      Employee
+                    </div>
+                    <div className="overflow-hidden" ref={(el) => { (window as any).__schedNameScroll = el; }}>
+                      {allEmployees.length === 0 && !hasOpenShifts ? (
+                        <div className="text-center text-sm text-muted-foreground py-12 italic">—</div>
+                      ) : (
+                        <>
+                          {allEmployees.map((member) => {
+                            const uid = member.id;
+                            return (
+                              <div
+                                key={uid}
+                                className="text-[11px] font-medium px-1.5 border-b border-border truncate flex items-center"
+                                data-schedule-name={uid}
+                                data-testid={`cell-employee-name-${uid}`}
+                              >
+                                <span className="truncate">{getDisplayName(member)}</span>
+                              </div>
+                            );
+                          })}
+                          {hasOpenShifts && (
+                            <div className="text-[11px] font-medium px-1.5 border-b border-border text-emerald-600 dark:text-emerald-400/80 italic flex items-center" data-schedule-name="open-shifts">
+                              Open Shifts
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className="flex-1 overflow-auto"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
+                    ref={(el) => {
+                      if (!el) return;
+                      el.onscroll = () => {
+                        const nameScroll = (window as any).__schedNameScroll;
+                        if (nameScroll) nameScroll.scrollTop = el.scrollTop;
+                      };
+                    }}
+                  >
                 <TooltipProvider delayDuration={200}>
-                  <table className="w-full min-w-[800px] border-separate border-spacing-0">
+                  <table className="w-full min-w-[680px] border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-muted">
-                        <th className="text-left text-[11px] font-semibold px-1.5 py-1 border-b border-r border-border w-[110px] min-w-[110px] sticky left-0 bg-muted z-30" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }} data-testid="header-employee">
-                          Employee
-                        </th>
                         {weekDays.map((day) => {
                           const today = isSameDay(day, new Date());
                           return (
                             <th
                               key={day.toISOString()}
                               className={`text-center text-[11px] font-semibold px-1 py-1 border-b border-r border-border ${today ? "bg-primary/10 [background-color:hsl(var(--primary)/0.1)]" : "bg-muted"}`}
+                              style={{ height: '38px' }}
                               data-testid={`header-day-${format(day, "yyyy-MM-dd")}`}
                             >
                               <div>{format(day, "EEE")}</div>
@@ -1292,7 +1363,7 @@ export default function Schedule() {
                           );
                         })}
                         {isLeadOrAbove && (
-                          <th className="text-center text-[11px] font-semibold px-1 py-1 border-b border-border w-[48px] bg-muted" data-testid="header-hours">
+                          <th className="text-center text-[11px] font-semibold px-1 py-1 border-b border-border w-[48px] bg-muted" style={{ height: '38px' }} data-testid="header-hours">
                             <div>Hrs</div>
                             <div className="text-[10px] text-muted-foreground font-normal">Total</div>
                           </th>
@@ -1302,7 +1373,7 @@ export default function Schedule() {
                     <tbody>
                       {allEmployees.length === 0 && !hasOpenShifts ? (
                         <tr>
-                          <td colSpan={isLeadOrAbove ? 9 : 8} className="text-center text-sm text-muted-foreground py-12 italic">
+                          <td colSpan={isLeadOrAbove ? 8 : 7} className="text-center text-sm text-muted-foreground py-12 italic">
                             No team members found
                           </td>
                         </tr>
@@ -1314,9 +1385,6 @@ export default function Schedule() {
                             const weeklyHours = empShifts.reduce((sum, s) => sum + calcShiftHours(s.startTime, s.endTime), 0);
                             return (
                               <tr key={uid} className="group/row border-b border-border hover:bg-muted/20 transition-colors" data-testid={`row-employee-${uid}`}>
-                                <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 z-10 truncate w-[110px] min-w-[110px] max-w-[110px] bg-background group-hover/row:bg-muted transition-colors" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }} data-testid={`cell-employee-name-${uid}`}>
-                                  {getDisplayName(member)}
-                                </td>
                                 {weekDays.map((day) => {
                                   const dateStr = format(day, "yyyy-MM-dd");
                                   const dayShifts = empShifts.filter(s => s.shiftDate === dateStr);
@@ -1625,9 +1693,6 @@ export default function Schedule() {
                           })}
                           {hasOpenShifts && (
                             <tr className="border-b border-border" data-testid="row-open-shifts">
-                              <td className="text-[11px] font-medium px-1.5 py-0.5 border-r border-border sticky left-0 bg-background z-10 text-emerald-600 dark:text-emerald-400/80 italic w-[110px] min-w-[110px] max-w-[110px]" style={{ transform: 'translateZ(0)', willChange: 'transform', boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }}>
-                                Open Shifts
-                              </td>
                               {weekDays.map((day) => {
                                 const dateStr = format(day, "yyyy-MM-dd");
                                 const dayOpenShifts = openShiftsList.filter(s => s.shiftDate === dateStr);
@@ -1701,6 +1766,7 @@ export default function Schedule() {
                     </tbody>
                   </table>
                 </TooltipProvider>
+                  </div>
                 </div>
               </div>
             );
