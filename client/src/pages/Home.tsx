@@ -373,11 +373,14 @@ function ClockBar() {
                 <div className="space-y-2">
                   <p className="text-sm font-semibold text-green-800">This is for your eyes only!</p>
                   <p className="text-xs text-green-700 leading-relaxed">
-                    In an effort to be as transparent as possible with tip share, we've created the Tip Transparency Information Dashboard (TTIS). Jarvis will split tips among FOH staff down to the penny. All tip allocations are calculated in real time based on verified clock-in records and Square POS transaction data. This information is confidential and intended solely for the individual team member viewing it.
+                    In an effort to be as transparent as possible with tip share, we've created the Tip Transparency Information Dashboard (TTIS). I split tips among FOH staff down to the penny based on verified clock-in records and Square POS transaction data. This information is confidential and intended solely for you.
+                  </p>
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed mt-2">
+                    Heads up — I'm still in beta. Until I'm fully live, the numbers here may contain inaccuracies. If something looks off, let Lou know and we'll get it sorted.
                   </p>
                   <div className="flex items-center gap-1.5 pt-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Protected · Verified · Confidential</span>
+                    <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Protected · Verified · Beta</span>
                   </div>
                 </div>
               </div>
