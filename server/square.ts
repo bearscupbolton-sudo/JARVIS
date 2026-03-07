@@ -13,6 +13,8 @@ function getSquareClient() {
   });
 }
 
+const activeSyncs = new Map<string, Promise<{ itemsSynced: number; ordersProcessed: number }>>();
+
 export async function testSquareConnection(): Promise<{ success: boolean; locations: any[]; error?: string }> {
   try {
     const client = getSquareClient();
@@ -73,6 +75,24 @@ export async function fetchSquareCatalog(): Promise<any[]> {
 }
 
 export async function syncSquareSales(date: string, jarvisLocationId?: number): Promise<{ itemsSynced: number; ordersProcessed: number }> {
+  const lockKey = `${date}:${jarvisLocationId ?? "all"}`;
+  const existing = activeSyncs.get(lockKey);
+  if (existing) {
+    console.log(`[Square Sync] Sync already in progress for ${lockKey}, waiting for it to finish`);
+    return existing;
+  }
+
+  const syncPromise = doSyncSquareSales(date, jarvisLocationId);
+  activeSyncs.set(lockKey, syncPromise);
+  try {
+    const result = await syncPromise;
+    return result;
+  } finally {
+    activeSyncs.delete(lockKey);
+  }
+}
+
+async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promise<{ itemsSynced: number; ordersProcessed: number }> {
   try {
     const client = getSquareClient();
     const startAt = `${date}T00:00:00Z`;
@@ -906,13 +926,16 @@ async function handleOrderEvent(data: any): Promise<void> {
   }
 
   const cacheKey = `${orderId}`;
-  const orderUpdatedAt = order?.updatedAt || order?.updated_at || order?.createdAt || order?.created_at || new Date().toISOString();
-  const cachedUpdate = recentOrderEvents.get(cacheKey);
-  if (cachedUpdate && cachedUpdate === orderUpdatedAt) {
-    console.log(`[Square Webhook] Order ${orderId} already processed at ${orderUpdatedAt}, skipping duplicate`);
-    return;
+  const now = Date.now();
+  const cachedTimestamp = recentOrderEvents.get(cacheKey);
+  if (cachedTimestamp) {
+    const elapsed = now - parseInt(cachedTimestamp);
+    if (elapsed < 5000) {
+      console.log(`[Square Webhook] Order ${orderId} synced ${elapsed}ms ago, skipping rapid duplicate`);
+      return;
+    }
   }
-  recentOrderEvents.set(cacheKey, orderUpdatedAt);
+  recentOrderEvents.set(cacheKey, String(now));
   pruneOrderCache();
 
   if (order && order.state && order.state !== "COMPLETED") {
