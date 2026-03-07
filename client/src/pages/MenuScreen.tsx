@@ -1,6 +1,9 @@
+import { useEffect } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
+
+const RELOAD_INTERVAL_MS = 8 * 60 * 1000;
 
 type ScreenData = {
   active: boolean;
@@ -17,6 +20,13 @@ type ScreenData = {
 export default function MenuScreen() {
   const params = useParams<{ slot: string }>();
   const slot = params?.slot || "1";
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      window.location.reload();
+    }, RELOAD_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const { data, isLoading } = useQuery<ScreenData>({
     queryKey: [`/api/jmt/screen/${slot}`],
