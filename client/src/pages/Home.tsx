@@ -271,8 +271,8 @@ function ClockBar() {
     refetchInterval: 15000,
   });
 
-  const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; lastSplitCount: number }>({
-    queryKey: ["/api/ttis/my-tips"],
+  const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; averageSplitCount: number; weekStart: string; weekEnd: string }>({
+    queryKey: ["/api/ttis/my-tips?weekStartDay=4"],
     enabled: isFoh && !activeEntry,
     refetchInterval: 60000,
   });
@@ -349,7 +349,7 @@ function ClockBar() {
           <div className="flex items-center gap-2 flex-shrink-0">
             {myTips && myTips.tipCount > 0 && (
               <span className="text-xs text-muted-foreground" data-testid="text-tips-split-info">
-                {myTips.tipCount} tip{myTips.tipCount !== 1 ? "s" : ""} · {myTips.lastSplitCount}-way split
+                {myTips.tipCount} tip{myTips.tipCount !== 1 ? "s" : ""}{myTips.averageSplitCount > 0 ? ` · avg ${myTips.averageSplitCount}-way split` : ""}
               </span>
             )}
           </div>

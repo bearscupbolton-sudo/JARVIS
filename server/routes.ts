@@ -2739,13 +2739,14 @@ Rules:
     try {
       const { inArray, lte, or, isNull } = await import("drizzle-orm");
 
+      const weekStartDay = parseInt(req.query.weekStartDay as string) || 4;
       const now = new Date();
       const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-      const dayOfWeek = eastern.getDay();
-      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-      const monday = new Date(eastern);
-      monday.setDate(monday.getDate() + mondayOffset);
-      const startDate = monday.toISOString().split("T")[0];
+      const currentDay = eastern.getDay();
+      const diff = (currentDay - weekStartDay + 7) % 7;
+      const weekStart = new Date(eastern);
+      weekStart.setDate(weekStart.getDate() - diff);
+      const startDate = weekStart.toISOString().split("T")[0];
 
       const dates: string[] = [];
       for (let i = 0; i < 7; i++) {
@@ -2753,7 +2754,8 @@ Rules:
         d.setDate(d.getDate() + i);
         const ds = d.toISOString().split("T")[0];
         dates.push(ds);
-        if (ds === eastern.toISOString().split("T")[0]) break;
+        const todayStr = eastern.toISOString().split("T")[0];
+        if (ds === todayStr) break;
       }
 
       const allShifts = await db.select().from(shifts)
@@ -2771,7 +2773,7 @@ Rules:
 
       let myTipsCents = 0;
       let myTipCount = 0;
-      let mySplitCount = 0;
+      const splitCounts: number[] = [];
 
       for (const date of dates) {
         const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
@@ -2808,17 +2810,19 @@ Rules:
             const splitAmount = Math.round(tip.tipAmountCents / onDutyStaff.length);
             myTipsCents += splitAmount;
             myTipCount += 1;
-            mySplitCount = onDutyStaff.length;
+            splitCounts.push(onDutyStaff.length);
           }
         }
       }
+
+      const avgSplit = splitCounts.length > 0 ? Math.round(splitCounts.reduce((a, b) => a + b, 0) / splitCounts.length) : 0;
 
       res.json({
         weekStart: dates[0],
         weekEnd: dates[dates.length - 1],
         totalTips: Math.round(myTipsCents) / 100,
         tipCount: myTipCount,
-        lastSplitCount: mySplitCount,
+        averageSplitCount: avgSplit,
       });
     } catch (error: any) {
       console.error("TTIS my-tips error:", error);
