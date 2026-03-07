@@ -272,7 +272,7 @@ function ClockBar() {
   });
 
   const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; averageSplitCount: number; weekStart: string; weekEnd: string }>({
-    queryKey: ["/api/ttis/my-tips?weekStartDay=4"],
+    queryKey: ["/api/ttis/my-tips?weekStartDay=2"],
     enabled: isFoh && !activeEntry,
     refetchInterval: 60000,
   });
