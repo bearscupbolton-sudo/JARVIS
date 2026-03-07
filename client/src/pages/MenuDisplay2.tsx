@@ -9,7 +9,8 @@ export default function MenuDisplay2() {
       <img
         src={menuImage}
         alt="Bear's Cup Bakehouse Menu - Bagels & Pastries"
-        className="h-full w-auto object-contain"
+        className="rotate-90 origin-center"
+        style={{ height: "100vw", width: "auto" }}
         data-testid="img-menu-2"
       />
     </div>
