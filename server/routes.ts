@@ -2739,7 +2739,7 @@ Rules:
     try {
       const { inArray, lte, or, isNull } = await import("drizzle-orm");
 
-      const weekStartDay = parseInt(req.query.weekStartDay as string) || 2;
+      const weekStartDay = parseInt(req.query.weekStartDay as string) || 3;
       const now = new Date();
       const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const currentDay = eastern.getDay();
