@@ -13,7 +13,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -10346,6 +10346,269 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       const { adpClient } = await import("./adp-api");
       const status = await adpClient.getStatus();
       res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === JMT (JARVIS MENU THEATER) ===
+
+  // Get all menus
+  app.get("/api/jmt/menus", isAuthenticated, async (_req: any, res) => {
+    try {
+      const menus = await db.select().from(jmtMenus).orderBy(desc(jmtMenus.createdAt));
+      res.json(menus);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Upload a new menu
+  app.post("/api/jmt/menus", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "Manager or owner access required" });
+    }
+    try {
+      const { name, description, imageData, orientation, category, tags } = req.body;
+      if (!name || !imageData) {
+        return res.status(400).json({ message: "name and imageData are required" });
+      }
+      const { uploadMediaWithThumbnail } = await import("./media");
+      const result = await uploadMediaWithThumbnail(imageData, "jmt", `menu_${Date.now()}`);
+      const [menu] = await db.insert(jmtMenus).values({
+        name,
+        description: description || null,
+        imageUrl: result.url,
+        imageKey: result.key,
+        thumbnailUrl: result.thumbnailUrl,
+        orientation: orientation || "portrait",
+        category: category || "general",
+        tags: tags || null,
+        uploadedBy: user.id,
+      }).returning();
+      res.json(menu);
+    } catch (err: any) {
+      console.error("JMT menu upload error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Update menu metadata
+  app.patch("/api/jmt/menus/:id", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "Manager or owner access required" });
+    }
+    try {
+      const id = parseInt(req.params.id);
+      const updates: any = { updatedAt: new Date() };
+      if (req.body.name !== undefined) updates.name = req.body.name;
+      if (req.body.description !== undefined) updates.description = req.body.description;
+      if (req.body.orientation !== undefined) updates.orientation = req.body.orientation;
+      if (req.body.category !== undefined) updates.category = req.body.category;
+      if (req.body.tags !== undefined) updates.tags = req.body.tags;
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.seasonalStart !== undefined) updates.seasonalStart = req.body.seasonalStart ? new Date(req.body.seasonalStart) : null;
+      if (req.body.seasonalEnd !== undefined) updates.seasonalEnd = req.body.seasonalEnd ? new Date(req.body.seasonalEnd) : null;
+
+      if (req.body.imageData) {
+        const { uploadMediaWithThumbnail, deleteMedia } = await import("./media");
+        const existing = await db.select().from(jmtMenus).where(eq(jmtMenus.id, id));
+        if (existing[0]?.imageKey) {
+          try { await deleteMedia(existing[0].imageKey); } catch {}
+        }
+        const result = await uploadMediaWithThumbnail(req.body.imageData, "jmt", `menu_${Date.now()}`);
+        updates.imageUrl = result.url;
+        updates.imageKey = result.key;
+        updates.thumbnailUrl = result.thumbnailUrl;
+      }
+
+      const [menu] = await db.update(jmtMenus).set(updates).where(eq(jmtMenus.id, id)).returning();
+      res.json(menu);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Delete a menu
+  app.delete("/api/jmt/menus/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await db.select().from(jmtMenus).where(eq(jmtMenus.id, id));
+      if (existing[0]?.imageKey) {
+        const { deleteMedia } = await import("./media");
+        try { await deleteMedia(existing[0].imageKey); } catch {}
+      }
+      await db.update(jmtDisplays).set({ menuId: null, isLive: false, updatedAt: new Date() }).where(eq(jmtDisplays.menuId, id));
+      await db.delete(jmtMenus).where(eq(jmtMenus.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get all displays
+  app.get("/api/jmt/displays", isAuthenticated, async (_req: any, res) => {
+    try {
+      let displays = await db.select().from(jmtDisplays).orderBy(jmtDisplays.slotNumber);
+      if (displays.length === 0) {
+        const seedDisplays = [];
+        for (let i = 1; i <= 15; i++) {
+          seedDisplays.push({
+            slotNumber: i,
+            name: `Display ${i}`,
+            orientation: "portrait" as const,
+            rotationDeg: 0,
+            isLive: false,
+            showEightySixed: false,
+            refreshInterval: 0,
+          });
+        }
+        displays = await db.insert(jmtDisplays).values(seedDisplays).returning();
+      }
+      res.json(displays);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Update a display (assign menu, change settings)
+  app.patch("/api/jmt/displays/:id", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "Manager or owner access required" });
+    }
+    try {
+      const id = parseInt(req.params.id);
+      const updates: any = { updatedAt: new Date() };
+      if (req.body.name !== undefined) updates.name = req.body.name;
+      if (req.body.menuId !== undefined) updates.menuId = req.body.menuId;
+      if (req.body.orientation !== undefined) updates.orientation = req.body.orientation;
+      if (req.body.rotationDeg !== undefined) updates.rotationDeg = req.body.rotationDeg;
+      if (req.body.isLive !== undefined) updates.isLive = req.body.isLive;
+      if (req.body.refreshInterval !== undefined) updates.refreshInterval = req.body.refreshInterval;
+      if (req.body.showEightySixed !== undefined) updates.showEightySixed = req.body.showEightySixed;
+      if (req.body.locationId !== undefined) updates.locationId = req.body.locationId;
+
+      if (req.body.isLive === true) updates.lastPublishedAt = new Date();
+
+      const [display] = await db.update(jmtDisplays).set(updates).where(eq(jmtDisplays.id, id)).returning();
+
+      const historyMenuId = req.body.menuId ?? display.menuId;
+      if ((req.body.menuId !== undefined || req.body.isLive !== undefined) && historyMenuId) {
+        await db.insert(jmtDisplayHistory).values({
+          displayId: id,
+          menuId: historyMenuId,
+          action: req.body.isLive ? "published" : req.body.menuId ? "assigned" : "updated",
+          performedBy: user.id,
+        });
+      }
+
+      res.json(display);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get display history
+  app.get("/api/jmt/displays/:id/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const history = await db.select().from(jmtDisplayHistory)
+        .where(eq(jmtDisplayHistory.displayId, id))
+        .orderBy(desc(jmtDisplayHistory.createdAt))
+        .limit(50);
+      res.json(history);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Jarvis Recommend — AI menu suggestions
+  app.post("/api/jmt/jarvis-recommend", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    if (user.role !== "owner" && user.role !== "manager") {
+      return res.status(403).json({ message: "Manager or owner access required" });
+    }
+    try {
+      const { context } = req.body;
+      const soldoutResults = await db.select().from(soldoutLogs)
+        .where(sql`DATE(${soldoutLogs.soldOutAt}) = CURRENT_DATE`)
+        .limit(20);
+      const eightySixedItems = soldoutResults.map((s: any) => s.itemName).filter(Boolean);
+
+      const menus = await db.select({ name: jmtMenus.name, category: jmtMenus.category, orientation: jmtMenus.orientation }).from(jmtMenus).where(eq(jmtMenus.isActive, true));
+      const displays = await db.select().from(jmtDisplays).where(eq(jmtDisplays.isLive, true));
+
+      const systemPrompt = `You are Jarvis, the AI operations manager for Bear's Cup Bakehouse. You're an expert in menu engineering, visual merchandising, and bakery operations. Provide creative, actionable menu display recommendations.
+
+Current state:
+- ${menus.length} menu designs available (${menus.map(m => `"${m.name}" [${m.category}/${m.orientation}]`).join(", ") || "none"})
+- ${displays.length} displays currently live
+- 86'd items today: ${eightySixedItems.length > 0 ? eightySixedItems.join(", ") : "none"}
+
+Consider: seasonal relevance, time of day, customer psychology, visual flow between displays, upselling opportunities, and any 86'd items that should trigger menu swaps.`;
+
+      const OpenAI = (await import("openai")).default;
+      const aiClient = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+      const completion = await withRetry(() => aiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: context || "Give me your top recommendations for optimizing our menu displays right now." },
+        ],
+        temperature: 0.8,
+        max_tokens: 800,
+      }));
+
+      res.json({ recommendation: completion.choices[0]?.message?.content || "No recommendation available." });
+    } catch (err: any) {
+      console.error("JMT Jarvis recommend error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Public display endpoint — serves the menu for a specific slot
+  app.get("/api/jmt/screen/:slot", async (req, res) => {
+    try {
+      const slot = parseInt(req.params.slot);
+      if (isNaN(slot) || slot < 1 || slot > 15) {
+        return res.status(404).json({ message: "Invalid display slot" });
+      }
+      const [display] = await db.select().from(jmtDisplays).where(eq(jmtDisplays.slotNumber, slot));
+      if (!display || !display.isLive || !display.menuId) {
+        return res.json({ active: false, slot });
+      }
+      const [menu] = await db.select().from(jmtMenus).where(eq(jmtMenus.id, display.menuId));
+      if (!menu) {
+        return res.json({ active: false, slot });
+      }
+
+      let eightySixedItems: string[] = [];
+      if (display.showEightySixed) {
+        try {
+          const logs = await db.select().from(soldoutLogs)
+            .where(sql`DATE(${soldoutLogs.soldOutAt}) = CURRENT_DATE`)
+            .limit(30);
+          eightySixedItems = logs.map((l: any) => l.itemName).filter(Boolean);
+        } catch {}
+      }
+
+      res.json({
+        active: true,
+        slot,
+        imageUrl: menu.imageUrl,
+        orientation: display.orientation,
+        rotationDeg: display.rotationDeg,
+        refreshInterval: display.refreshInterval || 0,
+        showEightySixed: display.showEightySixed,
+        eightySixedItems,
+        menuName: menu.name,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

@@ -1716,3 +1716,57 @@ export const insertPayrollBatchSchema = createInsertSchema(payrollBatches).omit(
 export type PayrollBatch = typeof payrollBatches.$inferSelect;
 export type InsertPayrollBatch = z.infer<typeof insertPayrollBatchSchema>;
 
+// === JMT (JARVIS MENU THEATER) ===
+export const jmtMenus = pgTable("jmt_menus", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  imageUrl: text("image_url").notNull(),
+  imageKey: text("image_key"),
+  thumbnailUrl: text("thumbnail_url"),
+  orientation: varchar("orientation", { length: 20 }).default("portrait").notNull(),
+  category: varchar("category", { length: 50 }).default("general").notNull(),
+  tags: text("tags").array(),
+  isActive: boolean("is_active").default(true).notNull(),
+  uploadedBy: text("uploaded_by"),
+  seasonalStart: timestamp("seasonal_start"),
+  seasonalEnd: timestamp("seasonal_end"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const jmtDisplays = pgTable("jmt_displays", {
+  id: serial("id").primaryKey(),
+  slotNumber: integer("slot_number").notNull().unique(),
+  name: text("name").notNull(),
+  locationId: integer("location_id"),
+  menuId: integer("menu_id"),
+  orientation: varchar("orientation", { length: 20 }).default("portrait").notNull(),
+  rotationDeg: integer("rotation_deg").default(0).notNull(),
+  isLive: boolean("is_live").default(false).notNull(),
+  refreshInterval: integer("refresh_interval").default(0),
+  showEightySixed: boolean("show_eighty_sixed").default(false).notNull(),
+  lastPublishedAt: timestamp("last_published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const jmtDisplayHistory = pgTable("jmt_display_history", {
+  id: serial("id").primaryKey(),
+  displayId: integer("display_id").notNull(),
+  menuId: integer("menu_id").notNull(),
+  action: varchar("action", { length: 30 }).notNull(),
+  performedBy: text("performed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertJmtMenuSchema = createInsertSchema(jmtMenus).omit({ id: true, createdAt: true, updatedAt: true });
+export type JmtMenu = typeof jmtMenus.$inferSelect;
+export type InsertJmtMenu = z.infer<typeof insertJmtMenuSchema>;
+
+export const insertJmtDisplaySchema = createInsertSchema(jmtDisplays).omit({ id: true, createdAt: true, updatedAt: true });
+export type JmtDisplay = typeof jmtDisplays.$inferSelect;
+export type InsertJmtDisplay = z.infer<typeof insertJmtDisplaySchema>;
+
+export type JmtDisplayHistory = typeof jmtDisplayHistory.$inferSelect;
+

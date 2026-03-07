@@ -1,0 +1,72 @@
+import { useParams } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
+
+type ScreenData = {
+  active: boolean;
+  slot: number;
+  imageUrl?: string;
+  orientation?: string;
+  rotationDeg?: number;
+  refreshInterval?: number;
+  showEightySixed?: boolean;
+  eightySixedItems?: string[];
+  menuName?: string;
+};
+
+export default function MenuScreen() {
+  const params = useParams<{ slot: string }>();
+  const slot = params?.slot || "1";
+
+  const { data, isLoading } = useQuery<ScreenData>({
+    queryKey: [`/api/jmt/screen/${slot}`],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="w-screen h-screen bg-black flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!data?.active) {
+    return (
+      <div className="w-screen h-screen bg-black flex flex-col items-center justify-center gap-4 text-white/60">
+        <img src="/bear-logo.png" alt="Jarvis" className="w-20 h-20 opacity-40" />
+        <p className="text-lg font-light tracking-wide" data-testid="text-display-standby">Display {slot} — Standby</p>
+        <p className="text-sm opacity-50">No menu assigned. Configure in JMT.</p>
+      </div>
+    );
+  }
+
+  const rotClass = data.rotationDeg === 90 ? "rotate-90" : data.rotationDeg === -90 ? "-rotate-90" : data.rotationDeg === 180 ? "rotate-180" : "";
+  const isRotated = data.rotationDeg === 90 || data.rotationDeg === -90;
+
+  return (
+    <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative" data-testid={`container-menu-screen-${slot}`}>
+      <img
+        src={data.imageUrl}
+        alt={data.menuName || `Menu Display ${slot}`}
+        className={`origin-center object-contain ${rotClass}`}
+        style={isRotated ? { height: "100vw", width: "auto" } : { height: "100%", width: "auto" }}
+        data-testid={`img-menu-${slot}`}
+      />
+
+      {data.showEightySixed && data.eightySixedItems && data.eightySixedItems.length > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 bg-red-900/95 backdrop-blur-sm px-6 py-4" data-testid="container-86d-overlay">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-300 flex-shrink-0" />
+            <div>
+              <span className="text-xs font-bold text-red-200 uppercase tracking-wider">Currently 86'd</span>
+              <p className="text-sm text-white font-medium mt-0.5" data-testid="text-86d-items">
+                {data.eightySixedItems.join(" · ")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
