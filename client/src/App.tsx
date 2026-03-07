@@ -42,6 +42,8 @@ const PastryPassports = lazy(() => import("@/pages/PastryPassports"));
 const PastryPassportDetail = lazy(() => import("@/pages/PastryPassportDetail"));
 const Kiosk = lazy(() => import("@/pages/Kiosk"));
 const Display = lazy(() => import("@/pages/Display"));
+const MenuDisplay1 = lazy(() => import("@/pages/MenuDisplay1"));
+const MenuDisplay2 = lazy(() => import("@/pages/MenuDisplay2"));
 const TaskManager = lazy(() => import("@/pages/TaskManager"));
 const AssignedTaskList = lazy(() => import("@/pages/AssignedTaskList"));
 const LaminationStudio = lazy(() => import("@/pages/LaminationStudio"));
@@ -289,6 +291,12 @@ function Router() {
         </Route>
         <Route path="/display">
           {() => <Display />}
+        </Route>
+        <Route path="/menu/1">
+          {() => <MenuDisplay1 />}
+        </Route>
+        <Route path="/menu/2">
+          {() => <MenuDisplay2 />}
         </Route>
         <Route path="/clock">
           {() => <KioskClock />}
