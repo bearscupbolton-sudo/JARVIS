@@ -2734,6 +2734,98 @@ Rules:
     return hours * 60 + mins;
   }
 
+  app.get("/api/ttis/my-tips", isAuthenticated, async (req: any, res) => {
+    const user = req.appUser as any;
+    try {
+      const { inArray, lte, or, isNull } = await import("drizzle-orm");
+
+      const now = new Date();
+      const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const dayOfWeek = eastern.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(eastern);
+      monday.setDate(monday.getDate() + mondayOffset);
+      const startDate = monday.toISOString().split("T")[0];
+
+      const dates: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startDate + "T12:00:00");
+        d.setDate(d.getDate() + i);
+        const ds = d.toISOString().split("T")[0];
+        dates.push(ds);
+        if (ds === eastern.toISOString().split("T")[0]) break;
+      }
+
+      const allShifts = await db.select().from(shifts)
+        .where(and(inArray(shifts.shiftDate, dates), eq(shifts.department, "foh")));
+      const fohUserIds = Array.from(new Set([...allShifts.map(s => s.userId), user.id]));
+
+      const weekBoundsStart = easternDayBounds(dates[0]).start;
+      const weekBoundsEnd = easternDayBounds(dates[dates.length - 1]).end;
+      const allTimeEntries = await db.select().from(timeEntries)
+        .where(and(
+          inArray(timeEntries.userId, fohUserIds),
+          lte(timeEntries.clockIn, weekBoundsEnd),
+          or(isNull(timeEntries.clockOut), sql`${timeEntries.clockOut} >= ${weekBoundsStart}`),
+        ));
+
+      let myTipsCents = 0;
+      let myTipCount = 0;
+      let mySplitCount = 0;
+
+      for (const date of dates) {
+        const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
+        const dayTimeEntries = allTimeEntries.filter(te => {
+          const clockOut = te.clockOut || new Date();
+          return te.clockIn <= dayEndUtc && clockOut >= dayStartUtc;
+        });
+        const clockedInUserIds = Array.from(new Set(dayTimeEntries.map(te => te.userId)));
+        const dayFohShiftUserIds = Array.from(new Set(allShifts.filter(s => s.shiftDate === date).map(s => s.userId)));
+
+        let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
+        try { tipData = await fetchSquareTips(date); } catch { continue; }
+
+        for (const tip of tipData.tips) {
+          let tipTime: Date | null = null;
+          try { tipTime = new Date(tip.createdAt); } catch { continue; }
+          const tipMs = tipTime.getTime();
+
+          const onDutyStaff: string[] = [];
+          for (const te of dayTimeEntries) {
+            const clockOut = te.clockOut || new Date();
+            if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
+              if (!onDutyStaff.includes(te.userId)) onDutyStaff.push(te.userId);
+            }
+          }
+          if (onDutyStaff.length === 0 && clockedInUserIds.length > 0) {
+            onDutyStaff.push(...clockedInUserIds);
+          }
+          if (onDutyStaff.length === 0) {
+            onDutyStaff.push(...dayFohShiftUserIds);
+          }
+
+          if (onDutyStaff.includes(user.id)) {
+            const splitAmount = Math.round(tip.tipAmountCents / onDutyStaff.length);
+            myTipsCents += splitAmount;
+            myTipCount += 1;
+            mySplitCount = onDutyStaff.length;
+          }
+        }
+      }
+
+      res.json({
+        weekStart: dates[0],
+        weekEnd: dates[dates.length - 1],
+        totalTips: Math.round(myTipsCents) / 100,
+        tipCount: myTipCount,
+        lastSplitCount: mySplitCount,
+      });
+    } catch (error: any) {
+      console.error("TTIS my-tips error:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch your tip data" });
+    }
+  });
+
   app.get("/api/ttis/week", isAuthenticated, async (req: any, res) => {
     const user = req.appUser as any;
     if (user.role !== "owner" && !user.isGeneralManager) {

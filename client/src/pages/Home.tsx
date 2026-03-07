@@ -39,6 +39,7 @@ import {
   FileText, Trash2, MapPin, Phone, Cake,
   Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Truck, ShoppingCart, Zap, CalendarPlus, Loader2,
+  Shield, DollarSign,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote, ShiftNote } from "@shared/schema";
@@ -259,11 +260,21 @@ type PreShiftNoteFormValues = z.infer<typeof preShiftNoteFormSchema>;
 
 function ClockBar() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [, setTick] = useState(0);
+  const [agreementOpen, setAgreementOpen] = useState(false);
+
+  const isFoh = user?.department === "foh";
 
   const { data: activeEntry, isLoading } = useQuery<ActiveTimeEntry | null>({
     queryKey: ["/api/time/active"],
     refetchInterval: 15000,
+  });
+
+  const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; lastSplitCount: number }>({
+    queryKey: ["/api/ttis/my-tips"],
+    enabled: isFoh && !activeEntry,
+    refetchInterval: 60000,
   });
 
   useEffect(() => {
@@ -321,6 +332,61 @@ function ClockBar() {
   };
 
   const clockInTime = activeEntry ? format(new Date(activeEntry.clockIn), "h:mm a") : "";
+
+  if (isFoh && !isClockedIn) {
+    return (
+      <div className="space-y-2" data-testid="container-clock-bar">
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-md px-4 py-2.5 bg-muted/50 border border-border">
+          <div className="flex items-center gap-3 min-w-0">
+            <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs text-muted-foreground uppercase tracking-wide" data-testid="text-tips-label">Tips earned this week</span>
+              <span className="text-lg font-semibold text-foreground tabular-nums" data-testid="text-tips-amount">
+                ${myTips?.totalTips?.toFixed(2) ?? "0.00"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {myTips && myTips.tipCount > 0 && (
+              <span className="text-xs text-muted-foreground" data-testid="text-tips-split-info">
+                {myTips.tipCount} tip{myTips.tipCount !== 1 ? "s" : ""} · {myTips.lastSplitCount}-way split
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <button
+            onClick={() => setAgreementOpen(!agreementOpen)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors"
+            data-testid="button-user-agreement"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            User Agreement
+            {agreementOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+
+          {agreementOpen && (
+            <div className="mt-2 p-4 rounded-lg bg-green-50 border border-green-200" data-testid="container-user-agreement-details">
+              <div className="flex items-start gap-2.5">
+                <Shield className="w-5 h-5 text-green-700 flex-shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-green-800">This is for your eyes only!</p>
+                  <p className="text-xs text-green-700 leading-relaxed">
+                    In an effort to be as transparent as possible with tip share, we've created the Tip Transparency Information Dashboard (TTIS). Jarvis will split tips among FOH staff down to the penny. All tip allocations are calculated in real time based on verified clock-in records and Square POS transaction data. This information is confidential and intended solely for the individual team member viewing it.
+                  </p>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Protected · Verified · Confidential</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

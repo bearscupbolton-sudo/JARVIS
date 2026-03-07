@@ -38,7 +38,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Admin Insights Dashboard:** Owner-only analytics dashboard.
 *   **KPI Report System:** Detailed business metrics with period-over-period comparisons.
 *   **Starkade:** In-house competitive gaming arcade with points and leaderboards.
-*   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation.
+*   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation. FOH employees (department="foh") see their weekly tip total directly on the Home page ClockBar when not clocked in, with a "User Agreement" confidentiality disclosure (green shield badge). When clocked in, the normal clocked-in status displays instead. Employee tip data served via `GET /api/ttis/my-tips`.
 *   **Test Kitchen:** Collaborative specials development with ingredient builders, real-time costing, method steps, Lab Notes, scheduling, and "Jarvis Optimize" for AI recipe analysis.
 *   **Customer Feedback & QR Code:** Public-facing, location-aware feedback page with QR code generator.
 *   **Sentiment Matrix:** Owner/GM dashboard correlating customer feedback with clocked-in team members.
