@@ -1,14 +1,6 @@
-import { useEffect } from "react";
 import menuImage from "@assets/Cream_and_Black_Minimalist_Cafe_Menu_(2160_x_3840_px)_-_1_1772887480425.png";
 
 export default function MenuDisplay1() {
-  useEffect(() => {
-    const interval = setInterval(() => {
-      window.location.reload();
-    }, 4 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <div
       className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden"
