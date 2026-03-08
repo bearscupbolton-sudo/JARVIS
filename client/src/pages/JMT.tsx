@@ -20,6 +20,39 @@ import {
 } from "lucide-react";
 import type { JmtMenu, JmtDisplay } from "@shared/schema";
 
+function MenuThumbnail({ menu, className = "", objectFit = "cover" }: { menu: JmtMenu | null | undefined; className?: string; objectFit?: "cover" | "contain" }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setSrc(menu?.thumbnailUrl || menu?.imageUrl || null);
+    setFailed(false);
+  }, [menu?.thumbnailUrl, menu?.imageUrl]);
+
+  if (!menu || !src || failed) {
+    return (
+      <div className={`w-full h-full flex items-center justify-center bg-muted ${className}`}>
+        <Image className="w-5 h-5 text-muted-foreground/40" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={menu.name}
+      className={`w-full h-full ${objectFit === "cover" ? "object-cover" : "object-contain"} ${className}`}
+      onError={() => {
+        if (src === menu.thumbnailUrl && menu.imageUrl && menu.imageUrl !== menu.thumbnailUrl) {
+          setSrc(menu.imageUrl);
+        } else {
+          setFailed(true);
+        }
+      }}
+    />
+  );
+}
+
 const CATEGORIES = [
   { value: "general", label: "General" },
   { value: "breakfast", label: "Breakfast" },
@@ -208,11 +241,7 @@ function CommandCenter({ displays, menus, loading }: { displays: JmtDisplay[]; m
                 return (
                   <div key={display.id} className="flex items-center gap-3 p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20" data-testid={`card-live-display-${display.slotNumber}`}>
                     <div className="w-12 h-16 rounded bg-muted flex-shrink-0 overflow-hidden">
-                      {menu?.thumbnailUrl ? (
-                        <img src={menu.thumbnailUrl} alt={menu.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Tv className="w-5 h-5 text-muted-foreground" /></div>
-                      )}
+                      <MenuThumbnail menu={menu} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -328,13 +357,7 @@ function MenuLibrary({ menus, loading, viewMode, setViewMode, onEdit, onPreview,
           {filtered.map(menu => (
             <Card key={menu.id} className="overflow-hidden group cursor-pointer hover:shadow-md transition-shadow" data-testid={`card-menu-${menu.id}`}>
               <div className="aspect-[3/4] relative bg-muted overflow-hidden" onClick={() => onPreview(menu)}>
-                {menu.thumbnailUrl ? (
-                  <img src={menu.thumbnailUrl} alt={menu.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                ) : menu.imageUrl ? (
-                  <img src={menu.imageUrl} alt={menu.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center"><Image className="w-10 h-10 text-muted-foreground" /></div>
-                )}
+                <MenuThumbnail menu={menu} className="group-hover:scale-105 transition-transform duration-300" />
                 {!menu.isActive && (
                   <div className="absolute top-2 right-2"><Badge variant="secondary" className="text-[10px]">Inactive</Badge></div>
                 )}
@@ -364,11 +387,7 @@ function MenuLibrary({ menus, loading, viewMode, setViewMode, onEdit, onPreview,
           {filtered.map(menu => (
             <div key={menu.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors" data-testid={`row-menu-${menu.id}`}>
               <div className="w-12 h-16 rounded bg-muted flex-shrink-0 overflow-hidden">
-                {menu.thumbnailUrl ? (
-                  <img src={menu.thumbnailUrl} alt={menu.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center"><Image className="w-5 h-5 text-muted-foreground" /></div>
-                )}
+                <MenuThumbnail menu={menu} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{menu.name}</p>
@@ -446,8 +465,8 @@ function DisplayMatrix({ displays, menus, loading, onAssign, isManager }: {
               </CardHeader>
               <CardContent className="px-4 pb-3 space-y-3">
                 <div className="aspect-video rounded-md bg-muted overflow-hidden flex items-center justify-center border">
-                  {menu?.thumbnailUrl ? (
-                    <img src={menu.thumbnailUrl} alt={menu.name} className="w-full h-full object-contain" />
+                  {menu ? (
+                    <MenuThumbnail menu={menu} objectFit="contain" />
                   ) : (
                     <div className="text-center py-4">
                       <Tv className="w-8 h-8 text-muted-foreground/30 mx-auto mb-1" />
@@ -907,7 +926,7 @@ function PreviewDialog({ menu, onClose }: { menu: JmtMenu | null; onClose: () =>
           <DialogDescription>{menu.description || `${menu.category} · ${menu.orientation}`}</DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-center bg-black rounded-lg overflow-hidden" style={{ maxHeight: "70vh" }}>
-          <img src={menu.imageUrl} alt={menu.name} className="max-h-[70vh] object-contain" data-testid="img-preview-full" />
+          <MenuThumbnail menu={menu} objectFit="contain" />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline">{menu.category}</Badge>

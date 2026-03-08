@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ImageOff } from "lucide-react";
 
 type ScreenData = {
   active: boolean;
@@ -13,6 +14,30 @@ type ScreenData = {
   eightySixedItems?: string[];
   menuName?: string;
 };
+
+function MenuImage({ src, alt, rotClass, isRotated, slot }: { src?: string; alt: string; rotClass: string; isRotated: boolean; slot: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-white/30">
+        <ImageOff className="w-16 h-16" />
+        <p className="text-sm">Image unavailable</p>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={`origin-center object-contain ${rotClass}`}
+      style={isRotated ? { height: "100vw", width: "auto" } : { height: "100%", width: "auto" }}
+      onError={() => setFailed(true)}
+      data-testid={`img-menu-${slot}`}
+    />
+  );
+}
 
 export default function MenuScreen() {
   const params = useParams<{ slot: string }>();
@@ -46,12 +71,12 @@ export default function MenuScreen() {
 
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative" data-testid={`container-menu-screen-${slot}`}>
-      <img
+      <MenuImage
         src={data.imageUrl}
         alt={data.menuName || `Menu Display ${slot}`}
-        className={`origin-center object-contain ${rotClass}`}
-        style={isRotated ? { height: "100vw", width: "auto" } : { height: "100%", width: "auto" }}
-        data-testid={`img-menu-${slot}`}
+        rotClass={rotClass}
+        isRotated={isRotated}
+        slot={slot}
       />
 
       {data.showEightySixed && data.eightySixedItems && data.eightySixedItems.length > 0 && (

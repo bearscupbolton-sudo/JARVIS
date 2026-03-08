@@ -83,6 +83,7 @@ export async function streamMediaToResponse(key: string, res: any): Promise<void
   const file = bucket.file(key);
   const [exists] = await file.exists();
   if (!exists) {
+    console.warn(`[media] File not found in object storage: ${key}`);
     res.status(404).json({ message: "File not found" });
     return;
   }
