@@ -10402,6 +10402,36 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
 
   // === JMT (JARVIS MENU THEATER) ===
 
+  // Auto-fix broken JMT menu image URLs on startup
+  (async () => {
+    try {
+      const brokenMenus = await db.select().from(jmtMenus);
+      const broken = brokenMenus.filter(m => m.imageUrl && m.imageUrl.startsWith("/api/media/file/"));
+      if (broken.length > 0) {
+        const menusDir = path.join(process.cwd(), "client", "public", "menus");
+        const distMenusDir = path.join(process.cwd(), "dist", "public", "menus");
+        let staticFiles: string[] = [];
+        for (const dir of [menusDir, distMenusDir]) {
+          try {
+            if (fs.existsSync(dir)) {
+              staticFiles = fs.readdirSync(dir).filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f)).map(f => `/menus/${f}`);
+              if (staticFiles.length > 0) break;
+            }
+          } catch {}
+        }
+        if (staticFiles.length > 0) {
+          for (let i = 0; i < broken.length; i++) {
+            const staticUrl = staticFiles[i % staticFiles.length];
+            await db.update(jmtMenus).set({ imageUrl: staticUrl, imageKey: null, thumbnailUrl: staticUrl }).where(eq(jmtMenus.id, broken[i].id));
+            console.log(`[JMT] Auto-fixed menu "${broken[i].name}" (id=${broken[i].id}): ${broken[i].imageUrl} → ${staticUrl}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[JMT] Auto-fix error:", err);
+    }
+  })();
+
   app.get("/api/jmt/static-images", isAuthenticated, (_req: any, res) => {
     try {
       const menusDir = path.join(process.cwd(), "client", "public", "menus");
@@ -10450,11 +10480,23 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       if (staticUrl) {
         imageUrl = staticUrl;
       } else {
-        const { uploadMediaWithThumbnail } = await import("./media");
-        const result = await uploadMediaWithThumbnail(imageData, "jmt", `menu_${Date.now()}`);
-        imageUrl = result.url;
-        imageKey = result.key;
-        thumbnailUrl = result.thumbnailUrl;
+        const base64Match = imageData.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+        if (!base64Match) {
+          return res.status(400).json({ message: "Invalid image data format" });
+        }
+        const ext = base64Match[1] === "jpeg" ? "jpg" : base64Match[1];
+        const buffer = Buffer.from(base64Match[2], "base64");
+        const filename = `menu_${Date.now()}.${ext}`;
+        const clientDir = path.join(process.cwd(), "client", "public", "menus");
+        const distDir = path.join(process.cwd(), "dist", "public", "menus");
+        for (const dir of [clientDir, distDir]) {
+          try {
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, filename), buffer);
+          } catch (e) { console.error(`[JMT] Failed to write to ${dir}:`, e); }
+        }
+        imageUrl = `/menus/${filename}`;
+        thumbnailUrl = `/menus/${filename}`;
       }
 
       const [menu] = await db.insert(jmtMenus).values({
@@ -10496,17 +10538,25 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       if (req.body.imageUrl) {
         updates.imageUrl = req.body.imageUrl;
         updates.imageKey = null;
-        updates.thumbnailUrl = null;
+        updates.thumbnailUrl = req.body.imageUrl;
       } else if (req.body.imageData) {
-        const { uploadMediaWithThumbnail, deleteMedia } = await import("./media");
-        const existing = await db.select().from(jmtMenus).where(eq(jmtMenus.id, id));
-        if (existing[0]?.imageKey) {
-          try { await deleteMedia(existing[0].imageKey); } catch {}
+        const base64Match = req.body.imageData.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+        if (base64Match) {
+          const ext = base64Match[1] === "jpeg" ? "jpg" : base64Match[1];
+          const buffer = Buffer.from(base64Match[2], "base64");
+          const filename = `menu_${Date.now()}.${ext}`;
+          const clientDir = path.join(process.cwd(), "client", "public", "menus");
+          const distDir = path.join(process.cwd(), "dist", "public", "menus");
+          for (const dir of [clientDir, distDir]) {
+            try {
+              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync(path.join(dir, filename), buffer);
+            } catch (e) { console.error(`[JMT] Failed to write to ${dir}:`, e); }
+          }
+          updates.imageUrl = `/menus/${filename}`;
+          updates.imageKey = null;
+          updates.thumbnailUrl = `/menus/${filename}`;
         }
-        const result = await uploadMediaWithThumbnail(req.body.imageData, "jmt", `menu_${Date.now()}`);
-        updates.imageUrl = result.url;
-        updates.imageKey = result.key;
-        updates.thumbnailUrl = result.thumbnailUrl;
       }
 
       const [menu] = await db.update(jmtMenus).set(updates).where(eq(jmtMenus.id, id)).returning();

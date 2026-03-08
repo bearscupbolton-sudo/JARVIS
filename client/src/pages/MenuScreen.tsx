@@ -16,24 +16,34 @@ type ScreenData = {
   menuName?: string;
 };
 
-function MenuImage({ src, alt, rotClass, isRotated, slot }: { src?: string; alt: string; rotClass: string; isRotated: boolean; slot: string }) {
+function MenuImage({ src, alt, rotationDeg, slot }: { src?: string; alt: string; rotationDeg: number; slot: string }) {
   const [failed, setFailed] = useState(false);
 
   if (!src || failed) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 text-white/30">
-        <ImageOff className="w-16 h-16" />
-        <p className="text-sm">Image unavailable</p>
+      <div className="w-full h-full flex flex-col items-center justify-center gap-6 text-white/40">
+        <ImageOff className="w-32 h-32" />
+        <p className="text-4xl font-light tracking-wide">Menu Loading...</p>
+        <p className="text-xl opacity-60">Display {slot}</p>
       </div>
     );
   }
+
+  const isRotated = rotationDeg === 90 || rotationDeg === -90;
 
   return (
     <img
       src={src}
       alt={alt}
-      className={`origin-center object-contain ${rotClass}`}
-      style={isRotated ? { height: "100vw", width: "auto" } : { height: "100%", width: "auto" }}
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: `translate(-50%, -50%) rotate(${rotationDeg}deg)`,
+        width: isRotated ? "100vh" : "100vw",
+        height: isRotated ? "100vw" : "100vh",
+        objectFit: "contain",
+      }}
       onError={() => setFailed(true)}
       data-testid={`img-menu-${slot}`}
     />
@@ -113,16 +123,12 @@ export default function MenuScreen() {
     );
   }
 
-  const rotClass = data.rotationDeg === 90 ? "rotate-90" : data.rotationDeg === -90 ? "-rotate-90" : data.rotationDeg === 180 ? "rotate-180" : "";
-  const isRotated = data.rotationDeg === 90 || data.rotationDeg === -90;
-
   return (
-    <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative" data-testid={`container-menu-screen-${slot}`}>
+    <div className="w-screen h-screen bg-black overflow-hidden relative" data-testid={`container-menu-screen-${slot}`}>
       <MenuImage
         src={data.imageUrl}
         alt={data.menuName || `Menu Display ${slot}`}
-        rotClass={rotClass}
-        isRotated={isRotated}
+        rotationDeg={data.rotationDeg || 0}
         slot={slot}
       />
 
