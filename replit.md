@@ -52,7 +52,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Coffee Command Center:** Hub for coffee operations with dashboard, inventory, drink setup, and usage/sales tracking.
 *   **The Firm (Financial Hub):** Owner-only forensic-level financial reconciliation system with overview, accounts, ledger, obligations, payroll, and cash management, including Jarvis AI financial analysis.
 *   **La Carte Customer Portal:** Customer-facing subscription portal with Square catalog, "What's Fresh Today," "Coming Soon," Skip the Line ordering via Square Orders API, and order history.
-*   **JMT (Jarvis Menu Theater):** Creative control board for all menu display management, including Command Center, Menu Library for design management, and Display Matrix for configuring 15 dynamic display slots with scheduling, rotation, and 86'd item overlays.
+*   **JMT (Jarvis Menu Theater):** Creative control board for all menu display management, including Command Center, Menu Library for design management, and Display Matrix for configuring 15 dynamic display slots with scheduling, rotation, 86'd item overlays, and real-time SSE push-to-screen (auto-refresh on display changes, 86'd updates, and manual push buttons).
 
 ## External Dependencies
 

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { AlertTriangle, ImageOff } from "lucide-react";
 
 type ScreenData = {
@@ -39,9 +40,55 @@ function MenuImage({ src, alt, rotClass, isRotated, slot }: { src?: string; alt:
   );
 }
 
+function useScreenSSE(slot: string) {
+  const retryRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let es: EventSource | null = null;
+
+    function connect() {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+
+      es = new EventSource(`/api/jmt/screen-events/${slot}`);
+
+      es.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "refresh") {
+            queryClient.invalidateQueries({ queryKey: [`/api/jmt/screen/${slot}`] });
+          }
+          retryRef.current = 0;
+        } catch {}
+      };
+
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
+        retryRef.current++;
+        retryTimerRef.current = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
+
+    return () => {
+      es?.close();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [slot]);
+}
+
 export default function MenuScreen() {
   const params = useParams<{ slot: string }>();
   const slot = params?.slot || "1";
+
+  useScreenSSE(slot);
 
   const { data, isLoading } = useQuery<ScreenData>({
     queryKey: [`/api/jmt/screen/${slot}`],

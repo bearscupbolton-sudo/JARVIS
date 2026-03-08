@@ -102,6 +102,33 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const screenClients = new Map<string, Set<any>>();
+
+  function removeScreenClient(res: any) {
+    for (const [key, set] of screenClients) {
+      set.delete(res);
+      if (set.size === 0) screenClients.delete(key);
+    }
+  }
+
+  function broadcastToScreen(slot: number | "all") {
+    const targets = slot === "all"
+      ? [...screenClients.values()].flatMap(s => [...s])
+      : [...(screenClients.get(String(slot)) || [])];
+    const data = JSON.stringify({ type: "refresh", slot, timestamp: Date.now() });
+    for (const client of targets) {
+      try {
+        if (client.writableEnded || client.destroyed) {
+          removeScreenClient(client);
+        } else {
+          client.write(`data: ${data}\n\n`);
+        }
+      } catch {
+        removeScreenClient(client);
+      }
+    }
+  }
+
   app.get('/sw.js', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -2688,6 +2715,7 @@ Rules:
         paceStatus: "sold_out",
         dayOfWeek: d.getDay(),
       });
+      broadcastToScreen("all");
       res.json(log);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -10527,6 +10555,7 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
         });
       }
 
+      if (display.slotNumber) broadcastToScreen(display.slotNumber);
       res.json(display);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -10592,6 +10621,45 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
       console.error("JMT Jarvis recommend error:", err);
       res.status(500).json({ message: err.message });
     }
+  });
+
+  app.get("/api/jmt/screen-events/:slot", (req, res) => {
+    const slot = req.params.slot;
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write("data: {\"type\":\"connected\"}\n\n");
+
+    if (!screenClients.has(slot)) screenClients.set(slot, new Set());
+    screenClients.get(slot)!.add(res);
+
+    const heartbeat = setInterval(() => {
+      try { res.write(": heartbeat\n\n"); } catch {}
+    }, 30000);
+
+    const cleanup = () => {
+      screenClients.get(slot)?.delete(res);
+      if (screenClients.get(slot)?.size === 0) screenClients.delete(slot);
+      clearInterval(heartbeat);
+    };
+    req.on("close", cleanup);
+    res.on("error", cleanup);
+    res.on("finish", cleanup);
+  });
+
+  app.post("/api/jmt/push-refresh", isAuthenticated, isManager, (req: any, res) => {
+    const slot = req.body.slot;
+    if (slot !== undefined && slot !== "all") {
+      const s = parseInt(slot);
+      if (isNaN(s) || s < 1 || s > 15) return res.status(400).json({ message: "Invalid slot" });
+      broadcastToScreen(s);
+      return res.json({ pushed: s });
+    }
+    broadcastToScreen("all");
+    res.json({ pushed: "all" });
   });
 
   // Public display endpoint — serves the menu for a specific slot

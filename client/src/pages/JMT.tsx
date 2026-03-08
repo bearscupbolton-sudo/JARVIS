@@ -437,13 +437,39 @@ function DisplayMatrix({ displays, menus, loading, onAssign, isManager }: {
     },
   });
 
+  const pushRefreshMutation = useMutation({
+    mutationFn: async (slot: number | "all") => {
+      await apiRequest("POST", "/api/jmt/push-refresh", { slot });
+    },
+    onSuccess: (_, slot) => {
+      toast({ title: slot === "all" ? "Pushed refresh to all screens" : `Pushed refresh to Display ${slot}` });
+    },
+  });
+
   if (loading) return <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48" />)}</div>;
+
+  const liveCount = displays.filter(d => d.isLive).length;
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Manage all 15 display slots. Assign menus, configure orientation, and go live.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Manage all 15 display slots. Assign menus, configure orientation, and go live.
+        </p>
+        {isManager && liveCount > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => pushRefreshMutation.mutate("all")}
+            disabled={pushRefreshMutation.isPending}
+            data-testid="button-push-all-screens"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${pushRefreshMutation.isPending ? "animate-spin" : ""}`} />
+            Push All Screens
+          </Button>
+        )}
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {displays.map(display => {
           const menu = display.menuId ? menuMap.get(display.menuId) : null;
@@ -505,6 +531,19 @@ function DisplayMatrix({ displays, menus, loading, onAssign, isManager }: {
                       {display.isLive ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
                       {display.isLive ? "Take Offline" : "Go Live"}
                     </Button>
+                    {display.isLive && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => pushRefreshMutation.mutate(display.slotNumber)}
+                        disabled={pushRefreshMutation.isPending}
+                        title="Push refresh to this screen"
+                        data-testid={`button-push-screen-${display.slotNumber}`}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${pushRefreshMutation.isPending ? "animate-spin" : ""}`} />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
