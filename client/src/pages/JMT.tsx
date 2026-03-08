@@ -462,6 +462,11 @@ function DisplayMatrix({ displays, menus, loading, onAssign, isManager }: {
                   <Badge variant="outline" className="text-[10px] h-4 px-1.5">{display.orientation}</Badge>
                   {display.rotationDeg !== 0 && <Badge variant="outline" className="text-[10px] h-4 px-1.5">{display.rotationDeg}°</Badge>}
                   {display.showEightySixed && <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-red-300 text-red-600">86'd overlay</Badge>}
+                  {display.scheduleEnabled && display.scheduleStart && display.scheduleEnd && (
+                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-blue-300 text-blue-600">
+                      <Clock className="w-2.5 h-2.5 mr-0.5" />{display.scheduleStart}–{display.scheduleEnd}
+                    </Badge>
+                  )}
                 </div>
 
                 {isManager && (
@@ -757,6 +762,9 @@ function AssignDialog({ display, menus, onClose }: { display: JmtDisplay | null;
   const [showEightySixed, setShowEightySixed] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [refreshInterval, setRefreshInterval] = useState("0");
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState("06:00");
+  const [scheduleEnd, setScheduleEnd] = useState("20:00");
 
   useEffect(() => {
     if (display) {
@@ -766,6 +774,9 @@ function AssignDialog({ display, menus, onClose }: { display: JmtDisplay | null;
       setShowEightySixed(display.showEightySixed);
       setDisplayName(display.name);
       setRefreshInterval(String(display.refreshInterval || 0));
+      setScheduleEnabled(display.scheduleEnabled ?? false);
+      setScheduleStart(display.scheduleStart || "06:00");
+      setScheduleEnd(display.scheduleEnd || "20:00");
     }
   }, [display]);
 
@@ -779,6 +790,9 @@ function AssignDialog({ display, menus, onClose }: { display: JmtDisplay | null;
         rotationDeg: parseInt(rotationDeg),
         showEightySixed,
         refreshInterval: parseInt(refreshInterval),
+        scheduleEnabled,
+        scheduleStart: scheduleEnabled ? scheduleStart : null,
+        scheduleEnd: scheduleEnabled ? scheduleEnd : null,
       });
     },
     onSuccess: () => {
@@ -849,6 +863,30 @@ function AssignDialog({ display, menus, onClose }: { display: JmtDisplay | null;
               <p className="text-xs text-muted-foreground">Show sold-out items on display</p>
             </div>
             <Switch checked={showEightySixed} onCheckedChange={setShowEightySixed} data-testid="switch-86d-overlay" />
+          </div>
+          <div className="rounded-lg border overflow-hidden">
+            <div className="flex items-center justify-between p-3">
+              <div>
+                <span className="text-sm flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Display Schedule</span>
+                <p className="text-xs text-muted-foreground">Auto on/off by time (ET)</p>
+              </div>
+              <Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} data-testid="switch-schedule-enabled" />
+            </div>
+            {scheduleEnabled && (
+              <div className="px-3 pb-3 pt-0">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Turn On</label>
+                    <Input type="time" value={scheduleStart} onChange={e => setScheduleStart(e.target.value)} className="h-8 text-xs" data-testid="input-schedule-start" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Turn Off</label>
+                    <Input type="time" value={scheduleEnd} onChange={e => setScheduleEnd(e.target.value)} className="h-8 text-xs" data-testid="input-schedule-end" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2">Display goes dark outside this window. Times in Eastern.</p>
+              </div>
+            )}
           </div>
           <Button className="w-full" onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending} data-testid="button-save-display">
             {updateMutation.isPending ? "Saving..." : "Save Configuration"}

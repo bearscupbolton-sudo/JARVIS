@@ -1,3 +1,5 @@
+process.env.TZ = "America/New_York";
+
 import express, { type Request, Response, NextFunction } from "express";
 import path from "path";
 import compression from "compression";

@@ -10509,6 +10509,9 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       if (req.body.refreshInterval !== undefined) updates.refreshInterval = req.body.refreshInterval;
       if (req.body.showEightySixed !== undefined) updates.showEightySixed = req.body.showEightySixed;
       if (req.body.locationId !== undefined) updates.locationId = req.body.locationId;
+      if (req.body.scheduleEnabled !== undefined) updates.scheduleEnabled = req.body.scheduleEnabled;
+      if (req.body.scheduleStart !== undefined) updates.scheduleStart = req.body.scheduleStart;
+      if (req.body.scheduleEnd !== undefined) updates.scheduleEnd = req.body.scheduleEnd;
 
       if (req.body.isLive === true) updates.lastPublishedAt = new Date();
 
@@ -10601,6 +10604,26 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
       const [display] = await db.select().from(jmtDisplays).where(eq(jmtDisplays.slotNumber, slot));
       if (!display || !display.isLive || !display.menuId) {
         return res.json({ active: false, slot });
+      }
+
+      if (display.scheduleEnabled && display.scheduleStart && display.scheduleEnd) {
+        const now = new Date();
+        const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const hh = eastern.getHours().toString().padStart(2, "0");
+        const mm = eastern.getMinutes().toString().padStart(2, "0");
+        const currentTime = `${hh}:${mm}`;
+        const start = display.scheduleStart;
+        const end = display.scheduleEnd;
+
+        let inWindow: boolean;
+        if (start <= end) {
+          inWindow = currentTime >= start && currentTime < end;
+        } else {
+          inWindow = currentTime >= start || currentTime < end;
+        }
+        if (!inWindow) {
+          return res.json({ active: false, slot, reason: "outside_schedule" });
+        }
       }
       const [menu] = await db.select().from(jmtMenus).where(eq(jmtMenus.id, display.menuId));
       if (!menu) {
