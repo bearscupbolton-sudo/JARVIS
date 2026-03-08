@@ -12,7 +12,7 @@ import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
 import { Loader2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { prefetchCoreRoutes, cancelPrefetch } from "@/lib/prefetch";
 
 import Login from "@/pages/Login";
@@ -91,6 +91,57 @@ function PageLoader() {
       <Loader2 className="w-8 h-8 text-primary animate-spin" />
     </div>
   );
+}
+
+class ChunkErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    if (error?.message?.includes("Failed to fetch dynamically imported module") ||
+        error?.message?.includes("Loading chunk") ||
+        error?.message?.includes("Loading CSS chunk") ||
+        error?.message?.includes("Importing a module script failed")) {
+      return { hasError: true };
+    }
+    throw error;
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    const isChunkError =
+      error?.message?.includes("Failed to fetch dynamically imported module") ||
+      error?.message?.includes("Loading chunk") ||
+      error?.message?.includes("Importing a module script failed");
+    if (isChunkError) {
+      const reloadKey = "chunk_error_reload";
+      const lastReload = sessionStorage.getItem(reloadKey);
+      const now = Date.now();
+      if (!lastReload || now - parseInt(lastReload) > 30000) {
+        sessionStorage.setItem(reloadKey, String(now));
+        window.location.reload();
+      }
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
+          <p className="text-sm text-muted-foreground">A new version is available.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90"
+            data-testid="button-reload-app"
+          >
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function ProtectedRoute({ component: Component, noLayout }: { component: React.ComponentType; noLayout?: boolean }) {
@@ -196,6 +247,7 @@ function Router() {
   }
 
   return (
+    <ChunkErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/login" component={Login} />
@@ -405,6 +457,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </Suspense>
+    </ChunkErrorBoundary>
   );
 }
 
