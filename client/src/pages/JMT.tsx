@@ -524,8 +524,14 @@ function DisplayMatrix({ displays, menus, loading, onAssign, isManager }: {
                       size="sm"
                       variant={display.isLive ? "destructive" : "default"}
                       className="h-7 text-xs"
-                      disabled={!display.menuId && !display.isLive}
-                      onClick={() => toggleLiveMutation.mutate({ id: display.id, isLive: !display.isLive })}
+                      disabled={toggleLiveMutation.isPending}
+                      onClick={() => {
+                        if (!display.menuId && !display.isLive) {
+                          toast({ title: "No menu assigned", description: "Tap Configure to assign a menu first.", variant: "destructive" });
+                          return;
+                        }
+                        toggleLiveMutation.mutate({ id: display.id, isLive: !display.isLive });
+                      }}
                       data-testid={`button-toggle-live-${display.slotNumber}`}
                     >
                       {display.isLive ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
