@@ -62,6 +62,7 @@ const ALL_SIDEBAR_ITEMS = [
     { href: "/time-review", label: "Time Review" },
     { href: "/admin/pastry-items", label: "Master Pastry List" },
     { href: "/pastry-goals", label: "Pastry Goals" },
+    { href: "/loop", label: "The Loop" },
     { href: "/admin/approvals", label: "Approvals" },
     { href: "/admin/ttis", label: "TTIS" },
     { href: "/sentiment", label: "Sentiment Matrix" },
