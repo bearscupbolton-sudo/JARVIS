@@ -271,11 +271,12 @@ function ClockBar() {
     refetchInterval: 15000,
   });
 
-  const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; averageSplitCount: number; weekStart: string; weekEnd: string }>({
+  const { data: myTips } = useQuery<{ totalTips: number; tipCount: number; averageSplitCount: number; weekStart: string; weekEnd: string; dailyBreakdown: { date: string; tips: number; tipCount: number; avgSplit: number }[] }>({
     queryKey: ["/api/ttis/my-tips?weekStartDay=3"],
     enabled: isFoh && !activeEntry,
     refetchInterval: 60000,
   });
+  const [tipDrilldownOpen, setTipDrilldownOpen] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
@@ -336,24 +337,80 @@ function ClockBar() {
   if (isFoh && !isClockedIn) {
     return (
       <div className="space-y-2" data-testid="container-clock-bar">
-        <div className="flex items-center justify-between gap-3 flex-wrap rounded-md px-4 py-2.5 bg-muted/50 border border-border">
-          <div className="flex items-center gap-3 min-w-0">
-            <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs text-muted-foreground uppercase tracking-wide" data-testid="text-tips-label">Tips earned this week</span>
-              <span className="text-lg font-semibold text-foreground tabular-nums" data-testid="text-tips-amount">
-                ${myTips?.totalTips?.toFixed(2) ?? "0.00"}
+        <button
+          onClick={() => setTipDrilldownOpen(!tipDrilldownOpen)}
+          className="w-full text-left rounded-md px-4 py-2.5 bg-muted/50 border border-border hover:bg-muted/80 transition-colors cursor-pointer"
+          data-testid="button-tips-drilldown"
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide" data-testid="text-tips-label">Tips earned this week</span>
+                <span className="text-lg font-semibold text-foreground tabular-nums" data-testid="text-tips-amount">
+                  ${myTips?.totalTips?.toFixed(2) ?? "0.00"}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {myTips && myTips.tipCount > 0 && (
+                <span className="text-xs text-muted-foreground" data-testid="text-tips-split-info">
+                  {myTips.tipCount} tip{myTips.tipCount !== 1 ? "s" : ""}{myTips.averageSplitCount > 0 ? ` · avg ${myTips.averageSplitCount}-way split` : ""}
+                </span>
+              )}
+              {tipDrilldownOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </div>
+          </div>
+        </button>
+
+        {tipDrilldownOpen && myTips?.dailyBreakdown && (
+          <div className="rounded-md border border-border bg-background overflow-hidden" data-testid="container-tips-daily-breakdown">
+            <div className="px-4 py-2 bg-muted/30 border-b border-border">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Daily Breakdown · {myTips.weekStart && myTips.weekEnd ? `${format(new Date(myTips.weekStart + "T12:00:00"), "MMM d")} – ${format(new Date(myTips.weekEnd + "T12:00:00"), "MMM d")}` : "This Week"}
+              </span>
+            </div>
+            <div className="divide-y divide-border">
+              {myTips.dailyBreakdown.map((day) => {
+                const dayDate = new Date(day.date + "T12:00:00");
+                const dayLabel = format(dayDate, "EEE, MMM d");
+                const isCurrentDay = day.date === new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                return (
+                  <div
+                    key={day.date}
+                    className={cn("flex items-center justify-between px-4 py-2.5", isCurrentDay && "bg-emerald-50/50 dark:bg-emerald-950/20")}
+                    data-testid={`row-tip-day-${day.date}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cn("text-sm font-medium", isCurrentDay ? "text-emerald-700 dark:text-emerald-400" : "text-foreground")} data-testid={`text-tip-day-label-${day.date}`}>
+                        {dayLabel}
+                      </span>
+                      {isCurrentDay && (
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded">Today</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {day.tipCount > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          {day.tipCount} tip{day.tipCount !== 1 ? "s" : ""}{day.avgSplit > 0 ? ` · ${day.avgSplit}-way` : ""}
+                        </span>
+                      )}
+                      <span className={cn("text-sm font-semibold tabular-nums", day.tips > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} data-testid={`text-tip-day-amount-${day.date}`}>
+                        ${day.tips.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-t border-border">
+              <span className="text-sm font-semibold text-foreground">Week Total</span>
+              <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums" data-testid="text-tips-week-total">
+                ${myTips.totalTips.toFixed(2)}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {myTips && myTips.tipCount > 0 && (
-              <span className="text-xs text-muted-foreground" data-testid="text-tips-split-info">
-                {myTips.tipCount} tip{myTips.tipCount !== 1 ? "s" : ""}{myTips.averageSplitCount > 0 ? ` · avg ${myTips.averageSplitCount}-way split` : ""}
-              </span>
-            )}
-          </div>
-        </div>
+        )}
 
         <div>
           <button

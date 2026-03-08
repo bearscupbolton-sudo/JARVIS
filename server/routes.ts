@@ -2774,6 +2774,7 @@ Rules:
       let myTipsCents = 0;
       let myTipCount = 0;
       const splitCounts: number[] = [];
+      const dailyBreakdown: { date: string; tips: number; tipCount: number; avgSplit: number }[] = [];
 
       for (const date of dates) {
         const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
@@ -2785,7 +2786,14 @@ Rules:
         const dayFohShiftUserIds = Array.from(new Set(allShifts.filter(s => s.shiftDate === date).map(s => s.userId)));
 
         let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
-        try { tipData = await fetchSquareTips(date); } catch { continue; }
+        try { tipData = await fetchSquareTips(date); } catch {
+          dailyBreakdown.push({ date, tips: 0, tipCount: 0, avgSplit: 0 });
+          continue;
+        }
+
+        let dayTipsCents = 0;
+        let dayTipCount = 0;
+        const daySplits: number[] = [];
 
         for (const tip of tipData.tips) {
           let tipTime: Date | null = null;
@@ -2811,8 +2819,18 @@ Rules:
             myTipsCents += splitAmount;
             myTipCount += 1;
             splitCounts.push(onDutyStaff.length);
+            dayTipsCents += splitAmount;
+            dayTipCount += 1;
+            daySplits.push(onDutyStaff.length);
           }
         }
+
+        dailyBreakdown.push({
+          date,
+          tips: Math.round(dayTipsCents) / 100,
+          tipCount: dayTipCount,
+          avgSplit: daySplits.length > 0 ? Math.round(daySplits.reduce((a, b) => a + b, 0) / daySplits.length) : 0,
+        });
       }
 
       const avgSplit = splitCounts.length > 0 ? Math.round(splitCounts.reduce((a, b) => a + b, 0) / splitCounts.length) : 0;
@@ -2823,6 +2841,7 @@ Rules:
         totalTips: Math.round(myTipsCents) / 100,
         tipCount: myTipCount,
         averageSplitCount: avgSplit,
+        dailyBreakdown,
       });
     } catch (error: any) {
       console.error("TTIS my-tips error:", error);
