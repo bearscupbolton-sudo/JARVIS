@@ -2766,8 +2766,18 @@ Rules:
 
   app.get("/api/ttis/my-tips", isAuthenticated, async (req: any, res) => {
     const user = req.appUser as any;
+    if (user.role === "owner") {
+      return res.json({
+        weekStart: new Date().toISOString().split("T")[0],
+        weekEnd: new Date().toISOString().split("T")[0],
+        totalTips: 0,
+        tipCount: 0,
+        averageSplitCount: 0,
+        dailyBreakdown: [],
+      });
+    }
     try {
-      const { inArray, lte, or, isNull } = await import("drizzle-orm");
+      const { inArray, lte, or, isNull, ne } = await import("drizzle-orm");
 
       const weekStartDay = parseInt(req.query.weekStartDay as string) || 3;
       const now = new Date();
@@ -2790,7 +2800,11 @@ Rules:
 
       const allShifts = await db.select().from(shifts)
         .where(and(inArray(shifts.shiftDate, dates), eq(shifts.department, "foh")));
-      const fohUserIds = Array.from(new Set([...allShifts.map(s => s.userId), user.id]));
+      const allShiftUserIds = Array.from(new Set([...allShifts.map(s => s.userId), user.id]));
+      const ownerUsers = await db.select({ id: users.id }).from(users)
+        .where(and(inArray(users.id, allShiftUserIds), eq(users.role, "owner")));
+      const ownerIdSet = new Set(ownerUsers.map(u => u.id));
+      const fohUserIds = allShiftUserIds.filter(id => !ownerIdSet.has(id));
 
       const weekBoundsStart = easternDayBounds(dates[0]).start;
       const weekBoundsEnd = easternDayBounds(dates[dates.length - 1]).end;
@@ -2902,16 +2916,20 @@ Rules:
       const allShifts = await db.select().from(shifts)
         .where(and(inArray(shifts.shiftDate, dates), eq(shifts.department, "foh")));
 
-      const fohUserIds = Array.from(new Set(allShifts.map(s => s.userId)));
+      let allFohUserIds = Array.from(new Set(allShifts.map(s => s.userId)));
       let fohStaff: any[] = [];
-      if (fohUserIds.length > 0) {
+      if (allFohUserIds.length > 0) {
         fohStaff = await db.select({
           id: users.id,
           username: users.username,
           firstName: users.firstName,
           lastName: users.lastName,
-        }).from(users).where(inArray(users.id, fohUserIds));
+          role: users.role,
+        }).from(users).where(inArray(users.id, allFohUserIds));
       }
+      const ownerIds = new Set(fohStaff.filter(s => s.role === "owner").map(s => s.id));
+      fohStaff = fohStaff.filter(s => s.role !== "owner");
+      const fohUserIds = allFohUserIds.filter(id => !ownerIds.has(id));
       const staffMap = new Map(fohStaff.map(s => [s.id, s]));
 
       const weekBoundsStart = easternDayBounds(dates[0]).start;
@@ -3086,17 +3104,21 @@ Rules:
 
       const fohShifts = await db.select().from(shifts)
         .where(and(eq(shifts.shiftDate, date), eq(shifts.department, "foh")));
-      const fohUserIds = Array.from(new Set(fohShifts.map(s => s.userId)));
+      let allFohUserIds = Array.from(new Set(fohShifts.map(s => s.userId)));
 
       let fohStaff: any[] = [];
-      if (fohUserIds.length > 0) {
+      if (allFohUserIds.length > 0) {
         fohStaff = await db.select({
           id: users.id,
           username: users.username,
           firstName: users.firstName,
           lastName: users.lastName,
-        }).from(users).where(inArray(users.id, fohUserIds));
+          role: users.role,
+        }).from(users).where(inArray(users.id, allFohUserIds));
       }
+      const ownerIds = new Set(fohStaff.filter(s => s.role === "owner").map(s => s.id));
+      fohStaff = fohStaff.filter(s => s.role !== "owner");
+      const fohUserIds = allFohUserIds.filter(id => !ownerIds.has(id));
       const staffMap = new Map(fohStaff.map(s => [s.id, s]));
 
       const { start: dayStartUtc, end: dayEndUtc } = easternDayBounds(date);
