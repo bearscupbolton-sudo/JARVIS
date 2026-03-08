@@ -1,20 +1,52 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { Button } from "@/components/ui/button";
-import { Timer, Volume2, VolumeX, X } from "lucide-react";
 import { useLocation } from "wouter";
 import type { KioskTimer } from "@shared/schema";
 
 const KIOSK_PATHS = ["/platform", "/kiosk", "/bagel-bros", "/clock", "/onboarding"];
 
+function playChime() {
+  try {
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+
+    const freqs = [523.25, 659.25, 783.99];
+    for (const freq of freqs) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    }
+
+    setTimeout(() => ctx.close(), 1000);
+  } catch (_) {}
+}
+
+interface FlashState {
+  active: boolean;
+  message: string;
+  visible: boolean;
+}
+
+const EMPTY_FLASH: FlashState = { active: false, message: "", visible: false };
+
 export default function BakeryTimerAlert() {
   const { user } = useAuth();
   const [location] = useLocation();
-  const [dismissedLocally, setDismissedLocally] = useState<Set<number>>(new Set());
-  const [muted, setMuted] = useState(false);
-  const alarmRef = useRef<{ ctx: AudioContext; osc: OscillatorNode } | null>(null);
+  const flashedRef = useRef<Set<number>>(new Set());
+  const flashQueueRef = useRef<{ message: string; ids: number[] }[]>([]);
+  const [flash, setFlash] = useState<FlashState>(EMPTY_FLASH);
+  const isFlashingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const activeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const isBakeryUser = user?.department === "bakery" || user?.department === "Bakery" ||
     user?.role === "owner" || user?.role === "manager";
@@ -28,13 +60,6 @@ export default function BakeryTimerAlert() {
     enabled,
   });
 
-  const expiredTimers = useMemo(() =>
-    timers.filter(t =>
-      new Date(t.expiresAt).getTime() <= Date.now() && !dismissedLocally.has(t.id)
-    ),
-    [timers, dismissedLocally]
-  );
-
   const dismissMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/kiosk/timers/${id}/dismiss`),
     onSuccess: () => {
@@ -42,121 +67,142 @@ export default function BakeryTimerAlert() {
     },
   });
 
-  const handleDismiss = (id: number) => {
-    setDismissedLocally(prev => new Set(prev).add(id));
-    dismissMutation.mutate(id);
-  };
+  const clearAllTimers = useCallback(() => {
+    for (const t of activeTimersRef.current) clearTimeout(t);
+    activeTimersRef.current = [];
+  }, []);
 
-  const handleDismissAll = () => {
-    for (const t of expiredTimers) {
-      handleDismiss(t.id);
-    }
-  };
+  const scheduleTimeout = useCallback((fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    activeTimersRef.current.push(id);
+    return id;
+  }, []);
 
   useEffect(() => {
-    if (expiredTimers.length > 0 && !muted && !alarmRef.current) {
-      try {
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "square";
-        osc.frequency.value = 880;
-        gain.gain.value = 0.12;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        alarmRef.current = { ctx, osc };
-      } catch (_) {}
-    }
-
-    if ((muted || expiredTimers.length === 0) && alarmRef.current) {
-      try {
-        alarmRef.current.osc.stop();
-        alarmRef.current.ctx.close();
-      } catch (_) {}
-      alarmRef.current = null;
-    }
-
+    mountedRef.current = true;
     return () => {
-      if (alarmRef.current) {
-        try {
-          alarmRef.current.osc.stop();
-          alarmRef.current.ctx.close();
-        } catch (_) {}
-        alarmRef.current = null;
-      }
+      mountedRef.current = false;
+      clearAllTimers();
+      isFlashingRef.current = false;
+      flashQueueRef.current = [];
     };
-  }, [expiredTimers.length, muted]);
+  }, [clearAllTimers]);
 
   useEffect(() => {
-    if (expiredTimers.length === 0) {
-      setMuted(false);
+    if (!enabled) {
+      clearAllTimers();
+      isFlashingRef.current = false;
+      flashQueueRef.current = [];
+      setFlash(EMPTY_FLASH);
     }
-  }, [expiredTimers.length]);
+  }, [enabled, clearAllTimers]);
 
-  if (!enabled || expiredTimers.length === 0) return null;
+  const expiredTimers = useMemo(() =>
+    timers.filter(t =>
+      new Date(t.expiresAt).getTime() <= Date.now() && !flashedRef.current.has(t.id)
+    ),
+    [timers]
+  );
+
+  const runFlashSequence = useCallback((message: string, ids: number[]) => {
+    if (!mountedRef.current) return;
+    if (isFlashingRef.current) {
+      flashQueueRef.current.push({ message, ids });
+      return;
+    }
+    isFlashingRef.current = true;
+
+    playChime();
+
+    let count = 0;
+    const totalFlashes = 3;
+    const onMs = 450;
+    const offMs = 200;
+
+    function doFlash() {
+      if (!mountedRef.current) {
+        isFlashingRef.current = false;
+        return;
+      }
+      if (count >= totalFlashes) {
+        setFlash(EMPTY_FLASH);
+        isFlashingRef.current = false;
+
+        for (const id of ids) {
+          dismissMutation.mutate(id);
+        }
+
+        const next = flashQueueRef.current.shift();
+        if (next) {
+          scheduleTimeout(() => runFlashSequence(next.message, next.ids), 300);
+        }
+        return;
+      }
+
+      setFlash({ active: true, message, visible: true });
+
+      scheduleTimeout(() => {
+        if (!mountedRef.current) { isFlashingRef.current = false; return; }
+        setFlash(prev => ({ ...prev, visible: false }));
+        count++;
+        scheduleTimeout(doFlash, offMs);
+      }, onMs);
+    }
+
+    doFlash();
+  }, [dismissMutation, scheduleTimeout]);
+
+  useEffect(() => {
+    if (!enabled || expiredTimers.length === 0) return;
+
+    const spinTimers = expiredTimers.filter(t => t.label.includes("Spin"));
+    const bakeTimers = expiredTimers.filter(t => !t.label.includes("Spin"));
+
+    const batches: { message: string; ids: number[] }[] = [];
+
+    if (spinTimers.length > 0) {
+      const ids = spinTimers.map(t => t.id);
+      ids.forEach(id => flashedRef.current.add(id));
+      batches.push({ message: "SPIN", ids });
+    }
+
+    if (bakeTimers.length > 0) {
+      const ids = bakeTimers.map(t => t.id);
+      ids.forEach(id => flashedRef.current.add(id));
+      batches.push({ message: "BAKE DONE", ids });
+    }
+
+    if (batches.length > 0) {
+      const first = batches.shift()!;
+      for (const b of batches) {
+        flashQueueRef.current.push(b);
+      }
+      runFlashSequence(first.message, first.ids);
+    }
+  }, [expiredTimers, runFlashSequence, enabled]);
+
+  if (!flash.active || !flash.visible) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] max-w-sm w-full animate-in slide-in-from-bottom-4 duration-300" data-testid="bakery-timer-alert">
-      <div className="rounded-xl border-2 border-orange-500/60 bg-background shadow-2xl shadow-orange-500/20 overflow-hidden">
-        <div className="bg-gradient-to-r from-orange-600 to-amber-600 px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white">
-            <Timer className="w-4 h-4" />
-            <span className="text-sm font-bold tracking-wide uppercase">Oven Alert</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0 text-white/80 hover:text-white hover:bg-white/10"
-              onClick={() => setMuted(!muted)}
-              data-testid="button-mute-bakery-alert"
-            >
-              {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-            </Button>
-            {expiredTimers.length > 1 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-[10px] text-white/80 hover:text-white hover:bg-white/10 px-2"
-                onClick={handleDismissAll}
-                data-testid="button-dismiss-all-alerts"
-              >
-                Clear All
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="p-3 space-y-2 max-h-60 overflow-y-auto">
-          {expiredTimers.map(timer => {
-            const isSpin = timer.label.includes("Spin");
-            return (
-              <div
-                key={timer.id}
-                className="flex items-center justify-between gap-3 rounded-lg bg-orange-500/10 border border-orange-500/20 px-3 py-2"
-                data-testid={`bakery-alert-timer-${timer.id}`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{timer.label}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {isSpin ? "Time to spin!" : "Ready to pull!"}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs shrink-0"
-                  onClick={() => handleDismiss(timer.id)}
-                  data-testid={`button-dismiss-alert-${timer.id}`}
-                >
-                  <X className="w-3 h-3 mr-1" />
-                  Got it
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
+      style={{ backgroundColor: "rgba(220, 38, 38, 0.65)" }}
+      data-testid="bakery-timer-flash"
+    >
+      <span
+        className="text-white text-center select-none"
+        style={{
+          fontSize: "clamp(4rem, 15vw, 10rem)",
+          fontWeight: 900,
+          letterSpacing: "0.05em",
+          textShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 60px rgba(255,255,255,0.2)",
+          WebkitTextStroke: "2px rgba(255,255,255,0.3)",
+          lineHeight: 1.1,
+        }}
+        data-testid="text-timer-flash-message"
+      >
+        {flash.message}
+      </span>
     </div>
   );
 }
