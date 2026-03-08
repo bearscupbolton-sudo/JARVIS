@@ -650,7 +650,14 @@ function UploadDialog({ open, onClose }: { open: boolean; onClose: () => void })
   const [orientation, setOrientation] = useState("portrait");
   const [category, setCategory] = useState("general");
   const [preview, setPreview] = useState<string | null>(null);
+  const [staticUrl, setStaticUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [mode, setMode] = useState<"upload" | "static">("upload");
+
+  const { data: staticImages } = useQuery<string[]>({
+    queryKey: ["/api/jmt/static-images"],
+    enabled: open,
+  });
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -659,52 +666,101 @@ function UploadDialog({ open, onClose }: { open: boolean; onClose: () => void })
     const reader = new FileReader();
     reader.onload = (ev) => {
       setPreview(ev.target?.result as string);
+      setStaticUrl(null);
     };
     reader.readAsDataURL(file);
   }, [name]);
 
+  const handleStaticSelect = (url: string) => {
+    setStaticUrl(url);
+    setPreview(null);
+    if (!name) {
+      const fname = url.split("/").pop()?.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ") || "";
+      setName(fname.charAt(0).toUpperCase() + fname.slice(1));
+    }
+  };
+
   const handleUpload = async () => {
-    if (!preview || !name) return;
+    if ((!preview && !staticUrl) || !name) return;
     setUploading(true);
     try {
-      await apiRequest("POST", "/api/jmt/menus", {
-        name, description, imageData: preview, orientation, category,
-      });
+      const body: any = { name, description, orientation, category };
+      if (staticUrl) {
+        body.imageUrl = staticUrl;
+      } else {
+        body.imageData = preview;
+      }
+      await apiRequest("POST", "/api/jmt/menus", body);
       queryClient.invalidateQueries({ queryKey: ["/api/jmt/menus"] });
-      toast({ title: "Menu Uploaded", description: `"${name}" is ready to assign.` });
-      setName(""); setDescription(""); setPreview(null); setOrientation("portrait"); setCategory("general");
+      toast({ title: "Menu Added", description: `"${name}" is ready to assign.` });
+      setName(""); setDescription(""); setPreview(null); setStaticUrl(null);
+      setOrientation("portrait"); setCategory("general"); setMode("upload");
       onClose();
     } catch (err: any) {
-      toast({ title: "Upload Failed", description: err.message, variant: "destructive" });
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
     } finally {
       setUploading(false);
     }
   };
 
+  const hasImage = !!preview || !!staticUrl;
+
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Upload className="w-5 h-5" /> Upload Menu Design</DialogTitle>
-          <DialogDescription>Upload a menu image from Canva or any design tool.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><Upload className="w-5 h-5" /> Add Menu Design</DialogTitle>
+          <DialogDescription>Upload a new image or pick from available static menus.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div
-            onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
-            data-testid="dropzone-upload"
-          >
-            {preview ? (
-              <img src={preview} alt="Preview" className="max-h-48 mx-auto rounded" />
-            ) : (
-              <>
-                <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Click to select an image</p>
-                <p className="text-xs text-muted-foreground mt-1">PNG, JPG, or WebP up to 15MB</p>
-              </>
-            )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} data-testid="input-file-upload" />
-          </div>
+          {staticImages && staticImages.length > 0 && (
+            <div className="flex gap-2 border-b pb-3">
+              <Button size="sm" variant={mode === "upload" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setMode("upload")} data-testid="button-mode-upload">
+                <Upload className="w-3 h-3 mr-1" />Upload Image
+              </Button>
+              <Button size="sm" variant={mode === "static" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setMode("static")} data-testid="button-mode-static">
+                <Image className="w-3 h-3 mr-1" />Bundled Menus
+              </Button>
+            </div>
+          )}
+
+          {mode === "upload" ? (
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
+              data-testid="dropzone-upload"
+            >
+              {preview ? (
+                <img src={preview} alt="Preview" className="max-h-48 mx-auto rounded" />
+              ) : (
+                <>
+                  <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Click to select an image</p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, or WebP up to 15MB</p>
+                </>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} data-testid="input-file-upload" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {staticImages?.map(url => (
+                <div
+                  key={url}
+                  onClick={() => handleStaticSelect(url)}
+                  className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${staticUrl === url ? "border-primary ring-2 ring-primary/30" : "border-muted hover:border-primary/40"}`}
+                  data-testid={`static-image-${url.split("/").pop()}`}
+                >
+                  <img src={url} alt={url} className="w-full h-full object-cover" />
+                  {staticUrl === url && (
+                    <div className="absolute top-1 right-1 bg-primary rounded-full p-0.5">
+                      <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <Input placeholder="Menu name" value={name} onChange={e => setName(e.target.value)} data-testid="input-menu-name" />
           <Textarea placeholder="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} className="min-h-[60px]" data-testid="input-menu-description" />
           <div className="grid grid-cols-2 gap-3">
@@ -727,9 +783,9 @@ function UploadDialog({ open, onClose }: { open: boolean; onClose: () => void })
               </Select>
             </div>
           </div>
-          <Button className="w-full" onClick={handleUpload} disabled={!preview || !name || uploading} data-testid="button-confirm-upload">
+          <Button className="w-full" onClick={handleUpload} disabled={!hasImage || !name || uploading} data-testid="button-confirm-upload">
             {uploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-            {uploading ? "Uploading..." : "Upload Menu"}
+            {uploading ? "Adding..." : "Add Menu"}
           </Button>
         </div>
       </DialogContent>

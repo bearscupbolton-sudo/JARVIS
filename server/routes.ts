@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
+import path from "path";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -10400,6 +10402,25 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
 
   // === JMT (JARVIS MENU THEATER) ===
 
+  app.get("/api/jmt/static-images", isAuthenticated, (_req: any, res) => {
+    try {
+      const menusDir = path.join(process.cwd(), "client", "public", "menus");
+      const distMenusDir = path.join(process.cwd(), "dist", "public", "menus");
+      let files: string[] = [];
+      for (const dir of [menusDir, distMenusDir]) {
+        try {
+          if (fs.existsSync(dir)) {
+            const found = fs.readdirSync(dir).filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f));
+            files = [...files, ...found.map(f => `/menus/${f}`)];
+          }
+        } catch {}
+      }
+      res.json([...new Set(files)]);
+    } catch {
+      res.json([]);
+    }
+  });
+
   // Get all menus
   app.get("/api/jmt/menus", isAuthenticated, async (_req: any, res) => {
     try {
@@ -10417,18 +10438,31 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       return res.status(403).json({ message: "Manager or owner access required" });
     }
     try {
-      const { name, description, imageData, orientation, category, tags } = req.body;
-      if (!name || !imageData) {
-        return res.status(400).json({ message: "name and imageData are required" });
+      const { name, description, imageData, imageUrl: staticUrl, orientation, category, tags } = req.body;
+      if (!name || (!imageData && !staticUrl)) {
+        return res.status(400).json({ message: "name and either imageData or imageUrl are required" });
       }
-      const { uploadMediaWithThumbnail } = await import("./media");
-      const result = await uploadMediaWithThumbnail(imageData, "jmt", `menu_${Date.now()}`);
+
+      let imageUrl: string;
+      let imageKey: string | null = null;
+      let thumbnailUrl: string | null = null;
+
+      if (staticUrl) {
+        imageUrl = staticUrl;
+      } else {
+        const { uploadMediaWithThumbnail } = await import("./media");
+        const result = await uploadMediaWithThumbnail(imageData, "jmt", `menu_${Date.now()}`);
+        imageUrl = result.url;
+        imageKey = result.key;
+        thumbnailUrl = result.thumbnailUrl;
+      }
+
       const [menu] = await db.insert(jmtMenus).values({
         name,
         description: description || null,
-        imageUrl: result.url,
-        imageKey: result.key,
-        thumbnailUrl: result.thumbnailUrl,
+        imageUrl,
+        imageKey,
+        thumbnailUrl,
         orientation: orientation || "portrait",
         category: category || "general",
         tags: tags || null,
@@ -10459,7 +10493,11 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       if (req.body.seasonalStart !== undefined) updates.seasonalStart = req.body.seasonalStart ? new Date(req.body.seasonalStart) : null;
       if (req.body.seasonalEnd !== undefined) updates.seasonalEnd = req.body.seasonalEnd ? new Date(req.body.seasonalEnd) : null;
 
-      if (req.body.imageData) {
+      if (req.body.imageUrl) {
+        updates.imageUrl = req.body.imageUrl;
+        updates.imageKey = null;
+        updates.thumbnailUrl = null;
+      } else if (req.body.imageData) {
         const { uploadMediaWithThumbnail, deleteMedia } = await import("./media");
         const existing = await db.select().from(jmtMenus).where(eq(jmtMenus.id, id));
         if (existing[0]?.imageKey) {
