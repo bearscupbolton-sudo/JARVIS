@@ -1808,6 +1808,8 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
   notes: text("notes"),
   isRecurring: boolean("is_recurring").default(false),
   recurringTemplateId: integer("recurring_template_id"),
+  paymentLinkUrl: text("payment_link_url"),
+  paymentLinkId: text("payment_link_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

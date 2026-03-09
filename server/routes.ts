@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -281,6 +281,66 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Wholesale order error:", err);
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/wholesale/orders/:id/payment-link", isWholesaleAuthenticated, async (req, res) => {
+    try {
+      const customer = (req as any).wholesaleCustomer;
+      const orderId = parseInt(req.params.id);
+      const orders = await storage.getWholesaleOrders(customer.id);
+      const order = orders.find((o: any) => o.id === orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status !== "pending") return res.status(400).json({ message: "Payment links can only be created for pending orders" });
+
+      if (order.paymentLinkUrl) {
+        return res.json({ paymentLinkUrl: order.paymentLinkUrl });
+      }
+
+      const { SquareClient, SquareEnvironment } = await import("square");
+      const squareClient = new SquareClient({
+        token: process.env.SQUARE_ACCESS_TOKEN || "",
+        environment: (process.env.SQUARE_ENVIRONMENT === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox,
+      });
+
+      const [defaultLoc] = await db.select().from(locations).where(eq(locations.isDefault, true)).limit(1);
+      const squareLocationId = defaultLoc?.squareLocationId || process.env.SQUARE_LOCATION_ID || "";
+      if (!squareLocationId) {
+        return res.status(400).json({ message: "Square location not configured. Please contact Bear's Cup." });
+      }
+
+      const lineItems = (order.items || []).map((item: any) => ({
+        name: item.itemName,
+        quantity: String(item.quantity),
+        basePriceMoney: {
+          amount: BigInt(Math.round(item.unitPrice * 100)),
+          currency: "USD",
+        },
+      }));
+
+      const result = await squareClient.checkout.paymentLinks.create({
+        idempotencyKey: `wholesale-order-${orderId}-${Date.now()}`,
+        quickPay: undefined,
+        order: {
+          locationId: squareLocationId,
+          lineItems,
+        },
+        paymentNote: `Wholesale Order #${orderId} — ${customer.businessName}`,
+      });
+
+      const paymentLink = result.paymentLink;
+      if (paymentLink?.url) {
+        await db.update(wholesaleOrders)
+          .set({ paymentLinkUrl: paymentLink.url, paymentLinkId: paymentLink.id || null })
+          .where(eq(wholesaleOrders.id, orderId));
+
+        return res.json({ paymentLinkUrl: paymentLink.url });
+      }
+
+      res.status(500).json({ message: "Failed to create payment link" });
+    } catch (err: any) {
+      console.error("Square payment link error:", err);
+      res.status(500).json({ message: err.message || "Failed to create payment link" });
     }
   });
 

@@ -7,8 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useLocation } from "wouter";
-import { ShoppingCart, Plus, Minus, Trash2, Loader2, CheckCircle2, Send } from "lucide-react";
+import { useLocation, Link } from "wouter";
+import { ShoppingCart, Minus, Trash2, Loader2, CheckCircle2, Send, ArrowLeft } from "lucide-react";
 
 type CatalogItem = {
   id: number;
@@ -31,6 +31,7 @@ type Template = {
   id: number;
   dayOfWeek: number;
   templateName: string | null;
+  isActive: boolean;
   items: { catalogItemId: number; quantity: number; catalogItem?: CatalogItem }[];
 };
 
@@ -76,13 +77,16 @@ export default function WholesaleOrder() {
     ? [...new Set(catalogQuery.data.map(i => i.category || "Other"))]
     : [];
 
-  function addToCart(item: CatalogItem) {
+  function setItemQuantity(item: CatalogItem, qty: number) {
     setCart(prev => {
+      if (qty <= 0) {
+        return prev.filter(c => c.catalogItemId !== item.id);
+      }
       const existing = prev.find(c => c.catalogItemId === item.id);
       if (existing) {
-        return prev.map(c => c.catalogItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c);
+        return prev.map(c => c.catalogItemId === item.id ? { ...c, quantity: qty } : c);
       }
-      return [...prev, { catalogItemId: item.id, name: item.name, unitPrice: item.unitPrice, unit: item.unit, quantity: 1 }];
+      return [...prev, { catalogItemId: item.id, name: item.name, unitPrice: item.unitPrice, unit: item.unit, quantity: qty }];
     });
   }
 
@@ -146,9 +150,16 @@ export default function WholesaleOrder() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-order-title">New Order</h1>
-        <p className="text-sm text-muted-foreground">Build your wholesale order below</p>
+      <div className="flex items-center gap-3">
+        <Link href="/wholesale">
+          <Button variant="ghost" size="icon" className="shrink-0" data-testid="button-back">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-order-title">New Order</h1>
+          <p className="text-sm text-muted-foreground">Build your wholesale order below</p>
+        </div>
       </div>
 
       {templatesQuery.data && templatesQuery.data.length > 0 && (
@@ -191,6 +202,7 @@ export default function WholesaleOrder() {
                       <div className="space-y-2">
                         {catalogQuery.data!.filter(i => (i.category || "Other") === cat).map(item => {
                           const inCart = cart.find(c => c.catalogItemId === item.id);
+                          const currentQty = inCart?.quantity || 0;
                           return (
                             <div key={item.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border" data-testid={`catalog-item-${item.id}`}>
                               <div className="min-w-0 flex-1">
@@ -198,28 +210,29 @@ export default function WholesaleOrder() {
                                 {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
                                 <p className="text-xs text-muted-foreground mt-0.5">${item.unitPrice.toFixed(2)} / {item.unit}</p>
                               </div>
-                              {inCart ? (
-                                <div className="flex items-center gap-2">
-                                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, inCart.quantity - 1)} data-testid={`button-decrease-${item.id}`}>
-                                    <Minus className="h-3 w-3" />
-                                  </Button>
-                                  <Input
-                                    type="number"
-                                    value={inCart.quantity}
-                                    onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                                    className="w-16 h-8 text-center text-sm"
-                                    min={0}
-                                    data-testid={`input-qty-${item.id}`}
-                                  />
-                                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, inCart.quantity + 1)} data-testid={`button-increase-${item.id}`}>
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Button variant="outline" size="sm" onClick={() => addToCart(item)} data-testid={`button-add-${item.id}`}>
-                                  <Plus className="h-3 w-3 mr-1" /> Add
-                                </Button>
-                              )}
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  type="number"
+                                  value={currentQty === 0 ? "" : currentQty}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === "" || val === "0") {
+                                      setItemQuantity(item, 0);
+                                    } else {
+                                      setItemQuantity(item, parseInt(val) || 0);
+                                    }
+                                  }}
+                                  placeholder="QTY"
+                                  className="w-20 h-9 text-center text-sm"
+                                  min={0}
+                                  data-testid={`input-qty-${item.id}`}
+                                />
+                                {currentQty > 0 && (
+                                  <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                                    {item.unit}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -238,6 +251,9 @@ export default function WholesaleOrder() {
               <CardTitle className="text-lg flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
                 Your Order
+                {cart.length > 0 && (
+                  <Badge variant="secondary" className="ml-auto">{cart.length} items</Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -254,7 +270,7 @@ export default function WholesaleOrder() {
 
               {cart.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4 text-sm" data-testid="text-empty-cart">
-                  Add items from the catalog
+                  Type a quantity next to any item to add it
                 </p>
               ) : (
                 <>

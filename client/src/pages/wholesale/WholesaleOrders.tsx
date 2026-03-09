@@ -1,7 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ClipboardList, Clock, Package, CheckCircle2, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Link } from "wouter";
+import { Loader2, ClipboardList, Clock, Package, CheckCircle2, AlertCircle, ArrowLeft, CreditCard, ExternalLink } from "lucide-react";
 
 type OrderItem = {
   itemName: string;
@@ -17,6 +22,7 @@ type Order = {
   totalAmount: number;
   notes: string | null;
   isRecurring: boolean;
+  paymentLinkUrl: string | null;
   items?: OrderItem[];
   createdAt: string;
 };
@@ -43,15 +49,42 @@ function formatShortDate(dateStr: string) {
 }
 
 export default function WholesaleOrders() {
+  const { toast } = useToast();
+  const [loadingOrderId, setLoadingOrderId] = useState<number | null>(null);
+
   const ordersQuery = useQuery<Order[]>({
     queryKey: ["/api/wholesale/orders"],
   });
 
+  const paymentLinkMutation = useMutation({
+    mutationFn: async (orderId: number) => {
+      setLoadingOrderId(orderId);
+      const res = await apiRequest("POST", `/api/wholesale/orders/${orderId}/payment-link`);
+      return res.json();
+    },
+    onSuccess: (data: { paymentLinkUrl: string }) => {
+      setLoadingOrderId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/wholesale/orders"] });
+      window.open(data.paymentLinkUrl, "_blank");
+    },
+    onError: (err: any) => {
+      setLoadingOrderId(null);
+      toast({ title: "Payment link error", description: err.message || "Could not generate payment link. Please contact Bear's Cup.", variant: "destructive" });
+    },
+  });
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-orders-title">Order History</h1>
-        <p className="text-sm text-muted-foreground">View all your wholesale orders and their status</p>
+      <div className="flex items-center gap-3">
+        <Link href="/wholesale">
+          <Button variant="ghost" size="icon" className="shrink-0" data-testid="button-back">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-orders-title">Order History</h1>
+          <p className="text-sm text-muted-foreground">View all your wholesale orders and their status</p>
+        </div>
       </div>
 
       {ordersQuery.isLoading ? (
@@ -70,6 +103,7 @@ export default function WholesaleOrders() {
           {ordersQuery.data.map(order => {
             const sc = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending;
             const StatusIcon = sc.icon;
+            const isPending = order.status === "pending";
             return (
               <Card key={order.id} data-testid={`card-order-${order.id}`}>
                 <CardHeader className="pb-2">
@@ -106,6 +140,35 @@ export default function WholesaleOrders() {
                   </div>
                   {order.notes && (
                     <p className="text-xs text-muted-foreground mt-2 italic">Notes: {order.notes}</p>
+                  )}
+
+                  {isPending && (
+                    <div className="mt-4 pt-3 border-t">
+                      {order.paymentLinkUrl ? (
+                        <a href={order.paymentLinkUrl} target="_blank" rel="noopener noreferrer">
+                          <Button className="w-full" variant="default" data-testid={`button-pay-${order.id}`}>
+                            <CreditCard className="h-4 w-4 mr-2" />
+                            Pay Now — ${order.totalAmount?.toFixed(2)}
+                            <ExternalLink className="h-3 w-3 ml-2" />
+                          </Button>
+                        </a>
+                      ) : (
+                        <Button
+                          className="w-full"
+                          variant="default"
+                          onClick={() => paymentLinkMutation.mutate(order.id)}
+                          disabled={loadingOrderId === order.id}
+                          data-testid={`button-pay-${order.id}`}
+                        >
+                          {loadingOrderId === order.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <CreditCard className="h-4 w-4 mr-2" />
+                          )}
+                          Pay with Square — ${order.totalAmount?.toFixed(2)}
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </CardContent>
               </Card>

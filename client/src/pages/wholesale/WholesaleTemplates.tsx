@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { CalendarClock, Plus, Minus, Loader2, Trash2, Save, Edit2 } from "lucide-react";
+import { Link } from "wouter";
+import { CalendarClock, Plus, Minus, Loader2, Trash2, Save, Edit2, ArrowLeft } from "lucide-react";
 
 type CatalogItem = {
   id: number;
@@ -158,9 +159,16 @@ export default function WholesaleTemplates() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-templates-title">Recurring Orders</h1>
-          <p className="text-sm text-muted-foreground">Set up different orders for different days of the week</p>
+        <div className="flex items-center gap-3">
+          <Link href="/wholesale">
+            <Button variant="ghost" size="icon" className="shrink-0" data-testid="button-back">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold font-serif tracking-tight" data-testid="text-templates-title">Recurring Orders</h1>
+            <p className="text-sm text-muted-foreground">Set up different orders for different days of the week</p>
+          </div>
         </div>
         <Button onClick={openNewDialog} data-testid="button-new-template">
           <Plus className="h-4 w-4 mr-1" /> New Template
