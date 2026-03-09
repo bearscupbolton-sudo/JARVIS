@@ -28,6 +28,14 @@ export const isWholesaleAuthenticated: RequestHandler = async (req, res, next) =
   return next();
 };
 
+export const isWholesaleOnboarded: RequestHandler = async (req, res, next) => {
+  const customer = (req as any).wholesaleCustomer;
+  if (!customer?.onboardingComplete) {
+    return res.status(403).json({ message: "Onboarding required", code: "ONBOARDING_REQUIRED" });
+  }
+  return next();
+};
+
 export function registerWholesaleAuthRoutes(app: import("express").Express) {
   app.post("/api/wholesale/login", async (req, res) => {
     try {

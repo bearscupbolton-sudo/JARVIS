@@ -84,6 +84,7 @@ const WholesaleHome = lazy(() => import("@/pages/wholesale/WholesaleHome"));
 const WholesaleOrder = lazy(() => import("@/pages/wholesale/WholesaleOrder"));
 const WholesaleTemplates = lazy(() => import("@/pages/wholesale/WholesaleTemplates"));
 const WholesaleOrders = lazy(() => import("@/pages/wholesale/WholesaleOrders"));
+const WholesaleOnboarding = lazy(() => import("@/pages/wholesale/WholesaleOnboarding"));
 const WholesaleAdmin = lazy(() => import("@/pages/WholesaleAdmin"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
@@ -231,10 +232,10 @@ function PortalPublicRoute({ component: Component }: { component: React.Componen
   );
 }
 
-function WholesaleProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function WholesaleProtectedRoute({ component: Component, skipOnboardingCheck }: { component: React.ComponentType; skipOnboardingCheck?: boolean }) {
   const [, setLocation] = useLocation();
 
-  const { data: customer, isLoading } = useQuery<{ id: number; businessName: string } | null>({
+  const { data: customer, isLoading } = useQuery<{ id: number; businessName: string; onboardingComplete: boolean } | null>({
     queryKey: ["/api/wholesale/me"],
     queryFn: async () => {
       const res = await fetch("/api/wholesale/me", { credentials: "include" });
@@ -249,8 +250,10 @@ function WholesaleProtectedRoute({ component: Component }: { component: React.Co
   useEffect(() => {
     if (!isLoading && !customer) {
       setLocation("/wholesale/login");
+    } else if (!isLoading && customer && !customer.onboardingComplete && !skipOnboardingCheck) {
+      setLocation("/wholesale/onboarding");
     }
-  }, [isLoading, customer, setLocation]);
+  }, [isLoading, customer, setLocation, skipOnboardingCheck]);
 
   if (isLoading) {
     return (
@@ -261,6 +264,7 @@ function WholesaleProtectedRoute({ component: Component }: { component: React.Co
   }
 
   if (!customer) return null;
+  if (!customer.onboardingComplete && !skipOnboardingCheck) return null;
 
   return (
     <WholesaleLayout>
@@ -494,6 +498,9 @@ function Router() {
         {/* Wholesale Portal Routes */}
         <Route path="/wholesale/login">
           {() => <Suspense fallback={<PageLoader />}><WholesaleLogin /></Suspense>}
+        </Route>
+        <Route path="/wholesale/onboarding">
+          {() => <Suspense fallback={<PageLoader />}><WholesaleOnboarding /></Suspense>}
         </Route>
         <Route path="/wholesale/order">
           {() => <WholesaleProtectedRoute component={WholesaleOrder} />}

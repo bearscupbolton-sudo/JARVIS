@@ -19,7 +19,7 @@ import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipient
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
-import { registerWholesaleAuthRoutes, isWholesaleAuthenticated } from "./wholesale-auth";
+import { registerWholesaleAuthRoutes, isWholesaleAuthenticated, isWholesaleOnboarded } from "./wholesale-auth";
 import { createSquareOrder } from "./square";
 import {
   testSquareConnection, fetchSquareCatalog, syncSquareSales,
@@ -186,7 +186,7 @@ export async function registerRoutes(
 
   // === WHOLESALE PORTAL ENDPOINTS ===
 
-  app.get("/api/wholesale/catalog", isWholesaleAuthenticated, async (_req, res) => {
+  app.get("/api/wholesale/catalog", isWholesaleAuthenticated, isWholesaleOnboarded, async (_req, res) => {
     try {
       const items = await storage.getWholesaleCatalogItems(true);
       res.json(items);
@@ -195,7 +195,39 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/wholesale/orders", isWholesaleAuthenticated, async (req, res) => {
+  app.post("/api/wholesale/onboarding", isWholesaleAuthenticated, async (req, res) => {
+    try {
+      const customer = (req as any).wholesaleCustomer;
+      const { businessName, contactName, phone, email, address, city, state, zip, certificateOfAuthority, st120IsBlanket, st120FilePath } = req.body;
+
+      if (!businessName || !contactName || !phone || !email || !certificateOfAuthority) {
+        return res.status(400).json({ message: "Business name, contact name, phone, email, and Certificate of Authority number are required" });
+      }
+
+      const updated = await storage.updateWholesaleCustomer(customer.id, {
+        businessName,
+        contactName,
+        phone,
+        email,
+        address: address || null,
+        city: city || null,
+        state: state || null,
+        zip: zip || null,
+        certificateOfAuthority,
+        st120IsBlanket: st120IsBlanket || false,
+        st120FilePath: st120FilePath || null,
+        onboardingComplete: true,
+      });
+
+      const { pinHash: _, ...safe } = updated;
+      res.json(safe);
+    } catch (err: any) {
+      console.error("Wholesale onboarding error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/wholesale/orders", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const orders = await storage.getWholesaleOrders(customer.id);
@@ -205,7 +237,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/wholesale/orders", isWholesaleAuthenticated, async (req, res) => {
+  app.post("/api/wholesale/orders", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const { orderDate, notes, items, isRecurring, recurringTemplateId } = req.body;
@@ -284,7 +316,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/wholesale/orders/:id/payment-link", isWholesaleAuthenticated, async (req, res) => {
+  app.post("/api/wholesale/orders/:id/payment-link", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const orderId = parseInt(req.params.id);
@@ -344,7 +376,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/wholesale/templates", isWholesaleAuthenticated, async (req, res) => {
+  app.get("/api/wholesale/templates", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const templates = await storage.getWholesaleTemplates(customer.id);
@@ -354,7 +386,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/wholesale/templates", isWholesaleAuthenticated, async (req, res) => {
+  app.post("/api/wholesale/templates", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const { dayOfWeek, templateName, items } = req.body;
@@ -371,7 +403,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/wholesale/templates/:id", isWholesaleAuthenticated, async (req, res) => {
+  app.put("/api/wholesale/templates/:id", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const id = parseInt(req.params.id);
@@ -393,7 +425,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/wholesale/templates/:id", isWholesaleAuthenticated, async (req, res) => {
+  app.delete("/api/wholesale/templates/:id", isWholesaleAuthenticated, isWholesaleOnboarded, async (req, res) => {
     try {
       const customer = (req as any).wholesaleCustomer;
       const id = parseInt(req.params.id);
@@ -420,14 +452,18 @@ export async function registerRoutes(
   app.post("/api/wholesale/admin/customers", isAuthenticated, isOwner, async (req, res) => {
     try {
       const { businessName, contactName, phone, email, pin, notes, locationId } = req.body;
-      if (!businessName || !contactName || !pin) {
-        return res.status(400).json({ message: "businessName, contactName, and pin are required" });
+      if (!pin) {
+        return res.status(400).json({ message: "PIN is required" });
       }
       const bcrypt = await import("bcryptjs");
       const pinHash = await bcrypt.hash(pin, 12);
       const customer = await storage.createWholesaleCustomer({
-        businessName, contactName, phone: phone || null, email: email || null,
-        pinHash, notes: notes || null, isActive: true, locationId: locationId || null,
+        businessName: businessName || "New Customer",
+        contactName: contactName || "Pending Setup",
+        phone: phone || null, email: email || null,
+        pinHash, notes: notes || null, isActive: true,
+        onboardingComplete: !!(businessName && contactName),
+        locationId: locationId || null,
       });
       const { pinHash: _, ...safe } = customer;
       res.status(201).json(safe);

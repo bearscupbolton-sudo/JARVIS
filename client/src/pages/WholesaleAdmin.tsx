@@ -31,6 +31,14 @@ type WholesaleCustomer = {
   email: string | null;
   notes: string | null;
   isActive: boolean;
+  onboardingComplete: boolean;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  certificateOfAuthority: string | null;
+  st120FilePath: string | null;
+  st120IsBlanket: boolean;
   createdAt: string;
 };
 
@@ -85,7 +93,7 @@ export default function WholesaleAdmin() {
   const [editingCatalog, setEditingCatalog] = useState<CatalogItem | null>(null);
   const { toast } = useToast();
 
-  const [custForm, setCustForm] = useState({ businessName: "", contactName: "", phone: "", email: "", pin: "", notes: "" });
+  const [custForm, setCustForm] = useState({ businessName: "", contactName: "", phone: "", email: "", pin: "", notes: "", address: "", city: "", state: "", zip: "" });
   const [catForm, setCatForm] = useState({ name: "", description: "", category: "", unitPrice: "", unit: "each", sortOrder: "0" });
 
   const customersQuery = useQuery<WholesaleCustomer[]>({ queryKey: ["/api/wholesale/admin/customers"] });
@@ -143,26 +151,38 @@ export default function WholesaleAdmin() {
 
   function openNewCustomer() {
     setEditingCustomer(null);
-    setCustForm({ businessName: "", contactName: "", phone: "", email: "", pin: "", notes: "" });
+    setCustForm({ businessName: "", contactName: "", phone: "", email: "", pin: "", notes: "", address: "", city: "", state: "", zip: "" });
     setCustomerDialogOpen(true);
   }
 
   function openEditCustomer(c: WholesaleCustomer) {
     setEditingCustomer(c);
-    setCustForm({ businessName: c.businessName, contactName: c.contactName, phone: c.phone || "", email: c.email || "", pin: "", notes: c.notes || "" });
+    setCustForm({
+      businessName: c.businessName, contactName: c.contactName,
+      phone: c.phone || "", email: c.email || "", pin: "", notes: c.notes || "",
+      address: c.address || "", city: c.city || "", state: c.state || "", zip: c.zip || "",
+    });
     setCustomerDialogOpen(true);
   }
 
   function saveCustomer() {
-    const data: any = { businessName: custForm.businessName, contactName: custForm.contactName };
-    if (custForm.phone) data.phone = custForm.phone;
-    if (custForm.email) data.email = custForm.email;
-    if (custForm.notes) data.notes = custForm.notes;
-    if (custForm.pin) data.pin = custForm.pin;
     if (!editingCustomer && !custForm.pin) {
       toast({ title: "PIN is required for new customers", variant: "destructive" });
       return;
     }
+    const data: any = {};
+    if (editingCustomer) {
+      data.businessName = custForm.businessName;
+      data.contactName = custForm.contactName;
+      if (custForm.phone) data.phone = custForm.phone;
+      if (custForm.email) data.email = custForm.email;
+      if (custForm.address) data.address = custForm.address;
+      if (custForm.city) data.city = custForm.city;
+      if (custForm.state) data.state = custForm.state;
+      if (custForm.zip) data.zip = custForm.zip;
+    }
+    if (custForm.notes) data.notes = custForm.notes;
+    if (custForm.pin) data.pin = custForm.pin;
     customerMutation.mutate(data);
   }
 
@@ -327,17 +347,38 @@ export default function WholesaleAdmin() {
             <div className="space-y-2">
               {customersQuery.data.map(c => (
                 <Card key={c.id} className={!c.isActive ? "opacity-50" : ""} data-testid={`card-customer-${c.id}`}>
-                  <CardContent className="p-4 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium">{c.businessName}</p>
-                      <p className="text-xs text-muted-foreground">{c.contactName}{c.phone ? ` • ${c.phone}` : ""}{c.email ? ` • ${c.email}` : ""}</p>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{c.businessName}</p>
+                        <p className="text-xs text-muted-foreground">{c.contactName}{c.phone ? ` • ${c.phone}` : ""}{c.email ? ` • ${c.email}` : ""}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {c.onboardingComplete ? (
+                          <Badge variant="secondary" className="gap-1" data-testid={`badge-onboarded-${c.id}`}>
+                            <CheckCircle2 className="h-3 w-3" /> Active
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="gap-1 border-amber-300 text-amber-700 dark:text-amber-400" data-testid={`badge-pending-${c.id}`}>
+                            <AlertCircle className="h-3 w-3" /> Setup Pending
+                          </Badge>
+                        )}
+                        {!c.isActive && <Badge variant="destructive">Inactive</Badge>}
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCustomer(c)} data-testid={`button-edit-customer-${c.id}`}>
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant={c.isActive ? "secondary" : "destructive"}>{c.isActive ? "Active" : "Inactive"}</Badge>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCustomer(c)} data-testid={`button-edit-customer-${c.id}`}>
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {c.onboardingComplete && (c.certificateOfAuthority || c.address) && (
+                      <div className="mt-2 pt-2 border-t text-xs text-muted-foreground space-y-0.5">
+                        {c.certificateOfAuthority && (
+                          <p>Cert of Authority: <span className="font-mono">{c.certificateOfAuthority}</span>{c.st120IsBlanket ? " (Blanket)" : ""}{c.st120FilePath ? " • ST-120 on file" : ""}</p>
+                        )}
+                        {c.address && (
+                          <p>{c.address}{c.city ? `, ${c.city}` : ""}{c.state ? `, ${c.state}` : ""}{c.zip ? ` ${c.zip}` : ""}</p>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -352,33 +393,42 @@ export default function WholesaleAdmin() {
             <DialogTitle>{editingCustomer ? "Edit Customer" : "Add Wholesale Customer"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium">Business Name *</label>
-              <Input value={custForm.businessName} onChange={(e) => setCustForm(p => ({ ...p, businessName: e.target.value }))} data-testid="input-cust-business" />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Contact Name *</label>
-              <Input value={custForm.contactName} onChange={(e) => setCustForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-cust-contact" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Phone</label>
-                <Input value={custForm.phone} onChange={(e) => setCustForm(p => ({ ...p, phone: e.target.value }))} data-testid="input-cust-phone" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Email</label>
-                <Input value={custForm.email} onChange={(e) => setCustForm(p => ({ ...p, email: e.target.value }))} data-testid="input-cust-email" />
-              </div>
-            </div>
+            {!editingCustomer && (
+              <p className="text-sm text-muted-foreground">
+                Create a PIN for the new customer. They'll complete their profile (business info, tax docs) when they first log in.
+              </p>
+            )}
+            {editingCustomer && (
+              <>
+                <div>
+                  <label className="text-sm font-medium">Business Name</label>
+                  <Input value={custForm.businessName} onChange={(e) => setCustForm(p => ({ ...p, businessName: e.target.value }))} data-testid="input-cust-business" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Contact Name</label>
+                  <Input value={custForm.contactName} onChange={(e) => setCustForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-cust-contact" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">Phone</label>
+                    <Input value={custForm.phone} onChange={(e) => setCustForm(p => ({ ...p, phone: e.target.value }))} data-testid="input-cust-phone" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Email</label>
+                    <Input value={custForm.email} onChange={(e) => setCustForm(p => ({ ...p, email: e.target.value }))} data-testid="input-cust-email" />
+                  </div>
+                </div>
+              </>
+            )}
             <div>
               <label className="text-sm font-medium">{editingCustomer ? "New PIN (leave blank to keep)" : "PIN *"}</label>
               <Input type="password" value={custForm.pin} onChange={(e) => setCustForm(p => ({ ...p, pin: e.target.value }))} placeholder="4+ digit PIN" data-testid="input-cust-pin" />
             </div>
             <div>
-              <label className="text-sm font-medium">Notes</label>
-              <Textarea value={custForm.notes} onChange={(e) => setCustForm(p => ({ ...p, notes: e.target.value }))} rows={2} data-testid="input-cust-notes" />
+              <label className="text-sm font-medium">Internal Notes</label>
+              <Textarea value={custForm.notes} onChange={(e) => setCustForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Internal notes (not visible to customer)" data-testid="input-cust-notes" />
             </div>
-            <Button onClick={saveCustomer} disabled={customerMutation.isPending || !custForm.businessName || !custForm.contactName} className="w-full" data-testid="button-save-customer">
+            <Button onClick={saveCustomer} disabled={customerMutation.isPending || (!editingCustomer && !custForm.pin)} className="w-full" data-testid="button-save-customer">
               {customerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : (editingCustomer ? "Update Customer" : "Create Customer")}
             </Button>
           </div>
