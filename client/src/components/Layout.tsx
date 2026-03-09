@@ -49,6 +49,7 @@ import {
   Wrench,
   Landmark,
   Tv,
+  Store,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -154,6 +155,7 @@ const GM_NAV_ITEMS = [
 ];
 
 const OWNER_ONLY_NAV_ITEMS = [
+  { href: "/wholesale-admin", label: "Wholesale", icon: Store },
   { href: "/jmt", label: "Menu Theater", icon: Tv },
   { href: "/the-firm", label: "The Firm", icon: Landmark },
   { href: "/payroll", label: "Payroll Review", icon: DollarSign },

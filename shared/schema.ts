@@ -1773,3 +1773,92 @@ export type InsertJmtDisplay = z.infer<typeof insertJmtDisplaySchema>;
 
 export type JmtDisplayHistory = typeof jmtDisplayHistory.$inferSelect;
 
+// === WHOLESALE PORTAL ===
+export const wholesaleCustomers = pgTable("wholesale_customers", {
+  id: serial("id").primaryKey(),
+  businessName: text("business_name").notNull(),
+  contactName: text("contact_name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  pinHash: text("pin_hash").notNull(),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  locationId: integer("location_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const wholesaleCatalogItems = pgTable("wholesale_catalog_items", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  unit: text("unit").notNull().default("each"),
+  isActive: boolean("is_active").default(true).notNull(),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const wholesaleOrders = pgTable("wholesale_orders", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => wholesaleCustomers.id),
+  orderDate: text("order_date").notNull(),
+  status: text("status").notNull().default("pending"),
+  totalAmount: doublePrecision("total_amount").default(0),
+  notes: text("notes"),
+  isRecurring: boolean("is_recurring").default(false),
+  recurringTemplateId: integer("recurring_template_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const wholesaleOrderItems = pgTable("wholesale_order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+  catalogItemId: integer("catalog_item_id").notNull().references(() => wholesaleCatalogItems.id),
+  itemName: text("item_name").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  subtotal: doublePrecision("subtotal").notNull(),
+});
+
+export const wholesaleRecurringTemplates = pgTable("wholesale_recurring_templates", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => wholesaleCustomers.id),
+  dayOfWeek: integer("day_of_week").notNull(),
+  templateName: text("template_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const wholesaleRecurringTemplateItems = pgTable("wholesale_recurring_template_items", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").notNull().references(() => wholesaleRecurringTemplates.id, { onDelete: "cascade" }),
+  catalogItemId: integer("catalog_item_id").notNull().references(() => wholesaleCatalogItems.id),
+  quantity: integer("quantity").notNull(),
+});
+
+export const insertWholesaleCustomerSchema = createInsertSchema(wholesaleCustomers).omit({ id: true, createdAt: true });
+export type WholesaleCustomer = typeof wholesaleCustomers.$inferSelect;
+export type InsertWholesaleCustomer = z.infer<typeof insertWholesaleCustomerSchema>;
+
+export const insertWholesaleCatalogItemSchema = createInsertSchema(wholesaleCatalogItems).omit({ id: true, createdAt: true });
+export type WholesaleCatalogItem = typeof wholesaleCatalogItems.$inferSelect;
+export type InsertWholesaleCatalogItem = z.infer<typeof insertWholesaleCatalogItemSchema>;
+
+export const insertWholesaleOrderSchema = createInsertSchema(wholesaleOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type WholesaleOrder = typeof wholesaleOrders.$inferSelect;
+export type InsertWholesaleOrder = z.infer<typeof insertWholesaleOrderSchema>;
+
+export const insertWholesaleOrderItemSchema = createInsertSchema(wholesaleOrderItems).omit({ id: true });
+export type WholesaleOrderItem = typeof wholesaleOrderItems.$inferSelect;
+export type InsertWholesaleOrderItem = z.infer<typeof insertWholesaleOrderItemSchema>;
+
+export const insertWholesaleRecurringTemplateSchema = createInsertSchema(wholesaleRecurringTemplates).omit({ id: true, createdAt: true });
+export type WholesaleRecurringTemplate = typeof wholesaleRecurringTemplates.$inferSelect;
+export type InsertWholesaleRecurringTemplate = z.infer<typeof insertWholesaleRecurringTemplateSchema>;
+
+export const insertWholesaleRecurringTemplateItemSchema = createInsertSchema(wholesaleRecurringTemplateItems).omit({ id: true });
+export type WholesaleRecurringTemplateItem = typeof wholesaleRecurringTemplateItems.$inferSelect;
+export type InsertWholesaleRecurringTemplateItem = z.infer<typeof insertWholesaleRecurringTemplateItemSchema>;
+

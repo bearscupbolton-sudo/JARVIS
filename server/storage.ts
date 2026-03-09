@@ -137,6 +137,14 @@ import {
   type FirmCashCount, type InsertFirmCashCount,
   payrollBatches,
   type PayrollBatch, type InsertPayrollBatch,
+  wholesaleCustomers, wholesaleCatalogItems, wholesaleOrders, wholesaleOrderItems,
+  wholesaleRecurringTemplates, wholesaleRecurringTemplateItems,
+  type WholesaleCustomer, type InsertWholesaleCustomer,
+  type WholesaleCatalogItem, type InsertWholesaleCatalogItem,
+  type WholesaleOrder, type InsertWholesaleOrder,
+  type WholesaleOrderItem, type InsertWholesaleOrderItem,
+  type WholesaleRecurringTemplate, type InsertWholesaleRecurringTemplate,
+  type WholesaleRecurringTemplateItem, type InsertWholesaleRecurringTemplateItem,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -743,6 +751,24 @@ export interface IStorage {
     upcomingObligations: FirmRecurringObligation[];
     accountBalances: FirmAccount[];
   }>;
+
+  // Wholesale
+  getWholesaleCustomers(): Promise<WholesaleCustomer[]>;
+  getWholesaleCustomer(id: number): Promise<WholesaleCustomer | undefined>;
+  createWholesaleCustomer(data: InsertWholesaleCustomer): Promise<WholesaleCustomer>;
+  updateWholesaleCustomer(id: number, data: Partial<InsertWholesaleCustomer>): Promise<WholesaleCustomer>;
+  getWholesaleCatalogItems(activeOnly?: boolean): Promise<WholesaleCatalogItem[]>;
+  createWholesaleCatalogItem(data: InsertWholesaleCatalogItem): Promise<WholesaleCatalogItem>;
+  updateWholesaleCatalogItem(id: number, data: Partial<InsertWholesaleCatalogItem>): Promise<WholesaleCatalogItem>;
+  deleteWholesaleCatalogItem(id: number): Promise<void>;
+  getWholesaleOrders(customerId?: number): Promise<(WholesaleOrder & { customer?: WholesaleCustomer; items?: WholesaleOrderItem[] })[]>;
+  getWholesaleOrder(id: number): Promise<(WholesaleOrder & { items: WholesaleOrderItem[] }) | undefined>;
+  createWholesaleOrder(order: InsertWholesaleOrder, items: InsertWholesaleOrderItem[]): Promise<WholesaleOrder & { items: WholesaleOrderItem[] }>;
+  updateWholesaleOrderStatus(id: number, status: string): Promise<WholesaleOrder>;
+  getWholesaleTemplates(customerId: number): Promise<(WholesaleRecurringTemplate & { items: (WholesaleRecurringTemplateItem & { catalogItem?: WholesaleCatalogItem })[] })[]>;
+  createWholesaleTemplate(template: InsertWholesaleRecurringTemplate, items: InsertWholesaleRecurringTemplateItem[]): Promise<WholesaleRecurringTemplate>;
+  updateWholesaleTemplate(id: number, template: Partial<InsertWholesaleRecurringTemplate>, items?: InsertWholesaleRecurringTemplateItem[]): Promise<WholesaleRecurringTemplate>;
+  deleteWholesaleTemplate(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -4567,6 +4593,129 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserAdpOID(userId: string, adpAssociateOID: string | null): Promise<void> {
     await db.update(users).set({ adpAssociateOID }).where(eq(users.id, userId));
+  }
+
+  // Wholesale
+  async getWholesaleCustomers(): Promise<WholesaleCustomer[]> {
+    return db.select().from(wholesaleCustomers).orderBy(wholesaleCustomers.businessName);
+  }
+
+  async getWholesaleCustomer(id: number): Promise<WholesaleCustomer | undefined> {
+    const [c] = await db.select().from(wholesaleCustomers).where(eq(wholesaleCustomers.id, id));
+    return c;
+  }
+
+  async createWholesaleCustomer(data: InsertWholesaleCustomer): Promise<WholesaleCustomer> {
+    const [c] = await db.insert(wholesaleCustomers).values(data).returning();
+    return c;
+  }
+
+  async updateWholesaleCustomer(id: number, data: Partial<InsertWholesaleCustomer>): Promise<WholesaleCustomer> {
+    const [c] = await db.update(wholesaleCustomers).set(data).where(eq(wholesaleCustomers.id, id)).returning();
+    return c;
+  }
+
+  async getWholesaleCatalogItems(activeOnly = false): Promise<WholesaleCatalogItem[]> {
+    if (activeOnly) {
+      return db.select().from(wholesaleCatalogItems).where(eq(wholesaleCatalogItems.isActive, true)).orderBy(wholesaleCatalogItems.sortOrder, wholesaleCatalogItems.name);
+    }
+    return db.select().from(wholesaleCatalogItems).orderBy(wholesaleCatalogItems.sortOrder, wholesaleCatalogItems.name);
+  }
+
+  async createWholesaleCatalogItem(data: InsertWholesaleCatalogItem): Promise<WholesaleCatalogItem> {
+    const [item] = await db.insert(wholesaleCatalogItems).values(data).returning();
+    return item;
+  }
+
+  async updateWholesaleCatalogItem(id: number, data: Partial<InsertWholesaleCatalogItem>): Promise<WholesaleCatalogItem> {
+    const [item] = await db.update(wholesaleCatalogItems).set(data).where(eq(wholesaleCatalogItems.id, id)).returning();
+    return item;
+  }
+
+  async deleteWholesaleCatalogItem(id: number): Promise<void> {
+    await db.delete(wholesaleCatalogItems).where(eq(wholesaleCatalogItems.id, id));
+  }
+
+  async getWholesaleOrders(customerId?: number): Promise<(WholesaleOrder & { customer?: WholesaleCustomer; items?: WholesaleOrderItem[] })[]> {
+    const baseQuery = customerId
+      ? db.select().from(wholesaleOrders).where(eq(wholesaleOrders.customerId, customerId)).orderBy(desc(wholesaleOrders.createdAt))
+      : db.select().from(wholesaleOrders).orderBy(desc(wholesaleOrders.createdAt));
+
+    const orders = await baseQuery;
+    const results: (WholesaleOrder & { customer?: WholesaleCustomer; items?: WholesaleOrderItem[] })[] = [];
+
+    for (const order of orders) {
+      const items = await db.select().from(wholesaleOrderItems).where(eq(wholesaleOrderItems.orderId, order.id));
+      const [customer] = await db.select().from(wholesaleCustomers).where(eq(wholesaleCustomers.id, order.customerId));
+      results.push({ ...order, customer, items });
+    }
+
+    return results;
+  }
+
+  async getWholesaleOrder(id: number): Promise<(WholesaleOrder & { items: WholesaleOrderItem[] }) | undefined> {
+    const [order] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, id));
+    if (!order) return undefined;
+    const items = await db.select().from(wholesaleOrderItems).where(eq(wholesaleOrderItems.orderId, id));
+    return { ...order, items };
+  }
+
+  async createWholesaleOrder(order: InsertWholesaleOrder, items: InsertWholesaleOrderItem[]): Promise<WholesaleOrder & { items: WholesaleOrderItem[] }> {
+    const [created] = await db.insert(wholesaleOrders).values(order).returning();
+    const createdItems: WholesaleOrderItem[] = [];
+    for (const item of items) {
+      const [ci] = await db.insert(wholesaleOrderItems).values({ ...item, orderId: created.id }).returning();
+      createdItems.push(ci);
+    }
+    return { ...created, items: createdItems };
+  }
+
+  async updateWholesaleOrderStatus(id: number, status: string): Promise<WholesaleOrder> {
+    const [updated] = await db.update(wholesaleOrders).set({ status, updatedAt: new Date() }).where(eq(wholesaleOrders.id, id)).returning();
+    return updated;
+  }
+
+  async getWholesaleTemplates(customerId: number): Promise<(WholesaleRecurringTemplate & { items: (WholesaleRecurringTemplateItem & { catalogItem?: WholesaleCatalogItem })[] })[]> {
+    const templates = await db.select().from(wholesaleRecurringTemplates)
+      .where(eq(wholesaleRecurringTemplates.customerId, customerId))
+      .orderBy(wholesaleRecurringTemplates.dayOfWeek);
+
+    const results: (WholesaleRecurringTemplate & { items: (WholesaleRecurringTemplateItem & { catalogItem?: WholesaleCatalogItem })[] })[] = [];
+
+    for (const template of templates) {
+      const rawItems = await db.select().from(wholesaleRecurringTemplateItems).where(eq(wholesaleRecurringTemplateItems.templateId, template.id));
+      const items: (WholesaleRecurringTemplateItem & { catalogItem?: WholesaleCatalogItem })[] = [];
+      for (const ri of rawItems) {
+        const [cat] = await db.select().from(wholesaleCatalogItems).where(eq(wholesaleCatalogItems.id, ri.catalogItemId));
+        items.push({ ...ri, catalogItem: cat });
+      }
+      results.push({ ...template, items });
+    }
+
+    return results;
+  }
+
+  async createWholesaleTemplate(template: InsertWholesaleRecurringTemplate, items: InsertWholesaleRecurringTemplateItem[]): Promise<WholesaleRecurringTemplate> {
+    const [created] = await db.insert(wholesaleRecurringTemplates).values(template).returning();
+    for (const item of items) {
+      await db.insert(wholesaleRecurringTemplateItems).values({ ...item, templateId: created.id });
+    }
+    return created;
+  }
+
+  async updateWholesaleTemplate(id: number, template: Partial<InsertWholesaleRecurringTemplate>, items?: InsertWholesaleRecurringTemplateItem[]): Promise<WholesaleRecurringTemplate> {
+    const [updated] = await db.update(wholesaleRecurringTemplates).set(template).where(eq(wholesaleRecurringTemplates.id, id)).returning();
+    if (items) {
+      await db.delete(wholesaleRecurringTemplateItems).where(eq(wholesaleRecurringTemplateItems.templateId, id));
+      for (const item of items) {
+        await db.insert(wholesaleRecurringTemplateItems).values({ ...item, templateId: id });
+      }
+    }
+    return updated;
+  }
+
+  async deleteWholesaleTemplate(id: number): Promise<void> {
+    await db.delete(wholesaleRecurringTemplates).where(eq(wholesaleRecurringTemplates.id, id));
   }
 }
 

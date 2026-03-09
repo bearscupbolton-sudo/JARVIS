@@ -11,6 +11,7 @@ import BakeryTimerAlert from "@/components/BakeryTimerAlert";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
+import { WholesaleLayout } from "@/components/WholesaleLayout";
 import { Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { prefetchCoreRoutes, cancelPrefetch } from "@/lib/prefetch";
@@ -78,6 +79,12 @@ const PortalHome = lazy(() => import("@/pages/portal/PortalHome"));
 const PortalMenu = lazy(() => import("@/pages/portal/PortalMenu"));
 const PortalOrders = lazy(() => import("@/pages/portal/PortalOrders"));
 const PortalProfile = lazy(() => import("@/pages/portal/PortalProfile"));
+const WholesaleLogin = lazy(() => import("@/pages/wholesale/WholesaleLogin"));
+const WholesaleHome = lazy(() => import("@/pages/wholesale/WholesaleHome"));
+const WholesaleOrder = lazy(() => import("@/pages/wholesale/WholesaleOrder"));
+const WholesaleTemplates = lazy(() => import("@/pages/wholesale/WholesaleTemplates"));
+const WholesaleOrders = lazy(() => import("@/pages/wholesale/WholesaleOrders"));
+const WholesaleAdmin = lazy(() => import("@/pages/WholesaleAdmin"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
 const SquareLaborSync = lazy(() => import("@/pages/SquareLaborSync"));
@@ -221,6 +228,44 @@ function PortalPublicRoute({ component: Component }: { component: React.Componen
     <div className="theme-portal min-h-screen bg-background">
       <Component />
     </div>
+  );
+}
+
+function WholesaleProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const [, setLocation] = useLocation();
+
+  const { data: customer, isLoading } = useQuery<{ id: number; businessName: string } | null>({
+    queryKey: ["/api/wholesale/me"],
+    queryFn: async () => {
+      const res = await fetch("/api/wholesale/me", { credentials: "include" });
+      if (res.status === 401) return null;
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    retry: false,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  useEffect(() => {
+    if (!isLoading && !customer) {
+      setLocation("/wholesale/login");
+    }
+  }, [isLoading, customer, setLocation]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!customer) return null;
+
+  return (
+    <WholesaleLayout>
+      <Component />
+    </WholesaleLayout>
   );
 }
 
@@ -444,6 +489,26 @@ function Router() {
         </Route>
         <Route path="/portal/profile">
           {() => <PortalProtectedRoute component={PortalProfile} />}
+        </Route>
+
+        {/* Wholesale Portal Routes */}
+        <Route path="/wholesale/login">
+          {() => <Suspense fallback={<PageLoader />}><WholesaleLogin /></Suspense>}
+        </Route>
+        <Route path="/wholesale/order">
+          {() => <WholesaleProtectedRoute component={WholesaleOrder} />}
+        </Route>
+        <Route path="/wholesale/templates">
+          {() => <WholesaleProtectedRoute component={WholesaleTemplates} />}
+        </Route>
+        <Route path="/wholesale/orders">
+          {() => <WholesaleProtectedRoute component={WholesaleOrders} />}
+        </Route>
+        <Route path="/wholesale">
+          {() => <WholesaleProtectedRoute component={WholesaleHome} />}
+        </Route>
+        <Route path="/wholesale-admin">
+          {() => <ProtectedRoute component={WholesaleAdmin} />}
         </Route>
 
         <Route component={NotFound} />
