@@ -473,7 +473,7 @@ export default function TTIS() {
                         <div className="flex items-gcenter gap-4">
                           <div className="text-right">
                             <div className="font-bold">{formatCurrency(day.totalTips)}</div>
-                            <div className="text-xs text-muted-foreground">{day.tippedOrders} orders</divt{>
+                            <div className="text-xs text-muted-foreground">{day.tippedOrders} orders</div>
                           </div>
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
