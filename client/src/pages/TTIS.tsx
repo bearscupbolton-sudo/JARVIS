@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -22,7 +23,9 @@ import {
   CalendarDays,
   ArrowLeft,
   Calendar,
+  Calculator,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 type StaffEntry = {
   userId: string;
@@ -128,7 +131,48 @@ function toDateStr(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function loadWages(): Record<string, string> {
+  try {
+    const saved = localStorage.getItem("ttis-hourly-wages");
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWages(wages: Record<string, string>) {
+  localStorage.setItem("ttis-hourly-wages", JSON.stringify(wages));
+}
+
+function useHourlyWages() {
+  const [wages, setWages] = useState<Record<string, string>>(loadWages);
+
+  const setWage = useCallback((userId: string, value: string) => {
+    setWages(prev => {
+      const next = { ...prev, [userId]: value };
+      saveWages(next);
+      return next;
+    });
+  }, []);
+
+  const getWage = useCallback((userId: string): number => {
+    const val = wages[userId];
+    if (!val) return 0;
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0 : parsed;
+  }, [wages]);
+
+  const getRawWage = useCallback((userId: string): string => {
+    return wages[userId] ?? "";
+  }, [wages]);
+
+  return { setWage, getWage, getRawWage };
+}
+
 export default function TTIS() {
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
+  const { setWage, getWage, getRawWage } = useHourlyWages();
   const [weekStartDay, setWeekStartDay] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("ttis-week-start");
@@ -179,7 +223,7 @@ export default function TTIS() {
   }
 
   if (view === "day" && selectedDate) {
-    return <DayView data={dayQuery.data} isLoading={dayQuery.isLoading} error={dayQuery.error} date={selectedDate} onBack={backToWeek} />;
+    return <DayView data={dayQuery.data} isLoading={dayQuery.isLoading} error={dayQuery.error} date={selectedDate} onBack={backToWeek} isOwner={isOwner} getWage={getWage} getRawWage={getRawWage} setWage={setWage} />;
   }
 
   return (
@@ -317,10 +361,17 @@ export default function TTIS() {
                         <th className="pb-2 font-medium text-right">Hours</th>
                         <th className="pb-2 font-medium text-right">Tips Received</th>
                         <th className="pb-2 font-medium text-right">Total Earned</th>
+                        {isOwner && <th className="pb-2 font-medium text-right">Wage</th>}
+                        {isOwner && <th className="pb-2 font-medium text-right">True Hourly</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {weekQuery.data.staffBreakdown.map((staff) => (
+                      {weekQuery.data.staffBreakdown.map((staff) => {
+                        const wage = getWage(staff.userId);
+                        const trueHourly = staff.hoursWorked > 0 && wage > 0
+                          ? wage + (staff.totalTips / staff.hoursWorked)
+                          : 0;
+                        return (
                         <tr key={staff.userId} className="border-b last:border-0" data-testid={`row-weekly-staff-${staff.userId}`}>
                           <td className="py-3">
                             <div className="font-medium">{staff.name}</div>
@@ -335,8 +386,37 @@ export default function TTIS() {
                           <td className="py-3 text-right font-bold text-lg">
                             {formatCurrency(staff.totalTips)}
                           </td>
+                          {isOwner && (
+                            <td className="py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-muted-foreground text-xs">$</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={getRawWage(staff.userId)}
+                                  onChange={(e) => setWage(staff.userId, e.target.value)}
+                                  className="w-20 h-8 text-right text-sm"
+                                  data-testid={`input-wage-weekly-${staff.userId}`}
+                                />
+                              </div>
+                            </td>
+                          )}
+                          {isOwner && (
+                            <td className="py-3 text-right">
+                              {trueHourly > 0 ? (
+                                <span className="font-bold text-lg text-green-600 dark:text-green-400" data-testid={`text-true-hourly-weekly-${staff.userId}`}>
+                                  {formatCurrency(trueHourly)}/hr
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          )}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2 font-bold">
@@ -350,6 +430,8 @@ export default function TTIS() {
                         <td className="pt-3 text-right text-lg">
                           {formatCurrency(weekQuery.data.totalTips)}
                         </td>
+                        {isOwner && <td className="pt-3"></td>}
+                        {isOwner && <td className="pt-3"></td>}
                       </tr>
                     </tfoot>
                   </table>
@@ -408,12 +490,16 @@ export default function TTIS() {
   );
 }
 
-function DayView({ data, isLoading, error, date, onBack }: {
+function DayView({ data, isLoading, error, date, onBack, isOwner, getWage, getRawWage, setWage }: {
   data: TTISDailyData | undefined;
   isLoading: boolean;
   error: Error | null;
   date: string;
   onBack: () => void;
+  isOwner: boolean;
+  getWage: (userId: string) => number;
+  getRawWage: (userId: string) => string;
+  setWage: (userId: string, value: string) => void;
 }) {
   return (
     <div className="p-4 max-w-5xl mx-auto space-y-6">
@@ -524,10 +610,17 @@ function DayView({ data, isLoading, error, date, onBack }: {
                         <th className="pb-2 font-medium text-right">Hours</th>
                         <th className="pb-2 font-medium text-right">Tips Received</th>
                         <th className="pb-2 font-medium text-right">Total Earned</th>
+                        {isOwner && <th className="pb-2 font-medium text-right">Wage</th>}
+                        {isOwner && <th className="pb-2 font-medium text-right">True Hourly</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {data.staffBreakdown.map((staff) => (
+                      {data.staffBreakdown.map((staff) => {
+                        const wage = getWage(staff.userId);
+                        const trueHourly = staff.hoursWorked > 0 && wage > 0
+                          ? wage + (staff.totalTips / staff.hoursWorked)
+                          : 0;
+                        return (
                         <tr key={staff.userId} className="border-b last:border-0" data-testid={`row-day-staff-${staff.userId}`}>
                           <td className="py-3">
                             <div className="font-medium">{staff.name}</div>
@@ -542,8 +635,37 @@ function DayView({ data, isLoading, error, date, onBack }: {
                           <td className="py-3 text-right font-bold text-lg">
                             {formatCurrency(staff.totalTips)}
                           </td>
+                          {isOwner && (
+                            <td className="py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-muted-foreground text-xs">$</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={getRawWage(staff.userId)}
+                                  onChange={(e) => setWage(staff.userId, e.target.value)}
+                                  className="w-20 h-8 text-right text-sm"
+                                  data-testid={`input-wage-day-${staff.userId}`}
+                                />
+                              </div>
+                            </td>
+                          )}
+                          {isOwner && (
+                            <td className="py-3 text-right">
+                              {trueHourly > 0 ? (
+                                <span className="font-bold text-lg text-green-600 dark:text-green-400" data-testid={`text-true-hourly-day-${staff.userId}`}>
+                                  {formatCurrency(trueHourly)}/hr
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          )}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2 font-bold">
@@ -557,6 +679,8 @@ function DayView({ data, isLoading, error, date, onBack }: {
                         <td className="pt-3 text-right text-lg">
                           {formatCurrency(data.totalTips)}
                         </td>
+                        {isOwner && <td className="pt-3"></td>}
+                        {isOwner && <td className="pt-3"></td>}
                       </tr>
                     </tfoot>
                   </table>
