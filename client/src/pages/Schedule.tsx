@@ -29,7 +29,8 @@ import {
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
   HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy,
-  Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical, Download
+  Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical, Download,
+  Wrench
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
@@ -307,7 +308,7 @@ export default function Schedule() {
   const [clearEndDate, setClearEndDate] = useState("");
   const [deptFilter, setDeptFilter] = useState<"all" | "kitchen" | "foh" | "bakery" | "bar">("all");
   const [deptInitialized, setDeptInitialized] = useState(false);
-  const [shiftTypeFilter, setShiftTypeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all");
+  const [toolkitOpen, setToolkitOpen] = useState(false);
   const [inlineEditCell, setInlineEditCell] = useState<{ userId: string; dateStr: string } | null>(null);
   const [inlineEditValue, setInlineEditValue] = useState("");
   const [copyLastWeekDialogOpen, setCopyLastWeekDialogOpen] = useState(false);
@@ -1098,65 +1099,72 @@ export default function Schedule() {
             </div>
             <div className="flex items-center gap-2">
               {canManagePickups && (
-                <>
-                  <div className="relative">
-                    <input
-                      type="file"
-                      accept=".csv,.xlsx,.xls,.txt,.jpg,.jpeg,.png,.heic,.webp,image/*"
-                      onChange={handleFileUpload}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      data-testid="input-upload-schedule"
-                      disabled={isUploading}
-                    />
-                    <Button variant="outline" disabled={isUploading} data-testid="button-upload-schedule">
-                      {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                      Upload Schedule
+                <Popover open={toolkitOpen} onOpenChange={setToolkitOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" data-testid="button-toolkit">
+                      <Wrench className="w-4 h-4 mr-2" />
+                      Toolkit
                     </Button>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      window.open(`/api/shifts/template?weekStart=${format(weekStart, "yyyy-MM-dd")}&weeks=4`, "_blank");
-                    }}
-                    data-testid="button-download-template"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Template
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleCopyLastWeek}
-                    disabled={isCopyingLastWeek}
-                    data-testid="button-copy-last-week"
-                  >
-                    {isCopyingLastWeek ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Copy className="w-4 h-4 mr-2" />}
-                    Copy Last Week
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                    onClick={() => {
-                      setClearRange("week");
-                      setClearStartDate(format(weekStart, "yyyy-MM-dd"));
-                      setClearEndDate(format(weekEnd, "yyyy-MM-dd"));
-                      setClearDialogOpen(true);
-                    }}
-                    data-testid="button-clear-schedule"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Clear
-                  </Button>
-                </>
-              )}
-              {canManagePickups && (
-                <Button
-                  variant="outline"
-                  onClick={() => setTemplateDialogOpen(true)}
-                  data-testid="button-templates"
-                >
-                  <FolderOpen className="w-4 h-4 mr-2" />
-                  Templates
-                </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-56 p-1.5">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept=".csv,.xlsx,.xls,.txt,.jpg,.jpeg,.png,.heic,.webp,image/*"
+                          onChange={(e) => { handleFileUpload(e); setToolkitOpen(false); }}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          data-testid="input-upload-schedule"
+                          disabled={isUploading}
+                        />
+                        <button className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-accent transition-colors text-left" data-testid="button-upload-schedule">
+                          {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                          Upload Schedule
+                        </button>
+                      </div>
+                      <button
+                        className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-accent transition-colors text-left"
+                        onClick={() => { window.open(`/api/shifts/template?weekStart=${format(weekStart, "yyyy-MM-dd")}&weeks=4`, "_blank"); setToolkitOpen(false); }}
+                        data-testid="button-download-template"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download Template
+                      </button>
+                      <button
+                        className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-accent transition-colors text-left"
+                        onClick={() => { handleCopyLastWeek(); setToolkitOpen(false); }}
+                        disabled={isCopyingLastWeek}
+                        data-testid="button-copy-last-week"
+                      >
+                        {isCopyingLastWeek ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                        Copy Last Week
+                      </button>
+                      <button
+                        className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-accent transition-colors text-left"
+                        onClick={() => { setTemplateDialogOpen(true); setToolkitOpen(false); }}
+                        data-testid="button-templates"
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        Templates
+                      </button>
+                      <div className="border-t my-0.5" />
+                      <button
+                        className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-destructive/10 transition-colors text-left text-destructive"
+                        onClick={() => {
+                          setClearRange("week");
+                          setClearStartDate(format(weekStart, "yyyy-MM-dd"));
+                          setClearEndDate(format(weekEnd, "yyyy-MM-dd"));
+                          setClearDialogOpen(true);
+                          setToolkitOpen(false);
+                        }}
+                        data-testid="button-clear-schedule"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Clear Week
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               )}
               {isLeadOrAbove && (
                 <Button onClick={() => openAddShift()} data-testid="button-add-shift">
@@ -1186,23 +1194,6 @@ export default function Schedule() {
                   );
                 })}
               </div>
-              <div className="flex items-center gap-1.5">
-                {(["all", "morning", "afternoon", "evening"] as const).map((st) => {
-                  const labels: Record<string, string> = { all: "All Shifts", morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
-                  return (
-                    <Button
-                      key={st}
-                      variant={shiftTypeFilter === st ? "default" : "outline"}
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => setShiftTypeFilter(st)}
-                      data-testid={`button-filter-shift-${st}`}
-                    >
-                      {labels[st]}
-                    </Button>
-                  );
-                })}
-              </div>
               <div className="flex items-center gap-3 ml-auto text-[11px] text-muted-foreground">
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-muted border border-border inline-block" /> Assigned</span>
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300/50 dark:border-emerald-700/50 inline-block" /> Open</span>
@@ -1218,33 +1209,8 @@ export default function Schedule() {
               ))}
             </div>
           ) : (() => {
-            function getShiftType(startTime: string): "morning" | "afternoon" | "evening" | null {
-              const ampmMatch = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-              if (ampmMatch) {
-                let hour = parseInt(ampmMatch[1]);
-                const ampm = ampmMatch[3].toUpperCase();
-                if (ampm === "PM" && hour !== 12) hour += 12;
-                if (ampm === "AM" && hour === 12) hour = 0;
-                if (hour < 11) return "morning";
-                if (hour < 17) return "afternoon";
-                return "evening";
-              }
-              const h24Match = startTime.match(/^(\d{1,2}):(\d{2})/);
-              if (h24Match) {
-                const hour = parseInt(h24Match[1]);
-                if (hour < 11) return "morning";
-                if (hour < 17) return "afternoon";
-                return "evening";
-              }
-              return null;
-            }
-
             const filteredShifts = (shiftsData || []).filter(s => {
               if (deptFilter !== "all" && (s.department || "kitchen") !== deptFilter) return false;
-              if (shiftTypeFilter !== "all") {
-                const st = getShiftType(s.startTime);
-                if (st !== null && st !== shiftTypeFilter) return false;
-              }
               return true;
             });
 
