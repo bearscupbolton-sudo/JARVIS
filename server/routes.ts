@@ -4653,6 +4653,248 @@ Return ONLY the JSON array, no other text or markdown.`;
     }
   });
 
+  app.post("/api/shifts/import-image-file", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner") {
+        return res.status(403).json({ message: "Only owners can use this endpoint" });
+      }
+      const { filePath } = req.body;
+      if (!filePath || typeof filePath !== "string") return res.status(400).json({ message: "filePath required" });
+
+      const fs = await import("fs");
+      const path = await import("path");
+      const allowedDirs = [
+        path.resolve("attached_assets"),
+        path.resolve("uploads"),
+        path.resolve("/tmp/uploads"),
+      ];
+      const absPath = path.resolve(filePath);
+      if (!allowedDirs.some(dir => absPath.startsWith(dir + path.sep) || absPath === dir)) {
+        return res.status(403).json({ message: "File path not allowed" });
+      }
+
+      const ext = path.extname(absPath).toLowerCase();
+      const allowedExts = [".jpg", ".jpeg", ".png", ".webp"];
+      if (!allowedExts.includes(ext)) {
+        return res.status(400).json({ message: "Only image files (.jpg, .jpeg, .png, .webp) are allowed" });
+      }
+
+      if (!fs.existsSync(absPath)) return res.status(404).json({ message: "File not found" });
+
+      const stat = fs.statSync(absPath);
+      if (stat.size > 20 * 1024 * 1024) {
+        return res.status(400).json({ message: "File too large (max 20MB)" });
+      }
+
+      const imgBuffer = fs.readFileSync(absPath);
+      const base64 = imgBuffer.toString("base64");
+      const mimeMap: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+      const mime = mimeMap[ext] || "image/jpeg";
+
+      const allUsers = await authStorage.getAllUsers();
+      const teamList = allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+        username: u.username || "",
+        department: (u as any).department || "kitchen",
+      })).filter(u => u.name || u.username);
+      const userDeptMap = new Map(teamList.map(t => [t.id, t.department]));
+
+      const { openai: aiClient } = await import("./replit_integrations/audio/client");
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentDateStr = today.toISOString().split("T")[0];
+      const imagePayload = { type: "image_url" as const, image_url: { url: `data:${mime};base64,${base64}`, detail: "high" as const } };
+
+      console.log("[Image Import] Phase 1: Reading grid...");
+      const phase1 = await withRetry(() => aiClient.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: `You are a schedule image reader. Today's date is ${currentDateStr} (year ${currentYear}).
+
+Look at this schedule image carefully. It contains MULTIPLE weekly grids stacked vertically. Each grid has rows for employees and columns for days Monday through Sunday.
+
+Red/pink highlighted cells mean the employee is UNAVAILABLE / OFF that day — do NOT create a shift for these.
+
+Tell me:
+1. ALL employee names visible (one per line)
+2. ALL date columns visible across ALL weeks
+3. For EACH employee in EACH week, list EVERY cell value. Use "OFF" for empty or red-highlighted cells.
+
+Format:
+EMPLOYEES:
+- [name]
+...
+
+WEEK 1 DATES: [comma-separated dates like 3/30, 3/31, 4/1, ...]
+WEEK 1 GRID:
+[name]: [cell1], [cell2], ...
+
+WEEK 2 DATES: [...]
+WEEK 2 GRID:
+[name]: [cell1], [cell2], ...
+
+(continue for all weeks)
+
+Read the ENTIRE image top to bottom. Every week, every employee, every cell.` },
+            imagePayload,
+          ],
+        }],
+        max_tokens: 16384,
+        temperature: 0.1,
+      }), "image-import-phase1");
+
+      const gridText = phase1.choices[0]?.message?.content || "";
+      console.log("[Image Import] Phase 1 length:", gridText.length);
+      console.log("[Image Import] Phase 1 preview:", gridText.substring(0, 800));
+
+      console.log("[Image Import] Phase 2: Converting to JSON...");
+      const phase2 = await withRetry(() => aiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{
+          role: "user" as const,
+          content: `Convert this schedule grid data into a JSON array of shift objects.
+
+Today's date is ${currentDateStr} (year ${currentYear}).
+
+Team members (id, name, username, default department):
+${teamList.map(t => `- ${t.id}: ${t.name} (${t.username}) [dept: ${t.department}]`).join("\n")}
+
+Time parsing rules:
+- "7-2" = 7:00 AM to 2:00 PM. "7-11" = 7:00 AM to 11:00 AM. "7-10" = 7:00 AM to 10:00 AM. "5-1" = 5:00 AM to 1:00 PM. "7-12 ED" = 7:00 AM to 12:00 PM (ignore "ED" suffix).
+- "OFF", "—", empty, or red-highlighted = skip, no shift.
+- For single digit end times ≤ 4, the end time is PM.
+
+Schedule grid data:
+${gridText}
+
+INSTRUCTIONS:
+- For each non-OFF cell, create a shift object.
+- Match employee names to the team list (case-insensitive, partial match OK).
+- Convert dates to YYYY-MM-DD using year ${currentYear}.
+- Department: use employee's default department.
+- If can't match a name, set userId to null and put "Unknown: [name]" in notes.
+
+Return JSON array, each object:
+- userId: matched ID or null
+- shiftDate: "YYYY-MM-DD"
+- startTime: "H:MM AM/PM"
+- endTime: "H:MM AM/PM"
+- department: "kitchen", "foh", or "bakery"
+- notes: optional
+
+Return ONLY the JSON array.`,
+        }],
+        max_tokens: 16384,
+        temperature: 0.1,
+      }), "image-import-phase2");
+
+      const responseText = phase2.choices[0]?.message?.content || "[]";
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return res.status(400).json({ message: "Could not parse shifts from image" });
+
+      let parsedShifts: any[] = JSON.parse(jsonMatch[0]);
+
+      const validDepts = ["kitchen", "foh", "bakery", "bar"];
+      parsedShifts = parsedShifts.map((shift: any) => {
+        if (shift.userId && userDeptMap.has(shift.userId)) {
+          const profileDept = userDeptMap.get(shift.userId);
+          if (!shift.department || !validDepts.includes(shift.department)) shift.department = profileDept;
+        }
+        return shift;
+      });
+
+      console.log("[Image Import] Parsed", parsedShifts.length, "shifts from image");
+      res.json({ shifts: parsedShifts, teamMembers: teamList, gridText });
+    } catch (err: any) {
+      console.error("[Image Import] Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/shifts/template", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      if (user.role !== "owner" && user.role !== "manager" && !user.isShiftManager && !user.isGeneralManager) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const weekStartStr = req.query.weekStart as string;
+      if (weekStartStr && !/^\d{4}-\d{2}-\d{2}$/.test(weekStartStr)) {
+        return res.status(400).json({ message: "Invalid weekStart format, use YYYY-MM-DD" });
+      }
+      const weeksCount = Math.min(Math.max(parseInt(req.query.weeks as string) || 4, 1), 8);
+
+      const XLSX = await import("xlsx");
+      const allUsers = await authStorage.getAllUsers();
+      const sanitizeCell = (val: string) => {
+        if (val && /^[=+\-@\t\r]/.test(val)) return "'" + val;
+        return val;
+      };
+      const teamList = allUsers
+        .filter(u => !u.locked)
+        .map(u => sanitizeCell(`${u.firstName || ""} ${u.lastName || ""}`.trim()))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+
+      const { addDays, startOfWeek, format: fnsFormat } = await import("date-fns");
+      let baseDate: Date;
+      if (weekStartStr) {
+        baseDate = startOfWeek(new Date(weekStartStr + "T12:00:00"), { weekStartsOn: 1 });
+      } else {
+        baseDate = startOfWeek(new Date(), { weekStartsOn: 1 });
+      }
+
+      const rows: any[][] = [];
+
+      for (let w = 0; w < weeksCount; w++) {
+        const wkStart = addDays(baseDate, w * 7);
+        const dayDates: Date[] = [];
+        for (let d = 0; d < 7; d++) dayDates.push(addDays(wkStart, d));
+
+        if (w > 0) rows.push([]);
+
+        rows.push([
+          "WEEK:",
+          `Monday ${fnsFormat(dayDates[0], "M/d")}`,
+          fnsFormat(dayDates[1], "M/d"),
+          fnsFormat(dayDates[2], "M/d"),
+          fnsFormat(dayDates[3], "M/d"),
+          fnsFormat(dayDates[4], "M/d"),
+          fnsFormat(dayDates[5], "M/d"),
+          fnsFormat(dayDates[6], "M/d"),
+        ]);
+
+        rows.push(["EMPLOYEE", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]);
+
+        for (const name of teamList) {
+          rows.push([name, "", "", "", "", "", "", ""]);
+        }
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      ws["!cols"] = [
+        { wch: 22 },
+        { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Schedule");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      const fileName = `Schedule_Template_${fnsFormat(baseDate, "yyyy-MM-dd")}.xlsx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.send(buf);
+    } catch (err: any) {
+      console.error("Error generating template:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/shifts/bulk", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;

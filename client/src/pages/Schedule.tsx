@@ -29,7 +29,7 @@ import {
   Clock, CheckCircle2, XCircle, CalendarOff, UserCircle, Pencil,
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
   HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy,
-  Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical
+  Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical, Download
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
@@ -1113,6 +1113,16 @@ export default function Schedule() {
                       Upload Schedule
                     </Button>
                   </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      window.open(`/api/shifts/template?weekStart=${format(weekStart, "yyyy-MM-dd")}&weeks=4`, "_blank");
+                    }}
+                    data-testid="button-download-template"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Template
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={handleCopyLastWeek}
