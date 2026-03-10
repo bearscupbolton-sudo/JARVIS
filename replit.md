@@ -45,6 +45,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Vendor Management & Auto-Order Generation:** CRUD for vendors with auto-generated purchase orders.
 *   **Lobby Check Alert:** Recurring, PIN-acknowledged alert system for FOH staff.
 *   **Bagel Bros Display Screen:** Dedicated, full-screen bagel production display with drain table tracking, kettle timer, 4-deck oven controls, and FOH backup alerts.
+*   **Messaging System:** Revamped iMessage/Slack-inspired messaging with two-column layout (inbox list + thread view), urgent message takeover overlay (`UrgentMessageOverlay.tsx` at z-[199]) that blocks app usage until urgent messages are acknowledged, dedicated `GET /api/messages/urgent-unread` endpoint, pulsing red sidebar indicator for urgent messages, urgent banner on Home page, reactions, replies with chat-bubble styling, pinned/archived message sections, and streamlined compose dialog with individual/role/department/everyone targeting.
 *   **Global Acknowledgment System:** Supports forced logout and one-time, mandatory, Jarvis-branded overlay messages.
 *   **HR Onboarding System:** Electronic onboarding with shareable invite links, ADP Run CSV export, handbook acknowledgment, and secure encryption of sensitive data. Includes manager dashboard, custom document upload with AI content extraction, and full W-4 collection.
 *   **ADP RUN Integration:** OAuth2 + mutual TLS client for ADP RUN API, enabling worker retrieval/linking, profile sync, and payroll data input.

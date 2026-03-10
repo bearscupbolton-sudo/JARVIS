@@ -10,6 +10,7 @@ import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import BakeryTimerAlert from "@/components/BakeryTimerAlert";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
+import UrgentMessageOverlay from "@/components/UrgentMessageOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
 import { WholesaleLayout } from "@/components/WholesaleLayout";
 import { Loader2 } from "lucide-react";
@@ -531,6 +532,7 @@ function App() {
       <TooltipProvider>
         <Router />
         <GlobalAckOverlay />
+        <UrgentMessageOverlay />
         <LobbyCheckAlert />
         <BakeryTimerAlert />
         <DevFeedbackOverlay />

@@ -39,7 +39,7 @@ import {
   FileText, Trash2, MapPin, Phone, Cake,
   Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Truck, ShoppingCart, Zap, CalendarPlus, Loader2,
-  Shield, DollarSign,
+  Shield, DollarSign, ChevronRight,
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote, ShiftNote } from "@shared/schema";
@@ -618,6 +618,33 @@ function LayoutCustomizer({ layout, onSave, onClose }: {
         <Button className="flex-1" onClick={() => onSave(draft)} data-testid="button-save-layout">Save Layout</Button>
       </div>
     </div>
+  );
+}
+
+function UrgentMessageBanner() {
+  const { data } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/urgent-unread"],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  if (!data || data.count === 0) return null;
+
+  return (
+    <Link href="/messages">
+      <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 cursor-pointer hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors" data-testid="banner-urgent-messages">
+        <div className="relative">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+            {data.count} urgent {data.count === 1 ? "message" : "messages"} require your attention
+          </p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-red-400" />
+      </div>
+    </Link>
   );
 }
 
@@ -1723,6 +1750,8 @@ export default function Home() {
           </div>
 
           <ClockBar />
+
+          <UrgentMessageBanner />
 
           {myShiftNotes.length > 0 && (
             <div className="space-y-2" data-testid="container-shift-notes-notifications">

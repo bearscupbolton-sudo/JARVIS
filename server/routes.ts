@@ -5758,6 +5758,22 @@ ${sopsHtml}
     }
   });
 
+  app.get("/api/messages/urgent-unread", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const allInbox = await storage.getInboxMessages(user.id);
+      const urgent = allInbox.filter(m =>
+        m.priority === "urgent" &&
+        m.requiresAck &&
+        !m.recipient.acknowledged
+      );
+      res.json({ count: urgent.length, messages: urgent });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/messages/sent", isAuthenticated, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);

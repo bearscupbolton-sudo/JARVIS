@@ -212,6 +212,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     refetchOnWindowFocus: true,
   });
 
+  const { data: urgentData } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/urgent-unread"],
+    refetchInterval: 30000,
+    staleTime: 15_000,
+  });
+
 
   const { locations: allLocations, selectedLocationId, setSelectedLocationId } = useLocationContext();
 
@@ -302,10 +308,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                 <span className="font-medium">{item.label}</span>
-                {item.label === "Messages" && unreadCount && unreadCount.count > 0 && (
-                  <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-unread-messages">
-                    {unreadCount.count}
-                  </Badge>
+                {item.label === "Messages" && (
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {urgentData && urgentData.count > 0 && (
+                      <span className="relative flex h-3 w-3" data-testid="indicator-urgent-messages">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+                      </span>
+                    )}
+                    {unreadCount && unreadCount.count > 0 && (
+                      <Badge variant="destructive" className="text-[10px] min-w-[20px] justify-center" data-testid="badge-unread-messages">
+                        {unreadCount.count}
+                      </Badge>
+                    )}
+                  </div>
                 )}
               </div>
             </PrefetchLink>
