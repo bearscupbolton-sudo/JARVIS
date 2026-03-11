@@ -5,7 +5,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import type { KioskTimer } from "@shared/schema";
 
-const KIOSK_PATHS = ["/platform", "/kiosk", "/bagel-bros", "/clock", "/onboarding"];
 
 function playChime() {
   try {
@@ -48,10 +47,8 @@ export default function BakeryTimerAlert() {
   const mountedRef = useRef(true);
   const activeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const isBakeryUser = user?.department === "bakery" || user?.department === "Bakery" ||
-    user?.role === "owner" || user?.role === "manager";
-  const isKioskPage = KIOSK_PATHS.some(p => location.startsWith(p));
-  const enabled = !!user && isBakeryUser && !isKioskPage;
+  const isLaminationStudio = location === "/lamination" || location.startsWith("/lamination/");
+  const enabled = !!user && isLaminationStudio;
 
   const { data: timers = [] } = useQuery<KioskTimer[]>({
     queryKey: ["/api/kiosk/timers?department=bakery"],
@@ -116,8 +113,8 @@ export default function BakeryTimerAlert() {
 
     let count = 0;
     const totalFlashes = 3;
-    const onMs = 450;
-    const offMs = 200;
+    const onMs = 150;
+    const offMs = 65;
 
     function doFlash() {
       if (!mountedRef.current) {
