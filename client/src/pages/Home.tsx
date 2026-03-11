@@ -1720,8 +1720,8 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col xl:flex-row gap-6">
-        <div className="flex-1 min-w-0 space-y-5">
+      <div className="flex flex-col xl:flex-row gap-6 xl:justify-center">
+        <div className="flex-1 min-w-0 max-w-3xl space-y-5">
           <div className="flex items-center justify-between gap-2" data-testid="container-welcome-home">
             <div className="flex flex-col gap-1">
               <h1 className="text-3xl font-display font-bold" data-testid="text-home-greeting">
