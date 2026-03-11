@@ -176,9 +176,9 @@ export default function TTIS() {
   const [weekStartDay, setWeekStartDay] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("ttis-week-start");
-      return saved ? parseInt(saved) : 1;
+      return saved ? parseInt(saved) : 3;
     } catch {
-      return 1;
+      return 3;
     }
   });
   const [view, setView] = useState<"week" | "day">("week");
