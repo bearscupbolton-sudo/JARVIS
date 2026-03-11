@@ -1,6 +1,6 @@
 import { SquareClient, SquareEnvironment } from "square";
 import { db } from "./db";
-import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems, timeEntries, breakEntries } from "@shared/schema";
+import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeoffLogs, locations, pastryItems, timeEntries, breakEntries, wholesaleOrders } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { eq, and, or, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 
@@ -887,7 +887,8 @@ export async function handleSquareWebhook(eventType: string, data: any): Promise
         break;
       case "payment.created":
       case "payment.updated":
-        console.log(`[Square Webhook] Payment event received (${eventType}), no action needed`);
+      case "payment.completed":
+        await handlePaymentEvent(data);
         break;
       default:
         console.log(`[Square Webhook] Ignoring unhandled event type: ${eventType}`);
@@ -907,6 +908,89 @@ function pruneOrderCache() {
       recentOrderEvents.delete(keys[i]);
     }
   }
+}
+
+async function handlePaymentEvent(data: any): Promise<void> {
+  try {
+    const payment = data?.object?.payment || data?.data?.object?.payment || null;
+    if (!payment) return;
+
+    const status = payment.status || "";
+    if (status !== "COMPLETED") {
+      console.log(`[Square Webhook] Payment ${payment.id} status ${status}, skipping wholesale check`);
+      return;
+    }
+
+    const note = payment.note || payment.receipt_url || "";
+    const match = note.match(/Wholesale Order #(\d+)/i);
+    if (match) {
+      await markWholesaleOrderPaid(parseInt(match[1]), payment.order_id || payment.orderId || payment.id);
+      return;
+    }
+
+    const sqOrderId = payment.order_id || payment.orderId;
+    if (sqOrderId) {
+      const [wo] = await db.select().from(wholesaleOrders)
+        .where(and(
+          eq(wholesaleOrders.status, "pending"),
+          isNotNull(wholesaleOrders.paymentLinkId)
+        ));
+      if (wo) {
+        try {
+          const client = getSquareClient();
+          const orderResult = await client.orders.get({ orderId: sqOrderId });
+          const sqOrder = orderResult.order;
+          if (sqOrder) {
+            await checkWholesalePayment(sqOrder, sqOrderId);
+          }
+        } catch (e: any) {
+          console.log(`[Square Webhook] Could not fetch order ${sqOrderId} for wholesale check: ${e.message}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error("[Square Webhook] Payment event error:", err.message);
+  }
+}
+
+async function checkWholesalePayment(order: any, squareOrderId: string): Promise<void> {
+  try {
+    if (!order) return;
+
+    const note = order.note || order.payment_note || "";
+    const match = note.match(/Wholesale Order #(\d+)/i);
+
+    if (!match) {
+      const tenders = order.tenders || [];
+      const tenderNote = tenders.find((t: any) => t.note?.match(/Wholesale Order #\d+/i))?.note || "";
+      const tenderMatch = tenderNote.match(/Wholesale Order #(\d+)/i);
+      if (!tenderMatch) return;
+      const wholesaleId = parseInt(tenderMatch[1]);
+      await markWholesaleOrderPaid(wholesaleId, squareOrderId);
+      return;
+    }
+
+    const wholesaleId = parseInt(match[1]);
+    await markWholesaleOrderPaid(wholesaleId, squareOrderId);
+  } catch (err: any) {
+    console.error("[Square Webhook] Wholesale payment check error:", err.message);
+  }
+}
+
+async function markWholesaleOrderPaid(wholesaleId: number, squareOrderId: string): Promise<void> {
+  const [existing] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, wholesaleId)).limit(1);
+  if (!existing) {
+    console.log(`[Square Webhook] Wholesale order #${wholesaleId} not found, skipping`);
+    return;
+  }
+  if (existing.status === "paid") {
+    console.log(`[Square Webhook] Wholesale order #${wholesaleId} already marked paid`);
+    return;
+  }
+  await db.update(wholesaleOrders)
+    .set({ status: "paid", updatedAt: new Date() })
+    .where(eq(wholesaleOrders.id, wholesaleId));
+  console.log(`[Square Webhook] Wholesale order #${wholesaleId} marked as PAID (Square order: ${squareOrderId})`);
 }
 
 async function handleOrderEvent(data: any): Promise<void> {
@@ -942,6 +1026,8 @@ async function handleOrderEvent(data: any): Promise<void> {
     console.log(`[Square Webhook] Order ${orderId} state is ${order.state}, skipping (only COMPLETED orders synced)`);
     return;
   }
+
+  await checkWholesalePayment(order, orderId);
 
   let dateStr: string;
   const orderDate = order?.createdAt || order?.created_at;
