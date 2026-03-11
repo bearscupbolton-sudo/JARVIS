@@ -559,7 +559,7 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       const { status } = req.body;
-      if (!["pending", "confirmed", "completed", "cancelled"].includes(status)) {
+      if (!["pending", "confirmed", "completed", "cancelled", "paid"].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
       }
       const order = await storage.updateWholesaleOrderStatus(id, status);
