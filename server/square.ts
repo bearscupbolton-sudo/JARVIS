@@ -960,18 +960,53 @@ async function checkWholesalePayment(order: any, squareOrderId: string): Promise
     const note = order.note || order.payment_note || "";
     const match = note.match(/Wholesale Order #(\d+)/i);
 
-    if (!match) {
-      const tenders = order.tenders || [];
-      const tenderNote = tenders.find((t: any) => t.note?.match(/Wholesale Order #\d+/i))?.note || "";
-      const tenderMatch = tenderNote.match(/Wholesale Order #(\d+)/i);
-      if (!tenderMatch) return;
+    if (match) {
+      const wholesaleId = parseInt(match[1]);
+      await markWholesaleOrderPaid(wholesaleId, squareOrderId);
+      return;
+    }
+
+    const tenders = order.tenders || [];
+    const tenderNote = tenders.find((t: any) => t.note?.match(/Wholesale Order #\d+/i))?.note || "";
+    const tenderMatch = tenderNote.match(/Wholesale Order #(\d+)/i);
+    if (tenderMatch) {
       const wholesaleId = parseInt(tenderMatch[1]);
       await markWholesaleOrderPaid(wholesaleId, squareOrderId);
       return;
     }
 
-    const wholesaleId = parseInt(match[1]);
-    await markWholesaleOrderPaid(wholesaleId, squareOrderId);
+    const referenceId = order.referenceId || order.reference_id || "";
+    const refMatch = referenceId.match(/Wholesale Order #(\d+)/i);
+    if (refMatch) {
+      const wholesaleId = parseInt(refMatch[1]);
+      await markWholesaleOrderPaid(wholesaleId, squareOrderId);
+      return;
+    }
+
+    const hasTenders = tenders.length > 0;
+    const isPaid = order.state === "COMPLETED" || hasTenders;
+    if (isPaid) {
+      const pendingOrders = await db.select().from(wholesaleOrders)
+        .where(and(
+          eq(wholesaleOrders.status, "pending"),
+          isNotNull(wholesaleOrders.paymentLinkId)
+        ));
+      
+      for (const wo of pendingOrders) {
+        try {
+          const client = getSquareClient();
+          const linkResult = await client.checkout.paymentLinks.get({ id: wo.paymentLinkId! });
+          const linkOrderId = linkResult.paymentLink?.orderId;
+          if (linkOrderId && linkOrderId === squareOrderId) {
+            console.log(`[Square Webhook] Matched wholesale order #${wo.id} via payment link ID ${wo.paymentLinkId}`);
+            await markWholesaleOrderPaid(wo.id, squareOrderId);
+            return;
+          }
+        } catch (e: any) {
+          console.log(`[Square Webhook] Could not fetch payment link ${wo.paymentLinkId}: ${e.message}`);
+        }
+      }
+    }
   } catch (err: any) {
     console.error("[Square Webhook] Wholesale payment check error:", err.message);
   }
@@ -1022,12 +1057,12 @@ async function handleOrderEvent(data: any): Promise<void> {
   recentOrderEvents.set(cacheKey, String(now));
   pruneOrderCache();
 
+  await checkWholesalePayment(order, orderId);
+
   if (order && order.state && order.state !== "COMPLETED") {
     console.log(`[Square Webhook] Order ${orderId} state is ${order.state}, skipping (only COMPLETED orders synced)`);
     return;
   }
-
-  await checkWholesalePayment(order, orderId);
 
   let dateStr: string;
   const orderDate = order?.createdAt || order?.created_at;
