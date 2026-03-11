@@ -7,13 +7,13 @@ export async function seedMarchShifts() {
     .from(shifts)
     .where(and(
       gte(shifts.shiftDate, "2026-03-02"),
-      lte(shifts.shiftDate, "2026-03-29"),
+      lte(shifts.shiftDate, "2026-04-26"),
       sql`${shifts.locationId} IS NULL`
     ));
 
   if (Number(nullLocCount[0]?.count) > 0) {
     console.log(`[Seed] Fixing ${nullLocCount[0]?.count} shifts with NULL locationId → 1`);
-    await db.execute(sql`UPDATE shifts SET location_id = 1 WHERE shift_date >= '2026-03-02' AND shift_date <= '2026-03-29' AND location_id IS NULL`);
+    await db.execute(sql`UPDATE shifts SET location_id = 1 WHERE shift_date >= '2026-03-02' AND shift_date <= '2026-04-26' AND location_id IS NULL`);
   }
 
   const dupResult = await db.execute(sql`
@@ -21,11 +21,11 @@ export async function seedMarchShifts() {
       SELECT id,
         ROW_NUMBER() OVER (PARTITION BY user_id, shift_date, start_time ORDER BY id) as rn
       FROM shifts
-      WHERE shift_date >= '2026-03-02' AND shift_date <= '2026-03-29'
+      WHERE shift_date >= '2026-03-02' AND shift_date <= '2026-04-26'
     )
     DELETE FROM shifts WHERE id IN (SELECT id FROM duplicates WHERE rn > 1)
   `);
-  console.log("[Seed] Cleaned up duplicate March shifts");
+  console.log("[Seed] Cleaned up duplicate shifts");
 
   const allUsers = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, department: users.department }).from(users);
 
@@ -115,11 +115,84 @@ export async function seedMarchShifts() {
     }},
   ];
 
+  const aprilData = [
+    { name: ["Lexi", "Gordon"], weeks: {
+      "3/30": [null,"7-2",null,"7-2",null,"7-2","7-2"],
+      "4/6": [null,"7-2",null,"7-2",null,"7-2","7-2"],
+      "4/13": [null,"7-2","7-2",null,null,"7-2","7-2"],
+      "4/20": [null,"7-2",null,"7-2",null,"7-2",null],
+    }},
+    { name: ["Gareth", "Kaedy"], weeks: {
+      "3/30": [null,"7-2","7-2",null,"7-2",null,"7-2"],
+      "4/6": [null,null,"7-2","7-2",null,"7-2","7-2"],
+      "4/13": [null,null,null,null,null,"7-2","7-2"],
+      "4/20": [null,"7-2",null,"7-2","7-2","7-2","7-2"],
+    }},
+    { name: ["Morgan", "Voorhis"], weeks: {
+      "3/30": [null,null,"7-2","7-2","7-2",null,"7-2"],
+      "4/6": [null,null,"7-2","7-2","7-2","7-2","7-2"],
+      "4/13": [null,null,"7-2","7-2",null,null,"7-2"],
+      "4/20": [null,null,"7-2","7-2","7-2","7-2","7-2"],
+    }},
+    { name: ["Jenna", "Wilhelm"], weeks: {
+      "3/30": [null,"7-2","7-2",null,"7-2",null,"7-2"],
+      "4/6": [null,"7-2","7-2","7-2","7-10",null,"7-2"],
+      "4/13": [null,null,null,null,null,"7-2","7-2"],
+      "4/20": [null,null,"7-2","7-2","7-2","7-2","7-2"],
+    }},
+    { name: ["Ellyn", "Rickard"], weeks: {
+      "3/30": [null,"7-2",null,"7-2","7-2","7-2","7-2"],
+      "4/6": [null,"7-2",null,"7-2","7-2","7-2","7-2"],
+      "4/13": [null,"7-2",null,"7-2",null,"7-2","7-2"],
+      "4/20": [null,"7-2",null,null,null,null,"7-2"],
+    }},
+    { name: ["Lisa", "Pallozi"], weeks: {
+      "3/30": [null,null,"7-11",null,null,"7-2",null],
+      "4/6": [null,"7-11","7-11",null,null,"7-2",null],
+      "4/13": [null,"7-11","7-11",null,"7-11",null,null],
+      "4/20": [null,"7-11","7-11",null,"7-11",null,null],
+    }},
+    { name: ["Nadalie", "Mason"], weeks: {
+      "3/30": [null,"7-2",null,"7-2",null,null,"7-2"],
+      "4/6": [null,"7-2",null,"7-2",null,null,"7-2"],
+      "4/13": [null,"7-2",null,"7-2",null,"7-2","7-2"],
+      "4/20": [null,"7-2",null,"7-2",null,null,"7-2"],
+    }},
+    { name: ["Kayla", "Sweet"], weeks: {
+      "3/30": [null,null,null,null,null,null,"7-2"],
+      "4/6": [null,null,null,null,null,null,"7-2"],
+      "4/13": [null,null,null,null,null,null,null],
+      "4/20": [null,null,null,null,null,null,"7-2"],
+    }},
+    { name: ["Hunter", "Gould"], weeks: {
+      "3/30": [null,null,null,null,null,"7-2","7-2"],
+      "4/6": [null,null,null,null,null,"7-2","7-2"],
+      "4/13": [null,null,null,null,null,"7-2","7-2"],
+      "4/20": [null,null,null,null,null,"7-2","7-2"],
+    }},
+    { name: ["Sabria", "Roggendorf"], weeks: {
+      "3/30": [null,"7-2","7-2","7-2",null,null,null],
+      "4/6": [null,null,"7-2",null,null,"7-2","7-2"],
+      "4/13": [null,"7-2","7-2","7-2",null,null,null],
+      "4/20": [null,null,"7-2","7-2",null,"7-2","7-2"],
+    }},
+    { name: ["Kolby", "Doemel"], weeks: {
+      "3/30": [null,null,null,null,null,"7-2","7-2"],
+      "4/6": [null,null,null,null,null,"7-2","7-2"],
+      "4/13": [null,null,null,null,null,null,null],
+      "4/20": [null,null,null,null,null,"7-2","7-2"],
+    }},
+  ];
+
   const weekStarts: Record<string, Date> = {
     "3/2": new Date(2026, 2, 2),
     "3/9": new Date(2026, 2, 9),
     "3/16": new Date(2026, 2, 16),
     "3/23": new Date(2026, 2, 23),
+    "3/30": new Date(2026, 2, 30),
+    "4/6": new Date(2026, 3, 6),
+    "4/13": new Date(2026, 3, 13),
+    "4/20": new Date(2026, 3, 20),
   };
 
   function parseTime(shorthand: string): { startTime: string; endTime: string } {
@@ -132,9 +205,11 @@ export async function seedMarchShifts() {
     };
   }
 
+  const allData = [...csvData, ...aprilData];
+
   const shiftsToInsert: any[] = [];
 
-  for (const entry of csvData) {
+  for (const entry of allData) {
     const user = findUser(entry.name[0], entry.name[1]);
     if (!user) {
       console.log(`[Seed] Could not find user: ${entry.name[0]} ${entry.name[1]}, skipping`);
@@ -144,6 +219,7 @@ export async function seedMarchShifts() {
 
     for (const [weekKey, days] of Object.entries(entry.weeks)) {
       const weekStart = weekStarts[weekKey];
+      if (!weekStart) continue;
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
         const val = days[dayIdx];
         if (!val) continue;
@@ -179,23 +255,23 @@ export async function seedMarchShifts() {
     startTime: shifts.startTime,
   }).from(shifts).where(and(
     gte(shifts.shiftDate, "2026-03-02"),
-    lte(shifts.shiftDate, "2026-03-29")
+    lte(shifts.shiftDate, "2026-04-26")
   ));
 
   const existingKeys = new Set(existingShifts.map(s => `${s.userId}|${s.shiftDate}|${s.startTime}`));
   const newShifts = shiftsToInsert.filter(s => !existingKeys.has(`${s.userId}|${s.shiftDate}|${s.startTime}`));
 
   if (newShifts.length === 0) {
-    console.log("[Seed] All March shifts already exist, nothing new to insert");
+    console.log("[Seed] All shifts already exist, nothing new to insert");
     return;
   }
 
-  console.log(`[Seed] Inserting ${newShifts.length} new March shifts (${shiftsToInsert.length - newShifts.length} already existed)...`);
+  console.log(`[Seed] Inserting ${newShifts.length} new shifts (${shiftsToInsert.length - newShifts.length} already existed)...`);
 
   for (let i = 0; i < newShifts.length; i += 50) {
     const batch = newShifts.slice(i, i + 50);
     await db.insert(shifts).values(batch);
   }
 
-  console.log(`[Seed] Successfully inserted ${newShifts.length} March shifts`);
+  console.log(`[Seed] Successfully inserted ${newShifts.length} shifts`);
 }
