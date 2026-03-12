@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema } from "@shared/schema";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -11474,6 +11474,115 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
         eightySixedItems,
         menuName: menu.name,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === TUTORIALS ===
+
+  app.get("/api/tutorials", isAuthenticated, async (req: any, res) => {
+    try {
+      const allTutorials = await db.select().from(tutorials).orderBy(tutorials.sortOrder);
+      res.json(allTutorials);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/tutorials/for-page", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      const pagePath = req.query.pagePath as string;
+      if (!pagePath) return res.status(400).json({ message: "pagePath required" });
+
+      const pageTutorials = await db.select().from(tutorials)
+        .where(and(
+          eq(tutorials.pagePath, pagePath),
+          eq(tutorials.isActive, true)
+        ))
+        .orderBy(tutorials.sortOrder);
+
+      const filtered = pageTutorials.filter(t => {
+        if (t.targetDepartment && t.targetDepartment !== user.department) return false;
+        if (t.targetRole && t.targetRole !== user.role) return false;
+        return true;
+      });
+
+      const viewed = await db.select().from(tutorialViews)
+        .where(eq(tutorialViews.userId, user.id));
+      const viewedIds = new Set(viewed.map(v => v.tutorialId));
+
+      const unseen = filtered.filter(t => !viewedIds.has(t.id));
+      res.json(unseen);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tutorials/viewed", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as any;
+      const { tutorialId } = req.body;
+      if (!tutorialId) return res.status(400).json({ message: "tutorialId required" });
+
+      const existing = await db.select().from(tutorialViews)
+        .where(and(
+          eq(tutorialViews.userId, user.id),
+          eq(tutorialViews.tutorialId, tutorialId)
+        )).limit(1);
+
+      if (existing.length === 0) {
+        await db.insert(tutorialViews).values({ userId: user.id, tutorialId });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tutorials", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const [tutorial] = await db.insert(tutorials).values(req.body).returning();
+      res.json(tutorial);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/tutorials/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [updated] = await db.update(tutorials)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(tutorials.id, id))
+        .returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/tutorials/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(tutorialViews).where(eq(tutorialViews.tutorialId, id));
+      await db.delete(tutorials).where(eq(tutorials.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tutorials/reset-views", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { tutorialId } = req.body;
+      if (tutorialId) {
+        await db.delete(tutorialViews).where(eq(tutorialViews.tutorialId, tutorialId));
+      } else {
+        await db.delete(tutorialViews);
+      }
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

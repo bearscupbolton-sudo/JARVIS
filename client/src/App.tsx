@@ -8,6 +8,7 @@ import { LocationProvider } from "@/hooks/use-location-context";
 import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import BakeryTimerAlert from "@/components/BakeryTimerAlert";
+import TutorialOverlay from "@/components/TutorialOverlay";
 import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import UrgentMessageOverlay from "@/components/UrgentMessageOverlay";
@@ -71,6 +72,7 @@ const Vendors = lazy(() => import("@/pages/Vendors"));
 const BagelBros = lazy(() => import("@/pages/BagelBros"));
 const TestKitchen = lazy(() => import("@/pages/TestKitchen"));
 const DevFeedback = lazy(() => import("@/pages/DevFeedback"));
+const Tutorials = lazy(() => import("@/pages/Tutorials"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const PrepEQ = lazy(() => import("@/pages/PrepEQ"));
 const Onboarding = lazy(() => import("@/pages/Onboarding"));
@@ -475,6 +477,9 @@ function Router() {
         <Route path="/dev-feedback">
           {() => <ProtectedRoute component={DevFeedback} />}
         </Route>
+        <Route path="/admin/tutorials">
+          {() => <ProtectedRoute component={Tutorials} />}
+        </Route>
 
         {/* Portal Routes (La Carte - Customer-facing) */}
         <Route path="/portal/login">
@@ -535,6 +540,7 @@ function App() {
         <UrgentMessageOverlay />
         <LobbyCheckAlert />
         <BakeryTimerAlert />
+        <TutorialOverlay />
         <DevFeedbackOverlay />
         <Toaster />
       </TooltipProvider>

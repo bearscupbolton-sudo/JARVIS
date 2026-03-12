@@ -50,6 +50,7 @@ import {
   Landmark,
   Tv,
   Store,
+  GraduationCap,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -164,6 +165,7 @@ const OWNER_ONLY_NAV_ITEMS = [
   { href: "/admin/insights", label: "Insights", icon: Eye },
   { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
   { href: "/dev-feedback", label: "Dev Feedback", icon: Code2 },
+  { href: "/admin/tutorials", label: "Tutorials", icon: GraduationCap },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

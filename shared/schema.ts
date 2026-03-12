@@ -1872,3 +1872,35 @@ export const insertWholesaleRecurringTemplateItemSchema = createInsertSchema(who
 export type WholesaleRecurringTemplateItem = typeof wholesaleRecurringTemplateItems.$inferSelect;
 export type InsertWholesaleRecurringTemplateItem = z.infer<typeof insertWholesaleRecurringTemplateItemSchema>;
 
+// === TUTORIALS ===
+export const tutorials = pgTable("tutorials", {
+  id: serial("id").primaryKey(),
+  pagePath: text("page_path").notNull(),
+  pageLabel: text("page_label").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  videoUrl: text("video_url"),
+  textContent: text("text_content"),
+  targetDepartment: text("target_department"),
+  targetRole: text("target_role"),
+  isActive: boolean("is_active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const tutorialViews = pgTable("tutorial_views", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tutorialId: integer("tutorial_id").notNull().references(() => tutorials.id, { onDelete: "cascade" }),
+  viewedAt: timestamp("viewed_at").defaultNow(),
+});
+
+export const insertTutorialSchema = createInsertSchema(tutorials).omit({ id: true, createdAt: true, updatedAt: true });
+export type Tutorial = typeof tutorials.$inferSelect;
+export type InsertTutorial = z.infer<typeof insertTutorialSchema>;
+
+export const insertTutorialViewSchema = createInsertSchema(tutorialViews).omit({ id: true, viewedAt: true });
+export type TutorialView = typeof tutorialViews.$inferSelect;
+export type InsertTutorialView = z.infer<typeof insertTutorialViewSchema>;
+
