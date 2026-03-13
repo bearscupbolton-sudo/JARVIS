@@ -25,7 +25,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Live Inventory Real-Time Sync:** Auto-syncs Square sales data and provides real-time status indicators.
 *   **Shift Notes:** Private manager feedback system with AI-rewritten constructive notes.
 *   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions and role-based permissions (`owner`, `manager`, `member`), including `isDepartmentLead`, `isShiftManager`, and `isGeneralManager` flags.
-*   **User Customization:** Owners can configure UI elements like sidebar visibility, landing pages, and access.
+*   **User Customization:** Owners can configure UI elements like sidebar visibility, landing pages, and access. Users can set language preference (English/French) on Profile page; `language` column on users table; `client/src/lib/i18n.ts` provides `t()` translation function applied to sidebar navigation and UI strings.
 *   **Permission Levels:** Reusable, owner-configurable templates for managing access.
 *   **Guest Department & Demo Mode:** "Guest" department for prospective buyers/outsiders who get the full personalized Jarvis experience. `demoMode` toggle on Profile page switches between real and sample data. Demo mode shows curated bakery data (production, schedules, announcements) and displays an amber "Demo Mode" banner. `useDemoQuery` hook available for frontend pages. Sample data in `server/demo-data.ts`. Home page `/api/home` returns demo data when active.
 *   **AI Integration (Jarvis):** Utilizes OpenAI-compatible APIs for chat, audio, image generation, and invoice scanning.

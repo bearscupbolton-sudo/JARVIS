@@ -52,6 +52,7 @@ export const users = pgTable("users", {
   squareTeamMemberId: varchar("square_team_member_id"),
   briefingNotes: text("briefing_notes"),
   briefingNotesDate: date("briefing_notes_date"),
+  language: varchar("language").default("en").notNull(),
   demoMode: boolean("demo_mode").default(false).notNull(),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),

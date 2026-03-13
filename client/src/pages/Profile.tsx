@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye, Globe } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LANGUAGE_OPTIONS } from "@/lib/i18n";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -55,6 +57,7 @@ export default function Profile() {
   const [birthday, setBirthday] = useState(user?.birthday || "");
   const [showJarvisBriefing, setShowJarvisBriefing] = useState((user as any)?.showJarvisBriefing ?? true);
   const [demoMode, setDemoMode] = useState((user as any)?.demoMode ?? false);
+  const [language, setLanguage] = useState((user as any)?.language || "en");
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -86,7 +89,8 @@ export default function Profile() {
     if (user?.smsOptIn !== undefined) setSmsOptIn(user.smsOptIn);
     if (user?.birthday !== undefined) setBirthday(user.birthday || "");
     if ((user as any)?.demoMode !== undefined) setDemoMode(!!(user as any).demoMode);
-  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday, (user as any)?.demoMode]);
+    if ((user as any)?.language) setLanguage((user as any).language);
+  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday, (user as any)?.demoMode, (user as any)?.language]);
 
   const mutation = useMutation({
     mutationFn: async (data: ProfileFormValues) => {
@@ -147,6 +151,28 @@ export default function Profile() {
     onError: (error: Error) => {
       toast({ title: error.message, variant: "destructive" });
       setShowJarvisBriefing(!showJarvisBriefing);
+    },
+  });
+
+  const languageMutation = useMutation({
+    mutationFn: async (lang: string) => {
+      const res = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: lang }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to update language");
+      return res.json();
+    },
+    onSuccess: (_data, lang) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      const label = LANGUAGE_OPTIONS.find(l => l.value === lang)?.label || lang;
+      toast({ title: `Language set to ${label}` });
+    },
+    onError: (error: Error, lang) => {
+      toast({ title: error.message, variant: "destructive" });
+      setLanguage(language === lang ? "en" : language);
     },
   });
 
@@ -503,6 +529,38 @@ export default function Profile() {
             >
               {showJarvisBriefing ? "On" : "Off"}
             </Button>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">Language</p>
+                <p className="text-xs text-muted-foreground">Choose your preferred language</p>
+              </div>
+            </div>
+            <Select
+              value={language}
+              onValueChange={(val) => {
+                setLanguage(val);
+                languageMutation.mutate(val);
+              }}
+              disabled={languageMutation.isPending}
+            >
+              <SelectTrigger className="w-[140px]" data-testid="select-language">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} data-testid={`option-lang-${opt.value}`}>
+                    <span className="flex items-center gap-2">
+                      <span>{opt.flag}</span>
+                      <span>{opt.label}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">

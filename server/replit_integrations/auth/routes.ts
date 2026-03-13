@@ -413,6 +413,13 @@ export function registerAuthRoutes(app: Express): void {
       if (emergencyContactName !== undefined) updates.emergencyContactName = emergencyContactName || null;
       if (emergencyContactPhone !== undefined) updates.emergencyContactPhone = emergencyContactPhone || null;
       if (birthday !== undefined) updates.birthday = birthday || null;
+      if (req.body.language !== undefined) {
+        const ALLOWED_LANGUAGES = ["en", "fr"];
+        if (!ALLOWED_LANGUAGES.includes(req.body.language)) {
+          return res.status(400).json({ error: "Unsupported language" });
+        }
+        updates.language = req.body.language;
+      }
       if (req.body.demoMode !== undefined) updates.demoMode = !!req.body.demoMode;
 
       const user = await authStorage.updateUserProfile(currentUser.id, updates);
