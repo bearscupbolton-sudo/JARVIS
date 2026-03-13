@@ -101,6 +101,26 @@ export default function BakeryTimerAlert() {
     [timers]
   );
 
+  const currentFlashIdsRef = useRef<number[]>([]);
+  const runFlashSequenceRef = useRef<(message: string, ids: number[]) => void>(() => {});
+
+  const dismissCurrentFlash = useCallback(() => {
+    clearAllTimers();
+    const ids = currentFlashIdsRef.current;
+    setFlash(EMPTY_FLASH);
+    isFlashingRef.current = false;
+    currentFlashIdsRef.current = [];
+
+    for (const id of ids) {
+      dismissMutation.mutate(id);
+    }
+
+    const next = flashQueueRef.current.shift();
+    if (next) {
+      scheduleTimeout(() => runFlashSequenceRef.current(next.message, next.ids), 300);
+    }
+  }, [dismissMutation, clearAllTimers, scheduleTimeout]);
+
   const runFlashSequence = useCallback((message: string, ids: number[]) => {
     if (!mountedRef.current) return;
     if (isFlashingRef.current) {
@@ -108,6 +128,7 @@ export default function BakeryTimerAlert() {
       return;
     }
     isFlashingRef.current = true;
+    currentFlashIdsRef.current = ids;
 
     playChime();
 
@@ -124,6 +145,7 @@ export default function BakeryTimerAlert() {
       if (count >= totalFlashes) {
         setFlash(EMPTY_FLASH);
         isFlashingRef.current = false;
+        currentFlashIdsRef.current = [];
 
         for (const id of ids) {
           dismissMutation.mutate(id);
@@ -148,6 +170,8 @@ export default function BakeryTimerAlert() {
 
     doFlash();
   }, [dismissMutation, scheduleTimeout]);
+
+  runFlashSequenceRef.current = runFlashSequence;
 
   useEffect(() => {
     if (!enabled || expiredTimers.length === 0) return;
@@ -182,24 +206,31 @@ export default function BakeryTimerAlert() {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
+      className="fixed inset-0 z-[9999] flex items-center justify-center cursor-pointer"
       style={{ backgroundColor: "rgba(220, 38, 38, 0.65)" }}
+      onClick={dismissCurrentFlash}
+      onTouchStart={dismissCurrentFlash}
       data-testid="bakery-timer-flash"
     >
-      <span
-        className="text-white text-center select-none"
-        style={{
-          fontSize: "clamp(4rem, 15vw, 10rem)",
-          fontWeight: 900,
-          letterSpacing: "0.05em",
-          textShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 60px rgba(255,255,255,0.2)",
-          WebkitTextStroke: "2px rgba(255,255,255,0.3)",
-          lineHeight: 1.1,
-        }}
-        data-testid="text-timer-flash-message"
-      >
-        {flash.message}
-      </span>
+      <div className="flex flex-col items-center gap-4 select-none">
+        <span
+          className="text-white text-center"
+          style={{
+            fontSize: "clamp(4rem, 15vw, 10rem)",
+            fontWeight: 900,
+            letterSpacing: "0.05em",
+            textShadow: "0 4px 20px rgba(0,0,0,0.3), 0 0 60px rgba(255,255,255,0.2)",
+            WebkitTextStroke: "2px rgba(255,255,255,0.3)",
+            lineHeight: 1.1,
+          }}
+          data-testid="text-timer-flash-message"
+        >
+          {flash.message}
+        </span>
+        <span className="text-white/70 text-lg font-medium" data-testid="text-tap-dismiss">
+          Tap to dismiss
+        </span>
+      </div>
     </div>
   );
 }
