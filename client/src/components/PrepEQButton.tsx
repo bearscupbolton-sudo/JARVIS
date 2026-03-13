@@ -19,7 +19,8 @@ export function PrepEQButton() {
     refetchInterval: 60000,
   });
 
-  if (!user) return null;
+  const isBakeryAccess = user?.role === "owner" || user?.role === "manager" || user?.department === "bakery";
+  if (!user || !isBakeryAccess) return null;
 
   const alertCount = dashboard.filter(d => d.belowPar || d.shortfall > 0).length;
 

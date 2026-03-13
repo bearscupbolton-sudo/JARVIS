@@ -31,6 +31,19 @@ export const isManager: RequestHandler = async (req: any, res, next) => {
   }
 };
 
+export const isBakeryDepartment: RequestHandler = async (req: any, res, next) => {
+  try {
+    const user = req.appUser as User | undefined;
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    if (user.role === "owner" || user.role === "manager" || user.department === "bakery") {
+      return next();
+    }
+    return res.status(403).json({ message: "Bakery department access required" });
+  } catch {
+    res.status(500).json({ message: "Authorization check failed" });
+  }
+};
+
 export const isUnlocked: RequestHandler = async (req: any, res, next) => {
   try {
     const user = req.appUser as User | undefined;

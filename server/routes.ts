@@ -5,7 +5,7 @@ import path from "path";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, authStorage } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated, isUnlocked, isOwner, isManager, isBakeryDepartment, authStorage } from "./replit_integrations/auth";
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { openai, speechToText, ensureCompatibleFormat, detectAudioFormat } from "./replit_integrations/audio/client";
@@ -1658,19 +1658,19 @@ FORMAT RULES for the content field:
   });
 
   // === PREP EQ ===
-  app.get("/api/prep-eq/components", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/components", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
     const items = await storage.getComponents(locationId);
     res.json(items);
   });
 
-  app.get("/api/prep-eq/components/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/components/:id", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const item = await storage.getComponent(Number(req.params.id));
     if (!item) return res.status(404).json({ message: "Component not found" });
     res.json(item);
   });
 
-  app.post("/api/prep-eq/components", isAuthenticated, isUnlocked, async (req, res) => {
+  app.post("/api/prep-eq/components", isAuthenticated, isBakeryDepartment, isUnlocked, async (req, res) => {
     try {
       const input = insertProductionComponentSchema.parse(req.body);
       const item = await storage.createComponent(input);
@@ -1681,7 +1681,7 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.patch("/api/prep-eq/components/:id", isAuthenticated, isUnlocked, async (req, res) => {
+  app.patch("/api/prep-eq/components/:id", isAuthenticated, isBakeryDepartment, isUnlocked, async (req, res) => {
     try {
       const input = insertProductionComponentSchema.partial().parse(req.body);
       const item = await storage.updateComponent(Number(req.params.id), input);
@@ -1697,18 +1697,18 @@ FORMAT RULES for the content field:
     res.status(204).send();
   });
 
-  app.get("/api/prep-eq/components/:id/usage", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/components/:id/usage", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const usage = await storage.getComponentUsage(Number(req.params.id));
     res.json(usage);
   });
 
-  app.get("/api/prep-eq/components/:id/transactions", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/components/:id/transactions", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const txns = await storage.getComponentTransactions(Number(req.params.id), limit);
     res.json(txns);
   });
 
-  app.post("/api/prep-eq/components/:id/adjust", isAuthenticated, isUnlocked, async (req: any, res) => {
+  app.post("/api/prep-eq/components/:id/adjust", isAuthenticated, isBakeryDepartment, isUnlocked, async (req: any, res) => {
     const user = await getUserFromReq(req);
     if (!user) return res.status(401).json({ message: "Unauthorized" });
     const { quantity, notes } = req.body;
@@ -1727,12 +1727,12 @@ FORMAT RULES for the content field:
   });
 
   // BOM
-  app.get("/api/prep-eq/bom/:pastryPassportId", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/bom/:pastryPassportId", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const bom = await storage.getBOM(Number(req.params.pastryPassportId));
     res.json(bom);
   });
 
-  app.post("/api/prep-eq/bom", isAuthenticated, isUnlocked, async (req, res) => {
+  app.post("/api/prep-eq/bom", isAuthenticated, isBakeryDepartment, isUnlocked, async (req, res) => {
     try {
       const input = insertComponentBomSchema.parse(req.body);
       const item = await storage.setBOMItem(input);
@@ -1743,7 +1743,7 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.patch("/api/prep-eq/bom/:id", isAuthenticated, isUnlocked, async (req, res) => {
+  app.patch("/api/prep-eq/bom/:id", isAuthenticated, isBakeryDepartment, isUnlocked, async (req, res) => {
     try {
       const input = insertComponentBomSchema.partial().parse(req.body);
       const item = await storage.updateBOMItem(Number(req.params.id), input);
@@ -1754,31 +1754,31 @@ FORMAT RULES for the content field:
     }
   });
 
-  app.delete("/api/prep-eq/bom/:id", isAuthenticated, isUnlocked, async (req, res) => {
+  app.delete("/api/prep-eq/bom/:id", isAuthenticated, isBakeryDepartment, isUnlocked, async (req, res) => {
     await storage.deleteBOMItem(Number(req.params.id));
     res.status(204).send();
   });
 
   // Closeouts
-  app.get("/api/prep-eq/closeouts", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/closeouts", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
     const limit = req.query.limit ? Number(req.query.limit) : 10;
     const closeouts = await storage.getCloseouts(locationId, limit);
     res.json(closeouts);
   });
 
-  app.get("/api/prep-eq/closeout/latest", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/closeout/latest", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
     const closeout = await storage.getLatestCloseout(locationId);
     res.json(closeout || null);
   });
 
-  app.get("/api/prep-eq/closeout/:id/items", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/closeout/:id/items", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const items = await storage.getCloseoutItems(Number(req.params.id));
     res.json(items);
   });
 
-  app.post("/api/prep-eq/closeout", isAuthenticated, isUnlocked, async (req: any, res) => {
+  app.post("/api/prep-eq/closeout", isAuthenticated, isBakeryDepartment, isUnlocked, async (req: any, res) => {
     const user = await getUserFromReq(req);
     if (!user) return res.status(401).json({ message: "Unauthorized" });
     const { notes, locationId, items } = req.body;
@@ -1797,14 +1797,14 @@ FORMAT RULES for the content field:
   });
 
   // Analytics
-  app.get("/api/prep-eq/demand", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/demand", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
     const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
     const demand = await storage.getComponentDemand(date, locationId);
     res.json(demand);
   });
 
-  app.get("/api/prep-eq/dashboard", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/dashboard", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const locationId = req.query.locationId ? Number(req.query.locationId) : undefined;
     const components = await storage.getComponents(locationId);
     const date = new Date().toISOString().split("T")[0];
@@ -1819,7 +1819,7 @@ FORMAT RULES for the content field:
     res.json(dashboard);
   });
 
-  app.get("/api/prep-eq/pieces-per-dough", isAuthenticated, async (req, res) => {
+  app.get("/api/prep-eq/pieces-per-dough", isAuthenticated, isBakeryDepartment, async (req, res) => {
     const doughType = req.query.doughType as string;
     const days = req.query.days ? Number(req.query.days) : 30;
     if (!doughType) return res.status(400).json({ message: "doughType required" });
