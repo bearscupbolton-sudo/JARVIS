@@ -555,6 +555,122 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/wholesale/admin/orders", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { customerId, orderDate, notes, items, generatePaymentLink } = req.body;
+      if (!customerId || !orderDate || !items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "customerId, orderDate, and items are required" });
+      }
+
+      const customers = await storage.getWholesaleCustomers();
+      const customer = customers.find((c: any) => c.id === customerId);
+      if (!customer) return res.status(404).json({ message: "Customer not found" });
+
+      for (const item of items) {
+        if (!item.catalogItemId || typeof item.catalogItemId !== "number" || !Number.isInteger(item.quantity) || item.quantity < 1) {
+          return res.status(400).json({ message: "Each item must have a valid catalogItemId and quantity >= 1" });
+        }
+      }
+
+      const catalogItems = await storage.getWholesaleCatalogItems(true);
+      const catalogMap = new Map(catalogItems.map(ci => [ci.id, ci]));
+
+      let totalAmount = 0;
+      const orderItems: any[] = [];
+      for (const item of items) {
+        const ci = catalogMap.get(item.catalogItemId);
+        if (!ci) return res.status(400).json({ message: `Unknown catalog item: ${item.catalogItemId}` });
+        const subtotal = ci.unitPrice * item.quantity;
+        totalAmount += subtotal;
+        orderItems.push({
+          catalogItemId: ci.id,
+          itemName: ci.name,
+          quantity: item.quantity,
+          unitPrice: ci.unitPrice,
+          subtotal,
+          orderId: 0,
+        });
+      }
+
+      const order = await storage.createWholesaleOrder(
+        { customerId: customer.id, orderDate, notes: notes || null, totalAmount, isRecurring: false, recurringTemplateId: null, status: "pending" },
+        orderItems
+      );
+
+      try {
+        const eventDate = new Date(orderDate + "T09:00:00");
+        await storage.createEvent({
+          title: `Wholesale: ${customer.businessName} — Order #${order.id}`,
+          description: `Phone-in order placed by staff.\n\nTotal: $${totalAmount.toFixed(2)}\n\nItems:\n${orderItems.map(i => `  • ${i.itemName} x${i.quantity} — $${i.subtotal.toFixed(2)}`).join("\n")}${notes ? `\n\nNotes: ${notes}` : ""}`,
+          date: eventDate,
+          endDate: null,
+          eventType: "delivery",
+          contactName: customer.contactName,
+          contactPhone: customer.phone || null,
+          contactEmail: customer.email || null,
+          address: null,
+          startTime: null,
+          endTime: null,
+          taggedUserIds: null,
+          isPersonal: false,
+          invitedDepartments: null,
+          createdBy: "system",
+        });
+      } catch (eventErr) {
+        console.error("Failed to create wholesale calendar event:", eventErr);
+      }
+
+      let paymentLinkUrl = null;
+      if (generatePaymentLink) {
+        try {
+          const { SquareClient, SquareEnvironment } = await import("square");
+          const squareClient = new SquareClient({
+            token: process.env.SQUARE_ACCESS_TOKEN || "",
+            environment: (process.env.SQUARE_ENVIRONMENT === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox,
+          });
+
+          const [defaultLoc] = await db.select().from(locations).where(eq(locations.isDefault, true)).limit(1);
+          const squareLocationId = defaultLoc?.squareLocationId || process.env.SQUARE_LOCATION_ID || "";
+          if (squareLocationId) {
+            const lineItems = orderItems.map((item: any) => ({
+              name: item.itemName,
+              quantity: String(item.quantity),
+              basePriceMoney: {
+                amount: BigInt(Math.round(item.unitPrice * 100)),
+                currency: "USD",
+              },
+            }));
+
+            const result = await squareClient.checkout.paymentLinks.create({
+              idempotencyKey: `wholesale-order-${order.id}-${Date.now()}`,
+              quickPay: undefined,
+              order: {
+                locationId: squareLocationId,
+                lineItems,
+              },
+              paymentNote: `Wholesale Order #${order.id} — ${customer.businessName}`,
+            });
+
+            const paymentLink = result.paymentLink;
+            if (paymentLink?.url) {
+              paymentLinkUrl = paymentLink.url;
+              await db.update(wholesaleOrders)
+                .set({ paymentLinkUrl: paymentLink.url, paymentLinkId: paymentLink.id || null })
+                .where(eq(wholesaleOrders.id, order.id));
+            }
+          }
+        } catch (plErr) {
+          console.error("Failed to generate payment link for admin order:", plErr);
+        }
+      }
+
+      res.status(201).json({ ...order, paymentLinkUrl });
+    } catch (err: any) {
+      console.error("Admin wholesale order error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/wholesale/admin/orders/:id/status", isAuthenticated, isOwner, async (req, res) => {
     try {
       const id = parseInt(req.params.id);

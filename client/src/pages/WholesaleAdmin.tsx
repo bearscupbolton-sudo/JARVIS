@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Store, Plus, Package, Users, ClipboardList, Loader2, Clock, CheckCircle2, AlertCircle, Edit2, Copy } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Store, Plus, Package, Users, ClipboardList, Loader2, Clock, CheckCircle2, AlertCircle, Edit2, Copy, Phone, Minus } from "lucide-react";
 
 type WholesaleCustomer = {
   id: number;
@@ -93,6 +95,11 @@ export default function WholesaleAdmin() {
   const [editingCatalog, setEditingCatalog] = useState<CatalogItem | null>(null);
   const { toast } = useToast();
 
+  const [orderDialogOpen, setOrderDialogOpen] = useState(false);
+  const [orderForm, setOrderForm] = useState<{ customerId: string; orderDate: string; notes: string; generatePaymentLink: boolean; items: { catalogItemId: number; quantity: number }[] }>({
+    customerId: "", orderDate: new Date().toISOString().slice(0, 10), notes: "", generatePaymentLink: true, items: [],
+  });
+
   const [custForm, setCustForm] = useState({ businessName: "", contactName: "", phone: "", email: "", pin: "", notes: "", address: "", city: "", state: "", zip: "" });
   const [catForm, setCatForm] = useState({ name: "", description: "", category: "", unitPrice: "", unit: "each", sortOrder: "0" });
 
@@ -148,6 +155,73 @@ export default function WholesaleAdmin() {
       toast({ title: "Order status updated" });
     },
   });
+
+  const orderMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/wholesale/admin/orders", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wholesale/admin/orders"] });
+      setOrderDialogOpen(false);
+      const msg = data.paymentLinkUrl
+        ? "Order created with payment link! The customer can see it in their portal."
+        : "Order created! The customer can see it in their portal.";
+      toast({ title: msg });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function openNewOrder() {
+    setOrderForm({
+      customerId: "", orderDate: new Date().toISOString().slice(0, 10), notes: "", generatePaymentLink: true, items: [],
+    });
+    setOrderDialogOpen(true);
+  }
+
+  function addOrderItem(catalogItemId: number) {
+    setOrderForm(prev => {
+      const existing = prev.items.find(i => i.catalogItemId === catalogItemId);
+      if (existing) {
+        return { ...prev, items: prev.items.map(i => i.catalogItemId === catalogItemId ? { ...i, quantity: i.quantity + 1 } : i) };
+      }
+      return { ...prev, items: [...prev.items, { catalogItemId, quantity: 1 }] };
+    });
+  }
+
+  function updateOrderItemQty(catalogItemId: number, quantity: number) {
+    setOrderForm(prev => ({
+      ...prev,
+      items: quantity <= 0
+        ? prev.items.filter(i => i.catalogItemId !== catalogItemId)
+        : prev.items.map(i => i.catalogItemId === catalogItemId ? { ...i, quantity } : i),
+    }));
+  }
+
+  function submitOrder() {
+    if (!orderForm.customerId || orderForm.items.length === 0) {
+      toast({ title: "Select a customer and at least one item", variant: "destructive" });
+      return;
+    }
+    orderMutation.mutate({
+      customerId: parseInt(orderForm.customerId),
+      orderDate: orderForm.orderDate,
+      notes: orderForm.notes || null,
+      items: orderForm.items,
+      generatePaymentLink: orderForm.generatePaymentLink,
+    });
+  }
+
+  function getOrderTotal() {
+    if (!catalogQuery.data) return 0;
+    const catalogMap = new Map(catalogQuery.data.map(c => [c.id, c]));
+    return orderForm.items.reduce((sum, item) => {
+      const ci = catalogMap.get(item.catalogItemId);
+      return sum + (ci ? ci.unitPrice * item.quantity : 0);
+    }, 0);
+  }
 
   function openNewCustomer() {
     setEditingCustomer(null);
@@ -250,6 +324,11 @@ export default function WholesaleAdmin() {
         </TabsList>
 
         <TabsContent value="orders" className="space-y-4 mt-4">
+          <div className="flex justify-end">
+            <Button onClick={openNewOrder} data-testid="button-create-order">
+              <Phone className="h-4 w-4 mr-1" /> Phone-In Order
+            </Button>
+          </div>
           {ordersQuery.isLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
           ) : (
@@ -430,6 +509,87 @@ export default function WholesaleAdmin() {
             </div>
             <Button onClick={saveCustomer} disabled={customerMutation.isPending || (!editingCustomer && !custForm.pin)} className="w-full" data-testid="button-save-customer">
               {customerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : (editingCustomer ? "Update Customer" : "Create Customer")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={orderDialogOpen} onOpenChange={setOrderDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Phone-In Order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Customer *</Label>
+              <Select value={orderForm.customerId} onValueChange={(v) => setOrderForm(p => ({ ...p, customerId: v }))}>
+                <SelectTrigger data-testid="select-order-customer"><SelectValue placeholder="Select customer" /></SelectTrigger>
+                <SelectContent>
+                  {(customersQuery.data || []).filter(c => c.isActive).map(c => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.businessName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Delivery Date *</Label>
+              <Input type="date" value={orderForm.orderDate} onChange={(e) => setOrderForm(p => ({ ...p, orderDate: e.target.value }))} data-testid="input-order-date" />
+            </div>
+
+            <div>
+              <Label className="mb-2 block">Items *</Label>
+              {orderForm.items.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {orderForm.items.map(item => {
+                    const ci = catalogQuery.data?.find(c => c.id === item.catalogItemId);
+                    if (!ci) return null;
+                    return (
+                      <div key={item.catalogItemId} className="flex items-center justify-between gap-2 bg-muted/50 rounded-lg px-3 py-2" data-testid={`order-item-row-${item.catalogItemId}`}>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium">{ci.name}</span>
+                          <span className="text-xs text-muted-foreground ml-1">${ci.unitPrice.toFixed(2)}/{ci.unit}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateOrderItemQty(item.catalogItemId, item.quantity - 1)} data-testid={`button-qty-minus-${item.catalogItemId}`}>
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <Input type="number" min={1} className="w-14 h-7 text-center text-sm" value={item.quantity} onChange={(e) => updateOrderItemQty(item.catalogItemId, parseInt(e.target.value) || 0)} data-testid={`input-qty-${item.catalogItemId}`} />
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateOrderItemQty(item.catalogItemId, item.quantity + 1)} data-testid={`button-qty-plus-${item.catalogItemId}`}>
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <span className="text-sm font-semibold w-16 text-right">${(ci.unitPrice * item.quantity).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex justify-end pt-1 border-t">
+                    <span className="font-bold" data-testid="text-order-total">Total: ${getOrderTotal().toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                {(catalogQuery.data || []).filter(c => c.isActive && !orderForm.items.find(i => i.catalogItemId === c.id)).map(ci => (
+                  <Button key={ci.id} variant="outline" size="sm" className="justify-start h-auto py-2 px-3" onClick={() => addOrderItem(ci.id)} data-testid={`button-add-item-${ci.id}`}>
+                    <Plus className="h-3 w-3 mr-1 shrink-0" />
+                    <span className="truncate text-left">{ci.name}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label>Notes (optional)</Label>
+              <Textarea value={orderForm.notes} onChange={(e) => setOrderForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Special instructions or delivery notes" data-testid="input-order-notes" />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch id="payment-link" checked={orderForm.generatePaymentLink} onCheckedChange={(v) => setOrderForm(p => ({ ...p, generatePaymentLink: v }))} data-testid="switch-payment-link" />
+              <Label htmlFor="payment-link" className="cursor-pointer">Generate Square payment link</Label>
+            </div>
+
+            <Button onClick={submitOrder} disabled={orderMutation.isPending || !orderForm.customerId || orderForm.items.length === 0} className="w-full" data-testid="button-submit-order">
+              {orderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Phone className="h-4 w-4 mr-1" />}
+              {orderMutation.isPending ? "Creating Order..." : "Create Order"}
             </Button>
           </div>
         </DialogContent>
