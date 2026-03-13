@@ -16,6 +16,7 @@ import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
 import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema } from "@shared/schema";
+import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
@@ -150,6 +151,26 @@ export async function registerRoutes(
   registerAuthRoutes(app);
   registerChatRoutes(app);
   registerObjectStorageRoutes(app);
+
+  app.get("/api/demo-data", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser;
+      if (!user?.demoMode) {
+        return res.status(400).json({ message: "Demo mode is not enabled" });
+      }
+      const { endpoint } = req.query;
+      if (!endpoint || typeof endpoint !== "string") {
+        return res.status(400).json({ message: "endpoint query parameter is required" });
+      }
+      const demoData = getDemoDataForEndpoint(endpoint, user.id);
+      if (demoData === null) {
+        return res.status(404).json({ message: "No demo data available for this endpoint" });
+      }
+      res.json(demoData);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
   registerPortalAuthRoutes(app);
   registerWholesaleAuthRoutes(app);
 
@@ -6799,6 +6820,31 @@ ${sopsHtml}
     try {
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      if (user.demoMode) {
+        const { DEMO_PRODUCTION, DEMO_SCHEDULES, DEMO_STATS } = await import("./demo-data");
+        const today = new Date().toISOString().split("T")[0];
+        const bakeoffSummary: Record<string, number> = {};
+        DEMO_PRODUCTION.forEach(p => { bakeoffSummary[p.itemName] = (bakeoffSummary[p.itemName] || 0) + p.quantity; });
+        const demoShifts = DEMO_SCHEDULES.map((s, i) => ({
+          id: 9000 + i, userId: s.userId, shiftDate: today, startTime: s.startTime, endTime: s.endTime,
+          department: s.department, role: s.role, userName: s.userName,
+        }));
+        return res.json({
+          unreadCount: 2,
+          myUpcomingShifts: demoShifts.slice(0, 2),
+          pendingTimeOff: [],
+          bakeoffSummary,
+          pinnedAnnouncements: [{ id: 1, title: "Welcome to Jarvis!", body: "This is a demo of the bakery management system. Explore the sidebar to see all features.", pinned: true, createdAt: new Date().toISOString() }],
+          managerData: {
+            pendingTimeOffCount: 1,
+            todayStaffCount: DEMO_STATS.teamOnShift,
+            todayShiftCount: DEMO_SCHEDULES.length,
+          },
+          myTaggedEvents: [],
+          myEventJobs: [],
+        });
+      }
 
       const today = new Date().toISOString().split("T")[0];
       const weekEnd = new Date();

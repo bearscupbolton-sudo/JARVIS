@@ -335,7 +335,7 @@ export function registerAuthRoutes(app: Express): void {
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
-      const ALLOWED_DEPARTMENTS = ["bakery", "kitchen", "bar", "foh"];
+      const ALLOWED_DEPARTMENTS = ["bakery", "kitchen", "bar", "foh", "guest"];
       if (!department || !ALLOWED_DEPARTMENTS.includes(department)) {
         return res.status(400).json({ message: "Invalid department" });
       }
@@ -413,6 +413,7 @@ export function registerAuthRoutes(app: Express): void {
       if (emergencyContactName !== undefined) updates.emergencyContactName = emergencyContactName || null;
       if (emergencyContactPhone !== undefined) updates.emergencyContactPhone = emergencyContactPhone || null;
       if (birthday !== undefined) updates.birthday = birthday || null;
+      if (req.body.demoMode !== undefined) updates.demoMode = !!req.body.demoMode;
 
       const user = await authStorage.updateUserProfile(currentUser.id, updates);
       const { pinHash, ...safeUser } = user;

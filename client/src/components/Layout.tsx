@@ -575,6 +575,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </Button>
           </header>
 
+          {!!(user as any)?.demoMode && (
+            <div className="bg-amber-500/90 text-white text-center py-1.5 px-4 text-sm font-medium" data-testid="banner-demo-mode">
+              Demo Mode — Showing sample data
+            </div>
+          )}
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
             {children}
           </div>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -54,6 +54,7 @@ export default function Profile() {
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
   const [birthday, setBirthday] = useState(user?.birthday || "");
   const [showJarvisBriefing, setShowJarvisBriefing] = useState((user as any)?.showJarvisBriefing ?? true);
+  const [demoMode, setDemoMode] = useState((user as any)?.demoMode ?? false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -84,7 +85,8 @@ export default function Profile() {
     if (user?.phone !== undefined) setPhone(user.phone || "");
     if (user?.smsOptIn !== undefined) setSmsOptIn(user.smsOptIn);
     if (user?.birthday !== undefined) setBirthday(user.birthday || "");
-  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday]);
+    if ((user as any)?.demoMode !== undefined) setDemoMode(!!(user as any).demoMode);
+  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday, (user as any)?.demoMode]);
 
   const mutation = useMutation({
     mutationFn: async (data: ProfileFormValues) => {
@@ -145,6 +147,27 @@ export default function Profile() {
     onError: (error: Error) => {
       toast({ title: error.message, variant: "destructive" });
       setShowJarvisBriefing(!showJarvisBriefing);
+    },
+  });
+
+  const demoModeMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ demoMode: enabled }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to update demo mode");
+      return res.json();
+    },
+    onSuccess: (_data, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      toast({ title: enabled ? "Demo mode enabled — showing sample data" : "Demo mode disabled — showing real data" });
+    },
+    onError: (error: Error, enabled) => {
+      toast({ title: error.message, variant: "destructive" });
+      setDemoMode(!enabled);
     },
   });
 
@@ -479,6 +502,29 @@ export default function Profile() {
               data-testid="button-toggle-jarvis"
             >
               {showJarvisBriefing ? "On" : "Off"}
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">Demo Mode</p>
+                <p className="text-xs text-muted-foreground">Show sample data instead of real operational data</p>
+              </div>
+            </div>
+            <Button
+              variant={demoMode ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                const newVal = !demoMode;
+                setDemoMode(newVal);
+                demoModeMutation.mutate(newVal);
+              }}
+              disabled={demoModeMutation.isPending}
+              data-testid="button-toggle-demo"
+            >
+              {demoMode ? "On" : "Off"}
             </Button>
           </div>
 

@@ -41,8 +41,8 @@ import {
 import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
 const CATEGORY_OPTIONS = ["Croissant", "Danish", "Cookies", "Muffins", "Cake", "Bread", "Other"];
-const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "bar", "foh"];
-const DEPARTMENT_LABELS: Record<string, string> = { bakery: "Bakery", kitchen: "Kitchen", bar: "Bar", foh: "FOH" };
+const DEPARTMENT_OPTIONS = ["bakery", "kitchen", "bar", "foh", "guest"];
+const DEPARTMENT_LABELS: Record<string, string> = { bakery: "Bakery", kitchen: "Kitchen", bar: "Bar", foh: "FOH", guest: "Guest" };
 
 const CATEGORY_ICONS: Record<string, any> = {
   "Croissant": Croissant,

@@ -427,6 +427,7 @@ function AddTeamMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 <SelectItem value="kitchen">Kitchen</SelectItem>
                 <SelectItem value="bar">Bar</SelectItem>
                 <SelectItem value="foh">FOH</SelectItem>
+                <SelectItem value="guest">Guest</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -978,6 +979,7 @@ function UserDetailDialog({
                     <SelectItem value="kitchen">Kitchen</SelectItem>
                     <SelectItem value="bar">Bar</SelectItem>
                     <SelectItem value="foh">FOH</SelectItem>
+                    <SelectItem value="guest">Guest</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">Sets default filters across the app for this team member</p>
