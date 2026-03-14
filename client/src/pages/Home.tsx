@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocationContext } from "@/hooks/use-location-context";
+import { useTranslation } from "@/lib/i18n";
 import { useSectionVisibility } from "@/hooks/use-section-visibility";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -652,6 +653,7 @@ export default function Home() {
   const { user } = useAuth();
   const { selectedLocationId } = useLocationContext();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const isManager = user?.role === "manager" || user?.role === "owner";
   const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [quickActions, setQuickActions] = useState<string[]>(loadQuickActions);
@@ -766,11 +768,11 @@ export default function Home() {
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
-    if (hour < 5) return "Burning the midnight oil";
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
-  }, []);
+    if (hour < 5) return t("Burning the midnight oil");
+    if (hour < 12) return t("Good morning");
+    if (hour < 17) return t("Good afternoon");
+    return t("Good evening");
+  }, [t]);
 
   const problems: Problem[] = problemsData || [];
   const calendarEvents: CalendarEvent[] = eventsData || [];
@@ -831,7 +833,7 @@ export default function Home() {
     setLayoutConfig(config);
     saveLayout(config);
     setShowLayoutEditor(false);
-    toast({ title: "Layout saved", description: "Your home page layout has been updated." });
+    toast({ title: t("Layout saved"), description: t("Your home page layout has been updated.") });
   }, [toast]);
 
   const { canSeeSection } = useSectionVisibility();
@@ -994,7 +996,7 @@ export default function Home() {
           <Card className="cursor-pointer hover-elevate" data-testid="stat-unread">
             <CardContent className="p-3 flex items-center gap-3">
               <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><Mail className="w-4 h-4 text-primary" /></div>
-              <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p><p className="text-[10px] text-muted-foreground">Unread</p></div>
+              <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData?.unreadCount ?? 0}</p><p className="text-[10px] text-muted-foreground">{t("Unread")}</p></div>
             </CardContent>
           </Card>
         </Link>
@@ -1002,7 +1004,7 @@ export default function Home() {
           <Card className="cursor-pointer hover-elevate" data-testid="stat-shifts">
             <CardContent className="p-3 flex items-center gap-3">
               <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><Calendar className="w-4 h-4 text-primary" /></div>
-              <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p><p className="text-[10px] text-muted-foreground">Shifts</p></div>
+              <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData?.myUpcomingShifts?.length ?? 0}</p><p className="text-[10px] text-muted-foreground">{t("Shifts")}</p></div>
             </CardContent>
           </Card>
         </Link>
@@ -1012,7 +1014,7 @@ export default function Home() {
               <Card className="cursor-pointer hover-elevate" data-testid="stat-staff-today">
                 <CardContent className="p-3 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><Users className="w-4 h-4 text-primary" /></div>
-                  <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p><p className="text-[10px] text-muted-foreground">Staff Today</p></div>
+                  <div className="flex-1"><p className="text-xl font-bold font-mono">{homeData.managerData.todayStaffCount}</p><p className="text-[10px] text-muted-foreground">{t("Staff Today")}</p></div>
                 </CardContent>
               </Card>
             </Link>
@@ -1029,28 +1031,28 @@ export default function Home() {
       return (
         <Card data-testid="container-preshift-notes">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />Pre-Shift Notes</CardTitle>
+            <CardTitle className="text-base font-display flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />{t("Pre-Shift Notes")}</CardTitle>
             <div className="flex items-center gap-1">
               {ackedNotes.length > 0 && (
                 <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => setShowAckedNotes(!showAckedNotes)} data-testid="button-toggle-acked-notes">
                   {showAckedNotes ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
-                  {showAckedNotes ? "Hide read" : `${ackedNotes.length} read`}
+                  {showAckedNotes ? t("Hide read") : `${ackedNotes.length} ${t("Read").toLowerCase()}`}
                 </Button>
               )}
               {isManager && (
                 <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
                   <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button></DialogTrigger>
                   <DialogContent>
-                    <DialogHeader><DialogTitle>Add Pre-Shift Note</DialogTitle><DialogDescription>Post a note for the team. You can schedule notes for future days.</DialogDescription></DialogHeader>
+                    <DialogHeader><DialogTitle>{t("Add Pre-Shift Note")}</DialogTitle><DialogDescription>{t("Post a note for the team. You can schedule notes for future days.")}</DialogDescription></DialogHeader>
                     <Form {...noteForm}>
                       <form onSubmit={noteForm.handleSubmit(handleAddNote)} className="space-y-4">
                         <FormField control={noteForm.control} name="date" render={({ field }) => (
-                          <FormItem><FormLabel>Date</FormLabel><FormControl><Input type="date" data-testid="input-preshift-date" {...field} /></FormControl><FormMessage /></FormItem>
+                          <FormItem><FormLabel>{t("Date")}</FormLabel><FormControl><Input type="date" data-testid="input-preshift-date" {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
                         <FormField control={noteForm.control} name="content" render={({ field }) => (
-                          <FormItem><FormLabel>Note</FormLabel><FormControl><Textarea placeholder="What does the team need to know?" data-testid="input-preshift-content" {...field} /></FormControl><FormMessage /></FormItem>
+                          <FormItem><FormLabel>{t("Note")}</FormLabel><FormControl><Textarea placeholder={t("What does the team need to know?")} data-testid="input-preshift-content" {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
-                        <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">{createNoteMutation.isPending ? "Posting..." : "Post Note"}</Button>
+                        <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">{createNoteMutation.isPending ? t("Posting...") : t("Post Note")}</Button>
                       </form>
                     </Form>
                   </DialogContent>
@@ -1061,7 +1063,7 @@ export default function Home() {
           <CardContent className="pt-0">
             {loadingNotes ? <Skeleton className="h-10 rounded-md" /> : visibleNotes.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-3">
-                {preShiftNotes.length === 0 ? "No notes for today." : "All notes acknowledged."}
+                {preShiftNotes.length === 0 ? t("No notes for today.") : t("All notes acknowledged.")}
               </p>
             ) : (
               <div className="space-y-1.5">
@@ -1072,13 +1074,13 @@ export default function Home() {
                       <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                         {note.authorName && <span>{note.authorName}</span>}
                         {note.createdAt && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{format(new Date(note.createdAt), "h:mm a")}</span>}
-                        {note.acked && <span className="flex items-center gap-1 text-green-600"><Check className="w-3 h-3" />Read</span>}
+                        {note.acked && <span className="flex items-center gap-1 text-green-600"><Check className="w-3 h-3" />{t("Read")}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       {!note.acked && (
                         <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => ackNoteMutation.mutate(note.id)} disabled={ackNoteMutation.isPending} data-testid={`button-ack-preshift-note-${note.id}`}>
-                          <Check className="w-3 h-3 mr-1" />Got it
+                          <Check className="w-3 h-3 mr-1" />{t("Got it")}
                         </Button>
                       )}
                       {isManager && (
@@ -1097,12 +1099,12 @@ export default function Home() {
     production: () => (
       <Card data-testid="container-production-grid">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base font-display flex items-center gap-2"><Flame className="w-4 h-4 text-primary" />Production Today</CardTitle>
-          <Link href="/bakery"><span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Bakery <ArrowRight className="w-3 h-3" /></span></Link>
+          <CardTitle className="text-base font-display flex items-center gap-2"><Flame className="w-4 h-4 text-primary" />{t("Production Today")}</CardTitle>
+          <Link href="/bakery"><span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">{t("Bakery")} <ArrowRight className="w-3 h-3" /></span></Link>
         </CardHeader>
         <CardContent className="pt-0">
           {productionGrid.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-3">Nothing baked yet today.</p>
+            <p className="text-sm text-muted-foreground text-center py-3">{t("Nothing baked yet today.")}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
               {productionGrid.map(item => {
@@ -1133,27 +1135,27 @@ export default function Home() {
       <Card data-testid="container-problems">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <Link href="/maintenance" data-testid="link-problems-hub">
-            <CardTitle className="text-base font-display flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"><AlertTriangle className="w-4 h-4 text-destructive" />Problems <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" /></CardTitle>
+            <CardTitle className="text-base font-display flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"><AlertTriangle className="w-4 h-4 text-destructive" />{t("Problems")} <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" /></CardTitle>
           </Link>
           <div className="flex items-center gap-1">
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowCompleted(!showCompleted)} data-testid="button-toggle-completed">{showCompleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</Button>
             <Dialog open={showProblemForm} onOpenChange={setShowProblemForm}>
               <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-problem"><Plus className="w-4 h-4" /></Button></DialogTrigger>
               <DialogContent>
-                <DialogHeader><DialogTitle>Report a Problem</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{t("Report a Problem")}</DialogTitle></DialogHeader>
                 <div className="space-y-3">
-                  <Input placeholder="What's the problem?" value={problemForm.title} onChange={e => setProblemForm(p => ({ ...p, title: e.target.value }))} data-testid="input-problem-title" />
-                  <Textarea placeholder="Details (optional)" value={problemForm.description} onChange={e => setProblemForm(p => ({ ...p, description: e.target.value }))} data-testid="input-problem-description" />
+                  <Input placeholder={t("What's the problem?")} value={problemForm.title} onChange={e => setProblemForm(p => ({ ...p, title: e.target.value }))} data-testid="input-problem-title" />
+                  <Textarea placeholder={t("Details (optional)")} value={problemForm.description} onChange={e => setProblemForm(p => ({ ...p, description: e.target.value }))} data-testid="input-problem-description" />
                   <div className="grid grid-cols-2 gap-3">
                     <Select value={problemForm.severity} onValueChange={v => setProblemForm(p => ({ ...p, severity: v }))}>
                       <SelectTrigger data-testid="select-problem-severity"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="critical">Critical</SelectItem><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="critical">{t("Critical")}</SelectItem><SelectItem value="high">{t("High")}</SelectItem><SelectItem value="medium">{t("Medium")}</SelectItem><SelectItem value="low">{t("Low")}</SelectItem></SelectContent>
                     </Select>
-                    <Input placeholder="Location" value={problemForm.location} onChange={e => setProblemForm(p => ({ ...p, location: e.target.value }))} data-testid="input-problem-location" />
+                    <Input placeholder={t("Location")} value={problemForm.location} onChange={e => setProblemForm(p => ({ ...p, location: e.target.value }))} data-testid="input-problem-location" />
                   </div>
-                  <Input placeholder="Reported by" value={problemForm.reportedBy} onChange={e => setProblemForm(p => ({ ...p, reportedBy: e.target.value }))} data-testid="input-problem-reporter" />
-                  <Textarea placeholder="Notes (optional)" value={problemForm.notes} onChange={e => setProblemForm(p => ({ ...p, notes: e.target.value }))} data-testid="input-problem-notes" />
-                  <Button className="w-full" onClick={handleAddProblem} disabled={createProblem.isPending} data-testid="button-submit-problem">{createProblem.isPending ? "Saving..." : "Report Problem"}</Button>
+                  <Input placeholder={t("Reported by")} value={problemForm.reportedBy} onChange={e => setProblemForm(p => ({ ...p, reportedBy: e.target.value }))} data-testid="input-problem-reporter" />
+                  <Textarea placeholder={t("Notes (optional)")} value={problemForm.notes} onChange={e => setProblemForm(p => ({ ...p, notes: e.target.value }))} data-testid="input-problem-notes" />
+                  <Button className="w-full" onClick={handleAddProblem} disabled={createProblem.isPending} data-testid="button-submit-problem">{createProblem.isPending ? t("Saving...") : t("Report Problem")}</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -1163,7 +1165,7 @@ export default function Home() {
           {loadingProblems ? (
             <div className="space-y-2"><Skeleton className="h-14 rounded-md" /><Skeleton className="h-14 rounded-md" /></div>
           ) : activeProblems.length === 0 && !showCompleted ? (
-            <p className="text-sm text-muted-foreground text-center py-3" data-testid="text-no-problems">All clear!</p>
+            <p className="text-sm text-muted-foreground text-center py-3" data-testid="text-no-problems">{t("All clear!")}</p>
           ) : (
             <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
               {activeProblems.map(problem => (
@@ -1185,7 +1187,7 @@ export default function Home() {
               ))}
               {showCompleted && completedProblems.length > 0 && (
                 <>
-                  <p className="text-[10px] text-muted-foreground font-medium pt-1">Completed</p>
+                  <p className="text-[10px] text-muted-foreground font-medium pt-1">{t("Completed")}</p>
                   {completedProblems.map(problem => (
                     <div key={problem.id} className="flex items-start gap-2 p-2 rounded-md border border-border opacity-50" data-testid={`card-problem-completed-${problem.id}`}>
                       <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" />
@@ -1204,47 +1206,47 @@ export default function Home() {
     forwardLook: () => (
       <Card data-testid="container-forward5">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base font-display flex items-center gap-2"><Calendar className="w-4 h-4 text-primary" />Forward {lookAheadDays}</CardTitle>
+          <CardTitle className="text-base font-display flex items-center gap-2"><Calendar className="w-4 h-4 text-primary" />{t("Forward")} {lookAheadDays}</CardTitle>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs toggle-elevate ${lookAheadDays === 5 ? "toggle-elevated" : ""}`} onClick={() => setLookAheadDays(5)} data-testid="button-lookahead-5">5</Button>
             <Button variant="ghost" size="sm" className={`h-7 px-2 text-xs toggle-elevate ${lookAheadDays === 30 ? "toggle-elevated" : ""}`} onClick={() => setLookAheadDays(30)} data-testid="button-lookahead-30">30</Button>
             <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
               <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-event"><Plus className="w-4 h-4" /></Button></DialogTrigger>
               <DialogContent className="max-h-[90vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Add Event</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{t("Add Event")}</DialogTitle></DialogHeader>
                 <div className="space-y-3">
-                  <Input placeholder="Event title" value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} data-testid="input-event-title" />
-                  <Textarea placeholder="Description (optional)" value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} data-testid="input-event-description" />
+                  <Input placeholder={t("Event title")} value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} data-testid="input-event-title" />
+                  <Textarea placeholder={t("Description (optional)")} value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} data-testid="input-event-description" />
                   <div className="grid grid-cols-2 gap-3">
                     <Input type="date" value={eventForm.date} onChange={e => setEventForm(p => ({ ...p, date: e.target.value }))} data-testid="input-event-date" />
                     <Select value={eventForm.eventType} onValueChange={v => setEventForm(p => ({ ...p, eventType: v }))}>
                       <SelectTrigger data-testid="select-event-type"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="meeting">Meeting</SelectItem><SelectItem value="delivery">Delivery</SelectItem><SelectItem value="deadline">Deadline</SelectItem><SelectItem value="event">Event</SelectItem><SelectItem value="schedule">Schedule</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="meeting">{t("Meeting")}</SelectItem><SelectItem value="delivery">{t("Delivery")}</SelectItem><SelectItem value="deadline">{t("Deadline")}</SelectItem><SelectItem value="event">{t("Event")}</SelectItem><SelectItem value="schedule">{t("Schedule")}</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+                      <label className="text-xs font-medium text-muted-foreground">{t("Start Time")}</label>
                       <Select value={eventForm.startTime} onValueChange={v => setEventForm(p => ({ ...p, startTime: v }))}>
-                        <SelectTrigger data-testid="select-event-start-time"><SelectValue placeholder="Select time" /></SelectTrigger>
-                        <SelectContent className="max-h-60">{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                        <SelectTrigger data-testid="select-event-start-time"><SelectValue placeholder={t("Select time")} /></SelectTrigger>
+                        <SelectContent className="max-h-60">{TIME_OPTIONS.map(to => <SelectItem key={to} value={to}>{to}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">End Time</label>
+                      <label className="text-xs font-medium text-muted-foreground">{t("End Time")}</label>
                       <Select value={eventForm.endTime} onValueChange={v => setEventForm(p => ({ ...p, endTime: v }))}>
-                        <SelectTrigger data-testid="select-event-end-time"><SelectValue placeholder="Select time" /></SelectTrigger>
-                        <SelectContent className="max-h-60">{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                        <SelectTrigger data-testid="select-event-end-time"><SelectValue placeholder={t("Select time")} /></SelectTrigger>
+                        <SelectContent className="max-h-60">{TIME_OPTIONS.map(to => <SelectItem key={to} value={to}>{to}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   </div>
-                  <Input placeholder="Contact name (optional)" value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-event-contact-name" />
+                  <Input placeholder={t("Contact name (optional)")} value={eventForm.contactName} onChange={e => setEventForm(p => ({ ...p, contactName: e.target.value }))} data-testid="input-event-contact-name" />
                   <div className="grid grid-cols-2 gap-3">
-                    <Input placeholder="Phone (optional)" value={eventForm.contactPhone} onChange={e => setEventForm(p => ({ ...p, contactPhone: e.target.value }))} data-testid="input-event-contact-phone" />
-                    <Input placeholder="Email (optional)" type="email" value={eventForm.contactEmail} onChange={e => setEventForm(p => ({ ...p, contactEmail: e.target.value }))} data-testid="input-event-contact-email" />
+                    <Input placeholder={t("Phone (optional)")} value={eventForm.contactPhone} onChange={e => setEventForm(p => ({ ...p, contactPhone: e.target.value }))} data-testid="input-event-contact-phone" />
+                    <Input placeholder={t("Email (optional)")} type="email" value={eventForm.contactEmail} onChange={e => setEventForm(p => ({ ...p, contactEmail: e.target.value }))} data-testid="input-event-contact-email" />
                   </div>
-                  <Input placeholder="Address (optional)" value={eventForm.address} onChange={e => setEventForm(p => ({ ...p, address: e.target.value }))} data-testid="input-event-address" />
-                  <Button className="w-full" onClick={handleAddEvent} disabled={createEvent.isPending} data-testid="button-submit-event">{createEvent.isPending ? "Saving..." : "Add Event"}</Button>
+                  <Input placeholder={t("Address (optional)")} value={eventForm.address} onChange={e => setEventForm(p => ({ ...p, address: e.target.value }))} data-testid="input-event-address" />
+                  <Button className="w-full" onClick={handleAddEvent} disabled={createEvent.isPending} data-testid="button-submit-event">{createEvent.isPending ? t("Saving...") : t("Add Event")}</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -1264,7 +1266,7 @@ export default function Home() {
                       <span className="text-[10px] text-muted-foreground font-mono">{format(day.date, "M/d")}</span>
                     </div>
                     {day.events.length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground py-0.5 pl-3">No events</p>
+                      <p className="text-[10px] text-muted-foreground py-0.5 pl-3">{t("No events")}</p>
                     ) : (
                       <div className="space-y-0.5 pl-1">
                         {day.events.map(event => {
@@ -1294,12 +1296,12 @@ export default function Home() {
       <Link href="/schedule">
         <Card className="cursor-pointer hover-elevate" data-testid="container-my-schedule">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2"><CalendarDays className="w-4 h-4 text-primary" />My Schedule</CardTitle>
+            <CardTitle className="text-base font-display flex items-center gap-2"><CalendarDays className="w-4 h-4 text-primary" />{t("My Schedule")}</CardTitle>
             <ArrowRight className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="pt-0">
             {loadingHome ? <Skeleton className="h-10 rounded-md" /> : !homeData?.myUpcomingShifts?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-3">No upcoming shifts.</p>
+              <p className="text-sm text-muted-foreground text-center py-3">{t("No upcoming shifts.")}</p>
             ) : (
               <div className="space-y-1.5">
                 {homeData.myUpcomingShifts.slice(0, 4).map(shift => (
@@ -1322,7 +1324,7 @@ export default function Home() {
         <Link href="/calendar">
           <Card className="cursor-pointer hover-elevate" data-testid="container-my-events">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2"><Calendar className="w-4 h-4 text-purple-500" />Your Events</CardTitle>
+              <CardTitle className="text-base font-display flex items-center gap-2"><Calendar className="w-4 h-4 text-purple-500" />{t("Your Events")}</CardTitle>
               <ArrowRight className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
@@ -1347,8 +1349,8 @@ export default function Home() {
         <Link href="/calendar">
           <Card className="cursor-pointer hover-elevate" data-testid="container-my-event-jobs">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-amber-500" />Your Event Jobs</CardTitle>
-              <Badge variant="outline" className="text-[10px]">{homeData.myEventJobs.filter((j: any) => !j.completed).length} pending</Badge>
+              <CardTitle className="text-base font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-amber-500" />{t("Your Event Jobs")}</CardTitle>
+              <Badge variant="outline" className="text-[10px]">{homeData.myEventJobs.filter((j: any) => !j.completed).length} {t("pending")}</Badge>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="space-y-1.5">
@@ -1371,8 +1373,8 @@ export default function Home() {
       todayVendorOrders.length > 0 ? (
         <Card data-testid="container-today-orders">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-primary" />Today's Orders</CardTitle>
-            <Badge variant="outline" className="text-[10px]">{todayVendorOrders.length} vendors</Badge>
+            <CardTitle className="text-base font-display flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-primary" />{t("Today's Orders")}</CardTitle>
+            <Badge variant="outline" className="text-[10px]">{todayVendorOrders.length} {t("vendors")}</Badge>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="space-y-1.5">
@@ -1407,9 +1409,9 @@ export default function Home() {
         <Card data-testid="container-my-tasks">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-base font-display flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-primary" />Task Lists
+              <ClipboardList className="w-4 h-4 text-primary" />{t("Task Lists")}
             </CardTitle>
-            <Link href="/tasks"><span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Manage <ArrowRight className="w-3 h-3" /></span></Link>
+            <Link href="/tasks"><span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">{t("Manage")} <ArrowRight className="w-3 h-3" /></span></Link>
           </CardHeader>
           <CardContent className="pt-0 space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1418,12 +1420,12 @@ export default function Home() {
                   onClick={() => setTaskStatusFilter("open")}
                   className={cn("px-3 py-1 text-xs font-medium transition-colors", taskStatusFilter === "open" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
                   data-testid="button-task-filter-open"
-                >Open</button>
+                >{t("Open")}</button>
                 <button
                   onClick={() => setTaskStatusFilter("completed")}
                   className={cn("px-3 py-1 text-xs font-medium transition-colors border-l border-border", taskStatusFilter === "completed" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
                   data-testid="button-task-filter-completed"
-                >Completed</button>
+                >{t("Completed")}</button>
               </div>
               <div className="flex gap-1 flex-wrap">
                 {["all", "foh", "bakery", "kitchen", "bar"].map(dept => (
@@ -1432,7 +1434,7 @@ export default function Home() {
                     onClick={() => setTaskDeptFilter(dept)}
                     className={cn("px-2 py-0.5 text-[10px] rounded-full font-medium transition-colors capitalize border", taskDeptFilter === dept ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted")}
                     data-testid={`button-task-dept-${dept}`}
-                  >{dept === "all" ? "All" : dept.toUpperCase()}</button>
+                  >{dept === "all" ? t("All") : dept.toUpperCase()}</button>
                 ))}
               </div>
             </div>
@@ -1476,7 +1478,7 @@ export default function Home() {
         <Card className="cursor-pointer hover-elevate" id="inbox-section" data-testid="container-inbox">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-base font-display flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-primary" />Messages
+              <MessageSquare className="w-4 h-4 text-primary" />{t("Messages")}
               {unreadMessages.length > 0 && <Badge variant="destructive" className="text-[10px]" data-testid="badge-unread-count">{unreadMessages.length}</Badge>}
             </CardTitle>
             <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -1507,7 +1509,7 @@ export default function Home() {
       <Card data-testid="container-quick-actions">
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-display flex items-center gap-2">
-            <Star className="w-4 h-4 text-primary" />Quick Actions
+            <Star className="w-4 h-4 text-primary" />{t("Quick Actions")}
             {!editingQA && <button onClick={startEditingQA} className="ml-auto text-muted-foreground hover:text-foreground transition-colors" data-testid="button-edit-quick-actions"><Pencil className="w-3.5 h-3.5" /></button>}
             {editingQA && (
               <div className="ml-auto flex items-center gap-2">
@@ -1743,7 +1745,7 @@ export default function Home() {
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
-                <DialogHeader><DialogTitle>Customize Home Page</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{t("Customize Home Page")}</DialogTitle></DialogHeader>
                 <LayoutCustomizer layout={layoutConfig} onSave={handleSaveLayout} onClose={() => setShowLayoutEditor(false)} />
               </DialogContent>
             </Dialog>
@@ -1765,7 +1767,7 @@ export default function Home() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium text-amber-700 dark:text-amber-300" data-testid={`text-shift-note-label-${note.id}`}>
-                        Shift Feedback
+                        {t("Shift Feedback")}
                       </span>
                       <span className="text-xs text-muted-foreground" data-testid={`text-shift-note-date-${note.id}`}>
                         {note.shiftDate}
@@ -1783,7 +1785,7 @@ export default function Home() {
                     disabled={acknowledgeShiftNoteMutation.isPending}
                     data-testid={`button-acknowledge-shift-note-${note.id}`}
                   >
-                    <Check className="w-3.5 h-3.5 mr-1.5" />Got it
+                    <Check className="w-3.5 h-3.5 mr-1.5" />{t("Got it")}
                   </Button>
                 </div>
               ))}
@@ -1820,14 +1822,14 @@ export default function Home() {
                     </div>
                   )}
                   {selectedEvent.description && (
-                    <div><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Description</p><p className="text-sm" data-testid="text-event-detail-description">{selectedEvent.description}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{t("Description")}</p><p className="text-sm" data-testid="text-event-detail-description">{selectedEvent.description}</p></div>
                   )}
                   {selectedEvent.address && (
                     <div className="flex items-start gap-2 text-sm"><MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" /><span data-testid="text-event-detail-address">{selectedEvent.address}</span></div>
                   )}
                   {(selectedEvent.contactName || selectedEvent.contactPhone || selectedEvent.contactEmail) && (
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Contact</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{t("Contact")}</p>
                       <div className="space-y-1">
                         {selectedEvent.contactName && <p className="text-sm font-medium" data-testid="text-event-detail-contact-name">{selectedEvent.contactName}</p>}
                         {selectedEvent.contactPhone && <div className="flex items-center gap-2 text-sm"><Phone className="w-3.5 h-3.5 text-muted-foreground" /><a href={`tel:${selectedEvent.contactPhone}`} className="underline" data-testid="link-event-detail-phone">{selectedEvent.contactPhone}</a></div>}
@@ -1837,7 +1839,7 @@ export default function Home() {
                   )}
                   {selectedEvent.id > 0 && (
                     <div className="flex justify-end pt-2 border-t border-border">
-                      <Button variant="destructive" size="sm" onClick={() => { deleteEvent.mutate(selectedEvent.id); setSelectedEvent(null); }} data-testid="button-delete-event-detail"><Trash2 className="w-4 h-4 mr-1" />Delete Event</Button>
+                      <Button variant="destructive" size="sm" onClick={() => { deleteEvent.mutate(selectedEvent.id); setSelectedEvent(null); }} data-testid="button-delete-event-detail"><Trash2 className="w-4 h-4 mr-1" />{t("Delete Event")}</Button>
                     </div>
                   )}
                 </div>

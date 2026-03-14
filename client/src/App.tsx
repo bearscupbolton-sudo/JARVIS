@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { LocationProvider } from "@/hooks/use-location-context";
+import { LanguageContext } from "@/lib/i18n";
 import { Layout } from "@/components/Layout";
 import LobbyCheckAlert from "@/components/LobbyCheckAlert";
 import BakeryTimerAlert from "@/components/BakeryTimerAlert";
@@ -279,6 +280,7 @@ function WholesaleProtectedRoute({ component: Component, skipOnboardingCheck }: 
 function Router() {
   const { user, isLoading } = useAuth();
   const prefetched = useRef(false);
+  const userLang = (user as any)?.language || "en";
 
   useEffect(() => {
     if (user && !prefetched.current) {
@@ -297,6 +299,7 @@ function Router() {
   }
 
   return (
+    <LanguageContext.Provider value={userLang}>
     <ChunkErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
@@ -528,6 +531,7 @@ function Router() {
       </Switch>
     </Suspense>
     </ChunkErrorBoundary>
+    </LanguageContext.Provider>
   );
 }
 

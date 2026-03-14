@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye, Globe } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LANGUAGE_OPTIONS } from "@/lib/i18n";
+import { LANGUAGE_OPTIONS, useTranslation } from "@/lib/i18n";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -51,6 +51,7 @@ export default function Profile() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [phone, setPhone] = useState(user?.phone || "");
   const [smsOptIn, setSmsOptIn] = useState(user?.smsOptIn || false);
@@ -324,22 +325,22 @@ export default function Profile() {
 
   const hasNameChanged = form.watch("username")?.trim() !== (user.username || "");
   const hasContactChanged = phone.trim() !== (user.phone || "") || smsOptIn !== (user.smsOptIn || false) || birthday.trim() !== (user.birthday || "");
-  const roleLabel = user.role === "owner" ? "Owner" : user.role === "manager" ? "Manager" : "Team Member";
+  const roleLabel = user.role === "owner" ? t("Owner") : user.role === "manager" ? t("Manager") : t("Team Member");
   const pushSupported = "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
   const pushEnabled = pushStatus?.enabled || false;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-xl">
       <div>
-        <h1 className="text-3xl font-display font-bold">Profile</h1>
-        <p className="text-muted-foreground">Manage your display name, contact info, and notification preferences.</p>
+        <h1 className="text-3xl font-display font-bold">{t("Profile")}</h1>
+        <p className="text-muted-foreground">{t("Manage your display name, contact info, and notification preferences.")}</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserCircle className="w-5 h-5" />
-            Your Info
+            {t("Your Info")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -350,7 +351,7 @@ export default function Profile() {
                 name="username"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Display Name</FormLabel>
+                    <FormLabel>{t("Display Name")}</FormLabel>
                     <div className="flex gap-2">
                       <FormControl>
                         <Input
@@ -366,7 +367,7 @@ export default function Profile() {
                         data-testid="button-save-username"
                       >
                         <Save className="w-4 h-4 mr-2" />
-                        {mutation.isPending ? "Saving..." : "Save"}
+                        {mutation.isPending ? t("Saving...") : t("Save")}
                       </Button>
                     </div>
                     <FormMessage />
@@ -379,11 +380,11 @@ export default function Profile() {
 
           <div className="space-y-3 pt-2 border-t border-border">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Email</span>
+              <span className="text-sm text-muted-foreground">{t("Email")}</span>
               <span className="text-sm" data-testid="text-profile-email">{user.email || "Not set"}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Role</span>
+              <span className="text-sm text-muted-foreground">{t("Role")}</span>
               <Badge variant={user.role === "owner" ? "default" : "secondary"} data-testid="text-profile-role">
                 {roleLabel}
               </Badge>
@@ -402,12 +403,12 @@ export default function Profile() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <KeyRound className="w-5 h-5" />
-            Change PIN
+            {t("Change PIN")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Current PIN</label>
+            <label className="text-sm font-medium">{t("Current PIN")}</label>
             <Input
               type="password"
               inputMode="numeric"
@@ -420,7 +421,7 @@ export default function Profile() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">New PIN</label>
+            <label className="text-sm font-medium">{t("New PIN")}</label>
             <Input
               type="password"
               inputMode="numeric"
@@ -433,7 +434,7 @@ export default function Profile() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Confirm New PIN</label>
+            <label className="text-sm font-medium">{t("Confirm New PIN")}</label>
             <Input
               type="password"
               inputMode="numeric"
@@ -452,7 +453,7 @@ export default function Profile() {
             data-testid="button-change-pin"
           >
             <KeyRound className="w-4 h-4 mr-2" />
-            {pinMutation.isPending ? "Updating..." : "Update PIN"}
+            {pinMutation.isPending ? t("Updating...") : t("Update PIN")}
           </Button>
         </CardContent>
       </Card>
@@ -461,14 +462,14 @@ export default function Profile() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Phone className="w-5 h-5" />
-            Contact & Notifications
+            {t("Contact & Preferences")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <label className="text-sm font-medium flex items-center gap-2">
               <Cake className="w-4 h-4" />
-              Birthday
+              {t("Birthday")}
             </label>
             <Input
               type="date"
@@ -479,7 +480,7 @@ export default function Profile() {
             <p className="text-xs text-muted-foreground mt-1">Your birthday will appear on the team calendar</p>
           </div>
           <div>
-            <label className="text-sm font-medium">Phone Number</label>
+            <label className="text-sm font-medium">{t("Phone Number")}</label>
             <Input
               value={phone}
               onChange={e => setPhone(e.target.value)}
@@ -494,8 +495,8 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <Bell className="w-4 h-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">SMS Notifications</p>
-                <p className="text-xs text-muted-foreground">Get text alerts for schedule changes</p>
+                <p className="text-sm font-medium">{t("SMS Notifications")}</p>
+                <p className="text-xs text-muted-foreground">{t("Get text alerts for schedule changes")}</p>
               </div>
             </div>
             <Button
@@ -512,8 +513,8 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <img src="/bear-logo.png" alt="Jarvis" className="w-4 h-4 rounded-full" />
               <div>
-                <p className="text-sm font-medium">Daily Briefing</p>
-                <p className="text-xs text-muted-foreground">Show personalized AI briefing on home page</p>
+                <p className="text-sm font-medium">{t("Daily Briefing")}</p>
+                <p className="text-xs text-muted-foreground">{t("Show personalized AI briefing on home page")}</p>
               </div>
             </div>
             <Button
@@ -535,8 +536,8 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Language</p>
-                <p className="text-xs text-muted-foreground">Choose your preferred language</p>
+                <p className="text-sm font-medium">{t("Language")}</p>
+                <p className="text-xs text-muted-foreground">{t("Choose your preferred language")}</p>
               </div>
             </div>
             <Select
@@ -567,8 +568,8 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Demo Mode</p>
-                <p className="text-xs text-muted-foreground">Show sample data instead of real operational data</p>
+                <p className="text-sm font-medium">{t("Demo Mode")}</p>
+                <p className="text-xs text-muted-foreground">{t("Show sample data instead of real operational data")}</p>
               </div>
             </div>
             <Button
@@ -593,7 +594,7 @@ export default function Profile() {
             data-testid="button-save-contact"
           >
             <Save className="w-4 h-4 mr-2" />
-            {contactMutation.isPending ? "Saving..." : "Save Contact Info"}
+            {contactMutation.isPending ? t("Saving...") : t("Save Contact Info")}
           </Button>
         </CardContent>
       </Card>
@@ -602,7 +603,7 @@ export default function Profile() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BellRing className="w-5 h-5" />
-            Push Notifications
+            {t("Push Notifications")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

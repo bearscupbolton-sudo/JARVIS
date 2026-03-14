@@ -1,3 +1,5 @@
+import { createContext, useContext } from "react";
+
 const translations: Record<string, Record<string, string>> = {
   fr: {
     "Home": "Accueil",
@@ -31,6 +33,16 @@ const translations: Record<string, Record<string, string>> = {
     "No": "Non",
     "OK": "OK",
     "Confirm": "Confirmer",
+    "Saving...": "Enregistrement...",
+    "Posting...": "Publication...",
+    "Open": "Ouvert",
+    "Completed": "Terminé",
+    "All": "Tous",
+    "Manage": "Gérer",
+    "Read": "Lu",
+    "Got it": "Compris",
+    "All clear!": "Tout est en ordre !",
+    "No events": "Aucun événement",
 
     "Your Info": "Vos Informations",
     "Display Name": "Nom d'affichage",
@@ -49,16 +61,86 @@ const translations: Record<string, Record<string, string>> = {
     "Change PIN": "Changer le PIN",
     "Save Contact Info": "Enregistrer les Infos",
     "Update Display Name": "Mettre à Jour le Nom",
+    "Notifications & Preferences": "Notifications & Préférences",
+    "Current PIN": "PIN Actuel",
+    "New PIN": "Nouveau PIN",
+    "Confirm New PIN": "Confirmer le Nouveau PIN",
+    "Update PIN": "Mettre à Jour le PIN",
+    "Updating...": "Mise à jour...",
 
+    "Burning the midnight oil": "Travail de nuit",
     "Good morning": "Bonjour",
     "Good afternoon": "Bon après-midi",
     "Good evening": "Bonsoir",
     "Today's Production": "Production du Jour",
+    "Production Today": "Production du Jour",
     "My Schedule": "Mon Horaire",
     "Announcements": "Annonces",
     "Quick Actions": "Actions Rapides",
     "Upcoming Events": "Événements à Venir",
     "Pending Tasks": "Tâches en Attente",
+    "Your Events": "Vos Événements",
+    "Your Event Jobs": "Vos Tâches Événement",
+    "Today's Orders": "Commandes du Jour",
+    "Task Lists": "Listes de Tâches",
+    "Who's On": "Qui Travaille",
+    "Forward": "Prochains",
+    "Pre-Shift Notes": "Notes Pré-Service",
+    "Problems": "Problèmes",
+    "Customize Home Page": "Personnaliser la Page d'Accueil",
+    "Shift Feedback": "Retour de Service",
+    "No shifts today.": "Aucun quart aujourd'hui.",
+    "No upcoming shifts.": "Aucun quart à venir.",
+    "Nothing baked yet today.": "Rien d'enfourné aujourd'hui.",
+    "No notes for today.": "Aucune note pour aujourd'hui.",
+    "All notes acknowledged.": "Toutes les notes ont été lues.",
+    "Layout saved": "Mise en page enregistrée",
+    "Your home page layout has been updated.": "La mise en page de votre page d'accueil a été mise à jour.",
+
+    "Unread": "Non lus",
+    "Shifts": "Quarts",
+    "Staff Today": "Personnel Aujourd'hui",
+    "pending": "en attente",
+    "on": "en service",
+
+    "Report a Problem": "Signaler un Problème",
+    "What's the problem?": "Quel est le problème ?",
+    "Details (optional)": "Détails (optionnel)",
+    "Location": "Emplacement",
+    "Reported by": "Signalé par",
+    "Notes (optional)": "Notes (optionnel)",
+    "Report Problem": "Signaler le Problème",
+    "Critical": "Critique",
+    "High": "Élevée",
+    "Medium": "Moyenne",
+    "Low": "Faible",
+
+    "Add Event": "Ajouter un Événement",
+    "Event title": "Titre de l'événement",
+    "Description (optional)": "Description (optionnel)",
+    "Contact name (optional)": "Nom du contact (optionnel)",
+    "Phone (optional)": "Téléphone (optionnel)",
+    "Email (optional)": "Courriel (optionnel)",
+    "Address (optional)": "Adresse (optionnel)",
+    "Start Time": "Heure de Début",
+    "End Time": "Heure de Fin",
+    "Select time": "Choisir l'heure",
+    "Meeting": "Réunion",
+    "Delivery": "Livraison",
+    "Deadline": "Date Limite",
+    "Event": "Événement",
+
+    "Add Pre-Shift Note": "Ajouter une Note Pré-Service",
+    "Post a note for the team. You can schedule notes for future days.": "Publier une note pour l'équipe. Vous pouvez planifier des notes pour les jours suivants.",
+    "Note": "Note",
+    "What does the team need to know?": "Que doit savoir l'équipe ?",
+    "Post Note": "Publier la Note",
+    "Date": "Date",
+    "Hide read": "Masquer les lus",
+
+    "Description": "Description",
+    "Contact": "Contact",
+    "Delete Event": "Supprimer l'Événement",
 
     "Owner": "Propriétaire",
     "Manager": "Gérant",
@@ -71,7 +153,6 @@ const translations: Record<string, Record<string, string>> = {
     "Pending": "En Attente",
     "Approved": "Approuvé",
     "Denied": "Refusé",
-    "Completed": "Terminé",
     "Cancelled": "Annulé",
 
     "Monday": "Lundi",
@@ -88,6 +169,8 @@ const translations: Record<string, Record<string, string>> = {
     "Fri": "Ven",
     "Sat": "Sam",
     "Sun": "Dim",
+    "Today": "Aujourd'hui",
+    "Tomorrow": "Demain",
 
     "No results found": "Aucun résultat trouvé",
     "No data available": "Aucune donnée disponible",
@@ -95,7 +178,6 @@ const translations: Record<string, Record<string, string>> = {
     "Are you sure?": "Êtes-vous sûr ?",
     "This action cannot be undone": "Cette action est irréversible",
 
-    "Recipes": "Recettes",
     "Recipe Name": "Nom de la Recette",
     "Ingredients": "Ingrédients",
     "Instructions": "Instructions",
@@ -108,10 +190,7 @@ const translations: Record<string, Record<string, string>> = {
     "Unit": "Unité",
     "Price": "Prix",
     "Total": "Total",
-    "Notes": "Notes",
-    "Description": "Description",
     "Status": "Statut",
-    "Date": "Date",
     "Time": "Heure",
     "Name": "Nom",
     "Department": "Département",
@@ -159,11 +238,31 @@ const translations: Record<string, Record<string, string>> = {
     "Live Inventory": "Inventaire en Direct",
     "Dev Feedback": "Retours Dev",
     "Tutorials": "Tutoriels",
+    "Prep EQ": "Préparation EQ",
+    "Component levels & production tracking": "Niveaux de composants & suivi de production",
 
     "Demo Mode — Showing sample data": "Mode Démo — Données exemples affichées",
+    "Lead — All Locations": "Responsable — Tous les Sites",
 
     "English": "Anglais",
     "French": "Français",
+
+    "Clear": "Effacer",
+    "Refresh": "Actualiser",
+    "Baker": "Boulanger",
+    "vendors": "fournisseurs",
+
+    "Manage your display name, contact info, and notification preferences.": "Gérez votre nom d'affichage, vos coordonnées et vos préférences de notification.",
+    "Email": "Courriel",
+    "Not set": "Non défini",
+    "Status": "Statut",
+    "Read Only": "Lecture seule",
+    "No messages": "Aucun message",
+    "Urgent": "Urgent",
+    "Schedule": "Horaire",
+    "What's the problem?": "Quel est le problème ?",
+    "My Schedule": "Mon Horaire",
+    "Who's On": "Qui Travaille",
   },
 };
 
@@ -172,8 +271,10 @@ export function t(key: string, lang: string = "en"): string {
   return translations[lang]?.[key] || key;
 }
 
-export function useTranslation(language?: string) {
-  const lang = language || "en";
+export const LanguageContext = createContext<string>("en");
+
+export function useTranslation() {
+  const lang = useContext(LanguageContext);
   return {
     t: (key: string) => t(key, lang),
     lang,

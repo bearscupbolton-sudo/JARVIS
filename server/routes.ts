@@ -8014,12 +8014,15 @@ MANAGER NOTES — If a "MANAGER NOTE FOR THIS PERSON" appears in the data, it co
 
 WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operational activity beyond the shift info, keep it short, warm, and genuinely uplifting — offer a kind thought, acknowledge something about them, or share a positive note about the day. Be real and human, like a teammate who wants them to have a good day.`;
 
+      const userLang = (context.user as any).language || "en";
+      const langInstruction = userLang === "fr" ? "\n\nIMPORTANT: Respond entirely in French. Use natural, warm French — not stiff formal French. Address them with 'tu' not 'vous'." : "";
+
       const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
 Time: Good ${timeOfDay}
 Current bakery state data (ONLY reference items that appear here — do not invent anything):
 ${stateLines.join("\n")}
 
-Generate a personalized, empathetic briefing for ${context.user.firstName}. Remember: only state facts from the data above. Make them feel noticed and valued.`;
+Generate a personalized, empathetic briefing for ${context.user.firstName}. Remember: only state facts from the data above. Make them feel noticed and valued.${langInstruction}`;
 
       const OpenAI = (await import("openai")).default;
       const briefingAI = new OpenAI({

@@ -62,7 +62,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { t } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 
 const BearLogoIcon = ({ className }: { className?: string }) => (
   <img src="/bear-logo.png" alt="Jarvis" className={cn("rounded-sm object-contain", className)} />
@@ -176,7 +176,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [shortcuts, setShortcuts] = React.useState<string[]>(loadShortcuts);
   const [editingShortcuts, setEditingShortcuts] = React.useState(false);
   const [editDraft, setEditDraft] = React.useState<string[]>([]);
-  const userLang = (user as any)?.language || "en";
+  const { t } = useTranslation();
   const isOwner = user?.role === "owner";
   const isGeneralManager = !!(user as any)?.isGeneralManager;
   const sidebarPerms: string[] | null = (user as any)?.sidebarPermissions ?? null;
@@ -311,7 +311,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 onClick={() => setMobileOpen(false)}
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                <span className="font-medium">{t(item.label, userLang)}</span>
+                <span className="font-medium">{t(item.label)}</span>
                 {item.label === "Messages" && (
                   <div className="ml-auto flex items-center gap-1.5">
                     {urgentData && urgentData.count > 0 && (
@@ -362,7 +362,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`shortcut-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     <item.icon className={cn("w-4 h-4", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="text-sm font-medium">{t(item.label, userLang)}</span>
+                    <span className="text-sm font-medium">{t(item.label)}</span>
                   </div>
                 </PrefetchLink>
               );
@@ -410,7 +410,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`shortcut-option-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     <item.icon className={cn("w-4 h-4", selected ? "text-primary" : "")} />
-                    <span className="text-sm font-medium flex-1">{t(item.label, userLang)}</span>
+                    <span className="text-sm font-medium flex-1">{t(item.label)}</span>
                     {selected && <Check className="w-3.5 h-3.5 text-primary" />}
                   </div>
                 );
@@ -436,7 +436,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 onClick={() => setMobileOpen(false)}
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                <span className="font-medium">{t(item.label, userLang)}</span>
+                <span className="font-medium">{t(item.label)}</span>
               </div>
             </PrefetchLink>
           );
@@ -462,7 +462,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`nav-${item.label.toLowerCase()}`}
                   >
                     <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label, userLang)}</span>
+                    <span className="font-medium">{t(item.label)}</span>
                   </div>
                 </PrefetchLink>
               );
@@ -482,7 +482,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`nav-${item.label.toLowerCase()}`}
                   >
                     <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label, userLang)}</span>
+                    <span className="font-medium">{t(item.label)}</span>
                     {item.label === "Approvals" && pendingCount && pendingCount.count > 0 && (
                       <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-pending-count">
                         {pendingCount.count}
@@ -507,7 +507,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`nav-${item.label.toLowerCase()}`}
                   >
                     <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label, userLang)}</span>
+                    <span className="font-medium">{t(item.label)}</span>
                   </div>
                 </PrefetchLink>
               );
@@ -540,7 +540,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-testid="button-logout"
         >
           <LogOut className="w-4 h-4" />
-          {t("Sign Out", userLang)}
+          {t("Sign Out")}
         </Button>
       </div>
     </div>
@@ -579,7 +579,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
           {!!(user as any)?.demoMode && (
             <div className="bg-amber-500/90 text-white text-center py-1.5 px-4 text-sm font-medium" data-testid="banner-demo-mode">
-              {t("Demo Mode — Showing sample data", userLang)}
+              {t("Demo Mode — Showing sample data")}
             </div>
           )}
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">
