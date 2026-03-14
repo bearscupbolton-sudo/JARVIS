@@ -322,6 +322,8 @@ export const customerFeedback = pgTable("customer_feedback", {
   email: text("email"),
   visitDate: text("visit_date"),
   locationId: integer("location_id"),
+  jarvisResponse: text("jarvis_response"),
+  followUpToken: text("follow_up_token"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

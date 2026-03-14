@@ -2058,7 +2058,79 @@ FORMAT RULES for the content field:
         console.error("Failed to link feedback to shifts:", linkErr);
       }
 
-      res.status(201).json(feedback);
+      let jarvisResponse: string | null = null;
+      let followUpToken: string | null = null;
+      if (rating < 5) {
+        const { randomBytes } = await import("crypto");
+        followUpToken = randomBytes(32).toString("hex");
+
+        try {
+          const OpenAI = (await import("openai")).default;
+          const ai = new OpenAI({
+            apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+            baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+          });
+          const customerName = feedback.name || "friend";
+          const systemMsg = `You are Jarvis, the warm and caring voice of Bear's Cup Bakehouse. A customer just left feedback that wasn't a perfect 5-star rating. Your job is to write a short, heartfelt, personalized response that:
+1. Sincerely acknowledges their specific feedback (reference what they said if a comment was provided)
+2. Expresses genuine gratitude for their honesty — their feedback matters MORE than a perfect score
+3. Naturally mentions that if they're still in the shop, they're welcome to bring the item to the expo counter for a fresh remake or a full refund — no questions asked
+4. Lets them know they can also leave their email and we'll personally follow up to make things right
+5. Closes with appreciation for their business
+
+Tone: Warm, genuine, humble. Like a bakery owner who truly cares — not corporate, not scripted. Short and sweet (3-5 sentences max). Do NOT use bullet points or numbered lists. Write it as a flowing, natural message. Use their name naturally if provided.`;
+
+          const userMsg = `Customer: ${customerName}
+Rating: ${rating}/5 stars
+${feedback.comment ? `Their comment: "${feedback.comment}"` : "No comment provided — they just rated us."}
+
+Write the personalized response:`;
+
+          const completion = await ai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: systemMsg },
+              { role: "user", content: userMsg },
+            ],
+            max_tokens: 200,
+            temperature: 0.7,
+          });
+          jarvisResponse = completion.choices[0]?.message?.content || null;
+        } catch (aiErr) {
+          console.error("Failed to generate Jarvis feedback response:", aiErr);
+        }
+
+        await db.update(customerFeedback).set({
+          jarvisResponse,
+          followUpToken,
+        }).where(eq(customerFeedback.id, feedback.id));
+      }
+
+      res.status(201).json({ ...feedback, jarvisResponse, followUpToken });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/feedback/:id/email", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { email, token } = req.body;
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ message: "Valid email is required" });
+      }
+      if (!token || typeof token !== "string") {
+        return res.status(403).json({ message: "Invalid token" });
+      }
+      const [existing] = await db.select().from(customerFeedback).where(eq(customerFeedback.id, id));
+      if (!existing || existing.followUpToken !== token) {
+        return res.status(403).json({ message: "Invalid token" });
+      }
+      await db.update(customerFeedback).set({
+        email: email.trim().slice(0, 200),
+        followUpToken: null,
+      }).where(eq(customerFeedback.id, id));
+      res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }

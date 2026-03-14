@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Star, Send, CheckCircle2, Coffee } from "lucide-react";
+import { Star, Send, CheckCircle2, Coffee, Heart, Mail, Loader2 } from "lucide-react";
 
 export default function CustomerFeedback() {
   const [rating, setRating] = useState(0);
@@ -13,6 +13,12 @@ export default function CustomerFeedback() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [feedbackId, setFeedbackId] = useState<number | null>(null);
+  const [jarvisResponse, setJarvisResponse] = useState<string | null>(null);
+  const [submittedRating, setSubmittedRating] = useState(0);
+  const [followUpEmail, setFollowUpEmail] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [followUpToken, setFollowUpToken] = useState<string | null>(null);
 
   const locationId = (() => {
     const params = new URLSearchParams(window.location.search);
@@ -22,18 +28,121 @@ export default function CustomerFeedback() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/feedback", {
+      const res = await apiRequest("POST", "/api/feedback", {
         rating,
         comment: comment.trim() || null,
         name: name.trim() || null,
         email: email.trim() || null,
         locationId,
       });
+      return res.json();
     },
-    onSuccess: () => setSubmitted(true),
+    onSuccess: (data: any) => {
+      setFeedbackId(data.id);
+      setJarvisResponse(data.jarvisResponse || null);
+      setFollowUpToken(data.followUpToken || null);
+      setSubmittedRating(rating);
+      setSubmitted(true);
+    },
   });
 
+  const emailMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/feedback/${feedbackId}/email`, {
+        email: followUpEmail.trim(),
+        token: followUpToken,
+      });
+    },
+    onSuccess: () => setEmailSent(true),
+  });
+
+  const fallbackMessage = "We truly appreciate you taking the time to share your thoughts with us. Your honesty means the world — it's how we get better. If you're still in the shop, please feel free to bring your item to the expo counter and we'll gladly make it fresh or offer a full refund, no questions asked. If you'd like us to follow up, just drop your email below and we'll personally reach out to make things right. Thank you for being part of the Bear's Cup family.";
+
   if (submitted) {
+    if (submittedRating < 5) {
+      const displayMessage = jarvisResponse || fallbackMessage;
+      return (
+        <div className="min-h-screen bg-gradient-to-b from-amber-50 to-orange-50 dark:from-neutral-950 dark:to-neutral-900 flex items-center justify-center p-4">
+          <div className="w-full max-w-md space-y-6 animate-in fade-in duration-500">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 mx-auto flex items-center justify-center">
+                <Heart className="w-8 h-8 text-amber-700 dark:text-amber-400" />
+              </div>
+              <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100" data-testid="text-jarvis-response-title">
+                A message from Bear's Cup
+              </h1>
+            </div>
+
+            <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-lg p-6 space-y-5 border border-neutral-200 dark:border-neutral-800">
+              <p className="text-neutral-700 dark:text-neutral-300 text-[15px] leading-relaxed whitespace-pre-line" data-testid="text-jarvis-response">
+                {displayMessage}
+              </p>
+
+              <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-3">
+                {!emailSent ? (
+                  <>
+                    <div className="flex items-start gap-2">
+                      <Mail className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                        Want us to follow up personally? Drop your email below and we'll reach out to make it right.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        type="email"
+                        placeholder="your@email.com"
+                        value={followUpEmail}
+                        onChange={(e) => setFollowUpEmail(e.target.value)}
+                        className="flex-1"
+                        data-testid="input-followup-email"
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!followUpEmail.includes("@") || emailMutation.isPending}
+                        onClick={() => emailMutation.mutate()}
+                        data-testid="button-send-email"
+                      >
+                        {emailMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400" data-testid="text-email-confirmed">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <p className="text-sm font-medium">Got it — we'll be in touch soon!</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setSubmitted(false);
+                setRating(0);
+                setComment("");
+                setName("");
+                setEmail("");
+                setFollowUpEmail("");
+                setEmailSent(false);
+                setJarvisResponse(null);
+                setFeedbackId(null);
+                setFollowUpToken(null);
+              }}
+              data-testid="button-submit-another"
+            >
+              Leave Another Review
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-b from-amber-50 to-orange-50 dark:from-neutral-950 dark:to-neutral-900 flex items-center justify-center p-4">
         <div className="text-center max-w-md space-y-6 animate-in fade-in duration-500">
@@ -54,6 +163,11 @@ export default function CustomerFeedback() {
               setComment("");
               setName("");
               setEmail("");
+              setFollowUpEmail("");
+              setEmailSent(false);
+              setJarvisResponse(null);
+              setFeedbackId(null);
+              setFollowUpToken(null);
             }}
             data-testid="button-submit-another"
           >
@@ -163,7 +277,10 @@ export default function CustomerFeedback() {
             data-testid="button-submit-feedback"
           >
             {submitMutation.isPending ? (
-              "Sending..."
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Sending...
+              </>
             ) : (
               <>
                 <Send className="w-4 h-4 mr-2" />

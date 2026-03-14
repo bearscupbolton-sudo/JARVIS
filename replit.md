@@ -39,7 +39,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **KPI Report System:** Detailed business metrics with comparative analysis.
 *   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation, with employee-facing tip totals on the Home page ClockBar.
 *   **Test Kitchen:** Collaborative specials development with ingredient builders, real-time costing, and "Jarvis Optimize" for AI recipe analysis.
-*   **Customer Feedback & QR Code:** Public-facing, location-aware feedback page with QR code generator.
+*   **Customer Feedback & QR Code:** Public-facing, location-aware feedback page with QR code generator. Sub-5-star submissions trigger a personalized Jarvis AI response offering expo counter remake/refund and email follow-up, secured with one-time capability tokens. Falls back to a warm static message if AI is unavailable.
 *   **Sentiment Matrix:** Owner/GM dashboard correlating customer feedback with clocked-in team members.
 *   **The Loop:** Manager-level feedback action dashboard with sentiment trends and AI-extracted themes.
 *   **Platform 9¾ (FOH Command Center):** Full-screen kiosk display for FOH with filtered tasks, 86'd items, live oven timers, and FOH backup alerts.
