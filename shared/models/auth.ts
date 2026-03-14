@@ -54,6 +54,7 @@ export const users = pgTable("users", {
   briefingNotesDate: date("briefing_notes_date"),
   language: varchar("language").default("en").notNull(),
   demoMode: boolean("demo_mode").default(false).notNull(),
+  seenJarvisIntro: boolean("seen_jarvis_intro").default(false).notNull(),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),
   createdAt: timestamp("created_at").defaultNow(),

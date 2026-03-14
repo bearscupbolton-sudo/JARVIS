@@ -57,6 +57,26 @@ export default function AdminUsers() {
     },
   });
 
+  const { data: introNoteData } = useQuery<{ value: string | null }>({
+    queryKey: ["/api/settings/jarvis-intro-note"],
+    enabled: isOwner,
+  });
+  const [introNote, setIntroNote] = useState("");
+  const introNoteLoaded = useRef(false);
+  useEffect(() => {
+    if (introNoteData && !introNoteLoaded.current) {
+      setIntroNote(introNoteData.value || "");
+      introNoteLoaded.current = true;
+    }
+  }, [introNoteData]);
+  const introNoteMutation = useMutation({
+    mutationFn: (note: string) => apiRequest("PUT", "/api/settings/jarvis-intro-note", { note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/jarvis-intro-note"] });
+      toast({ title: "Intro note saved" });
+    },
+  });
+
   const forceLogoutMutation = useMutation({
     mutationFn: async (message?: string) => {
       const res = await apiRequest("POST", "/api/admin/force-logout", message ? { message } : {});
@@ -170,6 +190,48 @@ export default function AdminUsers() {
           </Button>
         </div>
       </div>
+
+      {isOwner && (
+        <Card className="border-amber-200/50 dark:border-amber-700/30 bg-amber-50/30 dark:bg-amber-950/20">
+          <CardContent className="p-4 space-y-2">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <img src="/bear-logo.png" alt="Jarvis" className="w-3.5 h-3.5 rounded-full" />
+              First-Time Intro Note
+            </Label>
+            <p className="text-[11px] text-muted-foreground">This custom note appears above the Jarvis intro pitch when anyone logs in for the first time (e.g. "We're so excited for you to join the team!")</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Add a personal touch to the intro..."
+                value={introNote}
+                onChange={(e) => setIntroNote(e.target.value)}
+                className="text-sm"
+                data-testid="input-intro-note"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => introNoteMutation.mutate(introNote)}
+                disabled={introNoteMutation.isPending}
+                data-testid="button-save-intro-note"
+              >
+                <Save className="w-3.5 h-3.5 mr-1" />
+                Save
+              </Button>
+              {introNote && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  onClick={() => { setIntroNote(""); introNoteMutation.mutate(""); }}
+                  data-testid="button-clear-intro-note"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {users?.map((u) => {

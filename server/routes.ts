@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
@@ -7867,6 +7867,40 @@ ${sopsHtml}
   });
 
   // === JARVIS BRIEFING ===
+  app.get("/api/settings/jarvis-intro-note", isAuthenticated, async (_req, res) => {
+    try {
+      const [row] = await db.select().from(appSettings).where(eq(appSettings.key, "jarvis_intro_note"));
+      res.json({ value: row?.value || null });
+    } catch (err: any) {
+      res.json({ value: null });
+    }
+  });
+
+  app.put("/api/settings/jarvis-intro-note", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { note } = req.body;
+      const value = typeof note === "string" ? note.trim().slice(0, 500) : "";
+      const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, "jarvis_intro_note"));
+      if (existing) {
+        await db.update(appSettings).set({ value }).where(eq(appSettings.key, "jarvis_intro_note"));
+      } else {
+        await db.insert(appSettings).values({ key: "jarvis_intro_note", value });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/user/dismiss-jarvis-intro", isAuthenticated, async (req: any, res) => {
+    try {
+      await db.update(users).set({ seenJarvisIntro: true }).where(eq(users.id, req.appUser.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/home/jarvis-briefing", isAuthenticated, async (req: any, res) => {
     try {
       const context = await storage.getJarvisBriefingContext(req.appUser.id);
