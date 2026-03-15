@@ -104,20 +104,19 @@ function PageLoader() {
   );
 }
 
-class ChunkErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; isChunkError: boolean; errorMessage: string }> {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, isChunkError: false, errorMessage: "" };
   }
 
   static getDerivedStateFromError(error: Error) {
-    if (error?.message?.includes("Failed to fetch dynamically imported module") ||
-        error?.message?.includes("Loading chunk") ||
-        error?.message?.includes("Loading CSS chunk") ||
-        error?.message?.includes("Importing a module script failed")) {
-      return { hasError: true };
-    }
-    throw error;
+    const isChunkError =
+      error?.message?.includes("Failed to fetch dynamically imported module") ||
+      error?.message?.includes("Loading chunk") ||
+      error?.message?.includes("Loading CSS chunk") ||
+      error?.message?.includes("Importing a module script failed");
+    return { hasError: true, isChunkError, errorMessage: error?.message || "Unknown error" };
   }
 
   componentDidCatch(error: Error, _info: ErrorInfo) {
@@ -134,20 +133,48 @@ class ChunkErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
         window.location.reload();
       }
     }
+    console.error("[AppErrorBoundary]", error, _info);
   }
 
   render() {
     if (this.state.hasError) {
+      if (this.state.isChunkError) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
+            <p className="text-sm text-muted-foreground">A new version is available.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90"
+              data-testid="button-reload-app"
+            >
+              Reload App
+            </button>
+          </div>
+        );
+      }
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
-          <p className="text-sm text-muted-foreground">A new version is available.</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90"
-            data-testid="button-reload-app"
-          >
-            Reload App
-          </button>
+          <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-2">
+            <span className="text-xl">!</span>
+          </div>
+          <h2 className="text-lg font-semibold" data-testid="text-error-title">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground max-w-md">This page ran into an issue. Try going back or refreshing.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { window.location.href = "/"; }}
+              className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90"
+              data-testid="button-go-home"
+            >
+              Go Home
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-sm border rounded-md hover:bg-muted"
+              data-testid="button-reload-page"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       );
     }
@@ -301,7 +328,7 @@ function Router() {
 
   return (
     <LanguageContext.Provider value={userLang}>
-    <ChunkErrorBoundary>
+    <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/login" component={Login} />
@@ -531,7 +558,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </Suspense>
-    </ChunkErrorBoundary>
+    </AppErrorBoundary>
     {user && !(user as any).seenJarvisIntro && <JarvisIntroOverlay user={user} />}
     </LanguageContext.Provider>
   );
