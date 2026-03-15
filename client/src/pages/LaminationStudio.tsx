@@ -214,7 +214,7 @@ export default function LaminationStudio() {
 
   const { data: ovenTimers = [] } = useQuery<KioskTimer[]>({
     queryKey: ["/api/kiosk/timers"],
-    refetchInterval: 10000,
+    refetchInterval: 30000,
     refetchOnWindowFocus: true,
   });
 
