@@ -1,4 +1,4 @@
-var CACHE_VERSION = 4;
+var CACHE_VERSION = 5;
 var CACHE_NAME = 'jarvis-v' + CACHE_VERSION;
 var MEDIA_CACHE_NAME = 'jarvis-media-v1';
 var MEDIA_CACHE_LIMIT = 200;
