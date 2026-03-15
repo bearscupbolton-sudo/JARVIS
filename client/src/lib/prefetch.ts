@@ -71,7 +71,7 @@ export function prefetchRoute(path: string): void {
   });
 }
 
-const CORE_ROUTES = ["/", "/recipes", "/schedule", "/production", "/messages", "/tasks"];
+const CORE_ROUTES = ["/", "/schedule", "/messages", "/tasks", "/recipes", "/production", "/lamination", "/inventory", "/time-cards", "/profile"];
 
 let cancelCorePrefetch: (() => void) | null = null;
 

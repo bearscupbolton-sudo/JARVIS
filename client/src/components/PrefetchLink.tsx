@@ -34,12 +34,12 @@ export function PrefetchLink({ href, children, className, onClick }: PrefetchLin
     };
   }, [href]);
 
-  const handleTouchStart = () => {
+  const handleEagerPrefetch = () => {
     prefetchRoute(href);
   };
 
   return (
-    <Link href={href} className={className} ref={ref} onTouchStart={handleTouchStart} onClick={onClick}>
+    <Link href={href} className={className} ref={ref} onTouchStart={handleEagerPrefetch} onMouseEnter={handleEagerPrefetch} onClick={onClick}>
       {children}
     </Link>
   );

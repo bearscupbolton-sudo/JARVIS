@@ -104,6 +104,14 @@ function PageLoader() {
   );
 }
 
+function ContentLoader() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <Loader2 className="w-6 h-6 text-primary animate-spin" />
+    </div>
+  );
+}
+
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; isChunkError: boolean; errorMessage: string }> {
   constructor(props: { children: ReactNode }) {
     super(props);
@@ -202,7 +210,9 @@ function ProtectedRoute({ component: Component, noLayout }: { component: React.C
   if (noLayout) {
     return (
       <LocationProvider>
-        <Component />
+        <Suspense fallback={<PageLoader />}>
+          <Component />
+        </Suspense>
       </LocationProvider>
     );
   }
@@ -210,7 +220,9 @@ function ProtectedRoute({ component: Component, noLayout }: { component: React.C
   return (
     <LocationProvider>
       <Layout>
-        <Component />
+        <Suspense fallback={<ContentLoader />}>
+          <Component />
+        </Suspense>
       </Layout>
     </LocationProvider>
   );
@@ -251,7 +263,9 @@ function PortalProtectedRoute({ component: Component }: { component: React.Compo
 
   return (
     <PortalLayout>
-      <Component />
+      <Suspense fallback={<ContentLoader />}>
+        <Component />
+      </Suspense>
     </PortalLayout>
   );
 }
@@ -259,7 +273,9 @@ function PortalProtectedRoute({ component: Component }: { component: React.Compo
 function PortalPublicRoute({ component: Component }: { component: React.ComponentType }) {
   return (
     <div className="theme-portal min-h-screen bg-background">
-      <Component />
+      <Suspense fallback={<PageLoader />}>
+        <Component />
+      </Suspense>
     </div>
   );
 }
@@ -300,7 +316,9 @@ function WholesaleProtectedRoute({ component: Component, skipOnboardingCheck }: 
 
   return (
     <WholesaleLayout>
-      <Component />
+      <Suspense fallback={<ContentLoader />}>
+        <Component />
+      </Suspense>
     </WholesaleLayout>
   );
 }
@@ -329,7 +347,6 @@ function Router() {
   return (
     <LanguageContext.Provider value={userLang}>
     <AppErrorBoundary>
-    <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/login" component={Login} />
         
@@ -425,16 +442,16 @@ function Router() {
           {() => <ProtectedRoute component={Kiosk} noLayout />}
         </Route>
         <Route path="/display">
-          {() => <Display />}
+          {() => <Suspense fallback={<PageLoader />}><Display /></Suspense>}
         </Route>
         <Route path="/menu/:slot">
-          {() => <MenuScreen />}
+          {() => <Suspense fallback={<PageLoader />}><MenuScreen /></Suspense>}
         </Route>
         <Route path="/jmt">
           {() => <ProtectedRoute component={JMT} />}
         </Route>
         <Route path="/clock">
-          {() => <KioskClock />}
+          {() => <Suspense fallback={<PageLoader />}><KioskClock /></Suspense>}
         </Route>
         <Route path="/time-cards">
           {() => <ProtectedRoute component={TimeCards} />}
@@ -467,10 +484,10 @@ function Router() {
           {() => <ProtectedRoute component={Starkade} />}
         </Route>
         <Route path="/feedback">
-          {() => <CustomerFeedback />}
+          {() => <Suspense fallback={<PageLoader />}><CustomerFeedback /></Suspense>}
         </Route>
         <Route path="/onboarding/:token">
-          {() => <Onboarding />}
+          {() => <Suspense fallback={<PageLoader />}><Onboarding /></Suspense>}
         </Route>
         <Route path="/admin/feedback">
           {() => <ProtectedRoute component={FeedbackQRCode} />}
@@ -555,9 +572,8 @@ function Router() {
           {() => <ProtectedRoute component={WholesaleAdmin} />}
         </Route>
 
-        <Route component={NotFound} />
+        <Route>{() => <Suspense fallback={<PageLoader />}><NotFound /></Suspense>}</Route>
       </Switch>
-    </Suspense>
     </AppErrorBoundary>
     {user && !(user as any).seenJarvisIntro && <JarvisIntroOverlay user={user} />}
     </LanguageContext.Provider>

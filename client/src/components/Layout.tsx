@@ -211,15 +211,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { data: unreadCount } = useQuery<{ count: number }>({
     queryKey: ["/api/messages/unread-count"],
-    refetchInterval: 15000,
-    staleTime: 10_000,
+    refetchInterval: 30000,
+    staleTime: 20_000,
     refetchOnWindowFocus: true,
   });
 
   const { data: urgentData } = useQuery<{ count: number }>({
     queryKey: ["/api/messages/urgent-unread"],
-    refetchInterval: 30000,
-    staleTime: 15_000,
+    refetchInterval: 60000,
+    staleTime: 30_000,
   });
 
 
