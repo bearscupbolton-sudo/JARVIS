@@ -34,6 +34,7 @@ type StaffEntry = {
   hoursWorked: number;
   totalTips: number;
   tipCount: number;
+  hourlyRate?: number | null;
 };
 
 type Allocation = {
@@ -131,7 +132,7 @@ function toDateStr(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
-function loadWages(): Record<string, string> {
+function loadWageOverrides(): Record<string, string> {
   try {
     const saved = localStorage.getItem("ttis-hourly-wages");
     return saved ? JSON.parse(saved) : {};
@@ -140,31 +141,37 @@ function loadWages(): Record<string, string> {
   }
 }
 
-function saveWages(wages: Record<string, string>) {
-  localStorage.setItem("ttis-hourly-wages", JSON.stringify(wages));
+function saveWageOverrides(overrides: Record<string, string>) {
+  localStorage.setItem("ttis-hourly-wages", JSON.stringify(overrides));
 }
 
-function useHourlyWages() {
-  const [wages, setWages] = useState<Record<string, string>>(loadWages);
+function useHourlyWages(staffBreakdown: Array<{ userId: string; hourlyRate?: number | null }>) {
+  const [overrides, setOverrides] = useState<Record<string, string>>(loadWageOverrides);
 
   const setWage = useCallback((userId: string, value: string) => {
-    setWages(prev => {
+    setOverrides(prev => {
       const next = { ...prev, [userId]: value };
-      saveWages(next);
+      saveWageOverrides(next);
       return next;
     });
   }, []);
 
   const getWage = useCallback((userId: string): number => {
-    const val = wages[userId];
-    if (!val) return 0;
-    const parsed = parseFloat(val);
-    return isNaN(parsed) ? 0 : parsed;
-  }, [wages]);
+    if (overrides[userId] !== undefined && overrides[userId] !== "") {
+      const parsed = parseFloat(overrides[userId]);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    const staff = staffBreakdown.find(s => s.userId === userId);
+    return staff?.hourlyRate ?? 0;
+  }, [overrides, staffBreakdown]);
 
   const getRawWage = useCallback((userId: string): string => {
-    return wages[userId] ?? "";
-  }, [wages]);
+    if (overrides[userId] !== undefined && overrides[userId] !== "") {
+      return overrides[userId];
+    }
+    const staff = staffBreakdown.find(s => s.userId === userId);
+    return staff?.hourlyRate ? String(staff.hourlyRate) : "";
+  }, [overrides, staffBreakdown]);
 
   return { setWage, getWage, getRawWage };
 }
@@ -172,7 +179,6 @@ function useHourlyWages() {
 export default function TTIS() {
   const { user } = useAuth();
   const isOwner = user?.role === "owner";
-  const { setWage, getWage, getRawWage } = useHourlyWages();
   const [weekStartDay, setWeekStartDay] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("ttis-week-start");
@@ -205,6 +211,19 @@ export default function TTIS() {
     queryKey: [`/api/ttis?date=${selectedDate}`],
     enabled: view === "day" && !!selectedDate,
   });
+
+  const allStaffBreakdown = useMemo(() => {
+    const combined: Array<{ userId: string; hourlyRate?: number | null }> = [];
+    if (weekQuery.data?.staffBreakdown) combined.push(...weekQuery.data.staffBreakdown);
+    if (dayQuery.data?.staffBreakdown) {
+      for (const s of dayQuery.data.staffBreakdown) {
+        if (!combined.find(c => c.userId === s.userId)) combined.push(s);
+      }
+    }
+    return combined;
+  }, [weekQuery.data?.staffBreakdown, dayQuery.data?.staffBreakdown]);
+
+  const { setWage, getWage, getRawWage } = useHourlyWages(allStaffBreakdown);
 
   function handleWeekStartChange(val: string) {
     const num = parseInt(val);

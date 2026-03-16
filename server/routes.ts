@@ -3521,6 +3521,7 @@ Rules:
           firstName: users.firstName,
           lastName: users.lastName,
           role: users.role,
+          hourlyRate: users.hourlyRate,
         }).from(users).where(inArray(users.id, allFohUserIds));
       }
       const ownerIds = new Set(fohStaff.filter(s => s.role === "owner").map(s => s.id));
@@ -3549,7 +3550,7 @@ Rules:
         breaksByEntry.get(b.timeEntryId)!.push(b);
       }
 
-      const weeklyStaff = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
+      const weeklyStaff = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number; hourlyRate: number | null }>();
 
       const daySummaries: Array<{
         date: string;
@@ -3578,7 +3579,7 @@ Rules:
           const username = staff?.username || "Unknown";
 
           if (!weeklyStaff.has(te.userId)) {
-            weeklyStaff.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+            weeklyStaff.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0, hourlyRate: staffMap.get(te.userId)?.hourlyRate ?? null });
           }
           const clockOut = te.clockOut || new Date();
           const overlapStart = Math.max(te.clockIn.getTime(), dayStartUtc.getTime());
@@ -3629,7 +3630,7 @@ Rules:
             if (!weeklyStaff.has(uid)) {
               const staff = staffMap.get(uid);
               const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
-              weeklyStaff.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+              weeklyStaff.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0, hourlyRate: staff?.hourlyRate ?? null });
             }
             const entry = weeklyStaff.get(uid);
             if (entry) {
@@ -3658,6 +3659,7 @@ Rules:
         hoursWorked: Math.round(data.totalMinutes / 60 * 100) / 100,
         totalTips: Math.round(data.tipsCents) / 100,
         tipCount: data.tipCount,
+        hourlyRate: data.hourlyRate,
       })).sort((a, b) => b.totalTips - a.totalTips);
 
       res.json({
@@ -3710,6 +3712,7 @@ Rules:
           firstName: users.firstName,
           lastName: users.lastName,
           role: users.role,
+          hourlyRate: users.hourlyRate,
         }).from(users).where(inArray(users.id, allFohUserIds));
       }
       const ownerIds = new Set(fohStaff.filter(s => s.role === "owner").map(s => s.id));
@@ -3739,14 +3742,14 @@ Rules:
 
       const clockedInUserIds = Array.from(new Set(dayTimeEntries.map(te => te.userId)));
 
-      const staffTotals = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number }>();
+      const staffTotals = new Map<string, { name: string; username: string; totalMinutes: number; tipsCents: number; tipCount: number; hourlyRate: number | null }>();
       for (const te of dayTimeEntries) {
         const staff = staffMap.get(te.userId);
         const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
         const username = staff?.username || "Unknown";
 
         if (!staffTotals.has(te.userId)) {
-          staffTotals.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+          staffTotals.set(te.userId, { name: staffName, username, totalMinutes: 0, tipsCents: 0, tipCount: 0, hourlyRate: staff?.hourlyRate ?? null });
         }
         const clockOut = te.clockOut || new Date();
         const overlapStart = Math.max(te.clockIn.getTime(), dayStartUtc.getTime());
@@ -3806,7 +3809,7 @@ Rules:
           if (!staffTotals.has(uid)) {
             const staff = staffMap.get(uid);
             const staffName = staff ? `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || staff.username : "Unknown";
-            staffTotals.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0 });
+            staffTotals.set(uid, { name: staffName, username: staff?.username || "Unknown", totalMinutes: 0, tipsCents: 0, tipCount: 0, hourlyRate: staff?.hourlyRate ?? null });
           }
           const entry = staffTotals.get(uid);
           if (entry) {
@@ -3831,6 +3834,7 @@ Rules:
         hoursWorked: Math.round(data.totalMinutes / 60 * 100) / 100,
         totalTips: Math.round(data.tipsCents) / 100,
         tipCount: data.tipCount,
+        hourlyRate: data.hourlyRate,
       })).sort((a, b) => b.totalTips - a.totalTips);
 
       res.json({
