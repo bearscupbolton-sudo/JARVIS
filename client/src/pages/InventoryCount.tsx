@@ -5,16 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { ArrowLeft, ClipboardCheck, ArrowRight, Check, Loader2, Package } from "lucide-react";
 import type { InventoryItem, InventoryCount as InventoryCountType } from "@shared/schema";
+
+const CATEGORIES = ["Bakery", "Bar", "Kitchen", "FOH"] as const;
+const DEPT_TO_CATEGORY: Record<string, string> = { bakery: "Bakery", bar: "Bar", kitchen: "Kitchen", foh: "FOH" };
 
 function getToday() {
   return new Date().toISOString().split("T")[0];
 }
 
 export default function InventoryCount() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeCountId, setActiveCountId] = useState<number | null>(null);
@@ -22,19 +27,29 @@ export default function InventoryCount() {
   const [currentQty, setCurrentQty] = useState("");
   const [countedItems, setCountedItems] = useState<Record<number, number>>({});
 
-  const { data: items = [] } = useQuery<InventoryItem[]>({
+  const userCategory = user?.department ? (DEPT_TO_CATEGORY[(user as any).department] || "") : "";
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(
+    userCategory ? [userCategory] : []
+  );
+
+  const { data: allItems = [] } = useQuery<InventoryItem[]>({
     queryKey: ["/api/inventory-items"],
   });
 
-  const { data: countHistory = [] } = useQuery<InventoryCountType[]>({
+  const { data: countHistory = [] } = useQuery<(InventoryCountType & { departments?: string[] })[]>({
     queryKey: ["/api/inventory-counts"],
   });
+
+  const filteredItems = selectedDepartments.length > 0
+    ? allItems.filter(item => selectedDepartments.includes(item.category))
+    : allItems;
 
   const startMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/inventory-counts", {
         countDate: getToday(),
         status: "in_progress",
+        departments: selectedDepartments,
       });
       return res.json();
     },
@@ -76,10 +91,16 @@ export default function InventoryCount() {
     },
   });
 
-  const currentItem = items[currentIndex];
-  const totalItems = items.length;
+  const currentItem = filteredItems[currentIndex];
+  const totalItems = filteredItems.length;
   const isLastItem = currentIndex >= totalItems - 1;
   const isCountActive = activeCountId !== null;
+
+  function toggleDepartment(dept: string) {
+    setSelectedDepartments(prev =>
+      prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept]
+    );
+  }
 
   async function submitCurrentAndNext() {
     if (!activeCountId || !currentItem) return;
@@ -101,7 +122,7 @@ export default function InventoryCount() {
     }
   }
 
-  if (items.length === 0) {
+  if (allItems.length === 0) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -140,16 +161,59 @@ export default function InventoryCount() {
       {!isCountActive ? (
         <div className="space-y-6">
           <Card>
-            <CardContent className="text-center py-12">
-              <ClipboardCheck className="w-16 h-16 mx-auto mb-4 text-primary opacity-60" />
-              <h2 className="text-xl font-semibold mb-2">Ready to Count?</h2>
-              <p className="text-muted-foreground mb-6">
-                You'll be shown {totalItems} items one at a time. Enter the current count for each.
-              </p>
-              <Button size="lg" onClick={() => startMutation.mutate()} disabled={startMutation.isPending} data-testid="button-start-count">
-                {startMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Start Inventory Count
-              </Button>
+            <CardContent className="py-8">
+              <div className="text-center mb-6">
+                <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-primary opacity-60" />
+                <h2 className="text-xl font-semibold mb-1">Select Departments to Count</h2>
+                <p className="text-muted-foreground text-sm">
+                  Choose which department(s) you're counting today
+                </p>
+              </div>
+
+              <div className="flex flex-wrap justify-center gap-3 mb-6">
+                {CATEGORIES.map(cat => {
+                  const catCount = allItems.filter(i => i.category === cat).length;
+                  const isSelected = selectedDepartments.includes(cat);
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => toggleDepartment(cat)}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                      }`}
+                      data-testid={`toggle-dept-${cat.toLowerCase()}`}
+                    >
+                      <span className="font-medium">{cat}</span>
+                      <Badge variant={isSelected ? "default" : "secondary"} className="text-xs">
+                        {catCount}
+                      </Badge>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground mb-4">
+                  {selectedDepartments.length === 0
+                    ? "Select at least one department to begin counting"
+                    : totalItems === 0
+                      ? "No items found in selected departments"
+                      : `${totalItems} items to count across ${selectedDepartments.join(", ")}`
+                  }
+                </p>
+                <Button
+                  size="lg"
+                  onClick={() => startMutation.mutate()}
+                  disabled={startMutation.isPending || selectedDepartments.length === 0 || totalItems === 0}
+                  data-testid="button-start-count"
+                >
+                  {startMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Start Inventory Count
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -161,10 +225,19 @@ export default function InventoryCount() {
               <CardContent>
                 <div className="space-y-2">
                   {countHistory.slice(0, 10).map(count => (
-                    <div key={count.id} className="flex items-center justify-between py-2" data-testid={`count-history-${count.id}`}>
-                      <div>
+                    <div key={count.id} className="flex items-center justify-between py-2 gap-2" data-testid={`count-history-${count.id}`}>
+                      <div className="min-w-0">
                         <p className="font-medium text-sm">{count.countDate}</p>
                         <p className="text-xs text-muted-foreground">by {count.countedBy}</p>
+                        {count.departments && count.departments.length > 0 && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {count.departments.map(d => (
+                              <Badge key={d} variant="outline" className="text-[10px] px-1.5 py-0">
+                                {d}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <Badge variant={count.status === "completed" ? "default" : "secondary"}>
                         {count.status}
@@ -185,6 +258,13 @@ export default function InventoryCount() {
               </CardTitle>
               <Badge variant="secondary">{Math.round(((currentIndex) / totalItems) * 100)}% done</Badge>
             </div>
+            {selectedDepartments.length > 0 && (
+              <div className="flex gap-1 mt-1">
+                {selectedDepartments.map(d => (
+                  <Badge key={d} variant="outline" className="text-xs">{d}</Badge>
+                ))}
+              </div>
+            )}
             <div className="w-full bg-muted rounded-full h-2 mt-2">
               <div
                 className="bg-primary h-2 rounded-full transition-all duration-300"

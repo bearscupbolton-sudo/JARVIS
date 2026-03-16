@@ -1026,6 +1026,7 @@ function EditRecipeDialog({
                         selectedId={ing.inventoryItemId}
                         onSelect={(itemId) => updateIngredient(idx, "inventoryItemId", itemId as any)}
                         testIdPrefix={`edit-ingredient-${idx}`}
+                        defaultDepartment={department}
                       />
                     </div>
                   ))}
@@ -1088,26 +1089,42 @@ function EditRecipeDialog({
   );
 }
 
+const INVENTORY_CATEGORIES = ["Bakery", "Bar", "Kitchen", "FOH"] as const;
+const DEPT_TO_CATEGORY: Record<string, string> = { bakery: "Bakery", bar: "Bar", kitchen: "Kitchen", foh: "FOH" };
+
 function InventoryLinkPicker({
   inventoryItems,
   selectedId,
   onSelect,
   testIdPrefix,
+  defaultDepartment,
 }: {
   inventoryItems: InventoryItem[];
   selectedId: number | null | undefined;
   onSelect: (itemId: number | null) => void;
   testIdPrefix: string;
+  defaultDepartment?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const resolvedDefault = defaultDepartment ? (DEPT_TO_CATEGORY[defaultDepartment] || "All") : "All";
+  const [categoryFilter, setCategoryFilter] = useState<string>(resolvedDefault);
+  const [userOverride, setUserOverride] = useState(false);
+
+  useEffect(() => {
+    if (!userOverride) {
+      setCategoryFilter(resolvedDefault);
+    }
+  }, [resolvedDefault, userOverride]);
 
   const linkedItem = selectedId ? inventoryItems.find(i => i.id === selectedId) : null;
 
-  const filtered = inventoryItems.filter(item =>
-    item.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.aliases?.some(a => a.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = inventoryItems.filter(item => {
+    const matchesCategory = categoryFilter === "All" || item.category === categoryFilter;
+    const matchesSearch = !search || item.name.toLowerCase().includes(search.toLowerCase()) ||
+      item.aliases?.some(a => a.toLowerCase().includes(search.toLowerCase()));
+    return matchesCategory && matchesSearch;
+  });
 
   if (linkedItem) {
     return (
@@ -1140,7 +1157,24 @@ function InventoryLinkPicker({
           Link to Inventory
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="flex gap-1 mb-2 flex-wrap">
+          {["All", ...INVENTORY_CATEGORIES].map(cat => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => { setCategoryFilter(cat); setUserOverride(true); }}
+              className={`px-2 py-0.5 text-[10px] rounded-full border transition-colors ${
+                categoryFilter === cat
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+              }`}
+              data-testid={`${testIdPrefix}-filter-${cat.toLowerCase()}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
         <Input
           placeholder="Search inventory..."
           value={search}

@@ -513,6 +513,7 @@ export const inventoryCounts = pgTable("inventory_counts", {
   countDate: text("count_date").notNull(),
   countedBy: text("counted_by"),
   status: text("status").notNull().default("in_progress"),
+  departments: text("departments").array().notNull().default([]),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 });

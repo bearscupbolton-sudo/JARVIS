@@ -22,6 +22,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI-driven import, smart time parsing, shift pickups/claims with approval workflows, and reusable templates.
 *   **Time Card System:** Features a persistent Clock Bar, PIN-based Kiosk Clock, personal management, "Time Review," and Square Labor Sync for seamless integration of clock-in/out data.
 *   **Square Labor Sync:** Connects Square POS team members to Jarvis users and syncs timecards, supporting auto-linking, manual linking, date-range sync with deduplication, break entry import, and real-time webhook sync for timecard and order events.
+*   **Department-Aware Inventory:** InventoryLinkPicker (in recipe create/edit) shows department filter pills (All/Bakery/Bar/Kitchen/FOH) defaulting to recipe's department. EOD inventory count requires selecting department(s) before starting, filtering items to only those departments. Count history shows which departments were counted. `inventory_counts` table has `departments` text array column.
 *   **Live Inventory Real-Time Sync:** Auto-syncs Square sales data and provides real-time status indicators.
 *   **Shift Notes:** Private manager feedback system with AI-rewritten constructive notes.
 *   **Authentication & Roles:** PIN-based authentication with PostgreSQL sessions and role-based permissions (`owner`, `manager`, `member`), including `isDepartmentLead`, `isShiftManager`, and `isGeneralManager` flags.

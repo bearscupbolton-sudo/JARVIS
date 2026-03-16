@@ -3978,7 +3978,8 @@ Rules:
 
   // === INVENTORY ITEMS ===
   app.get(api.inventoryItems.list.path, isAuthenticated, async (req, res) => {
-    const items = await storage.getInventoryItems();
+    const category = req.query.category as string | undefined;
+    const items = await storage.getInventoryItems(category || undefined);
     res.json(items);
   });
 

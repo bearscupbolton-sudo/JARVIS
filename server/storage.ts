@@ -314,7 +314,7 @@ export interface IStorage {
   dismissTimer(id: number): Promise<boolean>;
 
   // Inventory Items
-  getInventoryItems(): Promise<InventoryItem[]>;
+  getInventoryItems(category?: string): Promise<InventoryItem[]>;
   getInventoryItem(id: number): Promise<InventoryItem | undefined>;
   createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
   updateInventoryItem(id: number, updates: Partial<InsertInventoryItem>): Promise<InventoryItem>;
@@ -1392,8 +1392,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Items
-  async getInventoryItems(): Promise<InventoryItem[]> {
-    return await db.select().from(inventoryItems).orderBy(inventoryItems.category, inventoryItems.name);
+  async getInventoryItems(category?: string): Promise<InventoryItem[]> {
+    let query = db.select().from(inventoryItems);
+    if (category) {
+      query = query.where(eq(inventoryItems.category, category)) as typeof query;
+    }
+    return await query.orderBy(inventoryItems.category, inventoryItems.name);
   }
 
   async getInventoryItem(id: number): Promise<InventoryItem | undefined> {
