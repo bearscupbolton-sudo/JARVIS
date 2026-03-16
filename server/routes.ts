@@ -4202,6 +4202,17 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
     try {
       const countId = Number(req.params.id);
       const input = api.inventoryCounts.addLine.input.parse(req.body);
+      const count = await storage.getInventoryCount(countId);
+      if (!count) return res.status(404).json({ message: "Count not found" });
+      if (count.departments && count.departments.length > 0) {
+        const item = await storage.getInventoryItem(input.inventoryItemId);
+        if (!item) return res.status(404).json({ message: "Inventory item not found" });
+        const validCategory = count.departments.includes(item.category) ||
+          (count.departments.includes("Other") && !["Bakery", "Bar", "Kitchen", "FOH"].includes(item.category));
+        if (!validCategory) {
+          return res.status(400).json({ message: `Item "${item.name}" does not belong to the selected departments: ${count.departments.join(", ")}` });
+        }
+      }
       const line = await storage.addInventoryCountLine(countId, input);
       res.status(201).json(line);
     } catch (err) {

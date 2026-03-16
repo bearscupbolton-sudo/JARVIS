@@ -27,7 +27,7 @@ export default function InventoryCount() {
   const [currentQty, setCurrentQty] = useState("");
   const [countedItems, setCountedItems] = useState<Record<number, number>>({});
 
-  const userCategory = user?.department ? (DEPT_TO_CATEGORY[(user as any).department] || "") : "";
+  const userCategory = user?.department ? (DEPT_TO_CATEGORY[user.department] || "") : "";
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>(
     userCategory ? [userCategory] : []
   );
@@ -40,8 +40,16 @@ export default function InventoryCount() {
     queryKey: ["/api/inventory-counts"],
   });
 
+  const knownCategories = CATEGORIES as readonly string[];
+  const uncategorizedCount = allItems.filter(i => !knownCategories.includes(i.category)).length;
+
   const filteredItems = selectedDepartments.length > 0
-    ? allItems.filter(item => selectedDepartments.includes(item.category))
+    ? allItems.filter(item => {
+        if (selectedDepartments.includes("Other")) {
+          return selectedDepartments.includes(item.category) || !knownCategories.includes(item.category);
+        }
+        return selectedDepartments.includes(item.category);
+      })
     : allItems;
 
   const startMutation = useMutation({
@@ -170,7 +178,7 @@ export default function InventoryCount() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap justify-center gap-3 mb-6">
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
                 {CATEGORIES.map(cat => {
                   const catCount = allItems.filter(i => i.category === cat).length;
                   const isSelected = selectedDepartments.includes(cat);
@@ -193,6 +201,37 @@ export default function InventoryCount() {
                     </button>
                   );
                 })}
+              </div>
+              <div className="flex justify-center mb-6">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDepartments(
+                    selectedDepartments.length === CATEGORIES.length + (uncategorizedCount > 0 ? 1 : 0)
+                      ? []
+                      : [...CATEGORIES, ...(uncategorizedCount > 0 ? ["Other"] : [])]
+                  )}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors underline"
+                  data-testid="toggle-dept-all"
+                >
+                  {selectedDepartments.length === CATEGORIES.length + (uncategorizedCount > 0 ? 1 : 0) ? "Deselect All" : "Select All Departments"}
+                </button>
+                {uncategorizedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => toggleDepartment("Other")}
+                    className={`ml-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm ${
+                      selectedDepartments.includes("Other")
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                    }`}
+                    data-testid="toggle-dept-other"
+                  >
+                    <span>Other</span>
+                    <Badge variant={selectedDepartments.includes("Other") ? "default" : "secondary"} className="text-xs">
+                      {uncategorizedCount}
+                    </Badge>
+                  </button>
+                )}
               </div>
 
               <div className="text-center">
