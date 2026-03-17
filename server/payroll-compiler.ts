@@ -143,6 +143,11 @@ export async function compilePayroll(
   const employees: EmployeePayLine[] = [];
   const weeks = getWeekBoundaries(periodStart, periodEnd);
 
+  console.log(`[Payroll] ${allTimeEntries.length} entries, ${activeUsers.length} users, ${weeks.length} weeks`);
+  if (weeks.length > 0) {
+    console.log(`[Payroll] Week 1: ${weeks[0].weekStart.toISOString()} to ${weeks[0].weekEnd.toISOString()}`);
+  }
+
   for (const user of activeUsers) {
     if (!user.firstName) continue;
 
@@ -154,6 +159,16 @@ export async function compilePayroll(
 
     const flags: PayrollFlag[] = [];
     const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+
+    if (userEntries.length > 0) {
+      const sample = userEntries[0];
+      const weekMatch = weeks.filter(w => {
+        const ci = new Date(sample.clockIn);
+        const co = sample.clockOut ? new Date(sample.clockOut) : new Date();
+        return ci <= w.weekEnd && co >= w.weekStart;
+      });
+      console.log(`[Payroll] ${fullName}: ${userEntries.length} entries, clockOut null count: ${userEntries.filter(e => !e.clockOut).length}, sample clockIn: ${new Date(sample.clockIn).toISOString()}, sample clockOut: ${sample.clockOut ? new Date(sample.clockOut).toISOString() : 'null'}, weekMatch: ${weekMatch.length}`);
+    }
 
     if (!user.adpAssociateOID) {
       flags.push({
