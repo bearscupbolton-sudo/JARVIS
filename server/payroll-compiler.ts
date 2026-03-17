@@ -107,6 +107,8 @@ export async function compilePayroll(
 
   const activeUsers = allUsers.filter((u) => u.role !== "owner" || u.adpAssociateOID);
 
+  console.log(`[Payroll] Query period: ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
+
   const allTimeEntries = await db
     .select()
     .from(timeEntries)
@@ -116,6 +118,14 @@ export async function compilePayroll(
         or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, periodStart)),
       ),
     );
+
+  console.log(`[Payroll] Found ${allTimeEntries.length} time entries for ${activeUsers.length} active users`);
+  if (allTimeEntries.length === 0) {
+    const totalEntries = await db.select({ count: sql<number>`count(*)` }).from(timeEntries);
+    console.log(`[Payroll] Total time_entries in DB: ${totalEntries[0]?.count}`);
+    const sampleEntries = await db.select({ clockIn: timeEntries.clockIn, clockOut: timeEntries.clockOut, userId: timeEntries.userId }).from(timeEntries).limit(3);
+    console.log(`[Payroll] Sample entries:`, JSON.stringify(sampleEntries));
+  }
 
   const timeEntryIds = allTimeEntries.map((te) => te.id);
   let allBreaks: Array<typeof breakEntries.$inferSelect> = [];
