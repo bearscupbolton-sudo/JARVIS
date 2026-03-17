@@ -53,22 +53,21 @@ function getWeekBoundaries(start: Date, end: Date): Array<{ weekStart: Date; wee
   const current = new Date(start);
   const dayOfWeek = current.getDay();
   const wednesdayOffset = (dayOfWeek - 3 + 7) % 7;
-  const weekStart = new Date(current);
-  weekStart.setDate(weekStart.getDate() - wednesdayOffset);
+  let cursor = new Date(current);
+  cursor.setDate(cursor.getDate() - wednesdayOffset);
 
-  while (weekStart < end) {
-    const weekEnd = new Date(weekStart);
+  while (cursor < end) {
+    const weekEnd = new Date(cursor);
     weekEnd.setDate(weekEnd.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
-    const effectiveStart = weekStart < start ? start : weekStart;
-    const effectiveEnd = weekEnd > end ? end : weekEnd;
+    const effectiveStart = new Date(Math.max(cursor.getTime(), start.getTime()));
+    const effectiveEnd = new Date(Math.min(weekEnd.getTime(), end.getTime()));
 
     weeks.push({ weekStart: effectiveStart, weekEnd: effectiveEnd });
 
-    const nextWeek = new Date(weekStart);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    weekStart.setTime(nextWeek.getTime());
+    cursor = new Date(cursor);
+    cursor.setDate(cursor.getDate() + 7);
   }
 
   return weeks;
@@ -143,11 +142,6 @@ export async function compilePayroll(
   const employees: EmployeePayLine[] = [];
   const weeks = getWeekBoundaries(periodStart, periodEnd);
 
-  console.log(`[Payroll] ${allTimeEntries.length} entries, ${activeUsers.length} users, ${weeks.length} weeks`);
-  if (weeks.length > 0) {
-    console.log(`[Payroll] Week 1: ${weeks[0].weekStart.toISOString()} to ${weeks[0].weekEnd.toISOString()}`);
-  }
-
   for (const user of activeUsers) {
     if (!user.firstName) continue;
 
@@ -159,16 +153,6 @@ export async function compilePayroll(
 
     const flags: PayrollFlag[] = [];
     const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
-
-    if (userEntries.length > 0) {
-      const sample = userEntries[0];
-      const weekMatch = weeks.filter(w => {
-        const ci = new Date(sample.clockIn);
-        const co = sample.clockOut ? new Date(sample.clockOut) : new Date();
-        return ci <= w.weekEnd && co >= w.weekStart;
-      });
-      console.log(`[Payroll] ${fullName}: ${userEntries.length} entries, clockOut null count: ${userEntries.filter(e => !e.clockOut).length}, sample clockIn: ${new Date(sample.clockIn).toISOString()}, sample clockOut: ${sample.clockOut ? new Date(sample.clockOut).toISOString() : 'null'}, weekMatch: ${weekMatch.length}`);
-    }
 
     if (!user.adpAssociateOID) {
       flags.push({
