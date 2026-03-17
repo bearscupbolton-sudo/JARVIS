@@ -11285,7 +11285,12 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
         payeePayInputs: linkedEmployees.map((emp: any) => ({
           associateOID: emp.adpAssociateOID,
           earningInputs: [
-            ...(emp.regularHours > 0 ? [{
+            ...(emp.payType === "salary" && emp.periodSalary ? [{
+              earningCode: { codeValue: "SAL" },
+              numberOfHours: 0,
+              rate: { rateValue: emp.periodSalary, baseUnitCode: { codeValue: "FLAT" } },
+            }] : []),
+            ...(emp.payType !== "salary" && emp.regularHours > 0 ? [{
               earningCode: { codeValue: "REG" },
               numberOfHours: emp.regularHours,
               rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
@@ -11298,12 +11303,12 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
             ...(emp.vacationHours > 0 ? [{
               earningCode: { codeValue: "VAC" },
               numberOfHours: emp.vacationHours,
-              rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
+              rate: { rateValue: emp.hourlyRate || (emp.annualSalary ? emp.annualSalary / 2080 : 0), baseUnitCode: { codeValue: "HOUR" } },
             }] : []),
             ...(emp.sickHours > 0 ? [{
               earningCode: { codeValue: "SICK" },
               numberOfHours: emp.sickHours,
-              rate: { rateValue: emp.hourlyRate, baseUnitCode: { codeValue: "HOUR" } },
+              rate: { rateValue: emp.hourlyRate || (emp.annualSalary ? emp.annualSalary / 2080 : 0), baseUnitCode: { codeValue: "HOUR" } },
             }] : []),
             ...(emp.tips > 0 ? [{
               earningCode: { codeValue: "TIPS" },

@@ -9,7 +9,10 @@ export interface EmployeePayLine {
   firstName: string;
   lastName: string;
   adpAssociateOID: string | null;
+  payType: "hourly" | "salary";
   hourlyRate: number;
+  annualSalary: number | null;
+  periodSalary: number | null;
   department: string;
   regularHours: number;
   overtimeHours: number;
@@ -22,7 +25,7 @@ export interface EmployeePayLine {
 }
 
 export interface PayrollFlag {
-  type: "unapproved_adjustment" | "active_shift" | "not_linked" | "schedule_discrepancy" | "missing_clock_out";
+  type: "unapproved_adjustment" | "active_shift" | "not_linked" | "schedule_discrepancy" | "missing_clock_out" | "incomplete_salary";
   severity: "critical" | "warning" | "info";
   message: string;
   employeeId?: string;
@@ -277,14 +280,39 @@ export async function compilePayroll(
       }
     }
 
+    const isSalaried = user.payType === "salary";
     const rate = user.hourlyRate || 0;
-    const grossEstimate =
-      totalRegular * rate +
-      totalOvertime * rate * 1.5 +
-      vacationHours * rate +
-      sickHours * rate;
+    const annualSalary = user.annualSalary || null;
 
-    if (totalRegular === 0 && totalOvertime === 0 && vacationHours === 0 && sickHours === 0) {
+    if (isSalaried && !annualSalary) {
+      flags.push({
+        type: "incomplete_salary",
+        severity: "critical",
+        message: `${fullName} is set to salary but has no annual salary amount configured`,
+        employeeId: user.id,
+        employeeName: fullName,
+      });
+    }
+
+    const periodDays = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const periodSalary = isSalaried && annualSalary ? Math.round((annualSalary / 365) * periodDays * 100) / 100 : null;
+
+    let grossEstimate: number;
+    if (isSalaried && periodSalary !== null) {
+      grossEstimate = periodSalary;
+    } else {
+      grossEstimate =
+        totalRegular * rate +
+        totalOvertime * rate * 1.5 +
+        vacationHours * rate +
+        sickHours * rate;
+    }
+
+    if (totalRegular === 0 && totalOvertime === 0 && vacationHours === 0 && sickHours === 0 && !isSalaried) {
+      continue;
+    }
+
+    if (isSalaried && !annualSalary && totalRegular === 0 && totalOvertime === 0) {
       continue;
     }
 
@@ -293,7 +321,10 @@ export async function compilePayroll(
       firstName: user.firstName || "",
       lastName: user.lastName || "",
       adpAssociateOID: user.adpAssociateOID || null,
+      payType: isSalaried ? "salary" : "hourly",
       hourlyRate: rate,
+      annualSalary,
+      periodSalary,
       department: user.department || "bakery",
       regularHours: totalRegular,
       overtimeHours: totalOvertime,

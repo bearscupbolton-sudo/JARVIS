@@ -564,7 +564,9 @@ function UserDetailDialog({
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
   const [briefingNotes, setBriefingNotes] = useState((u as any).briefingNotes || "");
+  const [payType, setPayType] = useState<"hourly" | "salary">((u as any).payType || "hourly");
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
+  const [annualSalary, setAnnualSalary] = useState((u as any).annualSalary?.toString() || "");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const currentPerms: string[] | null = (u as any).sidebarPermissions ?? null;
@@ -605,15 +607,17 @@ function UserDetailDialog({
     ] : []),
   ];
 
-  const hourlyRateMutation = useMutation({
-    mutationFn: async (rate: string) => {
-      await apiRequest("PATCH", `/api/admin/users/${u.id}/hourly-rate`, {
-        hourlyRate: rate === "" ? null : parseFloat(rate),
+  const payInfoMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/pay-info`, {
+        payType,
+        hourlyRate: hourlyRate === "" ? null : parseFloat(hourlyRate),
+        annualSalary: annualSalary === "" ? null : parseFloat(annualSalary),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      toast({ title: "Hourly rate updated" });
+      toast({ title: "Pay info updated" });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
@@ -984,35 +988,88 @@ function UserDetailDialog({
 
           {!isCurrentUser && isOwner && (
             <div className="border-t pt-4 space-y-3">
-              <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/30">
-                <DollarSign className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <Label className="text-sm font-medium">Hourly Rate</Label>
-                  <p className="text-[11px] text-muted-foreground">Used for labor cost KPI calculations</p>
+              <div className="p-3 rounded-md border bg-muted/30 space-y-3">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <Label className="text-sm font-medium">Compensation</Label>
+                    <p className="text-[11px] text-muted-foreground">Used for payroll and labor cost calculations</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-muted-foreground">$</span>
-                  <Input
-                    type="number"
-                    step="0.25"
-                    min="0"
-                    className="w-20 h-8 text-sm"
-                    value={hourlyRate}
-                    onChange={(e) => setHourlyRate(e.target.value)}
-                    placeholder="0.00"
-                    data-testid={`input-hourly-rate-${u.id}`}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => hourlyRateMutation.mutate(hourlyRate)}
-                    disabled={hourlyRateMutation.isPending}
-                    data-testid={`button-save-rate-${u.id}`}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${payType === "hourly" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                    onClick={() => setPayType("hourly")}
+                    data-testid={`button-pay-hourly-${u.id}`}
                   >
-                    <Save className="w-3.5 h-3.5" />
-                  </Button>
+                    Hourly
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${payType === "salary" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                    onClick={() => setPayType("salary")}
+                    data-testid={`button-pay-salary-${u.id}`}
+                  >
+                    Salary
+                  </button>
                 </div>
+                {payType === "hourly" ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground w-16">$/hour</span>
+                    <Input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      className="w-24 h-8 text-sm"
+                      value={hourlyRate}
+                      onChange={(e) => setHourlyRate(e.target.value)}
+                      placeholder="0.00"
+                      data-testid={`input-hourly-rate-${u.id}`}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground w-16">$/year</span>
+                      <Input
+                        type="number"
+                        step="1000"
+                        min="0"
+                        className="w-28 h-8 text-sm"
+                        value={annualSalary}
+                        onChange={(e) => setAnnualSalary(e.target.value)}
+                        placeholder="50000"
+                        data-testid={`input-annual-salary-${u.id}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground w-16">$/hour</span>
+                      <Input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        className="w-24 h-8 text-sm"
+                        value={hourlyRate}
+                        onChange={(e) => setHourlyRate(e.target.value)}
+                        placeholder="0.00"
+                        data-testid={`input-hourly-rate-${u.id}`}
+                      />
+                      <span className="text-[10px] text-muted-foreground">for OT calc</span>
+                    </div>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full"
+                  onClick={() => payInfoMutation.mutate()}
+                  disabled={payInfoMutation.isPending}
+                  data-testid={`button-save-pay-${u.id}`}
+                >
+                  <Save className="w-3.5 h-3.5 mr-1.5" />
+                  Save Pay Info
+                </Button>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Role</Label>

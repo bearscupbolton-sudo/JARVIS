@@ -117,7 +117,7 @@ export function registerAuthRoutes(app: Express): void {
       const safeUsers = allUsers.map((u) => {
         const { pinHash, ...rest } = u;
         if (!isOwnerRole) {
-          const { hourlyRate, ...managerSafe } = rest;
+          const { hourlyRate, annualSalary, payType, ...managerSafe } = rest;
           return managerSafe;
         }
         return rest;
@@ -274,6 +274,33 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error updating hourly rate:", error);
       res.status(500).json({ message: "Failed to update hourly rate" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/pay-info", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { payType, hourlyRate, annualSalary } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (payType !== "hourly" && payType !== "salary") {
+        return res.status(400).json({ message: "Pay type must be 'hourly' or 'salary'" });
+      }
+      const rate = hourlyRate === null || hourlyRate === undefined || hourlyRate === "" ? null : Number(hourlyRate);
+      if (rate !== null && (isNaN(rate) || rate < 0)) {
+        return res.status(400).json({ message: "Invalid hourly rate" });
+      }
+      const salary = annualSalary === null || annualSalary === undefined || annualSalary === "" ? null : Number(annualSalary);
+      if (salary !== null && (isNaN(salary) || salary < 0)) {
+        return res.status(400).json({ message: "Invalid annual salary" });
+      }
+      const user = await authStorage.updatePayInfo(targetId, payType, rate, salary);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating pay info:", error);
+      res.status(500).json({ message: "Failed to update pay info" });
     }
   });
 

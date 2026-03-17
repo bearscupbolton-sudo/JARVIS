@@ -43,6 +43,8 @@ export const users = pgTable("users", {
   isGeneralManager: boolean("is_general_manager").default(false).notNull(),
   isDepartmentLead: boolean("is_department_lead").default(false).notNull(),
   hourlyRate: doublePrecision("hourly_rate"),
+  payType: varchar("pay_type").default("hourly").notNull(),
+  annualSalary: doublePrecision("annual_salary"),
   sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
   sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),
   department: varchar("department").default("bakery"),

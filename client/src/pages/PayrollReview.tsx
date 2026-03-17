@@ -68,7 +68,10 @@ interface EmployeePayLine {
   firstName: string;
   lastName: string;
   adpAssociateOID: string | null;
+  payType: "hourly" | "salary";
   hourlyRate: number;
+  annualSalary: number | null;
+  periodSalary: number | null;
   department: string;
   regularHours: number;
   overtimeHours: number;
@@ -430,8 +433,22 @@ export default function PayrollReview() {
                             <td className="py-3 px-4 text-right tabular-nums" data-testid={`text-vac-${emp.userId}`}>{formatHours(emp.vacationHours)}</td>
                             <td className="py-3 px-4 text-right tabular-nums" data-testid={`text-sick-${emp.userId}`}>{formatHours(emp.sickHours)}</td>
                             <td className="py-3 px-4 text-right tabular-nums" data-testid={`text-tips-${emp.userId}`}>{formatCurrency(emp.tips)}</td>
-                            <td className="py-3 px-4 text-right tabular-nums" data-testid={`text-rate-${emp.userId}`}>{formatCurrency(emp.hourlyRate)}/hr</td>
-                            <td className="py-3 px-4 text-right tabular-nums font-medium" data-testid={`text-gross-${emp.userId}`}>{formatCurrency(emp.grossEstimate)}</td>
+                            <td className="py-3 px-4 text-right tabular-nums" data-testid={`text-rate-${emp.userId}`}>
+                              {emp.payType === "salary" ? (
+                                <div>
+                                  <span className="text-[10px] text-muted-foreground block">Salary</span>
+                                  {emp.annualSalary ? formatCurrency(emp.annualSalary) + "/yr" : "—"}
+                                </div>
+                              ) : (
+                                <>{formatCurrency(emp.hourlyRate)}/hr</>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right tabular-nums font-medium" data-testid={`text-gross-${emp.userId}`}>
+                              {formatCurrency(emp.grossEstimate)}
+                              {emp.payType === "salary" && emp.periodSalary !== null && (
+                                <span className="text-[10px] text-muted-foreground block">period</span>
+                              )}
+                            </td>
                             <td className="py-3 px-4">
                               {hasIssues ? (
                                 <div className="flex items-center gap-1">
