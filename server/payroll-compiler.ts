@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { timeEntries, breakEntries, timeOffRequests, shifts } from "@shared/schema";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, sql, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql, isNotNull, isNull, or, inArray } from "drizzle-orm";
 import { fetchSquareTips } from "./square";
 
 export interface EmployeePayLine {
@@ -75,15 +75,27 @@ function hoursFromMs(ms: number): number {
   return Math.round((ms / (1000 * 60 * 60)) * 100) / 100;
 }
 
+function easternDayStart(dateStr: string): Date {
+  const base = new Date(dateStr + "T00:00:00");
+  const offsetStr = base.toLocaleString("en-US", { timeZone: "America/New_York" });
+  const eastern = new Date(offsetStr);
+  const diffMs = base.getTime() - eastern.getTime();
+  return new Date(base.getTime() + diffMs);
+}
+
+function easternDayEnd(dateStr: string): Date {
+  const start = easternDayStart(dateStr);
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+}
+
 export async function compilePayroll(
   startDate: string,
   endDate: string,
   locationId?: number,
   hoursPerDay: number = 8,
 ): Promise<PayrollSummary> {
-  const periodStart = new Date(startDate);
-  const periodEnd = new Date(endDate);
-  periodEnd.setHours(23, 59, 59, 999);
+  const periodStart = easternDayStart(startDate);
+  const periodEnd = easternDayEnd(endDate);
 
   const allUsers = await db
     .select()
@@ -97,8 +109,8 @@ export async function compilePayroll(
     .from(timeEntries)
     .where(
       and(
-        gte(timeEntries.clockIn, periodStart),
         lte(timeEntries.clockIn, periodEnd),
+        or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, periodStart)),
       ),
     );
 
@@ -181,7 +193,8 @@ export async function compilePayroll(
     for (const week of weeks) {
       const weekEntries = userEntries.filter((te) => {
         const clockIn = new Date(te.clockIn);
-        return clockIn >= week.weekStart && clockIn <= week.weekEnd;
+        const clockOut = te.clockOut ? new Date(te.clockOut) : new Date();
+        return clockIn <= week.weekEnd && clockOut >= week.weekStart;
       });
 
       let weekHours = 0;
@@ -190,20 +203,25 @@ export async function compilePayroll(
 
         const clockIn = new Date(entry.clockIn);
         const clockOut = new Date(entry.clockOut);
-        let entryMs = clockOut.getTime() - clockIn.getTime();
+        const clippedStart = Math.max(clockIn.getTime(), week.weekStart.getTime());
+        const clippedEnd = Math.min(clockOut.getTime(), week.weekEnd.getTime());
+        let entryMs = Math.max(0, clippedEnd - clippedStart);
 
         const entryBreaks = allBreaks.filter((b) => b.timeEntryId === entry.id);
         for (const brk of entryBreaks) {
           if (brk.endAt) {
-            entryMs -= new Date(brk.endAt).getTime() - new Date(brk.startAt).getTime();
+            const brkStart = Math.max(new Date(brk.startAt).getTime(), clippedStart);
+            const brkEnd = Math.min(new Date(brk.endAt).getTime(), clippedEnd);
+            if (brkEnd > brkStart) entryMs -= (brkEnd - brkStart);
           }
         }
 
         const entryHours = Math.max(0, hoursFromMs(entryMs));
         weekHours += entryHours;
 
+        const entryDate = new Date(Math.max(clockIn.getTime(), week.weekStart.getTime()));
         const userShifts = allShifts.filter(
-          (s) => s.userId === user.id && s.shiftDate === clockIn.toISOString().slice(0, 10),
+          (s) => s.userId === user.id && s.shiftDate === entryDate.toISOString().slice(0, 10),
         );
         const dept = userShifts.length > 0
           ? userShifts[0].department
