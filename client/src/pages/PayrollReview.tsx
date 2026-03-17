@@ -25,20 +25,20 @@ function getPeriodDates(preset: PeriodPreset, customStart?: string, customEnd?: 
   const today = new Date();
   switch (preset) {
     case "this_week": {
-      const s = startOfWeek(today, { weekStartsOn: 0 });
-      const e = endOfWeek(today, { weekStartsOn: 0 });
+      const s = startOfWeek(today, { weekStartsOn: 3 });
+      const e = endOfWeek(today, { weekStartsOn: 3 });
       return { start: format(s, "yyyy-MM-dd"), end: format(e, "yyyy-MM-dd") };
     }
     case "last_week": {
       const lw = subWeeks(today, 1);
-      const s = startOfWeek(lw, { weekStartsOn: 0 });
-      const e = endOfWeek(lw, { weekStartsOn: 0 });
+      const s = startOfWeek(lw, { weekStartsOn: 3 });
+      const e = endOfWeek(lw, { weekStartsOn: 3 });
       return { start: format(s, "yyyy-MM-dd"), end: format(e, "yyyy-MM-dd") };
     }
     case "biweekly": {
       const lw = subWeeks(today, 1);
-      const s = startOfWeek(lw, { weekStartsOn: 0 });
-      const e = endOfWeek(today, { weekStartsOn: 0 });
+      const s = startOfWeek(lw, { weekStartsOn: 3 });
+      const e = endOfWeek(today, { weekStartsOn: 3 });
       return { start: format(s, "yyyy-MM-dd"), end: format(e, "yyyy-MM-dd") };
     }
     case "this_month": {

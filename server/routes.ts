@@ -5067,9 +5067,9 @@ Return ONLY the JSON array.`,
       const { addDays, startOfWeek, format: fnsFormat } = await import("date-fns");
       let baseDate: Date;
       if (weekStartStr) {
-        baseDate = startOfWeek(new Date(weekStartStr + "T12:00:00"), { weekStartsOn: 1 });
+        baseDate = startOfWeek(new Date(weekStartStr + "T12:00:00"), { weekStartsOn: 3 });
       } else {
-        baseDate = startOfWeek(new Date(), { weekStartsOn: 1 });
+        baseDate = startOfWeek(new Date(), { weekStartsOn: 3 });
       }
 
       const rows: any[][] = [];

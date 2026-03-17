@@ -19,7 +19,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Soldout/86'd Tracking:** Records out-of-stock items with timestamps and attribution.
 *   **COGS System:** Calculates real-time production costs using invoice, inventory, and recipe data.
 *   **Invoice Capture:** AI vision model processes multi-image bakery invoices, supporting PDF uploads.
-*   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI-driven import, smart time parsing, shift pickups/claims with approval workflows, and reusable templates.
+*   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI-driven import, smart time parsing, shift pickups/claims with approval workflows, and reusable templates. **Business week runs Wednesday to Tuesday** (`weekStartsOn: 3` in date-fns, day 3 in TTIS). All scheduling, time review, payroll, and financial pages use this convention.
 *   **Time Card System:** Features a persistent Clock Bar, PIN-based Kiosk Clock, personal management, "Time Review," and Square Labor Sync for seamless integration of clock-in/out data.
 *   **Square Labor Sync:** Connects Square POS team members to Jarvis users and syncs timecards, supporting auto-linking, manual linking, date-range sync with deduplication, break entry import, and real-time webhook sync for timecard and order events.
 *   **Department-Aware Inventory:** InventoryLinkPicker (in recipe create/edit) shows department filter pills (All/Bakery/Bar/Kitchen/FOH) defaulting to recipe's department. EOD inventory count requires selecting department(s) before starting, filtering items to only those departments. Count history shows which departments were counted. `inventory_counts` table has `departments` text array column.
@@ -38,7 +38,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Notes:** Full-featured system with personal/shared notes, voice dictation, AI generation, and photo-to-text functionality.
 *   **Admin Insights Dashboard:** Owner-only analytics dashboard.
 *   **KPI Report System:** Detailed business metrics with comparative analysis.
-*   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation, with employee-facing tip totals on the Home page ClockBar.
+*   **TTIS (Tip Transparency Informational Dashboard):** Owner-only dashboard for Square POS tip allocation, with employee-facing tip totals on the Home page ClockBar. "True Hourly" column auto-populates from team profile `hourlyRate`, with manual override option.
 *   **Test Kitchen:** Collaborative specials development with ingredient builders, real-time costing, and "Jarvis Optimize" for AI recipe analysis.
 *   **Customer Feedback & QR Code:** Public-facing, location-aware feedback page with QR code generator. Sub-5-star submissions trigger a personalized Jarvis AI response offering expo counter remake/refund and email follow-up, secured with one-time capability tokens. Falls back to a warm static message if AI is unavailable.
 *   **Sentiment Matrix:** Owner/GM dashboard correlating customer feedback with clocked-in team members.
@@ -53,7 +53,7 @@ The application uses a monorepo structure with a React 18 frontend (Vite, TypeSc
 *   **Tutorial System:** First-visit tutorial overlays per page with video (YouTube/Vimeo/direct) and/or text content. Owner-managed via `/admin/tutorials` with department/role targeting, active toggle, sort order, preview, and per-tutorial or global view reset. `TutorialOverlay` component renders globally; `tutorial_views` table tracks dismissed tutorials per user. DB tables: `tutorials`, `tutorial_views`.
 *   **HR Onboarding System:** Electronic onboarding with shareable invite links, ADP Run CSV export, handbook acknowledgment, and secure encryption of sensitive data. Includes manager dashboard, custom document upload with AI content extraction, and full W-4 collection.
 *   **ADP RUN Integration:** OAuth2 + mutual TLS client for ADP RUN API, enabling worker retrieval/linking, profile sync, and payroll data input.
-*   **Payroll Review System:** Owner-only page for payroll compilation, aggregating time entries, breaks, overtime, PTO, sick time, and department allocations into ADP-ready format with issue detection and batch history.
+*   **Payroll Review System:** Owner-only page for payroll compilation, aggregating time entries, breaks, overtime, PTO, sick time, tips (from Square), hourly rates, and department allocations into ADP-ready format with issue detection and batch history. Gross estimate includes wages + overtime (1.5x) + PTO/sick + tips.
 *   **Coffee Command Center:** Hub for coffee operations with dashboard, inventory, drink setup, and usage/sales tracking.
 *   **The Firm (Financial Hub):** Owner-only forensic-level financial reconciliation system with overview, accounts, ledger, obligations, payroll, and cash management, including Jarvis AI financial analysis.
 *   **La Carte Customer Portal:** Customer-facing subscription portal with Square catalog, "What's Fresh Today," "Coming Soon," Skip the Line ordering via Square Orders API, and order history.

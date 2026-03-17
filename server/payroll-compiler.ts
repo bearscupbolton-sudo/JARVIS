@@ -1,7 +1,8 @@
 import { db } from "./db";
 import { timeEntries, breakEntries, timeOffRequests, shifts } from "@shared/schema";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, sql, isNotNull } from "drizzle-orm";
+import { eq, and, gte, lte, sql, isNotNull, inArray } from "drizzle-orm";
+import { fetchSquareTips } from "./square";
 
 export interface EmployeePayLine {
   userId: string;
@@ -48,8 +49,9 @@ function getWeekBoundaries(start: Date, end: Date): Array<{ weekStart: Date; wee
   const weeks: Array<{ weekStart: Date; weekEnd: Date }> = [];
   const current = new Date(start);
   const dayOfWeek = current.getDay();
+  const wednesdayOffset = (dayOfWeek - 3 + 7) % 7;
   const weekStart = new Date(current);
-  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  weekStart.setDate(weekStart.getDate() - wednesdayOffset);
 
   while (weekStart < end) {
     const weekEnd = new Date(weekStart);
@@ -284,6 +286,51 @@ export async function compilePayroll(
       grossEstimate: Math.round(grossEstimate * 100) / 100,
       flags,
     });
+  }
+
+  const tipTotals = new Map<string, number>();
+  try {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const dayCount = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / dayMs) + 1;
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(periodStart);
+      d.setDate(d.getDate() + i);
+      const dateStr = d.toISOString().split("T")[0];
+
+      let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
+      try { tipData = await fetchSquareTips(dateStr); } catch { continue; }
+
+      for (const tip of tipData.tips) {
+        let tipTime: Date | null = null;
+        try { tipTime = new Date(tip.createdAt); } catch { continue; }
+        const tipMs = tipTime.getTime();
+
+        const onDutyStaff: string[] = [];
+        for (const te of allTimeEntries) {
+          if (te.userId && !onDutyStaff.includes(te.userId)) {
+            const clockOut = te.clockOut || new Date();
+            if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
+              onDutyStaff.push(te.userId);
+            }
+          }
+        }
+
+        if (onDutyStaff.length > 0) {
+          const splitCents = Math.round(tip.tipAmountCents / onDutyStaff.length);
+          for (const uid of onDutyStaff) {
+            tipTotals.set(uid, (tipTotals.get(uid) || 0) + splitCents);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Payroll tip calculation error:", err);
+  }
+
+  for (const emp of employees) {
+    const tipCents = tipTotals.get(emp.userId) || 0;
+    emp.tips = Math.round(tipCents) / 100;
+    emp.grossEstimate = Math.round((emp.grossEstimate + emp.tips) * 100) / 100;
   }
 
   const allFlags = [

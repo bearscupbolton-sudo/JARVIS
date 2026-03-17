@@ -280,8 +280,8 @@ export default function Schedule() {
   const { selectedLocationId, locations, selectedLocation, setSelectedLocationId } = useLocationContext();
   const isLeadOrAbove = user?.role === "owner" || user?.role === "manager";
 
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 3 }));
+  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 3 });
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
@@ -830,7 +830,7 @@ export default function Schedule() {
     setIsCopyingLastWeek(true);
     try {
       const prevWeekStart = subDays(weekStart, 7);
-      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
+      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 3 });
       const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
       const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
       const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
@@ -855,7 +855,7 @@ export default function Schedule() {
     setIsCopyingLastWeek(true);
     try {
       const prevWeekStart = subDays(weekStart, 7);
-      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 1 });
+      const prevWeekEnd = endOfWeek(prevWeekStart, { weekStartsOn: 3 });
       const prevStartStr = format(prevWeekStart, "yyyy-MM-dd");
       const prevEndStr = format(prevWeekEnd, "yyyy-MM-dd");
       const locParam = selectedLocationId != null && Number.isFinite(selectedLocationId) ? `&locationId=${selectedLocationId}` : "";
@@ -955,7 +955,7 @@ export default function Schedule() {
 
   function prevWeek() { setWeekStart(prev => addDays(prev, -7)); }
   function nextWeek() { setWeekStart(prev => addDays(prev, 7)); }
-  function goToday() { setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 })); }
+  function goToday() { setWeekStart(startOfWeek(new Date(), { weekStartsOn: 3 })); }
 
   const shiftsForDayDept = (date: Date, dept: string) => {
     const dateStr = format(date, "yyyy-MM-dd");

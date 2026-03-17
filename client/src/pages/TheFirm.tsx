@@ -35,8 +35,8 @@ function getPeriodDates(period: PeriodKey, customStart?: string, customEnd?: str
   const today = new Date();
   switch (period) {
     case "this_week": {
-      const s = startOfWeek(today, { weekStartsOn: 1 });
-      const e = endOfWeek(today, { weekStartsOn: 1 });
+      const s = startOfWeek(today, { weekStartsOn: 3 });
+      const e = endOfWeek(today, { weekStartsOn: 3 });
       return { startDate: format(s, "yyyy-MM-dd"), endDate: format(e, "yyyy-MM-dd") };
     }
     case "this_month": {

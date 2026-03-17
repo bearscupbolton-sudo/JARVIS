@@ -57,8 +57,8 @@ export default function TimeReview() {
 
   const currentDate = new Date();
   const weekDate = weekOffset === 0 ? currentDate : addWeeks(currentDate, weekOffset);
-  const weekStart = startOfWeek(weekDate, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(weekDate, { weekStartsOn: 1 });
+  const weekStart = startOfWeek(weekDate, { weekStartsOn: 3 });
+  const weekEnd = endOfWeek(weekDate, { weekStartsOn: 3 });
   const startDate = format(weekStart, "yyyy-MM-dd");
   const endDate = format(weekEnd, "yyyy-MM-dd");
 
