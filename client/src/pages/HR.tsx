@@ -70,7 +70,7 @@ const SECURITY_ITEMS = [
   {
     icon: Eye,
     title: "Masked Display",
-    description: "When managers review submissions, sensitive fields are automatically masked (e.g. ***-**-1234). Full values cannot be retrieved once submitted.",
+    description: "When managers review submissions, sensitive fields are automatically masked (e.g. ***-**-1234). Owners can temporarily reveal full values when needed for ADP entry.",
   },
   {
     icon: Lock,
@@ -268,12 +268,16 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
   const [activeStep, setActiveStep] = useState(invite.status === "completed" ? 3 : 0);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
+  const isOwner = authUser?.role === "owner";
 
   const { data: submission, isLoading } = useQuery({
-    queryKey: ["/api/hr/onboarding/submission", invite.id],
+    queryKey: ["/api/hr/onboarding/submission", invite.id, revealed],
     queryFn: async () => {
-      const res = await fetch(`/api/hr/onboarding/submission/${invite.id}`, { credentials: "include" });
+      const url = `/api/hr/onboarding/submission/${invite.id}${revealed ? "?reveal=true" : ""}`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return null;
       return res.json();
     },
@@ -410,12 +414,27 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="min-h-[200px]" data-testid="step-content">
-              {activeStep === 0 && <StepPersonalInfo submission={submission} />}
-              {activeStep === 1 && <StepHandbook submission={submission} />}
-              {activeStep === 2 && <StepNonCompete submission={submission} />}
-              {activeStep === 3 && <StepCompletion submission={submission} invite={invite} />}
-            </div>
+            <>
+              {activeStep === 0 && isOwner && submission && (
+                <div className="flex justify-end">
+                  <Button
+                    variant={revealed ? "destructive" : "outline"}
+                    size="sm"
+                    onClick={() => setRevealed(!revealed)}
+                    data-testid="button-reveal-sensitive"
+                    className="text-xs"
+                  >
+                    {revealed ? <><Eye className="w-3.5 h-3.5 mr-1" /> Hide Sensitive Data</> : <><Eye className="w-3.5 h-3.5 mr-1" /> Reveal for ADP</>}
+                  </Button>
+                </div>
+              )}
+              <div className="min-h-[200px]" data-testid="step-content">
+                {activeStep === 0 && <StepPersonalInfo submission={submission} revealed={revealed} />}
+                {activeStep === 1 && <StepHandbook submission={submission} />}
+                {activeStep === 2 && <StepNonCompete submission={submission} />}
+                {activeStep === 3 && <StepCompletion submission={submission} invite={invite} />}
+              </div>
+            </>
           )}
         </div>
       </DialogContent>
@@ -423,7 +442,7 @@ function OnboardingDetailDialog({ invite }: { invite: OnboardingInvite }) {
   );
 }
 
-function StepPersonalInfo({ submission }: { submission: any }) {
+function StepPersonalInfo({ submission, revealed }: { submission: any; revealed?: boolean }) {
   if (!submission) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -438,7 +457,7 @@ function StepPersonalInfo({ submission }: { submission: any }) {
     <div className="space-y-4 text-sm">
       <Section title="Personal Information">
         <Row label="Legal Name" value={`${submission.legalFirstName} ${submission.middleName || ""} ${submission.legalLastName}`.trim()} />
-        <SecureRow label="SSN" value={submission.ssn || "—"} />
+        <SecureRow label="SSN" value={submission.ssn || "—"} revealed={revealed} />
         <Row label="Date of Birth" value={submission.dateOfBirth || "—"} />
       </Section>
       <Section title="Address">
@@ -469,8 +488,8 @@ function StepPersonalInfo({ submission }: { submission: any }) {
       </Section>
       <Section title="Direct Deposit">
         <Row label="Bank" value={submission.bankName || "Not provided"} />
-        <SecureRow label="Routing" value={submission.routingNumber || "—"} />
-        <SecureRow label="Account" value={submission.accountNumber || "—"} />
+        <SecureRow label="Routing" value={submission.routingNumber || "—"} revealed={revealed} />
+        <SecureRow label="Account" value={submission.accountNumber || "—"} revealed={revealed} />
         <Row label="Type" value={submission.accountType || "—"} />
       </Section>
     </div>
@@ -672,14 +691,14 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SecureRow({ label, value }: { label: string; value: string }) {
+function SecureRow({ label, value, revealed }: { label: string; value: string; revealed?: boolean }) {
   return (
     <div className="flex justify-between">
       <span className="text-muted-foreground flex items-center gap-1">
-        <Lock className="w-3 h-3 text-green-600" />
+        {revealed ? <Eye className="w-3 h-3 text-amber-600" /> : <Lock className="w-3 h-3 text-green-600" />}
         {label}
       </span>
-      <span className="text-foreground font-medium text-right font-mono text-xs">{value}</span>
+      <span className={`font-medium text-right font-mono text-xs ${revealed ? "text-amber-700 bg-amber-50 px-2 py-0.5 rounded select-all" : "text-foreground"}`}>{value}</span>
     </div>
   );
 }

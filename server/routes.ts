@@ -10436,12 +10436,26 @@ ${todayLogs.length > 0 ? "Today's Sales:\n" + todayLogs.map(l => `- ${l.drinkNam
     }
   });
 
-  app.get("/api/hr/onboarding/submission/:inviteId", isAuthenticated, isManager, async (req, res) => {
+  app.get("/api/hr/onboarding/submission/:inviteId", isAuthenticated, isManager, async (req: any, res) => {
     try {
       const inviteId = parseInt(req.params.inviteId);
       const submission = await storage.getOnboardingSubmissionByInviteId(inviteId);
       if (!submission) {
         return res.status(404).json({ message: "No submission found for this invite" });
+      }
+      const reveal = req.query.reveal === "true";
+      if (reveal && req.appUser?.role !== "owner") {
+        return res.status(403).json({ message: "Only owners can reveal sensitive data" });
+      }
+      if (reveal) {
+        const { decryptOrFallback } = await import("./encryption");
+        const revealed = {
+          ...submission,
+          ssn: decryptOrFallback(submission.ssn),
+          routingNumber: decryptOrFallback(submission.routingNumber),
+          accountNumber: decryptOrFallback(submission.accountNumber),
+        };
+        return res.json(revealed);
       }
       const { maskSSN, maskBankNumber } = await import("./encryption");
       const masked = {
