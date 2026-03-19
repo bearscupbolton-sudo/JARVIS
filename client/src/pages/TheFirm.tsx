@@ -199,13 +199,14 @@ export default function TheFirm() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-6 w-full" data-testid="tabs-firm">
+        <TabsList className="grid grid-cols-7 w-full" data-testid="tabs-firm">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
           <TabsTrigger value="accounts" data-testid="tab-accounts">Accounts</TabsTrigger>
           <TabsTrigger value="ledger" data-testid="tab-ledger">Ledger</TabsTrigger>
           <TabsTrigger value="obligations" data-testid="tab-obligations">Obligations</TabsTrigger>
           <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll</TabsTrigger>
           <TabsTrigger value="cash" data-testid="tab-cash">Cash</TabsTrigger>
+          <TabsTrigger value="sales-tax" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -225,6 +226,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="cash">
           <CashTab cashCounts={cashCounts || []} startDate={startDate} endDate={endDate} />
+        </TabsContent>
+        <TabsContent value="sales-tax">
+          <SalesTaxTab startDate={startDate} endDate={endDate} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1144,6 +1148,209 @@ function CashTab({ cashCounts, startDate, endDate }: { cashCounts: FirmCashCount
               ))}
             </tbody>
           </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface TaxReport {
+  startDate: string;
+  endDate: string;
+  days: Array<{
+    date: string;
+    orderCount: number;
+    grossSales: number;
+    totalTax: number;
+    netSales: number;
+    taxBreakdown: Record<string, { name: string; amount: number; orderCount: number }>;
+  }>;
+  totals: {
+    orderCount: number;
+    grossSales: number;
+    totalTax: number;
+    netSales: number;
+    discounts: number;
+    refunds: number;
+    tips: number;
+  };
+  taxRates: Array<{ name: string; totalCollected: number; orderCount: number }>;
+  locationName: string | null;
+}
+
+function SalesTaxTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const { data: report, isLoading, error } = useQuery<TaxReport>({
+    queryKey: ["/api/firm/sales-tax", startDate, endDate],
+    queryFn: () => fetch(`/api/firm/sales-tax?startDate=${startDate}&endDate=${endDate}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const toggleDay = (date: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(date) ? next.delete(date) : next.add(date);
+      return next;
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (error || !report) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-medium">Unable to load sales tax data</p>
+          <p className="text-sm mt-1">Make sure your Square connection is configured and try again.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const effectiveRate = report.totals.netSales > 0
+    ? ((report.totals.totalTax / report.totals.netSales) * 100).toFixed(3)
+    : "0.000";
+
+  return (
+    <div className="space-y-4" data-testid="sales-tax-tab">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total Tax Collected</p>
+            <p className="text-2xl font-bold tabular-nums text-primary" data-testid="text-total-tax">{formatCurrency(report.totals.totalTax)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Effective rate: {effectiveRate}%</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Gross Sales</p>
+            <p className="text-2xl font-bold tabular-nums" data-testid="text-gross-sales">{formatCurrency(report.totals.grossSales)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{report.totals.orderCount} orders</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Net Sales (excl. tax)</p>
+            <p className="text-2xl font-bold tabular-nums" data-testid="text-net-sales">{formatCurrency(report.totals.netSales)}</p>
+            {report.totals.discounts > 0 && <p className="text-xs text-muted-foreground mt-1">Discounts: {formatCurrency(report.totals.discounts)}</p>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Tips Collected</p>
+            <p className="text-2xl font-bold tabular-nums" data-testid="text-tips">{formatCurrency(report.totals.tips)}</p>
+            {report.totals.refunds > 0 && <p className="text-xs text-red-500 mt-1">Refunds: {formatCurrency(report.totals.refunds)}</p>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {report.taxRates.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Receipt className="w-4 h-4" /> Tax Categories
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-sm" data-testid="table-tax-rates">
+              <thead><tr className="border-b text-muted-foreground">
+                <th className="text-left p-2 font-medium">Tax Name</th>
+                <th className="text-right p-2 font-medium">Total Collected</th>
+                <th className="text-right p-2 font-medium">Applied To</th>
+              </tr></thead>
+              <tbody>
+                {report.taxRates.map(rate => (
+                  <tr key={rate.name} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-tax-rate-${rate.name}`}>
+                    <td className="p-2 font-medium">{rate.name}</td>
+                    <td className="p-2 text-right tabular-nums font-semibold">{formatCurrency(rate.totalCollected)}</td>
+                    <td className="p-2 text-right text-muted-foreground">{rate.orderCount} orders</td>
+                  </tr>
+                ))}
+                <tr className="bg-muted/30 font-semibold">
+                  <td className="p-2">Total</td>
+                  <td className="p-2 text-right tabular-nums">{formatCurrency(report.totals.totalTax)}</td>
+                  <td className="p-2 text-right text-muted-foreground">{report.totals.orderCount} orders</td>
+                </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" /> Daily Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {report.days.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground italic">No sales data for this period</div>
+          ) : (
+            <table className="w-full text-sm" data-testid="table-daily-tax">
+              <thead><tr className="border-b text-muted-foreground">
+                <th className="text-left p-2 font-medium w-8"></th>
+                <th className="text-left p-2 font-medium">Date</th>
+                <th className="text-right p-2 font-medium">Orders</th>
+                <th className="text-right p-2 font-medium">Gross Sales</th>
+                <th className="text-right p-2 font-medium">Tax Collected</th>
+                <th className="text-right p-2 font-medium">Net Sales</th>
+              </tr></thead>
+              <tbody>
+                {report.days.map(day => {
+                  const dayDate = new Date(day.date + "T12:00:00");
+                  const dayLabel = dayDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                  const isExpanded = expanded.has(day.date);
+                  const breakdownEntries = Object.values(day.taxBreakdown);
+                  return (
+                    <>{/* Fragment needed for multiple rows per day */}
+                      <tr
+                        key={day.date}
+                        className={`border-b hover:bg-muted/20 cursor-pointer ${isExpanded ? "bg-muted/10" : ""}`}
+                        onClick={() => breakdownEntries.length > 0 && toggleDay(day.date)}
+                        data-testid={`row-day-${day.date}`}
+                      >
+                        <td className="p-2 text-muted-foreground">
+                          {breakdownEntries.length > 0 && (isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />)}
+                        </td>
+                        <td className="p-2 font-medium">{dayLabel}</td>
+                        <td className="p-2 text-right tabular-nums">{day.orderCount}</td>
+                        <td className="p-2 text-right tabular-nums">{formatCurrency(day.grossSales)}</td>
+                        <td className="p-2 text-right tabular-nums font-semibold text-primary">{formatCurrency(day.totalTax)}</td>
+                        <td className="p-2 text-right tabular-nums">{formatCurrency(day.netSales)}</td>
+                      </tr>
+                      {isExpanded && breakdownEntries.map(tax => (
+                        <tr key={`${day.date}-${tax.name}`} className="bg-muted/20 text-xs text-muted-foreground border-b">
+                          <td className="p-2"></td>
+                          <td className="p-2 pl-6">{tax.name}</td>
+                          <td className="p-2 text-right tabular-nums">{tax.orderCount}</td>
+                          <td className="p-2"></td>
+                          <td className="p-2 text-right tabular-nums">{formatCurrency(tax.amount)}</td>
+                          <td className="p-2"></td>
+                        </tr>
+                      ))}
+                    </>
+                  );
+                })}
+                <tr className="bg-muted/30 font-semibold border-t-2">
+                  <td className="p-2"></td>
+                  <td className="p-2">Period Total</td>
+                  <td className="p-2 text-right tabular-nums">{report.totals.orderCount}</td>
+                  <td className="p-2 text-right tabular-nums">{formatCurrency(report.totals.grossSales)}</td>
+                  <td className="p-2 text-right tabular-nums text-primary">{formatCurrency(report.totals.totalTax)}</td>
+                  <td className="p-2 text-right tabular-nums">{formatCurrency(report.totals.netSales)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
         </CardContent>
       </Card>
     </div>

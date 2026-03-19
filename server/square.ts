@@ -1280,3 +1280,170 @@ async function syncBreaksForTimecard(timeEntryId: number, timecard: any) {
     }
   }
 }
+
+export interface SalesTaxDayEntry {
+  date: string;
+  orderCount: number;
+  grossSales: number;
+  totalTax: number;
+  netSales: number;
+  taxBreakdown: Record<string, { name: string; amount: number; orderCount: number }>;
+}
+
+export interface SalesTaxReport {
+  startDate: string;
+  endDate: string;
+  days: SalesTaxDayEntry[];
+  totals: {
+    orderCount: number;
+    grossSales: number;
+    totalTax: number;
+    netSales: number;
+    discounts: number;
+    refunds: number;
+    tips: number;
+  };
+  taxRates: Array<{ name: string; totalCollected: number; orderCount: number }>;
+  locationName: string | null;
+}
+
+export async function fetchSalesTaxReport(startDate: string, endDate: string, jarvisLocationId?: number): Promise<SalesTaxReport> {
+  const client = getSquareClient();
+
+  let squareLocIds: string[] = [];
+  let locationName: string | null = null;
+
+  if (jarvisLocationId) {
+    const [loc] = await db.select().from(locations).where(eq(locations.id, jarvisLocationId));
+    if (loc?.squareLocationId) {
+      squareLocIds = [loc.squareLocationId];
+      locationName = loc.name;
+    }
+  } else {
+    const allLocs = await db.select().from(locations);
+    const linked = allLocs.filter(l => l.squareLocationId);
+    if (linked.length > 0) {
+      squareLocIds = linked.map(l => l.squareLocationId!);
+      if (linked.length === 1) locationName = linked[0].name;
+    } else {
+      const locResponse = await client.locations.list();
+      const locs = locResponse.locations || [];
+      squareLocIds = locs.map((l: any) => l.id).filter(Boolean) as string[];
+    }
+  }
+
+  const dailyMap = new Map<string, SalesTaxDayEntry>();
+  const globalTaxMap = new Map<string, { name: string; totalCollected: number; orderCount: number }>();
+  let totalOrderCount = 0;
+  let totalGrossSales = 0;
+  let totalTax = 0;
+  let totalDiscounts = 0;
+  let totalRefunds = 0;
+  let totalTips = 0;
+
+  let cursor: string | undefined;
+  const body: any = {
+    query: {
+      filter: {
+        dateTimeFilter: {
+          createdAt: {
+            startAt: `${startDate}T00:00:00Z`,
+            endAt: `${endDate}T23:59:59Z`,
+          },
+        },
+        stateFilter: {
+          states: ["COMPLETED"],
+        },
+      },
+      sort: { sortField: "CREATED_AT", sortOrder: "ASC" },
+    },
+    locationIds: squareLocIds.length > 0 ? squareLocIds : undefined,
+  };
+
+  do {
+    if (cursor) body.cursor = cursor;
+    const response = await client.orders.search(body);
+    const orders = response.orders || [];
+
+    for (const order of orders) {
+      const o = order as any;
+      const createdAt = o.createdAt;
+      if (!createdAt) continue;
+
+      const etDate = new Date(createdAt);
+      const dateKey = etDate.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
+      const grossCents = o.totalMoney?.amount ? Number(o.totalMoney.amount) : 0;
+      const taxCents = o.totalTaxMoney?.amount ? Number(o.totalTaxMoney.amount) : 0;
+      const discountCents = o.totalDiscountMoney?.amount ? Number(o.totalDiscountMoney.amount) : 0;
+      const tipCents = o.totalTipMoney?.amount ? Number(o.totalTipMoney.amount) : 0;
+
+      totalOrderCount++;
+      totalGrossSales += grossCents;
+      totalTax += taxCents;
+      totalDiscounts += discountCents;
+      totalTips += tipCents;
+
+      if (o.refunds && o.refunds.length > 0) {
+        for (const refund of o.refunds) {
+          const refundCents = refund.amountMoney?.amount ? Number(refund.amountMoney.amount) : 0;
+          totalRefunds += refundCents;
+        }
+      }
+
+      const day = dailyMap.get(dateKey) || {
+        date: dateKey,
+        orderCount: 0,
+        grossSales: 0,
+        totalTax: 0,
+        netSales: 0,
+        taxBreakdown: {},
+      };
+      day.orderCount++;
+      day.grossSales += grossCents / 100;
+      day.totalTax += taxCents / 100;
+      day.netSales += (grossCents - taxCents) / 100;
+
+      const taxes = o.taxes || [];
+      for (const tax of taxes) {
+        const taxName = tax.name || "Sales Tax";
+        const taxAmtCents = tax.appliedMoney?.amount ? Number(tax.appliedMoney.amount) : 0;
+
+        if (!day.taxBreakdown[taxName]) {
+          day.taxBreakdown[taxName] = { name: taxName, amount: 0, orderCount: 0 };
+        }
+        day.taxBreakdown[taxName].amount += taxAmtCents / 100;
+        day.taxBreakdown[taxName].orderCount++;
+
+        const global = globalTaxMap.get(taxName) || { name: taxName, totalCollected: 0, orderCount: 0 };
+        global.totalCollected += taxAmtCents / 100;
+        global.orderCount++;
+        globalTaxMap.set(taxName, global);
+      }
+
+      dailyMap.set(dateKey, day);
+    }
+
+    cursor = (response as any).cursor || undefined;
+  } while (cursor);
+
+  const days = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const taxRates = Array.from(globalTaxMap.values()).sort((a, b) => b.totalCollected - a.totalCollected);
+
+  return {
+    startDate,
+    endDate,
+    days,
+    totals: {
+      orderCount: totalOrderCount,
+      grossSales: totalGrossSales / 100,
+      totalTax: totalTax / 100,
+      netSales: (totalGrossSales - totalTax) / 100,
+      discounts: totalDiscounts / 100,
+      refunds: totalRefunds / 100,
+      tips: totalTips / 100,
+    },
+    taxRates,
+    locationName,
+  };
+}

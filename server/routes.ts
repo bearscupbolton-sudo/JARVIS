@@ -11051,6 +11051,22 @@ IMPORTANT GUIDELINES:
   });
 
   // Firm Summary
+  app.get("/api/firm/sales-tax", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
+      const { fetchSalesTaxReport } = await import("./square");
+      const report = await fetchSalesTaxReport(startDate, endDate, locationId);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/firm/summary", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const startDate = req.query.startDate as string;
