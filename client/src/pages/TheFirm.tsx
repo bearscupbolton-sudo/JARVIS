@@ -104,6 +104,15 @@ const PAYMENT_METHODS = [
   { value: "zelle", label: "Zelle" },
 ];
 
+const DEPARTMENTS = [
+  { value: "kitchen", label: "Kitchen" },
+  { value: "front_of_house", label: "Front of House" },
+  { value: "admin", label: "Admin/Office" },
+  { value: "marketing", label: "Marketing" },
+  { value: "delivery", label: "Delivery" },
+  { value: "maintenance", label: "Maintenance" },
+];
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 }
@@ -210,22 +219,22 @@ export default function TheFirm() {
         </TabsList>
 
         <TabsContent value="overview">
-          <OverviewTab summary={summary} loading={loadingSummary} transactions={transactions || []} accounts={accounts || []} obligations={obligations || []} startDate={startDate} endDate={endDate} />
+          <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="accounts">
-          <AccountsTab accounts={accounts || []} loading={loadingAccounts} onSwitchToLedger={(id) => { setActiveTab("ledger"); }} />
+          <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setActiveTab("ledger"); }} />
         </TabsContent>
         <TabsContent value="ledger">
-          <LedgerTab transactions={transactions || []} accounts={accounts || []} loading={loadingTxns} startDate={startDate} endDate={endDate} />
+          <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="obligations">
-          <ObligationsTab obligations={obligations || []} accounts={accounts || []} />
+          <ObligationsTab obligations={Array.isArray(obligations) ? obligations : []} accounts={Array.isArray(accounts) ? accounts : []} />
         </TabsContent>
         <TabsContent value="payroll">
-          <PayrollTab payroll={payroll || []} accounts={accounts || []} startDate={startDate} endDate={endDate} />
+          <PayrollTab payroll={Array.isArray(payroll) ? payroll : []} accounts={Array.isArray(accounts) ? accounts : []} startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="cash">
-          <CashTab cashCounts={cashCounts || []} startDate={startDate} endDate={endDate} />
+          <CashTab cashCounts={Array.isArray(cashCounts) ? cashCounts : []} startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="sales-tax">
           <SalesTaxTab startDate={startDate} endDate={endDate} />
@@ -299,6 +308,96 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardContent>
         </Card>
       </div>
+
+      <Card data-testid="card-account-positions">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Wallet className="w-4 h-4" /> Cash Position Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {accounts.filter(a => a.isActive).length === 0 ? (
+            <p className="text-sm text-muted-foreground italic">No accounts set up yet</p>
+          ) : (
+            <div className="space-y-3">
+              {(() => {
+                const bankAccts = accounts.filter(a => a.isActive && ["checking", "savings"].includes(a.type));
+                const cashAccts = accounts.filter(a => a.isActive && ["cash", "petty_cash"].includes(a.type));
+                const creditAccts = accounts.filter(a => a.isActive && ["credit_card", "line_of_credit"].includes(a.type));
+                const bankTotal = bankAccts.reduce((s, a) => s + a.currentBalance, 0);
+                const cashTotal = cashAccts.reduce((s, a) => s + a.currentBalance, 0);
+                const creditUsed = creditAccts.reduce((s, a) => s + Math.abs(a.currentBalance), 0);
+                const creditAvail = creditAccts.reduce((s, a) => s + ((a.creditLimit || 0) - Math.abs(a.currentBalance)), 0);
+                return (
+                  <>
+                    {bankAccts.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Banking</div>
+                        {bankAccts.map(a => (
+                          <div key={a.id} className="flex items-center justify-between text-sm py-1" data-testid={`pos-bank-${a.id}`}>
+                            <div className="flex items-center gap-2">
+                              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                              <span>{a.name}{a.lastFour ? ` ····${a.lastFour}` : ""}</span>
+                            </div>
+                            <span className="font-medium tabular-nums">{formatCurrency(a.currentBalance)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-semibold border-t border-border/50 pt-1 mt-1">
+                          <span className="text-muted-foreground">Subtotal</span>
+                          <span className="text-blue-700 dark:text-blue-400">{formatCurrency(bankTotal)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {cashAccts.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Cash</div>
+                        {cashAccts.map(a => (
+                          <div key={a.id} className="flex items-center justify-between text-sm py-1" data-testid={`pos-cash-${a.id}`}>
+                            <div className="flex items-center gap-2">
+                              <Banknote className="w-3.5 h-3.5 text-green-600" />
+                              <span>{a.name}</span>
+                            </div>
+                            <span className="font-medium tabular-nums">{formatCurrency(a.currentBalance)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-semibold border-t border-border/50 pt-1 mt-1">
+                          <span className="text-muted-foreground">Subtotal</span>
+                          <span className="text-green-700 dark:text-green-400">{formatCurrency(cashTotal)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {creditAccts.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Credit</div>
+                        {creditAccts.map(a => (
+                          <div key={a.id} className="flex items-center justify-between text-sm py-1" data-testid={`pos-credit-${a.id}`}>
+                            <div className="flex items-center gap-2">
+                              <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                              <span>{a.name}{a.lastFour ? ` ····${a.lastFour}` : ""}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-medium tabular-nums text-red-700 dark:text-red-400">{formatCurrency(Math.abs(a.currentBalance))}</span>
+                              {a.creditLimit && <span className="text-[10px] text-muted-foreground ml-1">/ {formatCurrency(a.creditLimit)}</span>}
+                            </div>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm pt-1 mt-1 border-t border-border/50">
+                          <span className="text-muted-foreground font-semibold">Used / Available</span>
+                          <span className="font-semibold"><span className="text-red-700 dark:text-red-400">{formatCurrency(creditUsed)}</span> <span className="text-muted-foreground font-normal">/</span> <span className="text-green-700 dark:text-green-400">{formatCurrency(creditAvail)}</span></span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm font-bold border-t-2 border-border pt-2 mt-2">
+                      <span>Net Position (Assets − Liabilities)</span>
+                      <span className={(cashPosition - creditUsed) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>{formatCurrency(cashPosition - creditUsed)}</span>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card data-testid="card-expense-breakdown">
@@ -555,7 +654,9 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterSource, setFilterSource] = useState("all");
   const [filterReconciled, setFilterReconciled] = useState("all");
-  const [form, setForm] = useState<Partial<InsertFirmTransaction>>({ date: format(new Date(), "yyyy-MM-dd"), description: "", amount: 0, category: "misc", referenceType: "manual", notes: "" });
+  const [filterTag, setFilterTag] = useState("all");
+  const [tagInput, setTagInput] = useState("");
+  const [form, setForm] = useState<Partial<InsertFirmTransaction>>({ date: format(new Date(), "yyyy-MM-dd"), description: "", amount: 0, category: "misc", referenceType: "manual", notes: "", tags: [], department: undefined });
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/firm/transactions", data),
@@ -570,17 +671,37 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] }); queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] }); toast({ title: "Transaction deleted" }); },
   });
 
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    transactions.forEach(t => (t.tags || []).forEach(tag => tagSet.add(tag)));
+    return Array.from(tagSet).sort();
+  }, [transactions]);
+
+  const creditCardAccounts = useMemo(() => accounts.filter(a => ["credit_card", "line_of_credit"].includes(a.type)), [accounts]);
+
   const filtered = useMemo(() => {
     let list = [...transactions];
     if (filterAccount !== "all") list = list.filter(t => String(t.accountId) === filterAccount);
     if (filterCategory !== "all") list = list.filter(t => t.category === filterCategory);
     if (filterSource !== "all") list = list.filter(t => t.referenceType === filterSource);
     if (filterReconciled !== "all") list = list.filter(t => t.reconciled === (filterReconciled === "yes"));
+    if (filterTag !== "all") list = list.filter(t => (t.tags || []).includes(filterTag));
     return list.sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled]);
+  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled, filterTag]);
 
   const totalIn = filtered.filter(t => t.amount >= 0).reduce((s, t) => s + t.amount, 0);
   const totalOut = filtered.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+
+  function addTag() {
+    const tag = tagInput.trim().toLowerCase();
+    if (tag && !(form.tags || []).includes(tag)) {
+      setForm(f => ({ ...f, tags: [...(f.tags || []), tag] }));
+    }
+    setTagInput("");
+  }
+  function removeTag(tag: string) {
+    setForm(f => ({ ...f, tags: (f.tags || []).filter(t => t !== tag) }));
+  }
 
   return (
     <div className="space-y-4" data-testid="ledger-content">
@@ -618,6 +739,31 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
             <SelectItem value="no">Unreconciled</SelectItem>
           </SelectContent>
         </Select>
+        {allTags.length > 0 && (
+          <Select value={filterTag} onValueChange={setFilterTag}>
+            <SelectTrigger className="w-[130px]" data-testid="filter-tag"><SelectValue placeholder="All Tags" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tags</SelectItem>
+              {allTags.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {creditCardAccounts.length > 0 && (
+          <div className="flex items-center gap-1">
+            {creditCardAccounts.map(cc => (
+              <Button
+                key={cc.id}
+                size="sm"
+                variant={filterAccount === String(cc.id) ? "default" : "outline"}
+                className="text-[10px] h-7 px-2"
+                onClick={() => setFilterAccount(filterAccount === String(cc.id) ? "all" : String(cc.id))}
+                data-testid={`btn-cc-filter-${cc.id}`}
+              >
+                <CreditCard className="w-3 h-3 mr-1" /> {cc.name}
+              </Button>
+            ))}
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-2 text-xs">
           <span className="text-green-700 dark:text-green-400 font-medium">In: {formatCurrency(totalIn)}</span>
           <span className="text-red-700 dark:text-red-400 font-medium">Out: {formatCurrency(Math.abs(totalOut))}</span>
@@ -650,6 +796,36 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                   </Select>
                 </div>
               </div>
+              <div>
+                <Label>Tags</Label>
+                <div className="flex flex-wrap gap-1 mb-1">
+                  {(form.tags || []).map(tag => (
+                    <Badge key={tag} variant="secondary" className="text-[10px] cursor-pointer" onClick={() => removeTag(tag)} data-testid={`tag-${tag}`}>
+                      {tag} ×
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  <Input
+                    value={tagInput}
+                    onChange={e => setTagInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                    placeholder="Type tag and press Enter"
+                    className="text-xs"
+                    data-testid="input-txn-tag"
+                  />
+                  <Button type="button" size="sm" variant="outline" onClick={addTag} data-testid="button-add-tag">+</Button>
+                </div>
+              </div>
+              <div><Label>Department</Label>
+                <Select value={form.department || "none"} onValueChange={v => setForm(f => ({...f, department: v === "none" ? undefined : v}))}>
+                  <SelectTrigger data-testid="select-txn-department"><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {DEPARTMENTS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div><Label>Notes</Label><Textarea value={form.notes || ""} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} data-testid="input-txn-notes" /></div>
             </div>
             <DialogFooter><Button onClick={() => createMut.mutate(form)} disabled={!form.description || !form.date} data-testid="button-save-transaction">Save Transaction</Button></DialogFooter>
@@ -667,6 +843,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                   <th className="text-left p-3 font-medium">Description</th>
                   <th className="text-left p-3 font-medium">Category</th>
                   <th className="text-left p-3 font-medium">Source</th>
+                  <th className="text-left p-3 font-medium">Tags</th>
                   <th className="text-right p-3 font-medium">Amount</th>
                   <th className="text-center p-3 font-medium w-8"><Check className="w-3.5 h-3.5 mx-auto" /></th>
                   <th className="p-3 w-8"></th>
@@ -674,13 +851,23 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground italic">No transactions found for this period</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground italic">No transactions found for this period</td></tr>
                 ) : filtered.map(txn => (
                   <tr key={txn.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-txn-${txn.id}`}>
                     <td className="p-3 text-muted-foreground whitespace-nowrap">{txn.date}</td>
-                    <td className="p-3 font-medium">{txn.description}</td>
+                    <td className="p-3">
+                      <div className="font-medium">{txn.description}</div>
+                      {txn.department && <span className="text-[10px] text-muted-foreground capitalize">{txn.department.replace(/_/g, " ")}</span>}
+                    </td>
                     <td className="p-3 capitalize text-muted-foreground">{txn.category.replace(/_/g, " ")}</td>
                     <td className="p-3">{sourceBadge(txn.referenceType)}</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-0.5">
+                        {(txn.tags || []).map(tag => (
+                          <Badge key={tag} variant="secondary" className="text-[9px] px-1 py-0">{tag}</Badge>
+                        ))}
+                      </div>
+                    </td>
                     <td className={`p-3 text-right font-medium tabular-nums ${txn.amount >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
                       {txn.amount >= 0 ? "+" : ""}{formatCurrency(txn.amount)}
                     </td>

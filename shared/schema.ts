@@ -1627,6 +1627,9 @@ export const firmTransactions = pgTable("firm_transactions", {
   referenceId: text("reference_id"),
   reconciled: boolean("reconciled").default(false).notNull(),
   notes: text("notes"),
+  tags: text("tags").array(),
+  department: text("department"),
+  departmentAllocations: jsonb("department_allocations").$type<Array<{ department: string; amount: number; percent: number }>>(),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

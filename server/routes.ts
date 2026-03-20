@@ -10796,6 +10796,9 @@ IMPORTANT GUIDELINES:
         referenceId: z.string().optional().nullable(),
         reconciled: z.boolean().default(false),
         notes: z.string().optional().nullable(),
+        tags: z.array(z.string()).optional().nullable(),
+        department: z.enum(["kitchen", "front_of_house", "admin", "marketing", "delivery", "maintenance"]).optional().nullable(),
+        departmentAllocations: z.array(z.object({ department: z.string(), amount: z.number(), percent: z.number() })).optional().nullable(),
         createdBy: z.string().min(1),
       });
       const input = schema.parse({ ...req.body, createdBy: req.appUser.id });
