@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,8 +19,9 @@ import {
   Landmark, Plus, DollarSign, TrendingUp, TrendingDown, CreditCard, Wallet,
   Building2, PiggyBank, ArrowUpRight, ArrowDownRight, Check, AlertTriangle,
   CalendarDays, Clock, Trash2, Pencil, Receipt, Banknote, CircleDollarSign,
-  FileText, RefreshCw, Info, ChevronDown, ChevronUp
+  FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink
 } from "lucide-react";
+import { usePlaidLink } from "react-plaid-link";
 import type {
   FirmAccount, InsertFirmAccount,
   FirmTransaction, InsertFirmTransaction,
@@ -124,6 +125,7 @@ function sourceBadge(type: string) {
     payroll: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
     obligation: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
     tip: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+    plaid: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
     manual: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
   };
   return <Badge variant="outline" className={`text-[10px] ${colors[type] || colors.manual}`} data-testid={`badge-source-${type}`}>{type}</Badge>;
@@ -512,11 +514,94 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   );
 }
 
+function PlaidLinkButton() {
+  const { toast } = useToast();
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchToken = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/plaid/create-link-token");
+      const data = await res.json();
+      setLinkToken(data.link_token);
+    } catch (err) {
+      toast({ title: "Failed to initialize bank link", variant: "destructive" });
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  const onSuccess = useCallback(async (publicToken: string, metadata: any) => {
+    try {
+      await apiRequest("POST", "/api/plaid/exchange-token", {
+        public_token: publicToken,
+        institution: metadata.institution,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/items"] });
+      toast({ title: `${metadata.institution?.name || "Bank"} linked successfully` });
+    } catch (err) {
+      toast({ title: "Failed to link account", variant: "destructive" });
+    }
+    setLinkToken(null);
+  }, [toast]);
+
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess,
+    onExit: () => { setLinkToken(null); setIsLoading(false); },
+  });
+
+  useEffect(() => {
+    if (linkToken && ready) {
+      open();
+      setIsLoading(false);
+    }
+  }, [linkToken, ready, open]);
+
+  return (
+    <Button size="sm" variant="outline" onClick={fetchToken} disabled={isLoading} data-testid="button-link-bank">
+      <Link2 className="w-4 h-4 mr-1" /> {isLoading ? "Connecting..." : "Link Bank Account"}
+    </Button>
+  );
+}
+
 function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAccount[]; loading: boolean; onSwitchToLedger: (id: number) => void }) {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<FirmAccount | null>(null);
   const [form, setForm] = useState<Partial<InsertFirmAccount>>({ name: "", type: "checking", institution: "", lastFour: "", currentBalance: 0, notes: "" });
+
+  const { data: plaidItemsData } = useQuery<any[]>({ queryKey: ["/api/plaid/items"] });
+
+  const syncBalancesMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/plaid/sync-balances"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/items"] });
+      toast({ title: "Balances synced from bank" });
+    },
+    onError: () => toast({ title: "Sync failed", variant: "destructive" }),
+  });
+
+  const syncTxnsMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/plaid/sync-transactions"),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      toast({ title: `${data.added} new transactions imported` });
+    },
+    onError: () => toast({ title: "Transaction sync failed", variant: "destructive" }),
+  });
+
+  const unlinkMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/plaid/items/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/items"] });
+      toast({ title: "Institution unlinked" });
+    },
+  });
 
   const createMut = useMutation({
     mutationFn: (data: Partial<InsertFirmAccount>) => apiRequest("POST", "/api/firm/accounts", data),
@@ -565,6 +650,19 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
           <div className="text-sm"><span className="text-muted-foreground">Assets:</span> <span className="font-semibold text-green-700 dark:text-green-400">{formatCurrency(totalAssets)}</span></div>
           <div className="text-sm"><span className="text-muted-foreground">Liabilities:</span> <span className="font-semibold text-red-700 dark:text-red-400">{formatCurrency(totalLiabilities)}</span></div>
           <div className="text-sm"><span className="text-muted-foreground">Net:</span> <span className={`font-semibold ${totalAssets - totalLiabilities >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>{formatCurrency(totalAssets - totalLiabilities)}</span></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <PlaidLinkButton />
+          {Array.isArray(plaidItemsData) && plaidItemsData.length > 0 && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => syncBalancesMut.mutate()} disabled={syncBalancesMut.isPending} data-testid="button-sync-balances">
+                <RefreshCw className={`w-4 h-4 mr-1 ${syncBalancesMut.isPending ? "animate-spin" : ""}`} /> Sync Balances
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => syncTxnsMut.mutate()} disabled={syncTxnsMut.isPending} data-testid="button-sync-txns">
+                <RefreshCw className={`w-4 h-4 mr-1 ${syncTxnsMut.isPending ? "animate-spin" : ""}`} /> Import Transactions
+              </Button>
+            </>
+          )}
         </div>
         <Dialog open={showForm} onOpenChange={(o) => { setShowForm(o); if (!o) { setEditing(null); resetForm(); } }}>
           <DialogTrigger asChild><Button size="sm" data-testid="button-add-account"><Plus className="w-4 h-4 mr-1" /> Add Account</Button></DialogTrigger>
@@ -639,9 +737,39 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
         <Card><CardContent className="p-12 text-center">
           <Building2 className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
           <h3 className="text-lg font-medium mb-1">No accounts yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">Add your bank accounts, credit cards, and cash drawers to start tracking every dollar.</p>
-          <Button onClick={() => setShowForm(true)} data-testid="button-add-first-account"><Plus className="w-4 h-4 mr-1" /> Add Your First Account</Button>
+          <p className="text-sm text-muted-foreground mb-4">Link your bank accounts automatically or add them manually.</p>
+          <div className="flex justify-center gap-2">
+            <PlaidLinkButton />
+            <Button onClick={() => setShowForm(true)} data-testid="button-add-first-account"><Plus className="w-4 h-4 mr-1" /> Add Manually</Button>
+          </div>
         </CardContent></Card>
+      )}
+
+      {Array.isArray(plaidItemsData) && plaidItemsData.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Connected Institutions</h3>
+          <div className="space-y-2">
+            {plaidItemsData.map((item: any) => (
+              <Card key={item.id} data-testid={`card-plaid-item-${item.id}`}>
+                <CardContent className="p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Link2 className="w-4 h-4 text-green-600" />
+                    <div>
+                      <div className="font-medium text-sm">{item.institutionName || "Unknown Institution"}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {item.accounts?.length || 0} accounts linked
+                        {item.lastSynced && ` · Last synced ${new Date(item.lastSynced).toLocaleDateString()}`}
+                      </div>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="text-destructive h-7" onClick={() => unlinkMut.mutate(item.id)} data-testid={`button-unlink-${item.id}`}>
+                    <Unlink className="w-3 h-3 mr-1" /> Unlink
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -728,6 +856,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
             <SelectItem value="invoice">Invoice</SelectItem>
             <SelectItem value="payroll">Payroll</SelectItem>
             <SelectItem value="obligation">Obligation</SelectItem>
+            <SelectItem value="plaid">Plaid (Bank)</SelectItem>
             <SelectItem value="manual">Manual</SelectItem>
           </SelectContent>
         </Select>

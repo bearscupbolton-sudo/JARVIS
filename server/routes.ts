@@ -10792,7 +10792,7 @@ IMPORTANT GUIDELINES:
         amount: z.number(),
         category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "misc"]),
         subcategory: z.string().optional().nullable(),
-        referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "manual"]).default("manual"),
+        referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
         reconciled: z.boolean().default(false),
         notes: z.string().optional().nullable(),
@@ -11049,6 +11049,221 @@ IMPORTANT GUIDELINES:
       const count = await storage.updateFirmCashCount(Number(req.params.id), req.body);
       if (!count) return res.status(404).json({ message: "Cash count not found" });
       res.json(count);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PLAID INTEGRATION ===
+  app.post("/api/plaid/create-link-token", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidClient, Products, CountryCode } = await import("./plaid");
+      const request = {
+        user: { client_user_id: req.appUser.id },
+        client_name: "Bear's Cup Bakehouse",
+        products: [Products.Transactions],
+        country_codes: [CountryCode.Us],
+        language: "en",
+      };
+      const response = await plaidClient.linkTokenCreate(request);
+      res.json({ link_token: response.data.link_token });
+    } catch (err: any) {
+      console.error("[Plaid] Link token error:", err.response?.data || err.message);
+      res.status(500).json({ message: "Failed to create link token" });
+    }
+  });
+
+  app.post("/api/plaid/exchange-token", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidClient, mapPlaidAccountType } = await import("./plaid");
+      const { public_token, institution } = req.body;
+      const exchangeResponse = await plaidClient.itemPublicTokenExchange({ public_token });
+      const accessToken = exchangeResponse.data.access_token;
+      const itemId = exchangeResponse.data.item_id;
+
+      const plaidItem = await storage.createPlaidItem({
+        itemId,
+        accessToken,
+        institutionId: institution?.institution_id || null,
+        institutionName: institution?.name || null,
+        status: "active",
+        createdBy: req.appUser.id,
+      });
+
+      const accountsResponse = await plaidClient.accountsGet({ access_token: accessToken });
+      const linkedAccounts = [];
+
+      for (const acct of accountsResponse.data.accounts) {
+        const firmType = mapPlaidAccountType(acct.type, acct.subtype || null);
+        const firmAccount = await storage.createFirmAccount({
+          name: acct.name,
+          type: firmType,
+          institution: institution?.name || "",
+          lastFour: acct.mask || "",
+          currentBalance: acct.balances.current || 0,
+          creditLimit: acct.balances.limit || undefined,
+          notes: `Linked via Plaid (${acct.official_name || acct.name})`,
+          isActive: true,
+        });
+
+        const plaidAccount = await storage.createPlaidAccount({
+          plaidItemId: plaidItem.id,
+          accountId: acct.account_id,
+          firmAccountId: firmAccount.id,
+          name: acct.name,
+          officialName: acct.official_name || null,
+          type: acct.type,
+          subtype: acct.subtype || null,
+          mask: acct.mask || null,
+          currentBalance: acct.balances.current || 0,
+          availableBalance: acct.balances.available || null,
+          creditLimit: acct.balances.limit || null,
+          isoCurrencyCode: acct.balances.iso_currency_code || "USD",
+          lastUpdated: new Date(),
+        });
+
+        linkedAccounts.push({ plaidAccount, firmAccount });
+      }
+
+      const { accessToken: _omit, ...safeItem } = plaidItem;
+      res.json({ item: safeItem, accounts: linkedAccounts.map(la => ({ firmAccount: la.firmAccount, plaidAccount: la.plaidAccount })) });
+    } catch (err: any) {
+      console.error("[Plaid] Token exchange error:", err.response?.data || err.message);
+      res.status(500).json({ message: "Failed to link account" });
+    }
+  });
+
+  app.post("/api/plaid/sync-balances", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { plaidClient } = await import("./plaid");
+      const items = await storage.getPlaidItems();
+      let updated = 0;
+
+      for (const item of items) {
+        if (item.status !== "active") continue;
+        try {
+          const response = await plaidClient.accountsGet({ access_token: item.accessToken });
+          for (const acct of response.data.accounts) {
+            const plaidAcct = await storage.getPlaidAccountByAccountId(acct.account_id);
+            if (plaidAcct) {
+              await storage.updatePlaidAccount(plaidAcct.id, {
+                currentBalance: acct.balances.current || 0,
+                availableBalance: acct.balances.available || null,
+                creditLimit: acct.balances.limit || null,
+                lastUpdated: new Date(),
+              });
+              if (plaidAcct.firmAccountId) {
+                await storage.updateFirmAccount(plaidAcct.firmAccountId, {
+                  currentBalance: acct.balances.current || 0,
+                  creditLimit: acct.balances.limit || undefined,
+                });
+              }
+              updated++;
+            }
+          }
+          await storage.updatePlaidItem(item.id, { lastSynced: new Date() });
+        } catch (itemErr: any) {
+          console.error(`[Plaid] Sync error for item ${item.id}:`, itemErr.response?.data || itemErr.message);
+        }
+      }
+      res.json({ updated, itemCount: items.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/plaid/sync-transactions", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidClient } = await import("./plaid");
+      const items = await storage.getPlaidItems();
+      let added = 0;
+
+      for (const item of items) {
+        if (item.status !== "active") continue;
+        try {
+          let hasMore = true;
+          let cursor = item.cursor || undefined;
+
+          while (hasMore) {
+            const response = await plaidClient.transactionsSync({
+              access_token: item.accessToken,
+              cursor,
+            });
+
+            for (const txn of response.data.added) {
+              const plaidAcct = await storage.getPlaidAccountByAccountId(txn.account_id);
+              const firmAccountId = plaidAcct?.firmAccountId || null;
+
+              const existing = await storage.getFirmTransactions({ startDate: txn.date, endDate: txn.date });
+              const isDupe = existing.some(e =>
+                e.referenceType === "plaid" &&
+                e.referenceId === txn.transaction_id
+              );
+              if (isDupe) continue;
+
+              let category = "misc";
+              if (txn.personal_finance_category?.primary) {
+                const pc = txn.personal_finance_category.primary.toLowerCase();
+                if (pc.includes("food") || pc.includes("groceries")) category = "cogs";
+                else if (pc.includes("rent")) category = "rent";
+                else if (pc.includes("utilities")) category = "utilities";
+                else if (pc.includes("insurance")) category = "insurance";
+                else if (pc.includes("transfer")) category = "misc";
+                else if (pc.includes("income") || pc.includes("deposit")) category = "revenue";
+                else if (pc.includes("loan") || pc.includes("debt")) category = "debt_payment";
+              }
+
+              await storage.createFirmTransaction({
+                accountId: firmAccountId,
+                date: txn.date,
+                description: txn.name || txn.merchant_name || "Plaid Transaction",
+                amount: -(txn.amount || 0),
+                category,
+                referenceType: "plaid",
+                referenceId: txn.transaction_id,
+                reconciled: false,
+                notes: txn.merchant_name ? `Merchant: ${txn.merchant_name}` : null,
+                createdBy: req.appUser.id,
+              });
+              added++;
+            }
+
+            cursor = response.data.next_cursor;
+            hasMore = response.data.has_more;
+          }
+
+          if (cursor) {
+            await storage.updatePlaidItem(item.id, { cursor, lastSynced: new Date() });
+          }
+        } catch (itemErr: any) {
+          console.error(`[Plaid] Txn sync error for item ${item.id}:`, itemErr.response?.data || itemErr.message);
+        }
+      }
+      res.json({ added, itemCount: items.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/plaid/items", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const items = await storage.getPlaidItems();
+      const allAccounts = await storage.getPlaidAccounts();
+      const result = items.map(item => ({
+        ...item,
+        accessToken: undefined,
+        accounts: allAccounts.filter(a => a.plaidItemId === item.id),
+      }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/plaid/items/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      await storage.deletePlaidItem(Number(req.params.id));
+      res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

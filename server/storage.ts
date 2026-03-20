@@ -135,6 +135,9 @@ import {
   type FirmRecurringObligation, type InsertFirmRecurringObligation,
   type FirmPayrollEntry, type InsertFirmPayrollEntry,
   type FirmCashCount, type InsertFirmCashCount,
+  plaidItems, plaidAccounts,
+  type PlaidItem, type InsertPlaidItem,
+  type PlaidAccount, type InsertPlaidAccount,
   payrollBatches,
   type PayrollBatch, type InsertPayrollBatch,
   wholesaleCustomers, wholesaleCatalogItems, wholesaleOrders, wholesaleOrderItems,
@@ -729,6 +732,19 @@ export interface IStorage {
   getFirmCashCount(id: number): Promise<FirmCashCount | undefined>;
   createFirmCashCount(count: InsertFirmCashCount): Promise<FirmCashCount>;
   updateFirmCashCount(id: number, updates: Partial<InsertFirmCashCount>): Promise<FirmCashCount>;
+
+  // Plaid
+  getPlaidItems(): Promise<PlaidItem[]>;
+  getPlaidItem(id: number): Promise<PlaidItem | undefined>;
+  getPlaidItemByItemId(itemId: string): Promise<PlaidItem | undefined>;
+  createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem>;
+  updatePlaidItem(id: number, updates: Partial<InsertPlaidItem>): Promise<PlaidItem>;
+  deletePlaidItem(id: number): Promise<void>;
+  getPlaidAccounts(plaidItemId?: number): Promise<PlaidAccount[]>;
+  createPlaidAccount(account: InsertPlaidAccount): Promise<PlaidAccount>;
+  updatePlaidAccount(id: number, updates: Partial<InsertPlaidAccount>): Promise<PlaidAccount>;
+  getPlaidAccountByAccountId(accountId: string): Promise<PlaidAccount | undefined>;
+  deletePlaidAccountsByItemId(plaidItemId: number): Promise<void>;
 
   // Payroll Batches
   getPayrollBatches(): Promise<PayrollBatch[]>;
@@ -4500,6 +4516,50 @@ export class DatabaseStorage implements IStorage {
   async updateFirmCashCount(id: number, updates: Partial<InsertFirmCashCount>): Promise<FirmCashCount> {
     const [updated] = await db.update(firmCashCounts).set(updates).where(eq(firmCashCounts.id, id)).returning();
     return updated;
+  }
+
+  // === PLAID ===
+  async getPlaidItems(): Promise<PlaidItem[]> {
+    return db.select().from(plaidItems).orderBy(plaidItems.createdAt);
+  }
+  async getPlaidItem(id: number): Promise<PlaidItem | undefined> {
+    const [item] = await db.select().from(plaidItems).where(eq(plaidItems.id, id));
+    return item;
+  }
+  async getPlaidItemByItemId(itemId: string): Promise<PlaidItem | undefined> {
+    const [item] = await db.select().from(plaidItems).where(eq(plaidItems.itemId, itemId));
+    return item;
+  }
+  async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> {
+    const [created] = await db.insert(plaidItems).values(item).returning();
+    return created;
+  }
+  async updatePlaidItem(id: number, updates: Partial<InsertPlaidItem>): Promise<PlaidItem> {
+    const [updated] = await db.update(plaidItems).set(updates).where(eq(plaidItems.id, id)).returning();
+    return updated;
+  }
+  async deletePlaidItem(id: number): Promise<void> {
+    await db.delete(plaidAccounts).where(eq(plaidAccounts.plaidItemId, id));
+    await db.delete(plaidItems).where(eq(plaidItems.id, id));
+  }
+  async getPlaidAccounts(plaidItemId?: number): Promise<PlaidAccount[]> {
+    if (plaidItemId) return db.select().from(plaidAccounts).where(eq(plaidAccounts.plaidItemId, plaidItemId));
+    return db.select().from(plaidAccounts);
+  }
+  async createPlaidAccount(account: InsertPlaidAccount): Promise<PlaidAccount> {
+    const [created] = await db.insert(plaidAccounts).values(account).returning();
+    return created;
+  }
+  async updatePlaidAccount(id: number, updates: Partial<InsertPlaidAccount>): Promise<PlaidAccount> {
+    const [updated] = await db.update(plaidAccounts).set(updates).where(eq(plaidAccounts.id, id)).returning();
+    return updated;
+  }
+  async getPlaidAccountByAccountId(accountId: string): Promise<PlaidAccount | undefined> {
+    const [account] = await db.select().from(plaidAccounts).where(eq(plaidAccounts.accountId, accountId));
+    return account;
+  }
+  async deletePlaidAccountsByItemId(plaidItemId: number): Promise<void> {
+    await db.delete(plaidAccounts).where(eq(plaidAccounts.plaidItemId, plaidItemId));
   }
 
   // === THE FIRM — Summary ===

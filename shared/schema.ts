@@ -1702,6 +1702,46 @@ export const insertFirmCashCountSchema = createInsertSchema(firmCashCounts).omit
 export type FirmCashCount = typeof firmCashCounts.$inferSelect;
 export type InsertFirmCashCount = z.infer<typeof insertFirmCashCountSchema>;
 
+// === PLAID LINKED ITEMS ===
+export const plaidItems = pgTable("plaid_items", {
+  id: serial("id").primaryKey(),
+  itemId: text("item_id").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  institutionId: text("institution_id"),
+  institutionName: text("institution_name"),
+  cursor: text("cursor"),
+  lastSynced: timestamp("last_synced"),
+  status: text("status").notNull().default("active"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPlaidItemSchema = createInsertSchema(plaidItems).omit({ id: true, createdAt: true });
+export type PlaidItem = typeof plaidItems.$inferSelect;
+export type InsertPlaidItem = z.infer<typeof insertPlaidItemSchema>;
+
+export const plaidAccounts = pgTable("plaid_accounts", {
+  id: serial("id").primaryKey(),
+  plaidItemId: integer("plaid_item_id").notNull(),
+  accountId: text("account_id").notNull(),
+  firmAccountId: integer("firm_account_id"),
+  name: text("name").notNull(),
+  officialName: text("official_name"),
+  type: text("type").notNull(),
+  subtype: text("subtype"),
+  mask: text("mask"),
+  currentBalance: doublePrecision("current_balance"),
+  availableBalance: doublePrecision("available_balance"),
+  creditLimit: doublePrecision("credit_limit"),
+  isoCurrencyCode: text("iso_currency_code").default("USD"),
+  lastUpdated: timestamp("last_updated"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPlaidAccountSchema = createInsertSchema(plaidAccounts).omit({ id: true, createdAt: true });
+export type PlaidAccount = typeof plaidAccounts.$inferSelect;
+export type InsertPlaidAccount = z.infer<typeof insertPlaidAccountSchema>;
+
 // === PAYROLL BATCHES ===
 export const payrollBatches = pgTable("payroll_batches", {
   id: serial("id").primaryKey(),
