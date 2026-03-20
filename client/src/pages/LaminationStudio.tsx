@@ -135,17 +135,21 @@ export default function LaminationStudio() {
   const today = new Date().toISOString().split("T")[0];
 
   const [showNewDough, setShowNewDough] = useState(false);
-  const [newDoughStep, setNewDoughStep] = useState<"type" | "intended" | "turn1" | "turn2" | "subtype">("type");
+  const [newDoughStep, setNewDoughStep] = useState<"type" | "intended" | "turn1" | "turn2" | "turn3choice" | "subtype">("type");
   const [selectedType, setSelectedType] = useState("");
   const [intendedPastry, setIntendedPastry] = useState("");
   const [turn1, setTurn1] = useState("");
   const [turn2, setTurn2] = useState("");
+  const [turn3, setTurn3] = useState("");
   const [foldSubtype, setFoldSubtype] = useState("");
 
   const [continueTurn2Dough, setContinueTurn2Dough] = useState<LaminationDough | null>(null);
   const [continueTurn2Fold, setContinueTurn2Fold] = useState("");
   const [continueTurn2Subtype, setContinueTurn2Subtype] = useState("");
   const [showContinueSubtype, setShowContinueSubtype] = useState(false);
+  const [showContinueTurn3Choice, setShowContinueTurn3Choice] = useState(false);
+
+  const [rushProofDough, setRushProofDough] = useState<LaminationDough | null>(null);
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
   const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
@@ -333,7 +337,7 @@ export default function LaminationStudio() {
   }, [today]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; foldSequence?: string; foldSubtype?: string; intendedPastry?: string; chill?: boolean }) => {
+    mutationFn: async (data: { doughType: string; turn1Fold: string; turn2Fold?: string; turn3Fold?: string; foldSequence?: string; foldSubtype?: string; intendedPastry?: string; chill?: boolean }) => {
       const res = await apiRequest("POST", "/api/lamination", { doughType: data.doughType });
       const created = await res.json();
       const now = new Date().toISOString();
@@ -350,6 +354,7 @@ export default function LaminationStudio() {
         await apiRequest("PATCH", `/api/lamination/${created.id}`, {
           turn1Fold: data.turn1Fold,
           turn2Fold: data.turn2Fold,
+          turn3Fold: data.turn3Fold || null,
           foldSequence: data.foldSequence,
           foldSubtype: data.foldSubtype || null,
           intendedPastry: (data.intendedPastry && data.intendedPastry !== "None") ? data.intendedPastry : null,
@@ -456,6 +461,7 @@ export default function LaminationStudio() {
     setIntendedPastry("");
     setTurn1("");
     setTurn2("");
+    setTurn3("");
     setFoldSubtype("");
   }, []);
 
@@ -483,9 +489,13 @@ export default function LaminationStudio() {
     setNewDoughStep("turn1");
   };
 
-  function deriveFoldSequence(t1: string, t2: string): string {
+  function deriveFoldSequence(t1: string, t2: string, t3?: string): string {
     const n1 = t1.replace("-fold", "");
     const n2 = t2.replace("-fold", "");
+    if (t3) {
+      const n3 = t3.replace("-fold", "");
+      return `${n1}x${n2}x${n3}`;
+    }
     return `${n1}x${n2}`;
   }
 
@@ -512,6 +522,10 @@ export default function LaminationStudio() {
         setNewDoughStep("subtype");
         return;
       }
+      if (turn1 === "3-fold" && turn2 === "3-fold") {
+        setNewDoughStep("turn3choice");
+        return;
+      }
       const seq = deriveFoldSequence(turn1, turn2);
       createMutation.mutate({
         doughType: selectedType,
@@ -521,6 +535,29 @@ export default function LaminationStudio() {
         intendedPastry: intendedPastry || undefined,
       });
     }
+  };
+
+  const handleTurn3ChoiceRest = () => {
+    const seq = deriveFoldSequence(turn1, turn2);
+    createMutation.mutate({
+      doughType: selectedType,
+      turn1Fold: turn1,
+      turn2Fold: turn2,
+      foldSequence: seq,
+      intendedPastry: intendedPastry || undefined,
+    });
+  };
+
+  const handleTurn3ChoiceThirdFold = () => {
+    const seq = deriveFoldSequence(turn1, turn2, "3-fold");
+    createMutation.mutate({
+      doughType: selectedType,
+      turn1Fold: turn1,
+      turn2Fold: turn2,
+      turn3Fold: "3-fold",
+      foldSequence: seq,
+      intendedPastry: intendedPastry || undefined,
+    });
   };
 
   const handleSubtypeComplete = () => {
@@ -551,13 +588,17 @@ export default function LaminationStudio() {
       setShowContinueSubtype(true);
       return;
     }
+    if (t1 === "3-fold" && continueTurn2Fold === "3-fold") {
+      setShowContinueTurn3Choice(true);
+      return;
+    }
     handleContinueTurn2Submit();
   };
 
-  const handleContinueTurn2Submit = () => {
+  const handleContinueTurn2Submit = (withTurn3?: boolean) => {
     if (!continueTurn2Dough || !continueTurn2Fold) return;
     const t1 = continueTurn2Dough.turn1Fold || "3-fold";
-    const seq = deriveFoldSequence(t1, continueTurn2Fold);
+    const seq = withTurn3 ? deriveFoldSequence(t1, continueTurn2Fold, "3-fold") : deriveFoldSequence(t1, continueTurn2Fold);
     const now = new Date().toISOString();
     const subtypeValue = (t1 === "4-fold" && continueTurn2Fold === "4-fold" && continueTurn2Subtype) ? continueTurn2Subtype : null;
     updateMutation.mutate(
@@ -565,6 +606,7 @@ export default function LaminationStudio() {
         id: continueTurn2Dough.id,
         updates: {
           turn2Fold: continueTurn2Fold,
+          turn3Fold: withTurn3 ? "3-fold" : null,
           foldSequence: seq,
           foldSubtype: subtypeValue,
           status: "resting",
@@ -579,7 +621,9 @@ export default function LaminationStudio() {
           setContinueTurn2Fold("");
           setContinueTurn2Subtype("");
           setShowContinueSubtype(false);
-          toast({ title: "Turn 2 complete", description: "Final rest has begun. 30-minute timer started." });
+          setShowContinueTurn3Choice(false);
+          const msg = withTurn3 ? "Turn 3 complete" : "Turn 2 complete";
+          toast({ title: msg, description: "Final rest has begun. 30-minute timer started." });
         },
       }
     );
@@ -1181,7 +1225,7 @@ export default function LaminationStudio() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div className={`grid gap-2 text-sm ${d.turn3Fold ? "grid-cols-4" : "grid-cols-3"}`}>
                       <div>
                         <p className="text-muted-foreground text-xs">Turn 1</p>
                         <p className="font-mono font-semibold">{d.turn1Fold || "—"}</p>
@@ -1190,6 +1234,12 @@ export default function LaminationStudio() {
                         <p className="text-muted-foreground text-xs">Turn 2</p>
                         <p className="font-mono font-semibold">{isChilling ? "Pending" : (d.turn2Fold || "—")}</p>
                       </div>
+                      {d.turn3Fold && (
+                        <div>
+                          <p className="text-muted-foreground text-xs">Turn 3</p>
+                          <p className="font-mono font-semibold">{d.turn3Fold}</p>
+                        </div>
+                      )}
                       <div>
                         <p className="text-muted-foreground text-xs">Sequence</p>
                         <p className="font-mono font-semibold">{d.foldSequence || "—"}</p>
@@ -1384,7 +1434,7 @@ export default function LaminationStudio() {
 
                           {isExpanded && (
                             <div className="px-4 pb-3 space-y-3 bg-muted/30">
-                              <div className="grid grid-cols-3 gap-2 text-sm pt-2">
+                              <div className={`grid gap-2 text-sm pt-2 ${dough.turn3Fold ? "grid-cols-4" : "grid-cols-3"}`}>
                                 <div>
                                   <p className="text-muted-foreground text-xs">Turn 1</p>
                                   <p className="font-mono font-semibold">{dough.turn1Fold || "—"}</p>
@@ -1393,6 +1443,12 @@ export default function LaminationStudio() {
                                   <p className="text-muted-foreground text-xs">Turn 2</p>
                                   <p className="font-mono font-semibold">{isChilling ? "Pending" : (dough.turn2Fold || "—")}</p>
                                 </div>
+                                {dough.turn3Fold && (
+                                  <div>
+                                    <p className="text-muted-foreground text-xs">Turn 3</p>
+                                    <p className="font-mono font-semibold">{dough.turn3Fold}</p>
+                                  </div>
+                                )}
                                 <div>
                                   <p className="text-muted-foreground text-xs">Sequence</p>
                                   <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
@@ -1720,6 +1776,18 @@ export default function LaminationStudio() {
                                   <Flame className="w-4 h-4" />
                                   Bake Off
                                 </Button>
+                                {isRedPhase && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 gap-1.5 text-xs border-orange-300"
+                                    onClick={() => setRushProofDough(dough)}
+                                    data-testid={`button-rush-proof-${dough.id}`}
+                                  >
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Rush
+                                  </Button>
+                                )}
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2222,6 +2290,7 @@ export default function LaminationStudio() {
               {newDoughStep === "intended" && `${selectedType} — Intended Pastry`}
               {newDoughStep === "turn1" && `${selectedType} — Turn 1`}
               {newDoughStep === "turn2" && `${selectedType} — Turn 2`}
+              {newDoughStep === "turn3choice" && `${selectedType} — 3rd Fold?`}
               {newDoughStep === "subtype" && `${selectedType} — 4x4 Technique`}
             </DialogTitle>
             <DialogDescription>
@@ -2229,6 +2298,7 @@ export default function LaminationStudio() {
               {newDoughStep === "intended" && "What pastry is this dough planned for?"}
               {newDoughStep === "turn1" && "Select the fold for Turn 1."}
               {newDoughStep === "turn2" && "Select the fold for Turn 2."}
+              {newDoughStep === "turn3choice" && "Both turns are 3-fold. Would you like to add a 3rd 3-fold or go straight to rest?"}
               {newDoughStep === "subtype" && "Both folds are 4-fold. What technique is this?"}
             </DialogDescription>
           </DialogHeader>
@@ -2356,6 +2426,40 @@ export default function LaminationStudio() {
             </div>
           )}
 
+          {newDoughStep === "turn3choice" && (
+            <div className="space-y-5 py-2">
+              <p className="text-sm text-muted-foreground">
+                You've done two 3-folds (3x3). Add a 3rd 3-fold for extra layers, or rest the dough now.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <Button
+                  className="h-14 text-base justify-start gap-3"
+                  onClick={handleTurn3ChoiceThirdFold}
+                  disabled={createMutation.isPending}
+                  data-testid="button-turn3-add"
+                >
+                  <Layers className="w-5 h-5" />
+                  {createMutation.isPending ? "Starting..." : "Add 3rd 3-Fold (3x3x3)"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-14 text-base justify-start gap-3"
+                  onClick={handleTurn3ChoiceRest}
+                  disabled={createMutation.isPending}
+                  data-testid="button-turn3-skip"
+                >
+                  <Timer className="w-5 h-5" />
+                  {createMutation.isPending ? "Starting..." : "Skip — Rest Now (3x3)"}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setNewDoughStep("turn2")} data-testid="button-turn3-back">
+                  Back
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
           {newDoughStep === "subtype" && (
             <div className="space-y-5 py-2">
               <div>
@@ -2394,20 +2498,55 @@ export default function LaminationStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!continueTurn2Dough} onOpenChange={(open) => { if (!open) { setContinueTurn2Dough(null); setContinueTurn2Fold(""); setContinueTurn2Subtype(""); setShowContinueSubtype(false); } }}>
+      <Dialog open={!!continueTurn2Dough} onOpenChange={(open) => { if (!open) { setContinueTurn2Dough(null); setContinueTurn2Fold(""); setContinueTurn2Subtype(""); setShowContinueSubtype(false); setShowContinueTurn3Choice(false); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">
-              {showContinueSubtype ? "4×4 Technique" : "Continue Turn 2"}
+              {showContinueTurn3Choice ? "3rd Fold?" : showContinueSubtype ? "4×4 Technique" : "Continue Turn 2"}
             </DialogTitle>
             <DialogDescription>
-              {showContinueSubtype
+              {showContinueTurn3Choice
+                ? "Both turns are 3-fold. Would you like to add a 3rd 3-fold or go straight to rest?"
+                : showContinueSubtype
                 ? "Both folds are 4-fold. What technique is this?"
                 : `Dough #${continueTurn2Dough?.doughNumber} — ${continueTurn2Dough?.doughType} (Turn 1: ${continueTurn2Dough?.turn1Fold}). Select the fold for Turn 2.`
               }
             </DialogDescription>
           </DialogHeader>
-          {!showContinueSubtype && (
+          {showContinueTurn3Choice && (
+            <div className="space-y-5 py-2">
+              <p className="text-sm text-muted-foreground">
+                You've done two 3-folds (3x3). Add a 3rd 3-fold for extra layers, or rest the dough now.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <Button
+                  className="h-14 text-base justify-start gap-3"
+                  onClick={() => handleContinueTurn2Submit(true)}
+                  disabled={updateMutation.isPending}
+                  data-testid="button-continue-turn3-add"
+                >
+                  <Layers className="w-5 h-5" />
+                  {updateMutation.isPending ? "Starting..." : "Add 3rd 3-Fold (3x3x3)"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-14 text-base justify-start gap-3"
+                  onClick={() => handleContinueTurn2Submit(false)}
+                  disabled={updateMutation.isPending}
+                  data-testid="button-continue-turn3-skip"
+                >
+                  <Timer className="w-5 h-5" />
+                  {updateMutation.isPending ? "Starting..." : "Skip — Rest Now (3x3)"}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowContinueTurn3Choice(false)} data-testid="button-continue-turn3-back">
+                  Back
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+          {!showContinueSubtype && !showContinueTurn3Choice && (
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-2 block">Turn 2 Fold</label>
@@ -2682,6 +2821,41 @@ export default function LaminationStudio() {
                 <>
                   <Flame className="w-4 h-4 mr-2" />
                   Bake Off
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rushProofDough} onOpenChange={(open) => { if (!open) setRushProofDough(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-500" />
+              Rush Proof — Bake Now
+            </DialogTitle>
+            <DialogDescription>
+              Dough #{rushProofDough?.doughNumber} ({rushProofDough?.pastryType || rushProofDough?.doughType}) has only been proofing for {rushProofDough ? formatTime(getProofState(rushProofDough).elapsed) : "—"}. Are you sure you want to bake it off now?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 p-3 text-sm text-orange-700 dark:text-orange-300">
+            This dough hasn't finished proofing. Results may not be ideal, but sometimes you need to get it in the oven.
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRushProofDough(null)} data-testid="button-rush-cancel">
+              Cancel
+            </Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700 text-white gap-2"
+              onClick={() => { if (rushProofDough) { bakeMutation.mutate(rushProofDough.id); setRushProofDough(null); } }}
+              disabled={bakeMutation.isPending}
+              data-testid="button-rush-confirm"
+            >
+              {bakeMutation.isPending ? "Baking..." : (
+                <>
+                  <Flame className="w-4 h-4" />
+                  Rush Bake Off
                 </>
               )}
             </Button>

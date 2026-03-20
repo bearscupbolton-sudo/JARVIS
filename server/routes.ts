@@ -6598,6 +6598,7 @@ ${sopsHtml}
         doughType: z.string().optional(),
         turn1Fold: z.string().optional(),
         turn2Fold: z.string().optional(),
+        turn3Fold: z.string().nullable().optional(),
         foldSequence: z.string().optional(),
         foldSubtype: z.string().nullable().optional(),
         status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge", "trashed"]).optional(),

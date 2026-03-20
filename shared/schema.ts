@@ -920,6 +920,7 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   doughType: text("dough_type").notNull(),
   turn1Fold: text("turn1_fold"),
   turn2Fold: text("turn2_fold"),
+  turn3Fold: text("turn3_fold"),
   foldSequence: text("fold_sequence"),
   foldSubtype: text("fold_subtype"),
   status: text("status").notNull().default("turning"),
