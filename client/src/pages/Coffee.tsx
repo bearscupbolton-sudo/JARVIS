@@ -603,7 +603,7 @@ function DrinkSetup() {
           <h2 className="text-lg font-semibold">Drink Recipes</h2>
           <p className="text-sm text-muted-foreground">Teach Jarvis what goes into each drink so he can track usage</p>
         </div>
-        <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) { resetForm(); setEditingId(null); } }}>
+        <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) { resetForm(); setEditingId(null); } }} modal={false}>
           <DialogTrigger asChild>
             <Button className="bg-amber-700 hover:bg-amber-600 text-white" data-testid="button-add-drink">
               <Plus className="w-4 h-4 mr-2" /> Add Drink
