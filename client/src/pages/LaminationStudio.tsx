@@ -150,6 +150,7 @@ export default function LaminationStudio() {
   const [showContinueTurn3Choice, setShowContinueTurn3Choice] = useState(false);
 
   const [rushProofDough, setRushProofDough] = useState<LaminationDough | null>(null);
+  const [rushRestDough, setRushRestDough] = useState<LaminationDough | null>(null);
 
   const [completeDough, setCompleteDough] = useState<LaminationDough | null>(null);
   const [completeDoughStep, setCompleteDoughStep] = useState<"pastry" | "destination">("pastry");
@@ -1294,6 +1295,16 @@ export default function LaminationStudio() {
                             <div className="h-full bg-destructive rounded-full transition-all duration-1000" style={{ width: `${restProgress.percent}%` }} />
                           </div>
                           <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-300"
+                              onClick={() => setRushRestDough(d)}
+                              data-testid={`button-rush-rest-${d.id}`}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              Rush
+                            </Button>
                             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleOpenEditDough(d)} data-testid={`button-edit-resting-${d.id}`}>
                               <Pencil className="w-3.5 h-3.5" />
                               Edit
@@ -1510,6 +1521,16 @@ export default function LaminationStudio() {
                                       <div className="h-full bg-destructive rounded-full transition-all duration-1000" style={{ width: `${restProgress.percent}%` }} />
                                     </div>
                                     <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-300"
+                                        onClick={() => setRushRestDough(dough)}
+                                        data-testid={`button-rush-rest-${dough.id}`}
+                                      >
+                                        <AlertTriangle className="w-3 h-3" />
+                                        Rush
+                                      </Button>
                                       <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-resting-${dough.id}`}>
                                         <Pencil className="w-3 h-3" />
                                         Edit
@@ -2858,6 +2879,46 @@ export default function LaminationStudio() {
                   Rush Bake Off
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rushRestDough} onOpenChange={(open) => { if (!open) setRushRestDough(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-500" />
+              Rush Final Rest
+            </DialogTitle>
+            <DialogDescription>
+              Dough #{rushRestDough?.doughNumber} ({rushRestDough?.intendedPastry || rushRestDough?.doughType}) still has {rushRestDough ? formatTime(getRestProgress(rushRestDough.restStartedAt).remaining) : "—"} left on its final rest. Skip the remaining time?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 p-3 text-sm text-orange-700 dark:text-orange-300">
+            The 30-minute rest lets the gluten relax after lamination. Rushing it may affect the texture, but sometimes you need to move faster.
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRushRestDough(null)} data-testid="button-rush-rest-cancel">
+              Cancel
+            </Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700 text-white gap-2"
+              onClick={() => {
+                if (rushRestDough) {
+                  const pastTime = new Date(Date.now() - REST_DURATION_MS - 1000).toISOString();
+                  updateMutation.mutate(
+                    { id: rushRestDough.id, updates: { restStartedAt: pastTime } },
+                    { onSuccess: () => { toast({ title: "Rest rushed", description: `Dough #${rushRestDough.doughNumber} is now ready.` }); } }
+                  );
+                  setRushRestDough(null);
+                }
+              }}
+              disabled={updateMutation.isPending}
+              data-testid="button-rush-rest-confirm"
+            >
+              <Timer className="w-4 h-4" />
+              Rush Rest
             </Button>
           </DialogFooter>
         </DialogContent>
