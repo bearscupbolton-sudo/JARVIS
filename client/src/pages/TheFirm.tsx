@@ -210,15 +210,17 @@ export default function TheFirm() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-7 w-full" data-testid="tabs-firm">
-          <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-          <TabsTrigger value="accounts" data-testid="tab-accounts">Accounts</TabsTrigger>
-          <TabsTrigger value="ledger" data-testid="tab-ledger">Ledger</TabsTrigger>
-          <TabsTrigger value="obligations" data-testid="tab-obligations">Obligations</TabsTrigger>
-          <TabsTrigger value="payroll" data-testid="tab-payroll">Payroll</TabsTrigger>
-          <TabsTrigger value="cash" data-testid="tab-cash">Cash</TabsTrigger>
-          <TabsTrigger value="sales-tax" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+          <TabsList className="inline-flex w-max md:grid md:grid-cols-7 md:w-full gap-1" data-testid="tabs-firm">
+            <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
+            <TabsTrigger value="ledger" className="whitespace-nowrap px-3" data-testid="tab-ledger">Ledger</TabsTrigger>
+            <TabsTrigger value="obligations" className="whitespace-nowrap px-3" data-testid="tab-obligations">Obligations</TabsTrigger>
+            <TabsTrigger value="payroll" className="whitespace-nowrap px-3" data-testid="tab-payroll">Payroll</TabsTrigger>
+            <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
+            <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview">
           <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} />
