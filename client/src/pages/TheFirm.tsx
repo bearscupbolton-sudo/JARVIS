@@ -249,17 +249,64 @@ export default function TheFirm() {
   );
 }
 
+interface PayrollEmployee {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  adpAssociateOID: string | null;
+  payType: "hourly" | "salary";
+  hourlyRate: number;
+  annualSalary: number | null;
+  periodSalary: number | null;
+  department: string;
+  regularHours: number;
+  overtimeHours: number;
+  vacationHours: number;
+  sickHours: number;
+  tips: number;
+  departmentBreakdown: Record<string, number>;
+  grossEstimate: number;
+  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
+}
+
+interface PayrollCompileResult {
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  employees: PayrollEmployee[];
+  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
+  totals: {
+    regularHours: number;
+    overtimeHours: number;
+    vacationHours: number;
+    sickHours: number;
+    tips: number;
+    grossEstimate: number;
+    employeeCount: number;
+  };
+}
+
 function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string }) {
   const { data: jarvisInsight, isLoading: loadingInsight } = useQuery<{ insight: string }>({
     queryKey: ["/api/firm/jarvis-insight", startDate, endDate],
     queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
     staleTime: 30 * 60 * 1000,
   });
+  const { data: compiledPayroll } = useQuery<PayrollCompileResult>({
+    queryKey: ["/api/payroll/compile", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/payroll/compile?start=${startDate}&end=${endDate}`, { credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to compile payroll");
+      return res.json();
+    },
+    staleTime: 60000,
+  });
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
   const manualTxnTotal = s.manualTransactionsByCategory ? Object.values(s.manualTransactionsByCategory as Record<string, number>).reduce((a: number, v: number) => a + Math.abs(v), 0) : 0;
-  const expenses = (s.invoiceExpenseTotal || 0) + (s.laborCost || 0) + manualTxnTotal + (s.payrollTotal || 0);
+  const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
+  const laborCostForPL = compiledLaborCost > 0 ? compiledLaborCost : (s.laborCost || 0);
+  const expenses = (s.invoiceExpenseTotal || 0) + laborCostForPL + manualTxnTotal + (s.payrollTotal || 0);
   const netPL = revenue - expenses;
   const cashPosition = accounts.reduce((sum, a) => {
     if (["checking", "savings", "cash", "petty_cash"].includes(a.type)) return sum + a.currentBalance;
@@ -422,15 +469,37 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
                 <span className="font-medium">{formatCurrency(s.invoiceExpenseTotal)}</span>
               </div>
             )}
-            {(s.laborCost || 0) > 0 && (
+            {compiledLaborCost > 0 ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-1">
+                    Payroll (Compiled)
+                    <LearnTooltip term="Compiled Payroll" explanation="Full payroll cost calculated from your time clock data, hourly rates, overtime at 1.5x, salary proration, and tips from TTIS. This is the true labor cost for the period." />
+                  </span>
+                  <span className="font-medium">{formatCurrency(compiledLaborCost)}</span>
+                </div>
+                {compiledPayroll && compiledPayroll.totals.tips > 0 && (
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pl-3">
+                    <span>Includes Tips (TTIS)</span>
+                    <span>{formatCurrency(compiledPayroll.totals.tips)}</span>
+                  </div>
+                )}
+                {compiledPayroll && compiledPayroll.totals.overtimeHours > 0 && (
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pl-3">
+                    <span>Includes OT ({compiledPayroll.totals.overtimeHours.toFixed(1)}h at 1.5x)</span>
+                    <span></span>
+                  </div>
+                )}
+              </div>
+            ) : (s.laborCost || 0) > 0 ? (
               <div className="flex items-center justify-between text-sm">
                 <span>Labor (Clocked Hours)</span>
                 <span className="font-medium">{formatCurrency(s.laborCost)}</span>
               </div>
-            )}
+            ) : null}
             {(s.payrollTotal || 0) > 0 && (
               <div className="flex items-center justify-between text-sm">
-                <span>Off-System Payroll</span>
+                <span>Recorded Payments</span>
                 <span className="font-medium">{formatCurrency(s.payrollTotal)}</span>
               </div>
             )}
@@ -1243,42 +1312,6 @@ function ObligationsTab({ obligations, accounts }: { obligations: FirmRecurringO
       )}
     </div>
   );
-}
-
-interface PayrollEmployee {
-  userId: string;
-  firstName: string;
-  lastName: string;
-  adpAssociateOID: string | null;
-  payType: "hourly" | "salary";
-  hourlyRate: number;
-  annualSalary: number | null;
-  periodSalary: number | null;
-  department: string;
-  regularHours: number;
-  overtimeHours: number;
-  vacationHours: number;
-  sickHours: number;
-  tips: number;
-  departmentBreakdown: Record<string, number>;
-  grossEstimate: number;
-  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
-}
-
-interface PayrollCompileResult {
-  payPeriodStart: string;
-  payPeriodEnd: string;
-  employees: PayrollEmployee[];
-  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
-  totals: {
-    regularHours: number;
-    overtimeHours: number;
-    vacationHours: number;
-    sickHours: number;
-    tips: number;
-    grossEstimate: number;
-    employeeCount: number;
-  };
 }
 
 function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPayrollEntry[]; accounts: FirmAccount[]; startDate: string; endDate: string }) {
