@@ -124,7 +124,7 @@ export default function PayrollReview() {
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("last_week");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [issuesExpanded, setIssuesExpanded] = useState(true);
+  const [issuesExpanded, setIssuesExpanded] = useState(false);
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
