@@ -54,3 +54,7 @@ VAPID_PUBLIC_KEY = "BNraZ4fllVCY5VgrHXUBJezgIcCW9c7mYqjx2SuCYUYT4f_EFQ-k8haWCbXC
 SQUARE_ENVIRONMENT = "production"
 ONBOARDING_ENCRYPTION_KEY = "35c03e0d109252990a82facbdcda0027ecfb6b1267301c2140ae0c94fb824d75"
 PLAID_ENV = "production"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
