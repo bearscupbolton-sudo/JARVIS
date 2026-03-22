@@ -1533,6 +1533,8 @@ export const coffeeInventory = pgTable("coffee_inventory", {
   onHand: doublePrecision("on_hand").default(0).notNull(),
   parLevel: doublePrecision("par_level"),
   costPerUnit: doublePrecision("cost_per_unit"),
+  inventoryItemId: integer("inventory_item_id"),
+  recipeId: integer("recipe_id"),
   locationId: integer("location_id"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

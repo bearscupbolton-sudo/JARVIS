@@ -15,10 +15,10 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
-import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
+import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
 import { registerPortalAuthRoutes, isCustomerAuthenticated } from "./customer-auth";
 import { registerWholesaleAuthRoutes, isWholesaleAuthenticated, isWholesaleOnboarded } from "./wholesale-auth";
 import { createSquareOrder } from "./square";
@@ -10045,7 +10045,33 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
   app.get("/api/coffee/inventory", isAuthenticated, async (_req, res) => {
     try {
       const items = await storage.getCoffeeInventory();
-      res.json(items);
+      const allInvItems = await db.select().from(inventoryItems);
+      const invMap = new Map(allInvItems.map(i => [i.id, i]));
+
+      const enriched = await Promise.all(items.map(async (item: any) => {
+        let resolvedCost = item.costPerUnit;
+        let costSource: string | null = null;
+        let costResolved = false;
+
+        if (item.inventoryItemId) {
+          costSource = "inventory";
+          const linked = invMap.get(item.inventoryItemId);
+          if (linked?.costPerUnit != null) {
+            resolvedCost = linked.costPerUnit;
+            costResolved = true;
+          }
+        } else if (item.recipeId) {
+          costSource = "recipe";
+          const recipeCost = await calculateRecipeCost(item.recipeId);
+          if (recipeCost && recipeCost.totalCost != null && recipeCost.yieldAmount > 0) {
+            resolvedCost = recipeCost.totalCost / recipeCost.yieldAmount;
+            costResolved = true;
+          }
+        }
+
+        return { ...item, costPerUnit: resolvedCost, costSource, costResolved };
+      }));
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -10053,13 +10079,31 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
 
   app.post("/api/coffee/inventory", isAuthenticated, async (req, res) => {
     try {
+      const invId = req.body.inventoryItemId || null;
+      const recId = req.body.recipeId || null;
+      if (!invId && !recId) {
+        return res.status(400).json({ message: "Must link to a vendor inventory item or a recipe for cost derivation" });
+      }
+      if (invId && recId) {
+        return res.status(400).json({ message: "Cannot link to both inventory item and recipe — pick one" });
+      }
+      if (invId) {
+        const [exists] = await db.select({ id: inventoryItems.id }).from(inventoryItems).where(eq(inventoryItems.id, invId));
+        if (!exists) return res.status(400).json({ message: "Linked inventory item not found" });
+      }
+      if (recId) {
+        const [exists] = await db.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, recId));
+        if (!exists) return res.status(400).json({ message: "Linked recipe not found" });
+      }
       const parsed = insertCoffeeInventorySchema.safeParse({
         name: req.body.name,
         category: req.body.category,
         unit: req.body.unit,
         onHand: req.body.onHand || 0,
         parLevel: req.body.parLevel || null,
-        costPerUnit: req.body.costPerUnit || null,
+        costPerUnit: null,
+        inventoryItemId: invId,
+        recipeId: recId,
         locationId: req.body.locationId || null,
       });
       if (!parsed.success) {

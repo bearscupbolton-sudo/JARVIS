@@ -18,7 +18,7 @@ import {
   StickyNote, PenLine, ExternalLink, FlaskConical, Search, Link2, Unlink2
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import type { CoffeeInventoryItem, CoffeeDrinkRecipe, CoffeeDrinkIngredient } from "@shared/schema";
+import type { CoffeeInventoryItem, CoffeeDrinkRecipe, CoffeeDrinkIngredient, InventoryItem } from "@shared/schema";
 
 type SquareCatalogItem = {
   id: string;
@@ -343,24 +343,48 @@ function InventoryOverview() {
   );
 }
 
+type RecipeListItem = { id: number; title: string; category: string; yieldAmount: number; yieldUnit: string };
+
 function InventoryManager() {
-  const { data: inventory = [], isLoading } = useQuery<CoffeeInventoryItem[]>({ queryKey: ["/api/coffee/inventory"] });
+  const { data: inventory = [], isLoading } = useQuery<(CoffeeInventoryItem & { costSource?: string })[]>({ queryKey: ["/api/coffee/inventory"] });
+  const { data: mainInventory = [] } = useQuery<InventoryItem[]>({ queryKey: ["/api/inventory"] });
+  const { data: allRecipes = [] } = useQuery<RecipeListItem[]>({ queryKey: ["/api/recipes"] });
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", category: "beans", unit: "oz", onHand: 0, parLevel: 0, costPerUnit: 0 });
+  const [form, setForm] = useState({ name: "", category: "beans", unit: "oz", onHand: 0, parLevel: 0, costSource: "inventory" as "inventory" | "recipe", inventoryItemId: 0, recipeId: 0 });
+  const [invSearch, setInvSearch] = useState("");
+  const [recipeSearch, setRecipeSearch] = useState("");
+
+  const filteredInvItems = useMemo(() => {
+    if (!invSearch.trim()) return mainInventory;
+    const q = invSearch.toLowerCase();
+    return mainInventory.filter(i => i.name.toLowerCase().includes(q));
+  }, [mainInventory, invSearch]);
+
+  const filteredRecipes = useMemo(() => {
+    if (!recipeSearch.trim()) return allRecipes;
+    const q = recipeSearch.toLowerCase();
+    return allRecipes.filter(r => r.title.toLowerCase().includes(q));
+  }, [allRecipes, recipeSearch]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/coffee/inventory", {
-        ...form,
+        name: form.name,
+        category: form.category,
+        unit: form.unit,
+        onHand: form.onHand,
         parLevel: form.parLevel || null,
-        costPerUnit: form.costPerUnit || null,
+        inventoryItemId: form.costSource === "inventory" && form.inventoryItemId ? form.inventoryItemId : null,
+        recipeId: form.costSource === "recipe" && form.recipeId ? form.recipeId : null,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coffee/inventory"] });
-      setForm({ name: "", category: "beans", unit: "oz", onHand: 0, parLevel: 0, costPerUnit: 0 });
+      setForm({ name: "", category: "beans", unit: "oz", onHand: 0, parLevel: 0, costSource: "inventory", inventoryItemId: 0, recipeId: 0 });
+      setInvSearch("");
+      setRecipeSearch("");
       setAddOpen(false);
       toast({ title: "Item added to coffee inventory" });
     },
@@ -401,7 +425,7 @@ function InventoryManager() {
               <Plus className="w-4 h-4 mr-2" /> Add Item
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
             <DialogHeader><DialogTitle>Add Inventory Item</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div>
@@ -436,7 +460,7 @@ function InventoryManager() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>On Hand</Label>
                   <Input type="number" value={form.onHand} onChange={e => setForm(f => ({ ...f, onHand: parseFloat(e.target.value) || 0 }))} data-testid="input-inv-onhand" />
@@ -445,12 +469,69 @@ function InventoryManager() {
                   <Label>Par Level</Label>
                   <Input type="number" value={form.parLevel} onChange={e => setForm(f => ({ ...f, parLevel: parseFloat(e.target.value) || 0 }))} data-testid="input-inv-par" />
                 </div>
-                <div>
-                  <Label>Cost/Unit ($)</Label>
-                  <Input type="number" step="0.01" value={form.costPerUnit} onChange={e => setForm(f => ({ ...f, costPerUnit: parseFloat(e.target.value) || 0 }))} data-testid="input-inv-cost" />
-                </div>
               </div>
-              <Button className="w-full bg-amber-700 hover:bg-amber-600 text-white" disabled={!form.name.trim() || createMutation.isPending} onClick={() => createMutation.mutate()} data-testid="button-save-inventory">
+              <div>
+                <Label>Cost Source</Label>
+                <div className="flex gap-2 mt-1 mb-2">
+                  <Button type="button" size="sm" variant={form.costSource === "inventory" ? "default" : "outline"} onClick={() => setForm(f => ({ ...f, costSource: "inventory", recipeId: 0 }))} data-testid="button-cost-inventory">
+                    <Package className="w-3 h-3 mr-1" /> Vendor Item
+                  </Button>
+                  <Button type="button" size="sm" variant={form.costSource === "recipe" ? "default" : "outline"} onClick={() => setForm(f => ({ ...f, costSource: "recipe", inventoryItemId: 0 }))} data-testid="button-cost-recipe">
+                    <FlaskConical className="w-3 h-3 mr-1" /> Recipe
+                  </Button>
+                </div>
+                {form.costSource === "inventory" ? (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input className="pl-8" value={invSearch} onChange={e => setInvSearch(e.target.value)} placeholder="Search inventory items..." data-testid="input-search-inventory" />
+                    </div>
+                    {form.inventoryItemId ? (
+                      <div className="flex items-center gap-2 p-2 rounded-lg border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                        <Link2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-sm font-medium flex-1">{mainInventory.find(i => i.id === form.inventoryItemId)?.name}</span>
+                        <span className="text-xs text-muted-foreground">{mainInventory.find(i => i.id === form.inventoryItemId)?.costPerUnit != null ? `$${mainInventory.find(i => i.id === form.inventoryItemId)!.costPerUnit!.toFixed(2)}/${mainInventory.find(i => i.id === form.inventoryItemId)?.unit}` : "No cost yet"}</span>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setForm(f => ({ ...f, inventoryItemId: 0 }))}><X className="w-3 h-3" /></Button>
+                      </div>
+                    ) : invSearch.trim() && filteredInvItems.length > 0 ? (
+                      <div className="max-h-32 overflow-y-auto border rounded-md bg-popover shadow-md">
+                        {filteredInvItems.slice(0, 15).map(item => (
+                          <button key={item.id} type="button" className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors border-b last:border-b-0" onClick={() => { setForm(f => ({ ...f, inventoryItemId: item.id })); setInvSearch(""); }} data-testid={`inv-item-${item.id}`}>
+                            <span className="font-medium">{item.name}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{item.costPerUnit != null ? `$${item.costPerUnit.toFixed(2)}/${item.unit}` : item.unit}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">Cost auto-updates from vendor invoices</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input className="pl-8" value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)} placeholder="Search recipes..." data-testid="input-search-recipe" />
+                    </div>
+                    {form.recipeId ? (
+                      <div className="flex items-center gap-2 p-2 rounded-lg border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                        <FlaskConical className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-sm font-medium flex-1">{allRecipes.find(r => r.id === form.recipeId)?.title}</span>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setForm(f => ({ ...f, recipeId: 0 }))}><X className="w-3 h-3" /></Button>
+                      </div>
+                    ) : recipeSearch.trim() && filteredRecipes.length > 0 ? (
+                      <div className="max-h-32 overflow-y-auto border rounded-md bg-popover shadow-md">
+                        {filteredRecipes.slice(0, 15).map(r => (
+                          <button key={r.id} type="button" className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors border-b last:border-b-0" onClick={() => { setForm(f => ({ ...f, recipeId: r.id })); setRecipeSearch(""); }} data-testid={`recipe-item-${r.id}`}>
+                            <span className="font-medium">{r.title}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{r.category} · yields {r.yieldAmount} {r.yieldUnit}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">Cost calculated from recipe ingredients (vendor costs)</p>
+                  </div>
+                )}
+              </div>
+              <Button className="w-full bg-amber-700 hover:bg-amber-600 text-white" disabled={!form.name.trim() || createMutation.isPending || (form.costSource === "inventory" && !form.inventoryItemId) || (form.costSource === "recipe" && !form.recipeId)} onClick={() => createMutation.mutate()} data-testid="button-save-inventory">
                 {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Add Item
               </Button>
             </div>
@@ -483,6 +564,18 @@ function InventoryManager() {
                       <span className="text-xs text-muted-foreground">{item.onHand} {item.unit}</span>
                       {item.parLevel && (
                         <span className="text-xs text-muted-foreground">/ par: {item.parLevel}</span>
+                      )}
+                      {(item as any).costSource && (
+                        <Badge variant="outline" className={`text-xs ${(item as any).costResolved ? "" : "border-yellow-400 text-yellow-600"}`}>
+                          {(item as any).costSource === "inventory" ? "vendor" : "recipe"}
+                          {!(item as any).costResolved && " ⚠"}
+                        </Badge>
+                      )}
+                      {item.costPerUnit != null && (item as any).costResolved && (
+                        <span className="text-xs text-muted-foreground">${Number(item.costPerUnit).toFixed(2)}/{item.unit}</span>
+                      )}
+                      {(item as any).costSource && !(item as any).costResolved && (
+                        <span className="text-xs text-yellow-600">cost pending</span>
                       )}
                       <Badge variant="outline" className={`text-xs ${stock.label === "Critical" ? "border-red-400 text-red-600" : stock.label === "Low" ? "border-yellow-400 text-yellow-600" : ""}`}>
                         {stock.label}
