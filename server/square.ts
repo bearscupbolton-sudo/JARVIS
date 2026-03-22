@@ -205,13 +205,8 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       cursor = (response as any).cursor || undefined;
     } while (cursor);
 
-    if (jarvisLocationId) {
-      await db.delete(squareSales).where(and(eq(squareSales.date, date), eq(squareSales.locationId, jarvisLocationId)));
-      await db.delete(squareDailySummary).where(and(eq(squareDailySummary.date, date), eq(squareDailySummary.locationId, jarvisLocationId)));
-    } else {
-      await db.delete(squareSales).where(eq(squareSales.date, date));
-      await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
-    }
+    await db.delete(squareSales).where(eq(squareSales.date, date));
+    await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
 
     const entries = Array.from(salesAgg.entries());
     for (const [itemName, data] of entries) {
@@ -390,12 +385,23 @@ export async function getLiveInventoryDashboard(date: string, locationId?: numbe
     bakedAgg.set(b.itemName, (bakedAgg.get(b.itemName) || 0) + b.quantity);
   }
 
-  const soldAgg = new Map<string, { qty: number; revenue: number }>();
+  const salesByItem = new Map<string, { locationId: number | null; qty: number; revenue: number }[]>();
   for (const s of sales) {
-    const existing = soldAgg.get(s.itemName) || { qty: 0, revenue: 0 };
-    existing.qty += s.quantitySold;
-    existing.revenue += s.revenue || 0;
-    soldAgg.set(s.itemName, existing);
+    const arr = salesByItem.get(s.itemName) || [];
+    arr.push({ locationId: s.locationId, qty: s.quantitySold, revenue: s.revenue || 0 });
+    salesByItem.set(s.itemName, arr);
+  }
+  const soldAgg = new Map<string, { qty: number; revenue: number }>();
+  for (const [itemName, entries] of salesByItem) {
+    const hasLocationSpecific = entries.some(e => e.locationId !== null);
+    const hasNull = entries.some(e => e.locationId === null);
+    let filtered = entries;
+    if (hasLocationSpecific && hasNull) {
+      filtered = entries.filter(e => e.locationId !== null);
+    }
+    const qty = filtered.reduce((sum, e) => sum + e.qty, 0);
+    const revenue = filtered.reduce((sum, e) => sum + e.revenue, 0);
+    soldAgg.set(itemName, { qty, revenue });
   }
 
   const allItemKeys = Array.from(new Set([
