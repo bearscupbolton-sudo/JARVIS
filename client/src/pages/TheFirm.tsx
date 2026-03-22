@@ -19,7 +19,8 @@ import {
   Landmark, Plus, DollarSign, TrendingUp, TrendingDown, CreditCard, Wallet,
   Building2, PiggyBank, ArrowUpRight, ArrowDownRight, Check, AlertTriangle,
   CalendarDays, Clock, Trash2, Pencil, Receipt, Banknote, CircleDollarSign,
-  FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink
+  FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink,
+  Users, Timer, Coffee, Loader2
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
