@@ -46,6 +46,7 @@ import {
   WifiOff,
   ChevronDown,
   ChevronUp,
+  Search,
 } from "lucide-react";
 import type { Vendor, VendorItem, InventoryItem, PurchaseOrder, PurchaseOrderLine } from "@shared/schema";
 
@@ -62,8 +63,16 @@ type PurchaseOrderFull = PurchaseOrder & { vendor: Vendor; lines: PurchaseOrderL
 function PfgIntegrationCard() {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
-  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string; files?: any[] } | null>(null);
+  const [activeTab, setActiveTab] = useState<"overview" | "order-guide" | "push-order" | "acks">("overview");
+  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string; outFiles?: any[]; inFiles?: any[] } | null>(null);
   const [pfgFiles, setPfgFiles] = useState<any[]>([]);
+  const [orderGuide, setOrderGuide] = useState<any[]>([]);
+  const [ogSearch, setOgSearch] = useState("");
+  const [orderLines, setOrderLines] = useState<{ pfgItemNumber: string; description: string; caseQuantity: number; specialMessage: string }[]>([]);
+  const [poNumber, setPoNumber] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [acks, setAcks] = useState<any[]>([]);
 
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -72,22 +81,12 @@ function PfgIntegrationCard() {
     },
     onSuccess: (data) => {
       setTestResult(data);
-      if (data.success && data.files) setPfgFiles(data.files);
+      if (data.success && data.outFiles) setPfgFiles(data.outFiles);
       toast({ title: data.success ? "PFG Connected" : "Connection Failed", description: data.message });
     },
     onError: (err: Error) => {
       setTestResult({ success: false, message: err.message });
       toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const listMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("GET", "/api/pfg/files");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      if (data.success) setPfgFiles(data.files);
     },
   });
 
@@ -105,16 +104,96 @@ function PfgIntegrationCard() {
         toast({ title: "Import Failed", description: data.message, variant: "destructive" });
       }
     },
-    onError: (err: Error) => {
-      toast({ title: "Import Error", description: err.message, variant: "destructive" });
-    },
+    onError: (err: Error) => toast({ title: "Import Error", description: err.message, variant: "destructive" }),
   });
+
+  const ogMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/pfg/order-guide");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        setOrderGuide(data.items);
+        toast({ title: "Order Guide Loaded", description: data.message });
+      }
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const ackMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/pfg/acknowledgements");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        setAcks(data.acknowledgements);
+        toast({ title: "Acknowledgements Loaded", description: data.message });
+      }
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const pushMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/pfg/push-order", {
+        customerNumber: "",
+        poNumber,
+        deliveryDate: deliveryDate ? deliveryDate.replace(/-/g, "") : undefined,
+        specialInstructions: specialInstructions || undefined,
+        lines: orderLines.filter(l => l.caseQuantity > 0).map(l => ({
+          pfgItemNumber: l.pfgItemNumber,
+          caseQuantity: l.caseQuantity,
+          specialMessage: l.specialMessage || undefined,
+        })),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Order Pushed to PFG", description: `File: ${data.fileName}` });
+        setOrderLines([]);
+        setPoNumber("");
+        setDeliveryDate("");
+        setSpecialInstructions("");
+      } else {
+        toast({ title: "Push Failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function addFromOrderGuide(item: any) {
+    if (orderLines.some(l => l.pfgItemNumber === item.itemNumber)) return;
+    setOrderLines(prev => [...prev, {
+      pfgItemNumber: item.itemNumber,
+      description: item.description,
+      caseQuantity: 1,
+      specialMessage: "",
+    }]);
+    toast({ title: `Added ${item.description}` });
+  }
+
+  function updateOrderLine(idx: number, field: string, value: any) {
+    setOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+  }
+
+  function removeOrderLine(idx: number) {
+    setOrderLines(prev => prev.filter((_, i) => i !== idx));
+  }
 
   function formatFileSize(bytes: number) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  const filteredOg = ogSearch.trim()
+    ? orderGuide.filter((i: any) => i.description?.toLowerCase().includes(ogSearch.toLowerCase()) || i.itemNumber?.includes(ogSearch) || i.brandName?.toLowerCase().includes(ogSearch.toLowerCase()))
+    : orderGuide;
+
+  const connected = testResult?.success === true;
 
   return (
     <Card data-testid="card-pfg-integration">
@@ -130,12 +209,12 @@ function PfgIntegrationCard() {
             </div>
             <div className="text-left">
               <p className="font-semibold text-sm">Performance Food Group (PFG)</p>
-              <p className="text-xs text-muted-foreground">SFTP integration · invoices & order guides</p>
+              <p className="text-xs text-muted-foreground">SFTP · invoices, order guides, orders & acknowledgements</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {testResult && (
-              testResult.success
+              connected
                 ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs"><Wifi className="w-3 h-3 mr-1" /> Connected</Badge>
                 : <Badge variant="destructive" className="text-xs"><WifiOff className="w-3 h-3 mr-1" /> Failed</Badge>
             )}
@@ -145,80 +224,257 @@ function PfgIntegrationCard() {
 
         {expanded && (
           <div className="mt-4 space-y-4 border-t pt-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => testMutation.mutate()}
-                disabled={testMutation.isPending}
-                data-testid="button-pfg-test"
-              >
+            {!connected && (
+              <Button size="sm" onClick={() => testMutation.mutate()} disabled={testMutation.isPending} data-testid="button-pfg-test">
                 {testMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wifi className="w-3 h-3 mr-1" />}
                 Test Connection
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => listMutation.mutate()}
-                disabled={listMutation.isPending || !testResult?.success}
-                data-testid="button-pfg-list"
-              >
-                {listMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
-                List Files
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => importMutation.mutate()}
-                disabled={importMutation.isPending || !testResult?.success}
-                data-testid="button-pfg-import"
-              >
-                {importMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
-                Pull & Import Invoices
-              </Button>
-            </div>
+            )}
 
-            {testResult && (
-              <div className={`text-sm p-3 rounded-md ${testResult.success ? "bg-green-50 dark:bg-green-950/20 text-green-800 dark:text-green-300" : "bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-300"}`}>
+            {testResult && !connected && (
+              <div className="text-sm p-3 rounded-md bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-300">
                 {testResult.message}
               </div>
             )}
 
-            {pfgFiles.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Files in /OUT ({pfgFiles.length})</p>
-                <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
-                  {pfgFiles.map((f: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between px-3 py-2 text-sm" data-testid={`pfg-file-${i}`}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="truncate">{f.name}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatFileSize(f.size)}</span>
-                    </div>
+            {connected && (
+              <>
+                <div className="flex gap-1 flex-wrap">
+                  {(["overview", "order-guide", "push-order", "acks"] as const).map(tab => (
+                    <Button key={tab} size="sm" variant={activeTab === tab ? "default" : "outline"} onClick={() => setActiveTab(tab)} data-testid={`pfg-tab-${tab}`}>
+                      {tab === "overview" ? "Overview" : tab === "order-guide" ? "Order Guide" : tab === "push-order" ? "Place Order" : "Acknowledgements"}
+                    </Button>
                   ))}
+                  <Button size="sm" variant="ghost" onClick={() => testMutation.mutate()} disabled={testMutation.isPending} data-testid="button-pfg-refresh">
+                    {testMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wifi className="w-3 h-3" />}
+                  </Button>
                 </div>
-              </div>
-            )}
 
-            {importMutation.data && importMutation.data.success && importMutation.data.imported?.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Import Results</p>
-                {importMutation.data.imported.map((r: any, i: number) => (
-                  <div key={i} className="flex items-center gap-3 text-sm bg-muted/50 rounded-md p-2">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-medium">{r.fileName}</span>
-                    <Badge variant="outline" className="text-xs">{r.invoiceCount} invoice(s)</Badge>
-                    <Badge className="bg-green-100 text-green-700 text-xs">{r.matchedLines} matched</Badge>
-                    {r.unmatchedLines > 0 && (
-                      <Badge variant="outline" className="text-xs border-yellow-400 text-yellow-600">{r.unmatchedLines} unmatched</Badge>
+                {activeTab === "overview" && (
+                  <div className="space-y-3">
+                    <div className="text-sm p-3 rounded-md bg-green-50 dark:bg-green-950/20 text-green-800 dark:text-green-300">
+                      {testResult.message}
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button size="sm" onClick={() => importMutation.mutate()} disabled={importMutation.isPending} data-testid="button-pfg-import">
+                        {importMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                        Pull Invoices
+                      </Button>
+                    </div>
+
+                    {pfgFiles.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Files in /OUT ({pfgFiles.length})</p>
+                        <div className="border rounded-md divide-y max-h-40 overflow-y-auto">
+                          {pfgFiles.map((f: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between px-3 py-1.5 text-sm" data-testid={`pfg-file-${i}`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                <span className="truncate text-xs">{f.name}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatFileSize(f.size)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {importMutation.data?.success && importMutation.data.imported?.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Import Results</p>
+                        {importMutation.data.imported.map((r: any, i: number) => (
+                          <div key={i} className="flex items-center gap-3 text-sm bg-muted/50 rounded-md p-2 flex-wrap">
+                            <FileText className="w-4 h-4 text-muted-foreground" />
+                            <span className="font-medium text-xs">{r.fileName}</span>
+                            <Badge variant="outline" className="text-xs">{r.invoiceCount} inv</Badge>
+                            <Badge className="bg-green-100 text-green-700 text-xs">{r.matchedLines} matched</Badge>
+                            {r.unmatchedLines > 0 && <Badge variant="outline" className="text-xs border-yellow-400 text-yellow-600">{r.unmatchedLines} unmatched</Badge>}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                ))}
-              </div>
+                )}
+
+                {activeTab === "order-guide" && (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => ogMutation.mutate()} disabled={ogMutation.isPending} data-testid="button-pfg-og-load">
+                        {ogMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                        Load Order Guide
+                      </Button>
+                      {orderGuide.length > 0 && (
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                          <Input className="pl-8 h-8 text-sm" value={ogSearch} onChange={e => setOgSearch(e.target.value)} placeholder="Search items..." data-testid="input-og-search" />
+                        </div>
+                      )}
+                    </div>
+                    {orderGuide.length > 0 && (
+                      <div className="border rounded-md overflow-hidden">
+                        <div className="max-h-64 overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/50 sticky top-0">
+                              <tr>
+                                <th className="text-left p-2">Item #</th>
+                                <th className="text-left p-2">Description</th>
+                                <th className="text-left p-2">Brand</th>
+                                <th className="text-left p-2">Pack/Size</th>
+                                <th className="text-right p-2">Case $</th>
+                                <th className="p-2 w-8"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {filteredOg.slice(0, 100).map((item: any, i: number) => (
+                                <tr key={i} className="hover:bg-muted/30" data-testid={`og-row-${i}`}>
+                                  <td className="p-2 font-mono">{item.itemNumber}</td>
+                                  <td className="p-2">{item.description}</td>
+                                  <td className="p-2 text-muted-foreground">{item.brandName}</td>
+                                  <td className="p-2 text-muted-foreground">{item.packCount}/{item.size}</td>
+                                  <td className="p-2 text-right font-mono">${item.casePrice?.toFixed(2)}</td>
+                                  <td className="p-2">
+                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => addFromOrderGuide(item)} data-testid={`og-add-${i}`}>
+                                      <Plus className="w-3 h-3" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {filteredOg.length > 100 && <p className="text-xs text-muted-foreground text-center py-1">Showing first 100 of {filteredOg.length}</p>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "push-order" && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium">PO Number *</label>
+                        <Input value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="e.g., BCB-20260322" className="h-8 text-sm" data-testid="input-pfg-po" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium">Delivery Date</label>
+                        <Input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="h-8 text-sm" data-testid="input-pfg-delivery" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium">Special Instructions</label>
+                      <Input value={specialInstructions} onChange={e => setSpecialInstructions(e.target.value)} placeholder="Optional shipping notes" className="h-8 text-sm" data-testid="input-pfg-instructions" />
+                    </div>
+
+                    {orderLines.length > 0 && (
+                      <div className="border rounded-md overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="text-left p-2">PFG Item #</th>
+                              <th className="text-left p-2">Description</th>
+                              <th className="text-right p-2 w-20">Cases</th>
+                              <th className="text-left p-2">Note</th>
+                              <th className="p-2 w-8"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {orderLines.map((line, i) => (
+                              <tr key={i} data-testid={`order-line-${i}`}>
+                                <td className="p-2 font-mono">{line.pfgItemNumber}</td>
+                                <td className="p-2">{line.description}</td>
+                                <td className="p-2">
+                                  <Input type="number" min={1} value={line.caseQuantity} onChange={e => updateOrderLine(i, "caseQuantity", parseInt(e.target.value) || 0)} className="h-6 w-16 text-xs text-right ml-auto" data-testid={`input-qty-${i}`} />
+                                </td>
+                                <td className="p-2">
+                                  <Input value={line.specialMessage} onChange={e => updateOrderLine(i, "specialMessage", e.target.value)} className="h-6 text-xs" placeholder="Optional" data-testid={`input-note-${i}`} />
+                                </td>
+                                <td className="p-2">
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => removeOrderLine(i)}>
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => pushMutation.mutate()}
+                        disabled={pushMutation.isPending || !poNumber.trim() || orderLines.filter(l => l.caseQuantity > 0).length === 0}
+                        data-testid="button-pfg-push"
+                      >
+                        {pushMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
+                        Push Order to PFG
+                      </Button>
+                      <span className="text-xs text-muted-foreground">{orderLines.filter(l => l.caseQuantity > 0).length} line(s)</span>
+                      {orderGuide.length === 0 && (
+                        <Button size="sm" variant="outline" onClick={() => { ogMutation.mutate(); setActiveTab("order-guide"); }} data-testid="button-pfg-load-og-first">
+                          Load Order Guide first
+                        </Button>
+                      )}
+                    </div>
+
+                    {pushMutation.data?.success && (
+                      <div className="text-sm p-3 rounded-md bg-green-50 dark:bg-green-950/20 text-green-800 dark:text-green-300">
+                        Order pushed: {pushMutation.data.fileName}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Orders pushed as PFSOR170_*.TXT to /IN · Use the Order Guide tab to browse and add items
+                    </p>
+                  </div>
+                )}
+
+                {activeTab === "acks" && (
+                  <div className="space-y-3">
+                    <Button size="sm" onClick={() => ackMutation.mutate()} disabled={ackMutation.isPending} data-testid="button-pfg-acks">
+                      {ackMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                      Pull Acknowledgements
+                    </Button>
+                    {acks.length > 0 && (
+                      <div className="space-y-2">
+                        {acks.map((ack: any, i: number) => (
+                          <Card key={i} data-testid={`ack-card-${i}`}>
+                            <CardContent className="p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div>
+                                  <span className="font-medium text-sm">PO: {ack.header.poNumber}</span>
+                                  <span className="text-xs text-muted-foreground ml-2">ACK #{ack.header.ackNumber}</span>
+                                </div>
+                                <Badge variant="outline" className="text-xs">{ack.header.ackDate}</Badge>
+                              </div>
+                              <div className="space-y-1">
+                                {ack.details.map((d: any, j: number) => (
+                                  <div key={j} className="flex items-center gap-2 text-xs">
+                                    <Badge variant={d.lineStatusCode === "IA" ? "default" : d.lineStatusCode === "ID" ? "destructive" : "outline"} className="text-xs w-8 justify-center">
+                                      {d.lineStatusCode}
+                                    </Badge>
+                                    <span className="font-mono text-muted-foreground">{d.itemNumber}</span>
+                                    <span className="flex-1 truncate">{d.description}</span>
+                                    <span className="font-mono">{d.quantityToShip} {d.uom}</span>
+                                    <span className="font-mono text-muted-foreground">${d.unitPrice?.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                    {acks.length === 0 && !ackMutation.isPending && (
+                      <p className="text-xs text-muted-foreground">No acknowledgements loaded yet. Click above to pull from PFG.</p>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
-            <p className="text-xs text-muted-foreground">
-              Connection: ecomm.pfgc.com · OPCO 170 (PFS-Springfield) · Pulls invoices, order guides & acknowledgements from /OUT
+            <p className="text-xs text-muted-foreground border-t pt-2">
+              ecomm.pfgc.com · OPCO 170 (PFS-Springfield) · /OUT: invoices, order guides, acks · /IN: orders
             </p>
           </div>
         )}

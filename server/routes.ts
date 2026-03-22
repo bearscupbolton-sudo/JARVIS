@@ -12375,5 +12375,39 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
     }
   });
 
+  app.get("/api/pfg/order-guide", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { pullPfgOrderGuide } = await import("./pfg-sftp");
+      const result = await pullPfgOrderGuide();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, items: [] });
+    }
+  });
+
+  app.get("/api/pfg/acknowledgements", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { pullPfgAcknowledgements } = await import("./pfg-sftp");
+      const result = await pullPfgAcknowledgements();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, acknowledgements: [] });
+    }
+  });
+
+  app.post("/api/pfg/push-order", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { pushPfgOrder } = await import("./pfg-sftp");
+      const { customerNumber, poNumber, deliveryDate, specialInstructions, lines } = req.body;
+      if (!poNumber || !lines || !Array.isArray(lines) || lines.length === 0) {
+        return res.status(400).json({ success: false, message: "poNumber and at least one line are required" });
+      }
+      const result = await pushPfgOrder({ customerNumber, poNumber, deliveryDate, specialInstructions, lines });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   return httpServer;
 }
