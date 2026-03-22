@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid, Check, ChevronsUpDown, MessageSquare, CheckCircle2, Clock } from "lucide-react";
+import { Loader2, Lock, Unlock, Trash2, Users, UserPlus, Phone, Mail, AlertTriangle, KeyRound, Cake, Save, CalendarDays, DollarSign, PanelLeft, ChevronDown, ChevronRight, X, Shield, Code2, Star, LogOut, LayoutGrid, Check, ChevronsUpDown, MessageSquare, CheckCircle2, Clock, Pencil } from "lucide-react";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { PAGE_SECTIONS } from "@/hooks/use-section-visibility";
 import { format } from "date-fns";
@@ -561,6 +561,9 @@ function UserDetailDialog({
   const isCurrentUser = u.id === currentUser?.id;
   const isOwner = currentUser?.role === "owner";
   const isManagerOrAbove = currentUser?.role === "owner" || currentUser?.role === "manager";
+  const [editingName, setEditingName] = useState(false);
+  const [editFirstName, setEditFirstName] = useState(u.firstName || "");
+  const [editLastName, setEditLastName] = useState(u.lastName || "");
   const [welcomeMsg, setWelcomeMsg] = useState((u as any).jarvisWelcomeMessage || "");
   const [briefingFocus, setBriefingFocus] = useState((u as any).jarvisBriefingFocus || "all");
   const [briefingNotes, setBriefingNotes] = useState((u as any).briefingNotes || "");
@@ -621,6 +624,23 @@ function UserDetailDialog({
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const nameMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/admin/users/${u.id}/name`, {
+        firstName: editFirstName.trim(),
+        lastName: editLastName.trim(),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setEditingName(false);
+      toast({ title: "Name updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update name", description: err.message, variant: "destructive" });
     },
   });
 
@@ -835,7 +855,60 @@ function UserDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle data-testid="text-detail-name">{fullName}</DialogTitle>
+          {editingName ? (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  value={editFirstName}
+                  onChange={(e) => setEditFirstName(e.target.value)}
+                  placeholder="First name"
+                  className="text-sm"
+                  data-testid="input-edit-first-name"
+                />
+                <Input
+                  value={editLastName}
+                  onChange={(e) => setEditLastName(e.target.value)}
+                  placeholder="Last name"
+                  className="text-sm"
+                  data-testid="input-edit-last-name"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => nameMutation.mutate()}
+                  disabled={nameMutation.isPending || !editFirstName.trim()}
+                  data-testid="button-save-name"
+                >
+                  {nameMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                  <span className="ml-1">Save</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setEditingName(false); setEditFirstName(u.firstName || ""); setEditLastName(u.lastName || ""); }}
+                  data-testid="button-cancel-name"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <DialogTitle data-testid="text-detail-name">{fullName}</DialogTitle>
+              {isOwner && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0"
+                  onClick={() => setEditingName(true)}
+                  data-testid="button-edit-name"
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          )}
           <DialogDescription>@{u.username}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

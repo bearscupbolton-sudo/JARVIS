@@ -7,6 +7,9 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedMarchShifts } from "./seed-march-shifts";
+import { db } from "./db";
+import { users } from "@shared/models/auth";
+import { eq } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -77,6 +80,10 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   seedMarchShifts().catch(err => console.error("[Seed] March shift seeding failed:", err));
+
+  db.update(users).set({ lastName: "Wilhelm" }).where(eq(users.lastName, "Wihelm"))
+    .then((result) => { if (result.rowCount && result.rowCount > 0) console.log("[Fix] Corrected Wihelm → Wilhelm"); })
+    .catch(() => {});
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

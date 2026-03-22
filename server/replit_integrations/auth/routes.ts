@@ -304,6 +304,31 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/admin/users/:id/name", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { firstName, lastName } = req.body;
+      const targetId = req.params.id;
+      const targetUser = await authStorage.getUser(targetId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (!firstName || typeof firstName !== "string" || firstName.trim().length === 0) {
+        return res.status(400).json({ message: "First name is required" });
+      }
+      const updates: any = {
+        firstName: firstName.trim(),
+        lastName: typeof lastName === "string" ? lastName.trim() || null : targetUser.lastName,
+        username: [firstName.trim(), typeof lastName === "string" ? lastName.trim() : targetUser.lastName].filter(Boolean).join(" "),
+      };
+      const user = await authStorage.updateUserProfile(targetId, updates);
+      const { pinHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating user name:", error);
+      res.status(500).json({ message: "Failed to update user name" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/sidebar-permissions", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { sidebarPermissions } = req.body;
