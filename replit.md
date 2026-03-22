@@ -42,7 +42,7 @@ The application is built as a monorepo with a React 18 frontend (Vite, TypeScrip
     *   **Global Acknowledgment System:** For mandatory messages and forced logouts.
     *   **Tutorial System:** Page-specific tutorial overlays with video/text content.
     *   **HR Onboarding System:** Electronic onboarding with invite links, document uploads, and W-4 collection.
-    *   **Payroll Review System:** Owner-only page for payroll compilation, integrating time entries, tips, and department allocations into ADP-ready format.
+    *   **Payroll Review System:** Owner-only page for payroll compilation, integrating time entries, tips, and department allocations into ADP-ready format. The Firm's Payroll tab includes a live Payroll Preview (`/api/payroll/compile`) showing employee breakdown with hours, OT, tips (TTIS-matched FOH-only split logic), rates, and gross estimates. Tips use the same allocation as TTIS: FOH staff only, owners excluded, fallback chain (on-duty FOH → all clocked-in FOH → scheduled FOH). Wed–Tue work week.
     *   **The Firm (Financial Hub):** Forensic-level financial reconciliation with accounts, ledger, payroll, cash management, and Square sales tax reporting. Includes AI financial analysis. Plaid bank/CC integration for automatic account linking, balance sync, and transaction import (`plaid_items`, `plaid_accounts` tables; env vars: `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`).
     *   **La Carte Customer Portal:** Customer-facing subscription portal with Square catalog integration and ordering.
     *   **JMT (Jarvis Menu Theater):** Creative control board for dynamic menu display management with scheduling and real-time updates.

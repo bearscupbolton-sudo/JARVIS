@@ -1245,11 +1245,59 @@ function ObligationsTab({ obligations, accounts }: { obligations: FirmRecurringO
   );
 }
 
+interface PayrollEmployee {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  adpAssociateOID: string | null;
+  payType: "hourly" | "salary";
+  hourlyRate: number;
+  annualSalary: number | null;
+  periodSalary: number | null;
+  department: string;
+  regularHours: number;
+  overtimeHours: number;
+  vacationHours: number;
+  sickHours: number;
+  tips: number;
+  departmentBreakdown: Record<string, number>;
+  grossEstimate: number;
+  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
+}
+
+interface PayrollCompileResult {
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  employees: PayrollEmployee[];
+  flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
+  totals: {
+    regularHours: number;
+    overtimeHours: number;
+    vacationHours: number;
+    sickHours: number;
+    tips: number;
+    grossEstimate: number;
+    employeeCount: number;
+  };
+}
+
 function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPayrollEntry[]; accounts: FirmAccount[]; startDate: string; endDate: string }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [showForm, setShowForm] = useState(false);
+  const [showRecorded, setShowRecorded] = useState(false);
+  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<InsertFirmPayrollEntry>>({ employeeName: "", grossAmount: 0, deductions: 0, netAmount: 0, paymentMethod: "cash", datePaid: format(new Date(), "yyyy-MM-dd"), payPeriodStart: format(new Date(), "yyyy-MM-dd"), payPeriodEnd: format(new Date(), "yyyy-MM-dd") });
+
+  const { data: compiled, isLoading: loadingCompile, error: compileError, refetch: refetchCompile } = useQuery<PayrollCompileResult>({
+    queryKey: ["/api/payroll/compile", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/payroll/compile?start=${startDate}&end=${endDate}`, { credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed to compile payroll");
+      return res.json();
+    },
+    staleTime: 60000,
+  });
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/firm/payroll", data),
@@ -1267,9 +1315,6 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/firm/payroll"] }); toast({ title: "Payroll entry deleted" }); },
   });
 
-  const totalPaid = payroll.reduce((s, p) => s + p.netAmount, 0);
-  const byMethod = payroll.reduce((acc, p) => { acc[p.paymentMethod] = (acc[p.paymentMethod] || 0) + p.netAmount; return acc; }, {} as Record<string, number>);
-
   function updateGross(gross: number) {
     setForm(f => ({ ...f, grossAmount: gross, netAmount: gross - (f.deductions || 0) }));
   }
@@ -1277,87 +1322,333 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
     setForm(f => ({ ...f, deductions: ded, netAmount: (f.grossAmount || 0) - ded }));
   }
 
+  const criticalFlags = compiled?.flags.filter(f => f.severity === "critical") || [];
+  const warningFlags = compiled?.flags.filter(f => f.severity === "warning") || [];
+
+  const totalPaid = payroll.reduce((s, p) => s + p.netAmount, 0);
+
+  const deptLabel = (d: string) => {
+    const map: Record<string, string> = { kitchen: "Kitchen", front_of_house: "FOH", foh: "FOH", admin: "Admin", marketing: "Marketing", delivery: "Delivery", maintenance: "Maintenance", bakery: "Bakery" };
+    return map[d] || d.charAt(0).toUpperCase() + d.slice(1);
+  };
+
   return (
-    <div className="space-y-4" data-testid="payroll-content">
+    <div className="space-y-6" data-testid="payroll-content">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="text-sm"><span className="text-muted-foreground">Total Paid:</span> <span className="font-semibold">{formatCurrency(totalPaid)}</span></div>
-          {Object.entries(byMethod).map(([m, t]) => (
-            <div key={m} className="text-sm"><span className="text-muted-foreground capitalize">{m.replace(/_/g, " ")}:</span> <span className="font-medium">{formatCurrency(t)}</span></div>
-          ))}
-        </div>
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogTrigger asChild><Button size="sm" data-testid="button-add-payroll"><Plus className="w-4 h-4 mr-1" /> Record Payment</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Record Payroll Payment</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div><Label>Employee Name</Label><Input value={form.employeeName || ""} onChange={e => setForm(f => ({...f, employeeName: e.target.value}))} placeholder="Full name" data-testid="input-pay-name" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Pay Period Start</Label><Input type="date" value={form.payPeriodStart || ""} onChange={e => setForm(f => ({...f, payPeriodStart: e.target.value}))} data-testid="input-pay-start" /></div>
-                <div><Label>Pay Period End</Label><Input type="date" value={form.payPeriodEnd || ""} onChange={e => setForm(f => ({...f, payPeriodEnd: e.target.value}))} data-testid="input-pay-end" /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div><Label>Gross Amount</Label><Input type="number" step="0.01" value={form.grossAmount || ""} onChange={e => updateGross(parseFloat(e.target.value) || 0)} data-testid="input-pay-gross" /></div>
-                <div><Label>Deductions</Label><Input type="number" step="0.01" value={form.deductions || ""} onChange={e => updateDeductions(parseFloat(e.target.value) || 0)} data-testid="input-pay-deductions" /></div>
-                <div><Label>Net Amount</Label><Input type="number" step="0.01" value={form.netAmount || ""} readOnly className="bg-muted" data-testid="input-pay-net" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Payment Method</Label>
-                  <Select value={form.paymentMethod || "cash"} onValueChange={v => setForm(f => ({...f, paymentMethod: v}))}>
-                    <SelectTrigger data-testid="select-pay-method"><SelectValue /></SelectTrigger>
-                    <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div><Label>Date Paid</Label><Input type="date" value={form.datePaid || ""} onChange={e => setForm(f => ({...f, datePaid: e.target.value}))} data-testid="input-pay-date" /></div>
-              </div>
-              <div><Label>Account Paid From</Label>
-                <Select value={String(form.accountId || "")} onValueChange={v => setForm(f => ({...f, accountId: parseInt(v) || undefined}))}>
-                  <SelectTrigger data-testid="select-pay-account"><SelectValue placeholder="Select account" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label>Notes</Label><Textarea value={form.notes || ""} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} data-testid="input-pay-notes" /></div>
-            </div>
-            <DialogFooter><Button onClick={() => createMut.mutate(form)} disabled={!form.employeeName || !form.grossAmount} data-testid="button-save-payroll">Save</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <h3 className="text-sm font-medium flex items-center gap-2">
+          Payroll Preview
+          <LearnTooltip term="Payroll Preview" explanation="Live calculation of employee pay for the selected period. Hours come from your time clock, tips from TTIS (split among on-duty FOH staff), and rates from employee profiles. This is a preview — no payments are made until you record them." />
+        </h3>
+        <Button size="sm" variant="outline" onClick={() => refetchCompile()} disabled={loadingCompile} data-testid="button-refresh-payroll">
+          {loadingCompile ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+          Refresh
+        </Button>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b bg-muted/30">
-              <th className="text-left p-3 font-medium">Employee</th>
-              <th className="text-left p-3 font-medium">Period</th>
-              <th className="text-right p-3 font-medium">Gross</th>
-              <th className="text-right p-3 font-medium">Deductions</th>
-              <th className="text-right p-3 font-medium">Net</th>
-              <th className="text-left p-3 font-medium">Method</th>
-              <th className="text-left p-3 font-medium">Date Paid</th>
-              <th className="p-3 w-8"></th>
-            </tr></thead>
-            <tbody>
-              {payroll.length === 0 ? (
-                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground italic">No payroll entries for this period</td></tr>
-              ) : payroll.map(p => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-payroll-${p.id}`}>
-                  <td className="p-3 font-medium">{p.employeeName}</td>
-                  <td className="p-3 text-muted-foreground text-xs">{p.payPeriodStart} – {p.payPeriodEnd}</td>
-                  <td className="p-3 text-right tabular-nums">{formatCurrency(p.grossAmount)}</td>
-                  <td className="p-3 text-right tabular-nums text-muted-foreground">{formatCurrency(p.deductions)}</td>
-                  <td className="p-3 text-right tabular-nums font-medium">{formatCurrency(p.netAmount)}</td>
-                  <td className="p-3 capitalize text-xs">{p.paymentMethod.replace(/_/g, " ")}</td>
-                  <td className="p-3 text-muted-foreground">{p.datePaid}</td>
-                  <td className="p-3"><Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(p.id)} data-testid={`button-delete-pay-${p.id}`}><Trash2 className="w-3 h-3" /></Button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      {loadingCompile && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[1,2,3,4].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
+          </div>
+          <Skeleton className="h-48 rounded-lg" />
+        </div>
+      )}
+
+      {compileError && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="p-4 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-destructive">Failed to compile payroll</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{(compileError as Error).message}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {compiled && !loadingCompile && (
+        <>
+          {criticalFlags.length > 0 && (
+            <Card className="border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  <span className="text-xs font-semibold text-red-700 dark:text-red-400">Action Required ({criticalFlags.length})</span>
+                </div>
+                <div className="space-y-1">
+                  {criticalFlags.map((f, i) => (
+                    <p key={i} className="text-xs text-red-700 dark:text-red-300">{f.message}</p>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {warningFlags.length > 0 && (
+            <Card className="border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950/30">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Info className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
+                  <span className="text-xs font-semibold text-yellow-700 dark:text-yellow-400">Warnings ({warningFlags.length})</span>
+                </div>
+                <div className="space-y-1">
+                  {warningFlags.map((f, i) => (
+                    <p key={i} className="text-xs text-yellow-700 dark:text-yellow-300">{f.message}</p>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <Card data-testid="card-payroll-employees">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Employees</span>
+                </div>
+                <p className="text-xl font-bold tabular-nums">{compiled.totals.employeeCount}</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-payroll-hours">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Timer className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Regular Hrs</span>
+                </div>
+                <p className="text-xl font-bold tabular-nums">{compiled.totals.regularHours.toFixed(1)}</p>
+                {compiled.totals.overtimeHours > 0 && (
+                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">+{compiled.totals.overtimeHours.toFixed(1)} OT</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card data-testid="card-payroll-tips">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Coffee className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Tips (TTIS)</span>
+                </div>
+                <p className="text-xl font-bold tabular-nums text-green-700 dark:text-green-400">{formatCurrency(compiled.totals.tips)}</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-payroll-gross">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <DollarSign className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Total Gross</span>
+                </div>
+                <p className="text-xl font-bold tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-payroll-recorded">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Check className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Recorded</span>
+                </div>
+                <p className="text-xl font-bold tabular-nums">{formatCurrency(totalPaid)}</p>
+                {compiled.totals.grossEstimate > 0 && (
+                  <p className={`text-[10px] font-medium ${totalPaid >= compiled.totals.grossEstimate ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+                    {Math.round((totalPaid / compiled.totals.grossEstimate) * 100)}% of gross
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                Employee Breakdown
+                <Badge variant="secondary" className="text-[10px]">{compiled.payPeriodStart} – {compiled.payPeriodEnd}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" data-testid="table-payroll-preview">
+                  <thead><tr className="border-b bg-muted/30">
+                    <th className="text-left p-3 font-medium">Employee</th>
+                    <th className="text-left p-3 font-medium hidden md:table-cell">Dept</th>
+                    <th className="text-left p-3 font-medium hidden md:table-cell">Type</th>
+                    <th className="text-right p-3 font-medium">Reg Hrs</th>
+                    <th className="text-right p-3 font-medium">OT Hrs</th>
+                    <th className="text-right p-3 font-medium hidden md:table-cell">Rate</th>
+                    <th className="text-right p-3 font-medium">Tips</th>
+                    <th className="text-right p-3 font-medium">Gross</th>
+                    <th className="p-3 w-8"></th>
+                  </tr></thead>
+                  <tbody>
+                    {compiled.employees.length === 0 ? (
+                      <tr><td colSpan={9} className="p-8 text-center text-muted-foreground italic">No employees with hours or salary in this period</td></tr>
+                    ) : compiled.employees
+                      .sort((a, b) => b.grossEstimate - a.grossEstimate)
+                      .map(emp => {
+                        const fullName = `${emp.firstName} ${emp.lastName}`.trim();
+                        const isExpanded = expandedEmployee === emp.userId;
+                        const empFlags = emp.flags.filter(f => f.severity === "critical" || f.severity === "warning");
+                        return (
+                          <tr key={emp.userId} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${empFlags.length > 0 ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} onClick={() => setExpandedEmployee(isExpanded ? null : emp.userId)} data-testid={`row-payroll-emp-${emp.userId}`}>
+                            <td className="p-3">
+                              <div className="font-medium flex items-center gap-1.5">
+                                {fullName}
+                                {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
+                                {!emp.adpAssociateOID && <Unlink className="w-3 h-3 text-muted-foreground" title="Not linked to ADP" />}
+                              </div>
+                              {isExpanded && (
+                                <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                                  <div className="md:hidden">
+                                    <span className="font-medium">Dept:</span> {deptLabel(emp.department)} | <span className="font-medium">Type:</span> {emp.payType === "salary" ? "Salary" : "Hourly"}
+                                  </div>
+                                  {emp.vacationHours > 0 && <div>Vacation: {emp.vacationHours.toFixed(1)}h</div>}
+                                  {emp.sickHours > 0 && <div>Sick: {emp.sickHours.toFixed(1)}h</div>}
+                                  {Object.keys(emp.departmentBreakdown).length > 1 && (
+                                    <div>Hours by dept: {Object.entries(emp.departmentBreakdown).map(([d, h]) => `${deptLabel(d)} ${(h as number).toFixed(1)}h`).join(", ")}</div>
+                                  )}
+                                  {empFlags.map((f, i) => (
+                                    <div key={i} className={`text-xs ${f.severity === "critical" ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400"}`}>{f.message}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3 text-xs hidden md:table-cell">{deptLabel(emp.department)}</td>
+                            <td className="p-3 hidden md:table-cell">
+                              <Badge variant="outline" className="text-[10px]">
+                                {emp.payType === "salary" ? "Salary" : "Hourly"}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-right tabular-nums">{emp.regularHours.toFixed(1)}</td>
+                            <td className="p-3 text-right tabular-nums">
+                              {emp.overtimeHours > 0 ? (
+                                <span className="text-orange-600 dark:text-orange-400 font-medium">{emp.overtimeHours.toFixed(1)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">0.0</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell">
+                              {emp.payType === "salary"
+                                ? <span title={`Annual: ${formatCurrency(emp.annualSalary || 0)}`}>{formatCurrency(emp.periodSalary || 0)}<span className="text-muted-foreground">/pd</span></span>
+                                : <span>{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>
+                              }
+                            </td>
+                            <td className="p-3 text-right tabular-nums">
+                              {emp.tips > 0 ? (
+                                <span className="text-green-700 dark:text-green-400">{formatCurrency(emp.tips)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right tabular-nums font-semibold">{formatCurrency(emp.grossEstimate)}</td>
+                            <td className="p-3">
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                  {compiled.employees.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 bg-muted/20 font-semibold">
+                        <td className="p-3">Totals</td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 text-right tabular-nums">{compiled.totals.regularHours.toFixed(1)}</td>
+                        <td className="p-3 text-right tabular-nums">{compiled.totals.overtimeHours > 0 ? compiled.totals.overtimeHours.toFixed(1) : "0.0"}</td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 text-right tabular-nums text-green-700 dark:text-green-400">{formatCurrency(compiled.totals.tips)}</td>
+                        <td className="p-3 text-right tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</td>
+                        <td className="p-3"></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => setShowRecorded(!showRecorded)} className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="button-toggle-recorded">
+            {showRecorded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            Recorded Payments ({payroll.length})
+            {totalPaid > 0 && <span className="text-xs font-normal">— {formatCurrency(totalPaid)} paid</span>}
+          </button>
+          <Dialog open={showForm} onOpenChange={setShowForm}>
+            <DialogTrigger asChild><Button size="sm" data-testid="button-add-payroll"><Plus className="w-4 h-4 mr-1" /> Record Payment</Button></DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Record Payroll Payment</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Employee Name</Label><Input value={form.employeeName || ""} onChange={e => setForm(f => ({...f, employeeName: e.target.value}))} placeholder="Full name" data-testid="input-pay-name" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Pay Period Start</Label><Input type="date" value={form.payPeriodStart || ""} onChange={e => setForm(f => ({...f, payPeriodStart: e.target.value}))} data-testid="input-pay-start" /></div>
+                  <div><Label>Pay Period End</Label><Input type="date" value={form.payPeriodEnd || ""} onChange={e => setForm(f => ({...f, payPeriodEnd: e.target.value}))} data-testid="input-pay-end" /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div><Label>Gross Amount</Label><Input type="number" step="0.01" value={form.grossAmount || ""} onChange={e => updateGross(parseFloat(e.target.value) || 0)} data-testid="input-pay-gross" /></div>
+                  <div><Label>Deductions</Label><Input type="number" step="0.01" value={form.deductions || ""} onChange={e => updateDeductions(parseFloat(e.target.value) || 0)} data-testid="input-pay-deductions" /></div>
+                  <div><Label>Net Amount</Label><Input type="number" step="0.01" value={form.netAmount || ""} readOnly className="bg-muted" data-testid="input-pay-net" /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Payment Method</Label>
+                    <Select value={form.paymentMethod || "cash"} onValueChange={v => setForm(f => ({...f, paymentMethod: v}))}>
+                      <SelectTrigger data-testid="select-pay-method"><SelectValue /></SelectTrigger>
+                      <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Date Paid</Label><Input type="date" value={form.datePaid || ""} onChange={e => setForm(f => ({...f, datePaid: e.target.value}))} data-testid="input-pay-date" /></div>
+                </div>
+                <div><Label>Account Paid From</Label>
+                  <Select value={String(form.accountId || "")} onValueChange={v => setForm(f => ({...f, accountId: parseInt(v) || undefined}))}>
+                    <SelectTrigger data-testid="select-pay-account"><SelectValue placeholder="Select account" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Notes</Label><Textarea value={form.notes || ""} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} data-testid="input-pay-notes" /></div>
+              </div>
+              <DialogFooter><Button onClick={() => createMut.mutate(form)} disabled={!form.employeeName || !form.grossAmount} data-testid="button-save-payroll">Save</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {showRecorded && (
+          <Card>
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/30">
+                  <th className="text-left p-3 font-medium">Employee</th>
+                  <th className="text-left p-3 font-medium">Period</th>
+                  <th className="text-right p-3 font-medium">Gross</th>
+                  <th className="text-right p-3 font-medium">Deductions</th>
+                  <th className="text-right p-3 font-medium">Net</th>
+                  <th className="text-left p-3 font-medium">Method</th>
+                  <th className="text-left p-3 font-medium">Date Paid</th>
+                  <th className="p-3 w-8"></th>
+                </tr></thead>
+                <tbody>
+                  {payroll.length === 0 ? (
+                    <tr><td colSpan={8} className="p-8 text-center text-muted-foreground italic">No payroll entries for this period</td></tr>
+                  ) : payroll.map(p => (
+                    <tr key={p.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-payroll-${p.id}`}>
+                      <td className="p-3 font-medium">{p.employeeName}</td>
+                      <td className="p-3 text-muted-foreground text-xs">{p.payPeriodStart} – {p.payPeriodEnd}</td>
+                      <td className="p-3 text-right tabular-nums">{formatCurrency(p.grossAmount)}</td>
+                      <td className="p-3 text-right tabular-nums text-muted-foreground">{formatCurrency(p.deductions)}</td>
+                      <td className="p-3 text-right tabular-nums font-medium">{formatCurrency(p.netAmount)}</td>
+                      <td className="p-3 capitalize text-xs">{p.paymentMethod.replace(/_/g, " ")}</td>
+                      <td className="p-3 text-muted-foreground">{p.datePaid}</td>
+                      <td className="p-3"><Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(p.id)} data-testid={`button-delete-pay-${p.id}`}><Trash2 className="w-3 h-3" /></Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

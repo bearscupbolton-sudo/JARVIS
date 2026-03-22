@@ -336,6 +336,8 @@ export async function compilePayroll(
     });
   }
 
+  const ownerIds = new Set(allUsers.filter(u => u.role === "owner").map(u => u.id));
+
   const tipTotals = new Map<string, number>();
   try {
     const dayMs = 24 * 60 * 60 * 1000;
@@ -344,6 +346,24 @@ export async function compilePayroll(
       const d = new Date(periodStart);
       d.setDate(d.getDate() + i);
       const dateStr = d.toISOString().split("T")[0];
+
+      const dayStart = easternDayStart(dateStr);
+      const dayEnd = easternDayEnd(dateStr);
+
+      const dayFohShifts = allShifts.filter(s => s.shiftDate === dateStr && s.department === "foh");
+      const dayFohShiftUserIds = Array.from(new Set(dayFohShifts.map(s => s.userId)))
+        .filter(uid => !ownerIds.has(uid));
+
+      const dayTimeEntries = allTimeEntries.filter(te => {
+        const clockOut = te.clockOut || new Date();
+        return te.clockIn <= dayEnd && clockOut >= dayStart;
+      });
+
+      const fohShiftSet = new Set(dayFohShiftUserIds);
+      const dayFohTimeEntries = dayTimeEntries.filter(te =>
+        !ownerIds.has(te.userId) && fohShiftSet.has(te.userId)
+      );
+      const fohClockedInUserIds = Array.from(new Set(dayFohTimeEntries.map(te => te.userId)));
 
       let tipData = { tips: [] as any[], totalTipsCents: 0, orderCount: 0 };
       try { tipData = await fetchSquareTips(dateStr); } catch { continue; }
@@ -354,13 +374,19 @@ export async function compilePayroll(
         const tipMs = tipTime.getTime();
 
         const onDutyStaff: string[] = [];
-        for (const te of allTimeEntries) {
-          if (te.userId && !onDutyStaff.includes(te.userId)) {
-            const clockOut = te.clockOut || new Date();
-            if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
-              onDutyStaff.push(te.userId);
-            }
+        for (const te of dayFohTimeEntries) {
+          const clockOut = te.clockOut || new Date();
+          if (tipMs >= te.clockIn.getTime() && tipMs <= clockOut.getTime()) {
+            if (!onDutyStaff.includes(te.userId)) onDutyStaff.push(te.userId);
           }
+        }
+
+        if (onDutyStaff.length === 0 && fohClockedInUserIds.length > 0) {
+          onDutyStaff.push(...fohClockedInUserIds);
+        }
+
+        if (onDutyStaff.length === 0 && dayFohShiftUserIds.length > 0) {
+          onDutyStaff.push(...dayFohShiftUserIds);
         }
 
         if (onDutyStaff.length > 0) {
@@ -379,6 +405,32 @@ export async function compilePayroll(
     const tipCents = tipTotals.get(emp.userId) || 0;
     emp.tips = Math.round(tipCents) / 100;
     emp.grossEstimate = Math.round((emp.grossEstimate + emp.tips) * 100) / 100;
+  }
+
+  for (const [uid, tipCents] of tipTotals.entries()) {
+    if (employees.some(e => e.userId === uid)) continue;
+    const tipUser = allUsers.find(u => u.id === uid);
+    if (!tipUser || !tipUser.firstName) continue;
+    const tipAmount = Math.round(tipCents) / 100;
+    employees.push({
+      userId: uid,
+      firstName: tipUser.firstName || "",
+      lastName: tipUser.lastName || "",
+      adpAssociateOID: tipUser.adpAssociateOID || null,
+      payType: tipUser.payType === "salary" ? "salary" : "hourly",
+      hourlyRate: tipUser.hourlyRate || 0,
+      annualSalary: tipUser.annualSalary || null,
+      periodSalary: null,
+      department: tipUser.department || "front_of_house",
+      regularHours: 0,
+      overtimeHours: 0,
+      vacationHours: 0,
+      sickHours: 0,
+      tips: tipAmount,
+      departmentBreakdown: {},
+      grossEstimate: tipAmount,
+      flags: [],
+    });
   }
 
   const allFlags = [
