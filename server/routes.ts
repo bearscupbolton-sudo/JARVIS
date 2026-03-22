@@ -12331,5 +12331,49 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
     }
   });
 
+  // === PFG SFTP Integration ===
+  app.get("/api/pfg/test", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { testPfgConnection } = await import("./pfg-sftp");
+      const result = await testPfgConnection();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get("/api/pfg/files", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { listPfgFiles } = await import("./pfg-sftp");
+      const folder = (req.query.folder as string) || "/OUT";
+      const result = await listPfgFiles(folder);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, files: [], message: err.message });
+    }
+  });
+
+  app.get("/api/pfg/download", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { downloadPfgFile } = await import("./pfg-sftp");
+      const path = req.query.path as string;
+      if (!path) return res.status(400).json({ success: false, message: "path required" });
+      const result = await downloadPfgFile(path);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post("/api/pfg/import", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { pullAndImportPfgInvoices } = await import("./pfg-sftp");
+      const result = await pullAndImportPfgInvoices();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, imported: [] });
+    }
+  });
+
   return httpServer;
 }

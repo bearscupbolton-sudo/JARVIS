@@ -38,6 +38,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Server,
+  Download,
+  Loader2,
+  FileText,
+  Wifi,
+  WifiOff,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { Vendor, VendorItem, InventoryItem, PurchaseOrder, PurchaseOrderLine } from "@shared/schema";
 
@@ -50,6 +58,174 @@ const DAY_LABELS: Record<string, string> = {
 type VendorItemWithInventory = VendorItem & { inventoryItem: InventoryItem };
 type PurchaseOrderWithVendor = PurchaseOrder & { vendor: Vendor };
 type PurchaseOrderFull = PurchaseOrder & { vendor: Vendor; lines: PurchaseOrderLine[] };
+
+function PfgIntegrationCard() {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string; files?: any[] } | null>(null);
+  const [pfgFiles, setPfgFiles] = useState<any[]>([]);
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/pfg/test");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setTestResult(data);
+      if (data.success && data.files) setPfgFiles(data.files);
+      toast({ title: data.success ? "PFG Connected" : "Connection Failed", description: data.message });
+    },
+    onError: (err: Error) => {
+      setTestResult({ success: false, message: err.message });
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const listMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/pfg/files");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) setPfgFiles(data.files);
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/pfg/import");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "PFG Import Complete", description: data.message });
+        queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      } else {
+        toast({ title: "Import Failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Import Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <Card data-testid="card-pfg-integration">
+      <CardContent className="p-4">
+        <button
+          className="w-full flex items-center justify-between"
+          onClick={() => setExpanded(!expanded)}
+          data-testid="button-pfg-toggle"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Server className="w-5 h-5 text-blue-600" />
+            </div>
+            <div className="text-left">
+              <p className="font-semibold text-sm">Performance Food Group (PFG)</p>
+              <p className="text-xs text-muted-foreground">SFTP integration · invoices & order guides</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {testResult && (
+              testResult.success
+                ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs"><Wifi className="w-3 h-3 mr-1" /> Connected</Badge>
+                : <Badge variant="destructive" className="text-xs"><WifiOff className="w-3 h-3 mr-1" /> Failed</Badge>
+            )}
+            {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="mt-4 space-y-4 border-t pt-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => testMutation.mutate()}
+                disabled={testMutation.isPending}
+                data-testid="button-pfg-test"
+              >
+                {testMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wifi className="w-3 h-3 mr-1" />}
+                Test Connection
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => listMutation.mutate()}
+                disabled={listMutation.isPending || !testResult?.success}
+                data-testid="button-pfg-list"
+              >
+                {listMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
+                List Files
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => importMutation.mutate()}
+                disabled={importMutation.isPending || !testResult?.success}
+                data-testid="button-pfg-import"
+              >
+                {importMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                Pull & Import Invoices
+              </Button>
+            </div>
+
+            {testResult && (
+              <div className={`text-sm p-3 rounded-md ${testResult.success ? "bg-green-50 dark:bg-green-950/20 text-green-800 dark:text-green-300" : "bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-300"}`}>
+                {testResult.message}
+              </div>
+            )}
+
+            {pfgFiles.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Files in /OUT ({pfgFiles.length})</p>
+                <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                  {pfgFiles.map((f: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 text-sm" data-testid={`pfg-file-${i}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatFileSize(f.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {importMutation.data && importMutation.data.success && importMutation.data.imported?.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Import Results</p>
+                {importMutation.data.imported.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center gap-3 text-sm bg-muted/50 rounded-md p-2">
+                    <FileText className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-medium">{r.fileName}</span>
+                    <Badge variant="outline" className="text-xs">{r.invoiceCount} invoice(s)</Badge>
+                    <Badge className="bg-green-100 text-green-700 text-xs">{r.matchedLines} matched</Badge>
+                    {r.unmatchedLines > 0 && (
+                      <Badge variant="outline" className="text-xs border-yellow-400 text-yellow-600">{r.unmatchedLines} unmatched</Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Connection: ecomm.pfgc.com · OPCO 170 (PFS-Springfield) · Pulls invoices, order guides & acknowledgements from /OUT
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Vendors() {
   const { toast } = useToast();
@@ -589,6 +765,8 @@ export default function Vendors() {
           </CardContent>
         </Card>
       )}
+
+      <PfgIntegrationCard />
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">Loading vendors...</div>
