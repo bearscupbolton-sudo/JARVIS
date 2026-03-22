@@ -9,7 +9,8 @@ import { createServer } from "http";
 import { seedMarchShifts } from "./seed-march-shifts";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq } from "drizzle-orm";
+import { shifts } from "@shared/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -84,6 +85,26 @@ app.use((req, res, next) => {
   db.update(users).set({ lastName: "Wilhelm" }).where(eq(users.lastName, "Wihelm"))
     .then((result) => { if (result.rowCount && result.rowCount > 0) console.log("[Fix] Corrected Wihelm → Wilhelm"); })
     .catch(() => {});
+
+  (async () => {
+    try {
+      const fohUsers = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+        .from(users).where(eq(users.department, "foh"));
+      for (const u of fohUsers) {
+        const result = await db.update(shifts)
+          .set({ department: "foh" })
+          .where(and(
+            eq(shifts.userId, u.id),
+            eq(shifts.department, "kitchen"),
+            gte(shifts.shiftDate, "2026-03-01"),
+            lte(shifts.shiftDate, "2026-03-31")
+          ));
+        if (result.rowCount && result.rowCount > 0) {
+          console.log(`[Fix] Corrected ${result.rowCount} kitchen→foh shifts for ${u.firstName} ${u.lastName}`);
+        }
+      }
+    } catch (e) {}
+  })();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -5144,6 +5144,9 @@ Return ONLY the JSON array.`,
         }
       }
 
+      const allUsers = await storage.getUsers();
+      const userDeptMap = new Map(allUsers.map((u: any) => [u.id, u.department || "kitchen"]));
+
       const created = [];
       let skipped = 0;
       let duplicates = 0;
@@ -5172,7 +5175,7 @@ Return ONLY the JSON array.`,
           shiftDate: s.shiftDate,
           startTime: s.startTime,
           endTime: s.endTime,
-          department: s.department || "kitchen",
+          department: s.department || (s.userId ? userDeptMap.get(s.userId) : null) || "kitchen",
           position: s.position || null,
           notes: s.notes || null,
           locationId: s.locationId || null,
