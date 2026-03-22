@@ -10080,13 +10080,15 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
 
   app.post("/api/coffee/drinks", isAuthenticated, async (req, res) => {
     try {
-      const { drinkName, squareItemName, ingredients } = req.body;
+      const { drinkName, squareItemName, squareItemId, squareVariationId, ingredients } = req.body;
       if (!drinkName) {
         return res.status(400).json({ message: "Drink name is required" });
       }
       const recipe = await storage.createCoffeeDrinkRecipe({
         drinkName,
         squareItemName: squareItemName || null,
+        squareItemId: squareItemId || null,
+        squareVariationId: squareVariationId || null,
         isActive: true,
       });
       let savedIngredients: any[] = [];
@@ -10102,10 +10104,12 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
   app.patch("/api/coffee/drinks/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { drinkName, squareItemName, isActive, ingredients } = req.body;
+      const { drinkName, squareItemName, squareItemId, squareVariationId, isActive, ingredients } = req.body;
       const updates: any = {};
       if (drinkName !== undefined) updates.drinkName = drinkName;
       if (squareItemName !== undefined) updates.squareItemName = squareItemName;
+      if (squareItemId !== undefined) updates.squareItemId = squareItemId;
+      if (squareVariationId !== undefined) updates.squareVariationId = squareVariationId;
       if (isActive !== undefined) updates.isActive = isActive;
       const recipe = await storage.updateCoffeeDrinkRecipe(id, updates);
       if (ingredients && Array.isArray(ingredients)) {
@@ -10205,6 +10209,126 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
       });
       res.json({ days, summary });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/sync-square-sales", isAuthenticated, async (req, res) => {
+    try {
+      const date = (req.body.date as string) || new Date().toISOString().split("T")[0];
+      const allDrinks = await storage.getCoffeeDrinkRecipes();
+      const mappedDrinks = allDrinks.filter(d => d.squareItemId || d.squareItemName);
+      if (mappedDrinks.length === 0) {
+        return res.json({ synced: 0, message: "No drinks mapped to Square catalog items" });
+      }
+
+      const { getSquareClient } = await import("./square");
+      const client = getSquareClient();
+
+      const startAt = `${date}T00:00:00Z`;
+      const endAt = `${date}T23:59:59Z`;
+      const allLocs = await storage.getLocations();
+      const squareLocIds = allLocs.filter((l: any) => l.squareLocationId).map((l: any) => l.squareLocationId!);
+
+      const body: any = {
+        query: {
+          filter: {
+            dateTimeFilter: { createdAt: { startAt, endAt } },
+            stateFilter: { states: ["COMPLETED"] },
+          },
+        },
+        locationIds: squareLocIds.length > 0 ? squareLocIds : undefined,
+      };
+
+      const itemIdToName = new Map<string, string>();
+      const variationToItemId = new Map<string, string>();
+      const { fetchSquareCatalog } = await import("./square");
+      const catalog = await fetchSquareCatalog();
+      for (const item of catalog) {
+        itemIdToName.set(item.id, item.name);
+        for (const v of item.variations || []) {
+          variationToItemId.set(v.id, item.id);
+        }
+      }
+
+      const drinkSalesMap = new Map<number, number>();
+
+      let cursor: string | undefined;
+      do {
+        if (cursor) body.cursor = cursor;
+        const response = await client.orders.search(body);
+        const orders = response.orders || [];
+
+        for (const order of orders) {
+          for (const lineItem of (order as any).lineItems || []) {
+            const catalogId = lineItem.catalogObjectId;
+            if (!catalogId) continue;
+
+            const parentItemId = variationToItemId.get(catalogId) || catalogId;
+            const itemName = itemIdToName.get(parentItemId) || lineItem.name || "";
+
+            for (const drink of mappedDrinks) {
+              let matched = false;
+              if (drink.squareItemId) {
+                if (drink.squareVariationId) {
+                  matched = catalogId === drink.squareVariationId;
+                } else {
+                  matched = parentItemId === drink.squareItemId;
+                }
+              } else if (drink.squareItemName) {
+                matched = itemName.toLowerCase() === drink.squareItemName.toLowerCase();
+              }
+
+              if (matched) {
+                const qty = parseInt(lineItem.quantity || "1", 10);
+                drinkSalesMap.set(drink.id, (drinkSalesMap.get(drink.id) || 0) + qty);
+              }
+            }
+          }
+        }
+        cursor = (response as any).cursor;
+      } while (cursor);
+
+      const existingLogs = await storage.getCoffeeUsageLogs(date);
+      const existingSquareKeys = new Set(
+        existingLogs
+          .filter((l: any) => l.source === "square")
+          .map((l: any) => `${l.drinkRecipeId}-${l.date}`)
+      );
+
+      let synced = 0;
+      for (const [drinkId, totalQty] of drinkSalesMap) {
+        if (totalQty <= 0) continue;
+        const key = `${drinkId}-${date}`;
+        if (existingSquareKeys.has(key)) continue;
+
+        const drink = allDrinks.find(d => d.id === drinkId)!;
+        await storage.createCoffeeUsageLog({
+          drinkRecipeId: drink.id,
+          drinkName: drink.drinkName,
+          quantitySold: totalQty,
+          date,
+          source: "square",
+        });
+
+        const ingredients = await storage.getCoffeeDrinkIngredients(drink.id);
+        const inventory = await storage.getCoffeeInventory();
+        const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+        for (const ing of ingredients) {
+          const deduction = ing.quantityUsed * totalQty;
+          const item = inventoryMap.get(ing.coffeeInventoryId);
+          if (item) {
+            const newOnHand = Math.max(0, (item.onHand || 0) - deduction);
+            await storage.updateCoffeeInventoryItem(item.id, { onHand: newOnHand });
+          }
+        }
+
+        synced++;
+      }
+
+      res.json({ synced, date, message: `${synced} drink${synced !== 1 ? "s" : ""} synced from Square` });
+    } catch (err: any) {
+      console.error("[Coffee] Square sync error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

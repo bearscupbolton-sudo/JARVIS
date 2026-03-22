@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -15,10 +15,17 @@ import {
   Coffee as CoffeeIcon, Plus, Minus, Trash2, RefreshCw, Loader2,
   Bean, Milk, Droplets, Package, BarChart3, Sparkles, X, GlassWater,
   AlertTriangle, TrendingUp, ChevronDown, ChevronUp, Edit2, Save,
-  StickyNote, PenLine, ExternalLink, FlaskConical
+  StickyNote, PenLine, ExternalLink, FlaskConical, Search, Link2, Unlink2
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import type { CoffeeInventoryItem, CoffeeDrinkRecipe, CoffeeDrinkIngredient } from "@shared/schema";
+
+type SquareCatalogItem = {
+  id: string;
+  name: string;
+  description?: string;
+  variations: { id: string; name: string; priceMoney?: { amount: number; currency: string } }[];
+};
 
 type DrinkWithIngredients = CoffeeDrinkRecipe & {
   ingredients: (CoffeeDrinkIngredient & { inventoryItemName: string })[];
@@ -511,18 +518,31 @@ function InventoryManager() {
 function DrinkSetup() {
   const { data: drinks = [], isLoading } = useQuery<DrinkWithIngredients[]>({ queryKey: ["/api/coffee/drinks"] });
   const { data: inventory = [] } = useQuery<CoffeeInventoryItem[]>({ queryKey: ["/api/coffee/inventory"] });
+  const { data: squareCatalog = [] } = useQuery<SquareCatalogItem[]>({ queryKey: ["/api/square/catalog"] });
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [drinkName, setDrinkName] = useState("");
-  const [squareItemName, setSquareItemName] = useState("");
+  const [squareItemId, setSquareItemId] = useState("");
+  const [squareVariationId, setSquareVariationId] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [ingredients, setIngredients] = useState<{ coffeeInventoryId: number; quantityUsed: number; unit: string }[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  const selectedSquareItem = useMemo(() => squareCatalog.find(i => i.id === squareItemId), [squareCatalog, squareItemId]);
+
+  const filteredCatalog = useMemo(() => {
+    if (!catalogSearch.trim()) return squareCatalog;
+    const q = catalogSearch.toLowerCase();
+    return squareCatalog.filter(i => i.name.toLowerCase().includes(q));
+  }, [squareCatalog, catalogSearch]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/coffee/drinks", {
         drinkName: drinkName.trim(),
-        squareItemName: squareItemName.trim() || null,
+        squareItemId: squareItemId || null,
+        squareItemName: selectedSquareItem?.name || null,
+        squareVariationId: squareVariationId || null,
         ingredients: ingredients.filter(i => i.coffeeInventoryId && i.quantityUsed > 0),
       });
       return res.json();
@@ -540,7 +560,9 @@ function DrinkSetup() {
       if (!editingId) return;
       const res = await apiRequest("PATCH", `/api/coffee/drinks/${editingId}`, {
         drinkName: drinkName.trim(),
-        squareItemName: squareItemName.trim() || null,
+        squareItemId: squareItemId || null,
+        squareItemName: selectedSquareItem?.name || null,
+        squareVariationId: squareVariationId || null,
         ingredients: ingredients.filter(i => i.coffeeInventoryId && i.quantityUsed > 0),
       });
       return res.json();
@@ -566,14 +588,18 @@ function DrinkSetup() {
 
   const resetForm = () => {
     setDrinkName("");
-    setSquareItemName("");
+    setSquareItemId("");
+    setSquareVariationId("");
+    setCatalogSearch("");
     setIngredients([]);
   };
 
   const startEdit = (drink: DrinkWithIngredients) => {
     setEditingId(drink.id);
     setDrinkName(drink.drinkName);
-    setSquareItemName(drink.squareItemName || "");
+    setSquareItemId(drink.squareItemId || "");
+    setSquareVariationId(drink.squareVariationId || "");
+    setCatalogSearch("");
     setIngredients(drink.ingredients.map(i => ({
       coffeeInventoryId: i.coffeeInventoryId,
       quantityUsed: i.quantityUsed,
@@ -617,8 +643,85 @@ function DrinkSetup() {
                 <Input value={drinkName} onChange={e => setDrinkName(e.target.value)} placeholder="e.g. Caramel Latte" data-testid="input-drink-name" />
               </div>
               <div>
-                <Label>Square Item Name <span className="text-muted-foreground text-xs">(for auto-matching)</span></Label>
-                <Input value={squareItemName} onChange={e => setSquareItemName(e.target.value)} placeholder="e.g. Caramel Latte (Square name)" data-testid="input-drink-square" />
+                <Label>Square Catalog Item <span className="text-muted-foreground text-xs">(links to real-time sales)</span></Label>
+                {selectedSquareItem ? (
+                  <div className="flex items-center gap-2 p-2 rounded-lg border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                    <Link2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid="text-square-linked">{selectedSquareItem.name}</p>
+                      {selectedSquareItem.variations.length > 1 && squareVariationId && (
+                        <p className="text-xs text-muted-foreground">
+                          Variation: {selectedSquareItem.variations.find(v => v.id === squareVariationId)?.name || "All"}
+                        </p>
+                      )}
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => { setSquareItemId(""); setSquareVariationId(""); }} data-testid="button-unlink-square">
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="pl-8"
+                        value={catalogSearch}
+                        onChange={e => setCatalogSearch(e.target.value)}
+                        placeholder="Search Square catalog..."
+                        data-testid="input-square-search"
+                      />
+                    </div>
+                    {catalogSearch.trim() && filteredCatalog.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto border rounded-md bg-popover shadow-md">
+                        {filteredCatalog.slice(0, 20).map(item => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-b-0"
+                            onClick={() => {
+                              setSquareItemId(item.id);
+                              setSquareVariationId(item.variations.length === 1 ? item.variations[0].id : "");
+                              setCatalogSearch("");
+                            }}
+                            data-testid={`square-catalog-item-${item.id}`}
+                          >
+                            <span className="font-medium">{item.name}</span>
+                            {item.variations.length > 0 && (
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {item.variations.map(v => {
+                                  const price = v.priceMoney ? `$${(v.priceMoney.amount / 100).toFixed(2)}` : "";
+                                  return v.name === "Regular" ? price : `${v.name} ${price}`;
+                                }).filter(Boolean).join(" · ")}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {catalogSearch.trim() && filteredCatalog.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-2">No matching items in Square catalog</p>
+                    )}
+                    {squareCatalog.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Square catalog not loaded — check your Square connection</p>
+                    )}
+                  </div>
+                )}
+                {selectedSquareItem && selectedSquareItem.variations.length > 1 && (
+                  <div className="mt-2">
+                    <Label className="text-xs">Variation <span className="text-muted-foreground">(optional — track a specific size)</span></Label>
+                    <Select value={squareVariationId || "all"} onValueChange={v => setSquareVariationId(v === "all" ? "" : v)}>
+                      <SelectTrigger className="mt-1" data-testid="select-square-variation">
+                        <SelectValue placeholder="All variations" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All variations</SelectItem>
+                        {selectedSquareItem.variations.map(v => (
+                          <SelectItem key={v.id} value={v.id}>{v.name}{v.priceMoney ? ` — $${(v.priceMoney.amount / 100).toFixed(2)}` : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -727,7 +830,13 @@ function DrinkCard({ drink, onEdit, onDelete }: { drink: DrinkWithIngredients; o
               <p className="font-medium text-sm">{drink.drinkName}</p>
               <p className="text-xs text-muted-foreground">
                 {drink.ingredients.length} ingredient{drink.ingredients.length !== 1 ? "s" : ""}
-                {drink.squareItemName && <> · Square: {drink.squareItemName}</>}
+                {(drink.squareItemId || drink.squareItemName) && (
+                  <span className="inline-flex items-center gap-1">
+                    {" · "}
+                    <Link2 className="w-3 h-3 text-green-600" />
+                    {drink.squareItemName || "Square linked"}
+                  </span>
+                )}
               </p>
             </div>
             {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground ml-2" /> : <ChevronDown className="w-4 h-4 text-muted-foreground ml-2" />}
@@ -791,6 +900,20 @@ function UsageTracker() {
     },
   });
 
+  const syncSquareMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/coffee/sync-square-sales", { date: today });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/coffee/usage?date=${today}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/coffee/usage/summary?days=7"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/coffee/inventory"] });
+      toast({ title: data.message || "Square sales synced" });
+    },
+    onError: () => toast({ title: "Failed to sync Square sales", variant: "destructive" }),
+  });
+
   const allIngredients = drinks.flatMap(d => d.ingredients);
 
   return (
@@ -800,12 +923,25 @@ function UsageTracker() {
           <h2 className="text-lg font-semibold">Usage & Sales Tracker</h2>
           <p className="text-sm text-muted-foreground">Log drinks sold — Jarvis automatically deducts from inventory</p>
         </div>
-        <Dialog open={logOpen} onOpenChange={setLogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-amber-700 hover:bg-amber-600 text-white" data-testid="button-log-sales">
-              <Plus className="w-4 h-4 mr-2" /> Log Sales
+        <div className="flex items-center gap-2">
+          {drinks.some(d => d.squareItemId || d.squareItemName) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncSquareMut.mutate()}
+              disabled={syncSquareMut.isPending}
+              data-testid="button-sync-square-sales"
+            >
+              <RefreshCw className={`w-4 h-4 mr-1 ${syncSquareMut.isPending ? "animate-spin" : ""}`} />
+              Sync Square
             </Button>
-          </DialogTrigger>
+          )}
+          <Dialog open={logOpen} onOpenChange={setLogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-amber-700 hover:bg-amber-600 text-white" data-testid="button-log-sales">
+                <Plus className="w-4 h-4 mr-2" /> Log Sales
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Log Drink Sales</DialogTitle></DialogHeader>
             <div className="space-y-4">
@@ -850,7 +986,8 @@ function UsageTracker() {
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       <Card data-testid="card-today-sales">

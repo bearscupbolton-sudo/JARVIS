@@ -4,7 +4,7 @@ import { squareCatalogMap, squareSales, squareDailySummary, pastryTotals, bakeof
 import { users } from "@shared/models/auth";
 import { eq, and, or, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 
-function getSquareClient() {
+export function getSquareClient() {
   return new SquareClient({
     token: process.env.SQUARE_ACCESS_TOKEN || "",
     environment: (process.env.SQUARE_ENVIRONMENT === "production")

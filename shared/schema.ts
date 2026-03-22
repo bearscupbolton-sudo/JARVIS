@@ -1542,6 +1542,8 @@ export const coffeeDrinkRecipes = pgTable("coffee_drink_recipes", {
   id: serial("id").primaryKey(),
   drinkName: text("drink_name").notNull(),
   squareItemName: text("square_item_name"),
+  squareItemId: text("square_item_id"),
+  squareVariationId: text("square_variation_id"),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
