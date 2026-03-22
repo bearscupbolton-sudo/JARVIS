@@ -35,8 +35,9 @@ import {
   Database,
   Activity,
   AlertTriangle,
+  Coffee,
 } from "lucide-react";
-import type { PastryItem } from "@shared/schema";
+import type { PastryItem, CoffeeDrinkRecipe } from "@shared/schema";
 import { useLocationContext } from "@/hooks/use-location-context";
 import { Link } from "wouter";
 
@@ -45,7 +46,7 @@ type PipelineHealth = { steps: PipelineStep[]; overallPct: number };
 
 type SquareLocation = { id: string; name: string; address?: string; status: string };
 type SquareCatalogItem = { id: string; name: string; description?: string; variations: { id: string; name: string }[] };
-type CatalogMapping = { id: number; squareItemId: string; squareItemName: string; squareVariationId?: string; squareVariationName?: string; pastryItemName?: string; isActive: boolean };
+type CatalogMapping = { id: number; squareItemId: string; squareItemName: string; squareVariationId?: string; squareVariationName?: string; pastryItemName?: string; targetType?: string; coffeeDrinkId?: number; coffeeDrinkName?: string; isActive: boolean };
 type AutoMatchSuggestion = {
   squareItemId: string;
   squareItemName: string;
@@ -63,6 +64,8 @@ export default function SquareSettings() {
   const [selectedSquareItem, setSelectedSquareItem] = useState<SquareCatalogItem | null>(null);
   const [selectedVariation, setSelectedVariation] = useState("");
   const [selectedPastry, setSelectedPastry] = useState("");
+  const [mappingTargetType, setMappingTargetType] = useState<"pastry" | "drink">("pastry");
+  const [selectedDrink, setSelectedDrink] = useState("");
   const [showSmartMatchDialog, setShowSmartMatchDialog] = useState(false);
   const [smartMatchSuggestions, setSmartMatchSuggestions] = useState<AutoMatchSuggestion[]>([]);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
@@ -85,6 +88,10 @@ export default function SquareSettings() {
 
   const { data: pastryItems } = useQuery<PastryItem[]>({
     queryKey: ["/api/pastry-items"],
+  });
+
+  const { data: coffeeDrinks } = useQuery<CoffeeDrinkRecipe[]>({
+    queryKey: ["/api/coffee/drinks"],
   });
 
   const createMappingMutation = useMutation({
@@ -176,18 +183,26 @@ export default function SquareSettings() {
     setSelectedSquareItem(item);
     setSelectedVariation(item.variations[0]?.id || "");
     setSelectedPastry("");
+    setSelectedDrink("");
+    setMappingTargetType("pastry");
     setShowMapDialog(true);
   }
 
   function handleCreateMapping() {
-    if (!selectedSquareItem || !selectedPastry) return;
+    if (!selectedSquareItem) return;
+    if (mappingTargetType === "pastry" && !selectedPastry) return;
+    if (mappingTargetType === "drink" && !selectedDrink) return;
     const variation = selectedSquareItem.variations.find(v => v.id === selectedVariation);
+    const drink = mappingTargetType === "drink" ? (coffeeDrinks || []).find(d => String(d.id) === selectedDrink) : null;
     createMappingMutation.mutate({
       squareItemId: selectedSquareItem.id,
       squareItemName: selectedSquareItem.name,
       squareVariationId: variation?.id || null,
       squareVariationName: variation?.name || null,
-      pastryItemName: selectedPastry,
+      targetType: mappingTargetType,
+      pastryItemName: mappingTargetType === "pastry" ? selectedPastry : null,
+      coffeeDrinkId: drink?.id || null,
+      coffeeDrinkName: drink?.drinkName || null,
     });
   }
 
@@ -399,7 +414,7 @@ export default function SquareSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Link Square POS items to your master pastry list for accurate sales tracking and forecasting.
+            Link Square POS items to pastry items or coffee drinks for accurate sales tracking and forecasting.
           </p>
 
           {loadingMappings ? (
@@ -416,7 +431,10 @@ export default function SquareSettings() {
                     {m.squareVariationName ? ` (${m.squareVariationName})` : ""}
                   </Badge>
                   <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <span className="font-medium text-sm">{m.pastryItemName || "Unmapped"}</span>
+                  <span className="font-medium text-sm flex items-center gap-1">
+                    {m.targetType === "drink" && <Coffee className="w-3 h-3 text-amber-700" />}
+                    {m.targetType === "drink" ? (m.coffeeDrinkName || "Unmapped Drink") : (m.pastryItemName || "Unmapped")}
+                  </span>
                   <div className="ml-auto flex items-center gap-1">
                     <Button
                       size="icon"
@@ -500,24 +518,63 @@ export default function SquareSettings() {
               </div>
             )}
             <div>
-              <Label>Pastry Item</Label>
-              <Select value={selectedPastry} onValueChange={setSelectedPastry}>
-                <SelectTrigger data-testid="select-pastry-item">
-                  <SelectValue placeholder="Select pastry item..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(pastryItems || []).map(p => (
-                    <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Map To</Label>
+              <div className="flex gap-2 mt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mappingTargetType === "pastry" ? "default" : "outline"}
+                  onClick={() => { setMappingTargetType("pastry"); setSelectedDrink(""); }}
+                  data-testid="button-target-pastry"
+                >
+                  Pastry Item
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mappingTargetType === "drink" ? "default" : "outline"}
+                  onClick={() => { setMappingTargetType("drink"); setSelectedPastry(""); }}
+                  data-testid="button-target-drink"
+                >
+                  <Coffee className="w-3 h-3 mr-1" /> Coffee Drink
+                </Button>
+              </div>
             </div>
+            {mappingTargetType === "pastry" ? (
+              <div>
+                <Label>Pastry Item</Label>
+                <Select value={selectedPastry} onValueChange={setSelectedPastry}>
+                  <SelectTrigger data-testid="select-pastry-item">
+                    <SelectValue placeholder="Select pastry item..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(pastryItems || []).map(p => (
+                      <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div>
+                <Label>Coffee Drink</Label>
+                <Select value={selectedDrink} onValueChange={setSelectedDrink}>
+                  <SelectTrigger data-testid="select-coffee-drink">
+                    <SelectValue placeholder="Select coffee drink..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(coffeeDrinks || []).map((d: any) => (
+                      <SelectItem key={d.id} value={String(d.id)}>{d.drinkName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowMapDialog(false)}>Cancel</Button>
             <Button
               onClick={handleCreateMapping}
-              disabled={!selectedPastry || createMappingMutation.isPending}
+              disabled={(mappingTargetType === "pastry" ? !selectedPastry : !selectedDrink) || createMappingMutation.isPending}
               data-testid="button-confirm-mapping"
             >
               {createMappingMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}

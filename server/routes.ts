@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts } from "./cost-engine";
@@ -2795,9 +2795,9 @@ Rules:
 
   app.post("/api/square/catalog-map", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const { squareItemId, squareItemName, squareVariationId, squareVariationName, pastryItemName, pastryItemId } = req.body;
+      const { squareItemId, squareItemName, squareVariationId, squareVariationName, pastryItemName, pastryItemId, targetType, coffeeDrinkId, coffeeDrinkName } = req.body;
       let resolvedPastryItemId = pastryItemId || null;
-      if (!resolvedPastryItemId && pastryItemName) {
+      if (!resolvedPastryItemId && pastryItemName && (!targetType || targetType === "pastry")) {
         resolvedPastryItemId = await storage.resolvePastryItemId(pastryItemName);
       }
       const [mapping] = await db.insert(squareCatalogMap).values({
@@ -2805,10 +2805,20 @@ Rules:
         squareItemName,
         squareVariationId: squareVariationId || null,
         squareVariationName: squareVariationName || null,
-        pastryItemName: pastryItemName || null,
-        pastryItemId: resolvedPastryItemId,
+        pastryItemName: targetType === "drink" ? null : (pastryItemName || null),
+        pastryItemId: targetType === "drink" ? null : resolvedPastryItemId,
+        targetType: targetType || "pastry",
+        coffeeDrinkId: targetType === "drink" ? (coffeeDrinkId || null) : null,
+        coffeeDrinkName: targetType === "drink" ? (coffeeDrinkName || null) : null,
         isActive: true,
       }).returning();
+      if (targetType === "drink" && coffeeDrinkId && squareItemId) {
+        await db.update(coffeeDrinkRecipes).set({
+          squareItemId,
+          squareItemName: squareItemName,
+          squareVariationId: squareVariationId || null,
+        }).where(eq(coffeeDrinkRecipes.id, coffeeDrinkId));
+      }
       res.status(201).json(mapping);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2823,6 +2833,20 @@ Rules:
       if (pastryItemName !== undefined) updates.pastryItemName = pastryItemName;
       if (isActive !== undefined) updates.isActive = isActive;
       const [updated] = await db.update(squareCatalogMap).set(updates).where(eq(squareCatalogMap.id, id)).returning();
+      if (updated.targetType === "drink" && updated.coffeeDrinkId && isActive === false) {
+        await db.update(coffeeDrinkRecipes).set({
+          squareItemId: null,
+          squareItemName: null,
+          squareVariationId: null,
+        }).where(eq(coffeeDrinkRecipes.id, updated.coffeeDrinkId));
+      }
+      if (updated.targetType === "drink" && updated.coffeeDrinkId && isActive === true) {
+        await db.update(coffeeDrinkRecipes).set({
+          squareItemId: updated.squareItemId,
+          squareItemName: updated.squareItemName,
+          squareVariationId: updated.squareVariationId || null,
+        }).where(eq(coffeeDrinkRecipes.id, updated.coffeeDrinkId));
+      }
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2830,7 +2854,14 @@ Rules:
   });
 
   app.delete("/api/square/catalog-map/:id", isAuthenticated, isOwner, async (req, res) => {
-    await db.delete(squareCatalogMap).where(eq(squareCatalogMap.id, Number(req.params.id)));
+    const [deleted] = await db.delete(squareCatalogMap).where(eq(squareCatalogMap.id, Number(req.params.id))).returning();
+    if (deleted?.targetType === "drink" && deleted.coffeeDrinkId) {
+      await db.update(coffeeDrinkRecipes).set({
+        squareItemId: null,
+        squareItemName: null,
+        squareVariationId: null,
+      }).where(eq(coffeeDrinkRecipes.id, deleted.coffeeDrinkId));
+    }
     res.status(204).send();
   });
 

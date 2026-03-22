@@ -635,7 +635,7 @@ function DrinkSetup() {
               <Plus className="w-4 h-4 mr-2" /> Add Drink
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
             <DialogHeader><DialogTitle>{editingId ? "Edit Drink Recipe" : "New Drink Recipe"}</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div>
