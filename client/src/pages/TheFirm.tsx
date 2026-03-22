@@ -1355,8 +1355,9 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
     setForm(f => ({ ...f, deductions: ded, netAmount: (f.grossAmount || 0) - ded }));
   }
 
-  const criticalFlags = compiled?.flags.filter(f => f.severity === "critical") || [];
-  const warningFlags = compiled?.flags.filter(f => f.severity === "warning") || [];
+  const adpFlagTypes = ["not_linked", "incomplete_salary"];
+  const criticalFlags = compiled?.flags.filter(f => f.severity === "critical" && !adpFlagTypes.includes(f.type)) || [];
+  const warningFlags = compiled?.flags.filter(f => f.severity === "warning" && !adpFlagTypes.includes(f.type)) || [];
 
   const totalPaid = payroll.reduce((s, p) => s + p.netAmount, 0);
 
@@ -1518,14 +1519,14 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                       .map(emp => {
                         const fullName = `${emp.firstName} ${emp.lastName}`.trim();
                         const isExpanded = expandedEmployee === emp.userId;
-                        const empFlags = emp.flags.filter(f => f.severity === "critical" || f.severity === "warning");
+                        const adpTypes = ["not_linked", "incomplete_salary"];
+                        const empFlags = emp.flags.filter(f => (f.severity === "critical" || f.severity === "warning") && !adpTypes.includes(f.type));
                         return (
                           <tr key={emp.userId} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${empFlags.length > 0 ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} onClick={() => setExpandedEmployee(isExpanded ? null : emp.userId)} data-testid={`row-payroll-emp-${emp.userId}`}>
                             <td className="p-3">
                               <div className="font-medium flex items-center gap-1.5">
                                 {fullName}
                                 {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
-                                {!emp.adpAssociateOID && <Unlink className="w-3 h-3 text-muted-foreground" title="Not linked to ADP" />}
                               </div>
                               {isExpanded && (
                                 <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
