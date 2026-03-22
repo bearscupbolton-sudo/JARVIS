@@ -358,14 +358,24 @@ export interface PfgOrder {
   lines: PfgOrderLine[];
 }
 
-export function generatePfgOrderFile(order: PfgOrder): string {
-  const deliveryDate = order.deliveryDate || "";
-  const instructions = order.specialInstructions || "";
+function sanitizeCsvField(val: string, maxLen?: number): string {
+  let clean = val.replace(/[\r\n]/g, " ").replace(/,/g, " ").replace(/"/g, "'");
+  if (maxLen) clean = clean.slice(0, maxLen);
+  return clean.trim();
+}
 
-  let content = `H,${order.customerNumber},${order.poNumber},${deliveryDate},${instructions}\n`;
+export function generatePfgOrderFile(order: PfgOrder): string {
+  const deliveryDate = (order.deliveryDate || "").replace(/\D/g, "").slice(0, 8);
+  const instructions = sanitizeCsvField(order.specialInstructions || "", 50);
+  const poNum = sanitizeCsvField(order.poNumber, 15);
+
+  let content = `H,${order.customerNumber},${poNum},${deliveryDate},${instructions}\n`;
 
   for (const line of order.lines) {
-    content += `D,${line.pfgItemNumber},${line.caseQuantity},${line.specialMessage || ""}\n`;
+    const itemNum = line.pfgItemNumber.replace(/\D/g, "").slice(0, 10);
+    const qty = Math.max(0, Math.floor(line.caseQuantity)).toString().slice(0, 5);
+    const msg = sanitizeCsvField(line.specialMessage || "", 25);
+    content += `D,${itemNum},${qty},${msg}\n`;
   }
 
   return content;
@@ -407,7 +417,14 @@ export async function pushPfgOrder(order: PfgOrder): Promise<{ success: boolean;
 
 // ─── Invoice Import to DB ───
 
-export async function importPfgInvoice(inv: PfgInvoiceParsed): Promise<{ invoiceId: number; matchedLines: number; unmatchedLines: number }> {
+export async function importPfgInvoice(inv: PfgInvoiceParsed): Promise<{ invoiceId: number; matchedLines: number; unmatchedLines: number; skipped?: boolean }> {
+  const existing = await db.select({ id: invoices.id }).from(invoices)
+    .where(eq(invoices.invoiceNumber, inv.header.invoiceNumber))
+    .limit(1);
+  if (existing.length > 0) {
+    return { invoiceId: existing[0].id, matchedLines: 0, unmatchedLines: 0, skipped: true };
+  }
+
   const allItems = await db.select().from(inventoryItems);
   const nameMap = new Map<string, typeof allItems[0]>();
   for (const item of allItems) {
@@ -478,7 +495,7 @@ export async function pullAndImportPfgInvoices(): Promise<{
     return { success: true, message: "No invoice files found in /OUT", imported: [] };
   }
 
-  const imported: { fileName: string; invoiceCount: number; matchedLines: number; unmatchedLines: number }[] = [];
+  const imported: { fileName: string; invoiceCount: number; matchedLines: number; unmatchedLines: number; skippedDupes: number }[] = [];
 
   for (const file of invoiceFiles) {
     const download = await downloadPfgFile(file.path);
@@ -487,11 +504,16 @@ export async function pullAndImportPfgInvoices(): Promise<{
     const parsedInvoices = parsePfgInvoiceFile(download.content);
     let totalMatched = 0;
     let totalUnmatched = 0;
+    let skippedDupes = 0;
 
     for (const inv of parsedInvoices) {
       const result = await importPfgInvoice(inv);
-      totalMatched += result.matchedLines;
-      totalUnmatched += result.unmatchedLines;
+      if (result.skipped) {
+        skippedDupes++;
+      } else {
+        totalMatched += result.matchedLines;
+        totalUnmatched += result.unmatchedLines;
+      }
     }
 
     imported.push({
@@ -499,6 +521,7 @@ export async function pullAndImportPfgInvoices(): Promise<{
       invoiceCount: parsedInvoices.length,
       matchedLines: totalMatched,
       unmatchedLines: totalUnmatched,
+      skippedDupes,
     });
   }
 

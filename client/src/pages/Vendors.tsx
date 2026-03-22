@@ -289,6 +289,7 @@ function PfgIntegrationCard() {
                             <Badge variant="outline" className="text-xs">{r.invoiceCount} inv</Badge>
                             <Badge className="bg-green-100 text-green-700 text-xs">{r.matchedLines} matched</Badge>
                             {r.unmatchedLines > 0 && <Badge variant="outline" className="text-xs border-yellow-400 text-yellow-600">{r.unmatchedLines} unmatched</Badge>}
+                            {r.skippedDupes > 0 && <Badge variant="outline" className="text-xs text-muted-foreground">{r.skippedDupes} already imported</Badge>}
                           </div>
                         ))}
                       </div>
