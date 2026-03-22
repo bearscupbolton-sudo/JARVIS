@@ -899,12 +899,13 @@ function UserDetailDialog({
               {isOwner && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-6 w-6 p-0"
+                  variant="outline"
+                  className="h-7 px-2 text-xs gap-1"
                   onClick={() => setEditingName(true)}
                   data-testid="button-edit-name"
                 >
                   <Pencil className="w-3 h-3" />
+                  Edit
                 </Button>
               )}
             </div>
