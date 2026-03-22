@@ -1722,7 +1722,7 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col xl:flex-row gap-6 xl:justify-center">
+      <div className="flex flex-col 2xl:flex-row gap-6 2xl:justify-center">
         <div className="flex-1 min-w-0 max-w-3xl space-y-5">
           <div className="flex items-center justify-between gap-2" data-testid="container-welcome-home">
             <div className="flex flex-col gap-1">
@@ -1849,8 +1849,8 @@ export default function Home() {
         </Dialog>
 
         {layoutConfig.whosOnVisible && canSeeSection("/", "whos-on") && (
-          <div className="xl:w-64 flex-shrink-0">
-            <Card className="xl:sticky xl:top-4" data-testid="container-whos-on">
+          <div className="2xl:w-64 flex-shrink-0">
+            <Card className="2xl:sticky 2xl:top-4" data-testid="container-whos-on">
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-base font-display flex items-center gap-2"><Users className="w-4 h-4 text-primary" />Who's On</CardTitle>
                 <Link href="/schedule"><Badge variant="secondary" className="text-[10px] cursor-pointer hover:bg-secondary/80">{todayShifts.filter(s => !(s as any).hasCallout).length} on</Badge></Link>
