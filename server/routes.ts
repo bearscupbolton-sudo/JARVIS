@@ -7580,6 +7580,10 @@ ${sopsHtml}
       let totalLaborCost = 0;
       const laborByUser = new Map<string, { hours: number; cost: number; shifts: number }>();
 
+      const salariedOwnerIds = new Set(
+        allUsers.filter(u => u.role === "owner" && u.payType === "salary" && u.annualSalary).map(u => u.id)
+      );
+
       for (const te of allTimeEntries) {
         if (!te.clockOut) continue;
         const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
@@ -7589,7 +7593,8 @@ ${sopsHtml}
         totalLaborHours += hours;
 
         const user = userMap.get(te.userId);
-        const rate = user?.hourlyRate || 0;
+        const isSalariedOwner = salariedOwnerIds.has(te.userId);
+        const rate = isSalariedOwner ? 0 : (user?.hourlyRate || 0);
         const cost = hours * rate;
         totalLaborCost += cost;
 
@@ -7611,7 +7616,16 @@ ${sopsHtml}
         const hours = netMs / (1000 * 60 * 60);
         prevLaborHours += hours;
         const user = userMap.get(te.userId);
-        prevLaborCost += hours * (user?.hourlyRate || 0);
+        const isSalariedOwner = salariedOwnerIds.has(te.userId);
+        prevLaborCost += hours * (isSalariedOwner ? 0 : (user?.hourlyRate || 0));
+      }
+
+      for (const u of allUsers) {
+        if (u.role === "owner" && u.payType === "salary" && u.annualSalary) {
+          const ownerPeriodCost = (u.annualSalary / 365) * days;
+          totalLaborCost += ownerPeriodCost;
+          prevLaborCost += ownerPeriodCost;
+        }
       }
 
       const laborCostPct = totalRevenue > 0 ? (totalLaborCost / totalRevenue) * 100 : 0;
@@ -7783,6 +7797,9 @@ ${sopsHtml}
       const totalRevenue = salesInPeriod.reduce((sum, s) => sum + (s.revenue || 0), 0);
 
       const laborByUser = new Map<string, { hours: number; cost: number; shifts: number }>();
+      const salariedOwnerIds = new Set(
+        allUsers.filter(u => u.role === "owner" && u.payType === "salary" && u.annualSalary).map(u => u.id)
+      );
 
       for (const te of entries) {
         if (!te.clockOut) continue;
@@ -7793,7 +7810,8 @@ ${sopsHtml}
 
         const existing = laborByUser.get(te.userId) || { hours: 0, cost: 0, shifts: 0 };
         const user = userMap.get(te.userId);
-        const rate = user?.hourlyRate || 0;
+        const isSalariedOwner = salariedOwnerIds.has(te.userId);
+        const rate = isSalariedOwner ? 0 : (user?.hourlyRate || 0);
         existing.hours += hours;
         existing.cost += hours * rate;
         existing.shifts += 1;
@@ -7811,12 +7829,49 @@ ${sopsHtml}
           username: user?.username || null,
           role: user?.role || null,
           hourlyRate: user?.hourlyRate || null,
+          annualSalary: null as number | null,
+          periodSalary: null as number | null,
+          payType: (user?.payType || "hourly") as string,
           hoursWorked: Math.round(data.hours * 100) / 100,
           totalCost: Math.round(data.cost * 100) / 100,
           shifts: data.shifts,
           revenuePerHour: data.hours > 0 ? Math.round((totalRevenue / totalHours) * data.hours / data.hours * 100) / 100 : 0,
+          isOwner: user?.role === "owner",
         };
-      }).sort((a, b) => b.hoursWorked - a.hoursWorked);
+      });
+
+      for (const u of allUsers) {
+        if (u.role === "owner" && u.payType === "salary" && u.annualSalary) {
+          const existing = employees.find(e => e.userId === u.id);
+          const periodSalary = Math.round((u.annualSalary / 365) * days * 100) / 100;
+          if (existing) {
+            existing.totalCost += periodSalary;
+            existing.totalCost = Math.round(existing.totalCost * 100) / 100;
+            existing.annualSalary = u.annualSalary;
+            existing.periodSalary = periodSalary;
+            existing.payType = "salary";
+          } else {
+            employees.push({
+              userId: u.id,
+              firstName: u.firstName || null,
+              lastName: u.lastName || null,
+              username: u.username || null,
+              role: u.role,
+              hourlyRate: null,
+              annualSalary: u.annualSalary,
+              periodSalary,
+              payType: "salary",
+              hoursWorked: 0,
+              totalCost: periodSalary,
+              shifts: 0,
+              revenuePerHour: 0,
+              isOwner: true,
+            });
+          }
+        }
+      }
+
+      employees.sort((a, b) => b.totalCost - a.totalCost);
 
       const totalCost = employees.reduce((sum, e) => sum + e.totalCost, 0);
 

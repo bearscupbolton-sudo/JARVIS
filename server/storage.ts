@@ -4593,16 +4593,29 @@ export class DatabaseStorage implements IStorage {
     const allUsers = await db.select().from(users);
     const userRateMap = new Map<string, number>();
     for (const u of allUsers) {
-      if ((u as any).hourlyRate) userRateMap.set(u.id, (u as any).hourlyRate);
+      if (u.hourlyRate) userRateMap.set(u.id, u.hourlyRate);
     }
+    const salariedOwnerIds = new Set(
+      allUsers.filter(u => u.role === "owner" && u.payType === "salary" && u.annualSalary).map(u => u.id)
+    );
     for (const te of allTimeEntries) {
       if (!te.clockOut) continue;
+      if (salariedOwnerIds.has(te.userId)) continue;
       const rate = userRateMap.get(te.userId) || 0;
       if (rate === 0) continue;
       const clockIn = new Date(te.clockIn).getTime();
       const clockOut = new Date(te.clockOut).getTime();
       const hoursWorked = (clockOut - clockIn) / (1000 * 60 * 60);
       laborCost += hoursWorked * rate;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const periodDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    for (const u of allUsers) {
+      if (u.role === "owner" && u.payType === "salary" && u.annualSalary) {
+        laborCost += (u.annualSalary / 365) * periodDays;
+      }
     }
 
     const manualTransactionsByCategory: Record<string, number> = {};
