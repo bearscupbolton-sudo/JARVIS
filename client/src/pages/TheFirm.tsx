@@ -1419,8 +1419,9 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
   };
 
   const rates = taxRates || taxForm;
-  const w2Employees = compiled?.employees.filter(e => !e.isCashEmployee) || [];
-  const cashEmployees = compiled?.employees.filter(e => e.isCashEmployee) || [];
+  const hasActivity = (e: PayrollEmployee) => e.regularHours > 0 || e.overtimeHours > 0 || e.payType === "salary" || e.tips > 0;
+  const w2Employees = compiled?.employees.filter(e => !e.isCashEmployee && hasActivity(e)) || [];
+  const cashEmployees = compiled?.employees.filter(e => e.isCashEmployee && hasActivity(e)) || [];
   const w2Gross = compiled?.totals.adpW2Gross || 0;
   const cashGross = compiled?.totals.cashGross || 0;
 
