@@ -266,6 +266,7 @@ interface PayrollEmployee {
   tips: number;
   departmentBreakdown: Record<string, number>;
   grossEstimate: number;
+  isCashEmployee: boolean;
   flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
 }
 
@@ -281,6 +282,8 @@ interface PayrollCompileResult {
     sickHours: number;
     tips: number;
     grossEstimate: number;
+    adpW2Gross: number;
+    cashGross: number;
     employeeCount: number;
   };
 }
@@ -1321,6 +1324,7 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
   const [showRecorded, setShowRecorded] = useState(false);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<InsertFirmPayrollEntry>>({ employeeName: "", grossAmount: 0, deductions: 0, netAmount: 0, paymentMethod: "cash", datePaid: format(new Date(), "yyyy-MM-dd"), payPeriodStart: format(new Date(), "yyyy-MM-dd"), payPeriodEnd: format(new Date(), "yyyy-MM-dd") });
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("placeholder");
 
   const { data: compiled, isLoading: loadingCompile, error: compileError, refetch: refetchCompile } = useQuery<PayrollCompileResult>({
     queryKey: ["/api/payroll/compile", startDate, endDate],
@@ -1340,6 +1344,7 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
       queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
       setShowForm(false);
       setForm({ employeeName: "", grossAmount: 0, deductions: 0, netAmount: 0, paymentMethod: "cash", datePaid: format(new Date(), "yyyy-MM-dd"), payPeriodStart: format(new Date(), "yyyy-MM-dd"), payPeriodEnd: format(new Date(), "yyyy-MM-dd") });
+      setSelectedEmployeeId("placeholder");
       toast({ title: "Payroll entry recorded" });
     },
   });
@@ -1514,7 +1519,7 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                   <tbody>
                     {compiled.employees.length === 0 ? (
                       <tr><td colSpan={9} className="p-8 text-center text-muted-foreground italic">No employees with hours or salary in this period</td></tr>
-                    ) : compiled.employees
+                    ) : [...compiled.employees]
                       .sort((a, b) => b.grossEstimate - a.grossEstimate)
                       .map(emp => {
                         const fullName = `${emp.firstName} ${emp.lastName}`.trim();
@@ -1526,6 +1531,7 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                             <td className="p-3">
                               <div className="font-medium flex items-center gap-1.5">
                                 {fullName}
+                                {emp.isCashEmployee && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-400 text-emerald-700 dark:text-emerald-400" data-testid={`badge-cash-${emp.userId}`}>Cash</Badge>}
                                 {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
                               </div>
                               {isExpanded && (
@@ -1592,6 +1598,27 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                         <td className="p-3 text-right tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</td>
                         <td className="p-3"></td>
                       </tr>
+                      <tr className="bg-muted/10 text-xs" data-testid="row-adp-w2-total">
+                        <td className="px-3 py-1.5" colSpan={7}>
+                          <span className="text-muted-foreground">ADP W-2 Total</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(compiled.totals.adpW2Gross)}</td>
+                        <td className="px-3 py-1.5"></td>
+                      </tr>
+                      <tr className="bg-muted/10 text-xs" data-testid="row-cash-total">
+                        <td className="px-3 py-1.5" colSpan={7}>
+                          <span className="text-muted-foreground">Cash Employee Total</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">{formatCurrency(compiled.totals.cashGross)}</td>
+                        <td className="px-3 py-1.5"></td>
+                      </tr>
+                      <tr className="bg-muted/10 text-xs border-t" data-testid="row-net-total">
+                        <td className="px-3 py-1.5" colSpan={7}>
+                          <span className="font-semibold">Net Total (ADP + Cash)</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-bold">{formatCurrency(compiled.totals.grossEstimate)}</td>
+                        <td className="px-3 py-1.5"></td>
+                      </tr>
                     </tfoot>
                   )}
                 </table>
@@ -1613,6 +1640,39 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
             <DialogContent>
               <DialogHeader><DialogTitle>Record Payroll Payment</DialogTitle></DialogHeader>
               <div className="space-y-3">
+                {compiled && compiled.employees.length > 0 && (
+                  <div>
+                    <Label>Auto-fill from Compiled Data</Label>
+                    <Select value={selectedEmployeeId} onValueChange={v => {
+                      if (v === "placeholder") return;
+                      setSelectedEmployeeId(v);
+                      const emp = compiled.employees.find(e => e.userId === v);
+                      if (emp) {
+                        const name = `${emp.firstName} ${emp.lastName}`.trim();
+                        setForm(f => ({
+                          ...f,
+                          employeeName: name,
+                          grossAmount: emp.grossEstimate,
+                          netAmount: emp.grossEstimate - (f.deductions || 0),
+                          payPeriodStart: compiled.payPeriodStart,
+                          payPeriodEnd: compiled.payPeriodEnd,
+                          paymentMethod: emp.isCashEmployee ? "cash" : (f.paymentMethod || "cash"),
+                        }));
+                      }
+                    }}>
+                      <SelectTrigger data-testid="select-pay-employee"><SelectValue placeholder="Select an employee..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="placeholder" className="text-muted-foreground">Select an employee...</SelectItem>
+                        {[...compiled.employees].sort((a, b) => a.firstName.localeCompare(b.firstName)).map(emp => (
+                          <SelectItem key={emp.userId} value={emp.userId}>
+                            {`${emp.firstName} ${emp.lastName}`.trim()} — {formatCurrency(emp.grossEstimate)}
+                            {emp.isCashEmployee ? " (Cash)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div><Label>Employee Name</Label><Input value={form.employeeName || ""} onChange={e => setForm(f => ({...f, employeeName: e.target.value}))} placeholder="Full name" data-testid="input-pay-name" /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Pay Period Start</Label><Input type="date" value={form.payPeriodStart || ""} onChange={e => setForm(f => ({...f, payPeriodStart: e.target.value}))} data-testid="input-pay-start" /></div>

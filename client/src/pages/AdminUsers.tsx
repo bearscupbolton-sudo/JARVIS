@@ -570,6 +570,7 @@ function UserDetailDialog({
   const [payType, setPayType] = useState<"hourly" | "salary">((u as any).payType || "hourly");
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
   const [annualSalary, setAnnualSalary] = useState((u as any).annualSalary?.toString() || "");
+  const [isCashEmployee, setIsCashEmployee] = useState<boolean>((u as any).isCashEmployee || false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const currentPerms: string[] | null = (u as any).sidebarPermissions ?? null;
@@ -616,6 +617,7 @@ function UserDetailDialog({
         payType,
         hourlyRate: hourlyRate === "" ? null : parseFloat(hourlyRate),
         annualSalary: annualSalary === "" ? null : parseFloat(annualSalary),
+        isCashEmployee,
       });
     },
     onSuccess: () => {
@@ -1088,6 +1090,16 @@ function UserDetailDialog({
                     Salary
                   </button>
                 </div>
+                {isOwner && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Cash Employee (off-ADP)</span>
+                    <Switch
+                      checked={isCashEmployee}
+                      onCheckedChange={setIsCashEmployee}
+                      data-testid={`switch-cash-employee-${u.id}`}
+                    />
+                  </div>
+                )}
                 {payType === "hourly" ? (
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground w-16">$/hour</span>

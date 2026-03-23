@@ -16,7 +16,7 @@ export interface IAuthStorage {
   updateUserProfile(id: string, updates: Partial<User>): Promise<User>;
   updateShiftManager(id: string, isShiftManager: boolean): Promise<User>;
   updateHourlyRate(id: string, hourlyRate: number | null): Promise<User>;
-  updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null): Promise<User>;
+  updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean): Promise<User>;
   updateUserPin(id: string, pin: string): Promise<void>;
   verifyPin(userId: string, pin: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
@@ -124,8 +124,12 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
-  async updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null): Promise<User> {
-    const [user] = await db.update(users).set({ payType, hourlyRate, annualSalary, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+  async updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean): Promise<User> {
+    const updates: Partial<typeof users.$inferInsert> = { payType, hourlyRate, annualSalary, updatedAt: new Date() };
+    if (isCashEmployee !== undefined) {
+      updates.isCashEmployee = isCashEmployee;
+    }
+    const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     return user;
   }
 

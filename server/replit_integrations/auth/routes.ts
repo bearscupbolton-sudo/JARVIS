@@ -279,7 +279,7 @@ export function registerAuthRoutes(app: Express): void {
 
   app.patch("/api/admin/users/:id/pay-info", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const { payType, hourlyRate, annualSalary } = req.body;
+      const { payType, hourlyRate, annualSalary, isCashEmployee } = req.body;
       const targetId = req.params.id;
       const targetUser = await authStorage.getUser(targetId);
       if (!targetUser) {
@@ -296,7 +296,8 @@ export function registerAuthRoutes(app: Express): void {
       if (salary !== null && (isNaN(salary) || salary < 0)) {
         return res.status(400).json({ message: "Invalid annual salary" });
       }
-      const user = await authStorage.updatePayInfo(targetId, payType, rate, salary);
+      const cashFlag = typeof isCashEmployee === "boolean" ? isCashEmployee : undefined;
+      const user = await authStorage.updatePayInfo(targetId, payType, rate, salary, cashFlag);
       res.json(user);
     } catch (error) {
       console.error("Error updating pay info:", error);

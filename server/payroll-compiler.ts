@@ -21,6 +21,7 @@ export interface EmployeePayLine {
   tips: number;
   departmentBreakdown: Record<string, number>;
   grossEstimate: number;
+  isCashEmployee: boolean;
   flags: PayrollFlag[];
   isOwner: boolean;
 }
@@ -45,6 +46,8 @@ export interface PayrollSummary {
     sickHours: number;
     tips: number;
     grossEstimate: number;
+    adpW2Gross: number;
+    cashGross: number;
     employeeCount: number;
   };
 }
@@ -352,6 +355,7 @@ export async function compilePayroll(
       tips: 0,
       departmentBreakdown: departmentHours,
       grossEstimate: Math.round(grossEstimate * 100) / 100,
+      isCashEmployee: user.isCashEmployee,
       flags,
       isOwner: user.role === "owner",
     });
@@ -450,6 +454,7 @@ export async function compilePayroll(
       tips: tipAmount,
       departmentBreakdown: {},
       grossEstimate: tipAmount,
+      isCashEmployee: tipUser.isCashEmployee,
       flags: [],
       isOwner: tipUser.role === "owner",
     });
@@ -467,6 +472,8 @@ export async function compilePayroll(
     sickHours: employees.reduce((sum, e) => sum + e.sickHours, 0),
     tips: employees.reduce((sum, e) => sum + e.tips, 0),
     grossEstimate: employees.reduce((sum, e) => sum + e.grossEstimate, 0),
+    adpW2Gross: employees.filter(e => !e.isCashEmployee).reduce((sum, e) => sum + e.grossEstimate, 0),
+    cashGross: employees.filter(e => e.isCashEmployee).reduce((sum, e) => sum + e.grossEstimate, 0),
     employeeCount: employees.length,
   };
 
