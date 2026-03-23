@@ -58,10 +58,187 @@ type LineEntry = {
 
 type ScanMode = "idle" | "capturing" | "scanning" | "review";
 
+function LineLinkDialog({ line, open, onClose }: { line: InvoiceLine; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"link" | "create">("link");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [saveAlias, setSaveAlias] = useState(true);
+  const [newName, setNewName] = useState(line.itemDescription);
+  const [newCategory, setNewCategory] = useState("other");
+
+  const { data: inventoryItems = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/inventory-items"],
+    enabled: open,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: async (body: any) => {
+      const res = await apiRequest("PATCH", `/api/invoice-lines/${line.id}/link`, body);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: mode === "create" ? "Item created & linked" : "Line linked to inventory" });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to link", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const filteredItems = searchTerm.trim()
+    ? inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.aliases as string[] || []).some(a => a.toLowerCase().includes(searchTerm.toLowerCase()))
+      )
+    : inventoryItems;
+
+  const handleLink = () => {
+    if (mode === "link" && selectedItemId) {
+      linkMutation.mutate({ inventoryItemId: selectedItemId, saveAsAlias: saveAlias });
+    } else if (mode === "create" && newName.trim()) {
+      linkMutation.mutate({ createNew: true, newItemName: newName.trim(), newItemCategory: newCategory });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">Link Invoice Item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="bg-muted/50 rounded-md p-2.5">
+            <p className="text-xs text-muted-foreground">Invoice description</p>
+            <p className="text-sm font-medium">{line.itemDescription}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {line.quantity} {line.unit || ""} @ {line.unitPrice != null ? `$${line.unitPrice.toFixed(2)}` : "—"}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant={mode === "link" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("link")}
+              data-testid="button-mode-link"
+            >
+              <Link2 className="w-3.5 h-3.5 mr-1" /> Link Existing
+            </Button>
+            <Button
+              variant={mode === "create" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("create")}
+              data-testid="button-mode-create"
+            >
+              <PackagePlus className="w-3.5 h-3.5 mr-1" /> Create New
+            </Button>
+          </div>
+
+          {mode === "link" ? (
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8 h-9 text-sm"
+                  placeholder="Search inventory items..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  data-testid="input-search-inventory"
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
+                {filteredItems.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    {searchTerm ? "No matches found" : "No inventory items"}
+                  </p>
+                ) : (
+                  filteredItems.map(item => (
+                    <button
+                      key={item.id}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${selectedItemId === item.id ? "bg-primary/10 border-l-2 border-primary" : ""}`}
+                      onClick={() => setSelectedItemId(item.id)}
+                      data-testid={`button-select-item-${item.id}`}
+                    >
+                      <span className="font-medium">{item.name}</span>
+                      {item.category && <span className="text-xs text-muted-foreground ml-2">{item.category}</span>}
+                      {item.costPerUnit != null && <span className="text-xs text-muted-foreground ml-2">${item.costPerUnit.toFixed(2)}/{item.unit || "ea"}</span>}
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="save-alias"
+                  checked={saveAlias}
+                  onCheckedChange={(v) => setSaveAlias(!!v)}
+                  data-testid="checkbox-save-alias"
+                />
+                <Label htmlFor="save-alias" className="text-xs">Save description as alias for future auto-matching</Label>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Item Name</Label>
+                <Input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="h-9 text-sm"
+                  data-testid="input-new-item-name"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Category</Label>
+                <Select value={newCategory} onValueChange={setNewCategory}>
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-new-item-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dairy">Dairy</SelectItem>
+                    <SelectItem value="dry">Dry Goods</SelectItem>
+                    <SelectItem value="produce">Produce</SelectItem>
+                    <SelectItem value="protein">Protein</SelectItem>
+                    <SelectItem value="frozen">Frozen</SelectItem>
+                    <SelectItem value="beverage">Beverage</SelectItem>
+                    <SelectItem value="packaging">Packaging</SelectItem>
+                    <SelectItem value="cleaning">Cleaning</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <Button
+            className="w-full"
+            disabled={linkMutation.isPending || (mode === "link" && !selectedItemId) || (mode === "create" && !newName.trim())}
+            onClick={handleLink}
+            data-testid="button-confirm-link"
+          >
+            {linkMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : mode === "create" ? (
+              <PackagePlus className="w-4 h-4 mr-2" />
+            ) : (
+              <Link2 className="w-4 h-4 mr-2" />
+            )}
+            {mode === "create" ? "Create & Link" : "Link to Item"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [linkingLine, setLinkingLine] = useState<InvoiceLine | null>(null);
 
   const { data: expandedInvoice } = useQuery<Invoice & { lines: InvoiceLine[] }>({
     queryKey: ["/api/invoices", expandedId],
@@ -85,115 +262,138 @@ function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }
   const displayed = showAll ? sorted : sorted.slice(0, 20);
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <FileText className="w-5 h-5" />
-            Invoice History
-            <Badge variant="outline" className="text-xs ml-1">{invoiceHistory.length}</Badge>
-          </CardTitle>
-        </div>
-        {invoiceHistory.length > 3 && (
-          <div className="relative mt-2">
-            <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8 h-8 text-sm"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search vendor, invoice #, or date..."
-              data-testid="input-invoice-search"
-            />
+    <>
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Invoice History
+              <Badge variant="outline" className="text-xs ml-1">{invoiceHistory.length}</Badge>
+            </CardTitle>
           </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        {invoiceHistory.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-invoices">No invoices recorded yet</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No invoices match "{searchTerm}"</p>
-        ) : (
-          <div className="space-y-1">
-            {displayed.map(inv => {
-              const isExpanded = expandedId === inv.id;
-              return (
-                <div key={inv.id} data-testid={`invoice-history-${inv.id}`}>
-                  <button
-                    className="w-full flex items-center gap-3 py-2.5 px-2 rounded-md hover:bg-muted/50 transition-colors text-left"
-                    onClick={() => setExpandedId(isExpanded ? null : inv.id)}
-                    data-testid={`button-expand-invoice-${inv.id}`}
-                  >
-                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-sm truncate">{inv.vendorName}</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
-                        {inv.invoiceNumber && (
-                          <span className="text-xs text-muted-foreground">#{inv.invoiceNumber}</span>
+          {invoiceHistory.length > 3 && (
+            <div className="relative mt-2">
+              <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-8 h-8 text-sm"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search vendor, invoice #, or date..."
+                data-testid="input-invoice-search"
+              />
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          {invoiceHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-invoices">No invoices recorded yet</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No invoices match "{searchTerm}"</p>
+          ) : (
+            <div className="space-y-1">
+              {displayed.map(inv => {
+                const isExpanded = expandedId === inv.id;
+                return (
+                  <div key={inv.id} data-testid={`invoice-history-${inv.id}`}>
+                    <button
+                      className="w-full flex items-center gap-3 py-2.5 px-2 rounded-md hover:bg-muted/50 transition-colors text-left"
+                      onClick={() => setExpandedId(isExpanded ? null : inv.id)}
+                      data-testid={`button-expand-invoice-${inv.id}`}
+                    >
+                      <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{inv.vendorName}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
+                          {inv.invoiceNumber && (
+                            <span className="text-xs text-muted-foreground">#{inv.invoiceNumber}</span>
+                          )}
+                          {inv.notes?.includes("Auto-imported") && (
+                            <Badge variant="outline" className="text-[10px] h-4 px-1">PFG</Badge>
+                          )}
+                        </div>
+                      </div>
+                      {inv.invoiceTotal != null && (
+                        <span className="text-sm font-medium shrink-0 tabular-nums">${inv.invoiceTotal.toFixed(2)}</span>
+                      )}
+                      {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="ml-6 mr-2 mb-3 mt-1 border rounded-md overflow-hidden bg-muted/20">
+                        {expandedInvoice?.lines && expandedInvoice.lines.length > 0 ? (
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/50">
+                              <tr>
+                                <th className="text-left p-2">Item</th>
+                                <th className="text-right p-2 w-16">Qty</th>
+                                <th className="text-left p-2 w-12">Unit</th>
+                                <th className="text-right p-2 w-20">Price</th>
+                                <th className="text-right p-2 w-20">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {expandedInvoice.lines.map((line: InvoiceLine) => (
+                                <tr key={line.id} data-testid={`invoice-line-${line.id}`}>
+                                  <td className="p-2">
+                                    <span className="truncate block max-w-[160px]">{line.itemDescription}</span>
+                                    {line.inventoryItemId ? (
+                                      <Badge variant="outline" className="text-[10px] h-4 px-1 mt-0.5 text-green-600 border-green-300">
+                                        <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> linked
+                                      </Badge>
+                                    ) : (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-5 px-1.5 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50 mt-0.5"
+                                        onClick={(e) => { e.stopPropagation(); setLinkingLine(line); }}
+                                        data-testid={`button-link-line-${line.id}`}
+                                      >
+                                        <Link2 className="w-2.5 h-2.5 mr-0.5" /> link item
+                                      </Button>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-right tabular-nums">{line.quantity}</td>
+                                  <td className="p-2 text-muted-foreground">{line.unit || ""}</td>
+                                  <td className="p-2 text-right tabular-nums">{line.unitPrice != null ? `$${line.unitPrice.toFixed(2)}` : "—"}</td>
+                                  <td className="p-2 text-right tabular-nums font-medium">{line.lineTotal != null ? `$${line.lineTotal.toFixed(2)}` : "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : expandedInvoice ? (
+                          <p className="text-xs text-muted-foreground text-center py-3">No line items recorded</p>
+                        ) : (
+                          <div className="flex items-center justify-center py-3">
+                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                          </div>
                         )}
-                        {inv.notes?.includes("Auto-imported") && (
-                          <Badge variant="outline" className="text-[10px] h-4 px-1">PFG</Badge>
+                        {inv.notes && (
+                          <div className="text-xs text-muted-foreground px-2 py-1.5 border-t bg-muted/30">{inv.notes}</div>
                         )}
                       </div>
-                    </div>
-                    {inv.invoiceTotal != null && (
-                      <span className="text-sm font-medium shrink-0 tabular-nums">${inv.invoiceTotal.toFixed(2)}</span>
                     )}
-                    {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  </button>
-
-                  {isExpanded && (
-                    <div className="ml-6 mr-2 mb-3 mt-1 border rounded-md overflow-hidden bg-muted/20">
-                      {expandedInvoice?.lines && expandedInvoice.lines.length > 0 ? (
-                        <table className="w-full text-xs">
-                          <thead className="bg-muted/50">
-                            <tr>
-                              <th className="text-left p-2">Item</th>
-                              <th className="text-right p-2 w-16">Qty</th>
-                              <th className="text-left p-2 w-12">Unit</th>
-                              <th className="text-right p-2 w-20">Price</th>
-                              <th className="text-right p-2 w-20">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {expandedInvoice.lines.map((line: InvoiceLine) => (
-                              <tr key={line.id} data-testid={`invoice-line-${line.id}`}>
-                                <td className="p-2">
-                                  <span className="truncate block max-w-[180px]">{line.itemDescription}</span>
-                                  {line.inventoryItemId && <Badge variant="outline" className="text-[10px] h-4 px-1 mt-0.5">linked</Badge>}
-                                </td>
-                                <td className="p-2 text-right tabular-nums">{line.quantity}</td>
-                                <td className="p-2 text-muted-foreground">{line.unit || ""}</td>
-                                <td className="p-2 text-right tabular-nums">{line.unitPrice != null ? `$${line.unitPrice.toFixed(2)}` : "—"}</td>
-                                <td className="p-2 text-right tabular-nums font-medium">{line.lineTotal != null ? `$${line.lineTotal.toFixed(2)}` : "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : expandedInvoice ? (
-                        <p className="text-xs text-muted-foreground text-center py-3">No line items recorded</p>
-                      ) : (
-                        <div className="flex items-center justify-center py-3">
-                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                        </div>
-                      )}
-                      {inv.notes && (
-                        <div className="text-xs text-muted-foreground px-2 py-1.5 border-t bg-muted/30">{inv.notes}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {sorted.length > 20 && !showAll && (
-              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowAll(true)} data-testid="button-show-all-invoices">
-                Show all {sorted.length} invoices
-              </Button>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                  </div>
+                );
+              })}
+              {sorted.length > 20 && !showAll && (
+                <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowAll(true)} data-testid="button-show-all-invoices">
+                  Show all {sorted.length} invoices
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {linkingLine && (
+        <LineLinkDialog
+          line={linkingLine}
+          open={!!linkingLine}
+          onClose={() => setLinkingLine(null)}
+        />
+      )}
+    </>
   );
 }
 

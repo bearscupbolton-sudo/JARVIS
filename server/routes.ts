@@ -4086,6 +4086,70 @@ Rules:
     }
   });
 
+  app.patch("/api/invoice-lines/:id/link", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const lineId = Number(req.params.id);
+      const { inventoryItemId, createNew, newItemName, newItemCategory, saveAsAlias } = req.body;
+
+      const [line] = await db.select().from(invoiceLines).where(eq(invoiceLines.id, lineId)).limit(1);
+      if (!line) return res.status(404).json({ message: "Invoice line not found" });
+
+      let targetItemId: number | null = inventoryItemId || null;
+
+      if (createNew && newItemName) {
+        const [newItem] = await db.insert(inventoryItems).values({
+          name: newItemName,
+          category: newItemCategory || "other",
+          unit: line.unit || "each",
+          onHand: 0,
+          parLevel: 0,
+          costPerUnit: line.unitPrice || 0,
+          aliases: line.itemDescription !== newItemName ? [line.itemDescription] : [],
+        }).returning();
+        targetItemId = newItem.id;
+      }
+
+      if (!targetItemId) return res.status(400).json({ message: "Must provide inventoryItemId or createNew" });
+
+      await db.update(invoiceLines)
+        .set({ inventoryItemId: targetItemId })
+        .where(eq(invoiceLines.id, lineId));
+
+      if (saveAsAlias && !createNew) {
+        const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, targetItemId)).limit(1);
+        if (item) {
+          const existingAliases: string[] = (item.aliases as string[]) || [];
+          const desc = line.itemDescription.toLowerCase().trim();
+          if (!existingAliases.some(a => a.toLowerCase().trim() === desc) && desc !== item.name.toLowerCase().trim()) {
+            await db.update(inventoryItems)
+              .set({ aliases: [...existingAliases, line.itemDescription] })
+              .where(eq(inventoryItems.id, targetItemId));
+          }
+        }
+      }
+
+      if (targetItemId && line.unitPrice) {
+        await db.update(inventoryItems)
+          .set({ costPerUnit: line.unitPrice })
+          .where(eq(inventoryItems.id, targetItemId));
+      }
+
+      if (targetItemId && line.quantity) {
+        const [item] = await db.select({ onHand: inventoryItems.onHand }).from(inventoryItems).where(eq(inventoryItems.id, targetItemId)).limit(1);
+        if (item) {
+          await db.update(inventoryItems)
+            .set({ onHand: (item.onHand || 0) + line.quantity })
+            .where(eq(inventoryItems.id, targetItemId));
+        }
+      }
+
+      res.json({ success: true, inventoryItemId: targetItemId });
+    } catch (error: any) {
+      console.error("[Invoice Link] Error:", error.message);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post(api.invoices.scan.path, isAuthenticated, isUnlocked, async (req, res) => {
     try {
       const parsed = api.invoices.scan.input.parse(req.body);
