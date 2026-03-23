@@ -29,9 +29,10 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft, Plus, Trash2, FileText, CheckCircle2, AlertCircle,
-  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus, FileUp
+  Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus, FileUp,
+  ChevronDown, ChevronUp, Search, Eye
 } from "lucide-react";
-import type { Invoice, InventoryItem } from "@shared/schema";
+import type { Invoice, InvoiceLine, InventoryItem } from "@shared/schema";
 
 const invoiceFormSchema = z.object({
   vendorName: z.string().min(1, "Vendor name is required"),
@@ -56,6 +57,145 @@ type LineEntry = {
 };
 
 type ScanMode = "idle" | "capturing" | "scanning" | "review";
+
+function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showAll, setShowAll] = useState(false);
+
+  const { data: expandedInvoice } = useQuery<Invoice & { lines: InvoiceLine[] }>({
+    queryKey: ["/api/invoices", expandedId],
+    enabled: expandedId !== null,
+  });
+
+  const filtered = searchTerm.trim()
+    ? invoiceHistory.filter(inv =>
+        inv.vendorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        inv.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        inv.invoiceDate?.includes(searchTerm)
+      )
+    : invoiceHistory;
+
+  const sorted = [...filtered].sort((a, b) => {
+    const da = a.invoiceDate || "";
+    const db2 = b.invoiceDate || "";
+    return db2.localeCompare(da);
+  });
+
+  const displayed = showAll ? sorted : sorted.slice(0, 20);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Invoice History
+            <Badge variant="outline" className="text-xs ml-1">{invoiceHistory.length}</Badge>
+          </CardTitle>
+        </div>
+        {invoiceHistory.length > 3 && (
+          <div className="relative mt-2">
+            <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8 h-8 text-sm"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search vendor, invoice #, or date..."
+              data-testid="input-invoice-search"
+            />
+          </div>
+        )}
+      </CardHeader>
+      <CardContent>
+        {invoiceHistory.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-invoices">No invoices recorded yet</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No invoices match "{searchTerm}"</p>
+        ) : (
+          <div className="space-y-1">
+            {displayed.map(inv => {
+              const isExpanded = expandedId === inv.id;
+              return (
+                <div key={inv.id} data-testid={`invoice-history-${inv.id}`}>
+                  <button
+                    className="w-full flex items-center gap-3 py-2.5 px-2 rounded-md hover:bg-muted/50 transition-colors text-left"
+                    onClick={() => setExpandedId(isExpanded ? null : inv.id)}
+                    data-testid={`button-expand-invoice-${inv.id}`}
+                  >
+                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate">{inv.vendorName}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
+                        {inv.invoiceNumber && (
+                          <span className="text-xs text-muted-foreground">#{inv.invoiceNumber}</span>
+                        )}
+                        {inv.notes?.includes("Auto-imported") && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1">PFG</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {inv.invoiceTotal != null && (
+                      <span className="text-sm font-medium shrink-0 tabular-nums">${inv.invoiceTotal.toFixed(2)}</span>
+                    )}
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="ml-6 mr-2 mb-3 mt-1 border rounded-md overflow-hidden bg-muted/20">
+                      {expandedInvoice?.lines && expandedInvoice.lines.length > 0 ? (
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="text-left p-2">Item</th>
+                              <th className="text-right p-2 w-16">Qty</th>
+                              <th className="text-left p-2 w-12">Unit</th>
+                              <th className="text-right p-2 w-20">Price</th>
+                              <th className="text-right p-2 w-20">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {expandedInvoice.lines.map((line: InvoiceLine) => (
+                              <tr key={line.id} data-testid={`invoice-line-${line.id}`}>
+                                <td className="p-2">
+                                  <span className="truncate block max-w-[180px]">{line.itemDescription}</span>
+                                  {line.inventoryItemId && <Badge variant="outline" className="text-[10px] h-4 px-1 mt-0.5">linked</Badge>}
+                                </td>
+                                <td className="p-2 text-right tabular-nums">{line.quantity}</td>
+                                <td className="p-2 text-muted-foreground">{line.unit || ""}</td>
+                                <td className="p-2 text-right tabular-nums">{line.unitPrice != null ? `$${line.unitPrice.toFixed(2)}` : "—"}</td>
+                                <td className="p-2 text-right tabular-nums font-medium">{line.lineTotal != null ? `$${line.lineTotal.toFixed(2)}` : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : expandedInvoice ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">No line items recorded</p>
+                      ) : (
+                        <div className="flex items-center justify-center py-3">
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                      {inv.notes && (
+                        <div className="text-xs text-muted-foreground px-2 py-1.5 border-t bg-muted/30">{inv.notes}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {sorted.length > 20 && !showAll && (
+              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowAll(true)} data-testid="button-show-all-invoices">
+                Show all {sorted.length} invoices
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function InvoiceCapture() {
   const { toast } = useToast();
@@ -913,36 +1053,7 @@ export default function InvoiceCapture() {
               </Card>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Recent Invoices</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {invoiceHistory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">No invoices recorded yet</p>
-                ) : (
-                  <div className="space-y-3">
-                    {invoiceHistory.slice(0, 10).map(inv => (
-                      <div key={inv.id} className="flex items-center gap-3 py-2" data-testid={`invoice-history-${inv.id}`}>
-                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm truncate">{inv.vendorName}</p>
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs text-muted-foreground">{inv.invoiceDate}</p>
-                            {inv.invoiceNumber && (
-                              <span className="text-xs text-muted-foreground">#{inv.invoiceNumber}</span>
-                            )}
-                          </div>
-                        </div>
-                        {inv.invoiceTotal != null && (
-                          <span className="text-sm font-medium shrink-0">${inv.invoiceTotal.toFixed(2)}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <InvoiceHistorySection invoiceHistory={invoiceHistory} />
           </div>
         </div>
       )}
