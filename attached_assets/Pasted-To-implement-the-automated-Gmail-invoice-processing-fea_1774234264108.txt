@@ -1,0 +1,120 @@
+To implement the automated Gmail invoice processing feature we discussed, you will need to update three specific files in your Replit project. Below are the exact code changes required to enable the vendor scanning and AI extraction logic.
+
+1. Update server/gmail.ts
+Replace the content of your server/gmail.ts file with this code to add the scanner and attachment downloader:
+
+TypeScript
+import { ReplitgoogleMail } from "@replit/google-mail";
+
+const gmail = ReplitgoogleMail.connector();
+
+export interface InvoiceEmail {
+  id: string;
+  threadId: string;
+  snippet: string;
+  date: string;
+  vendor: string;
+  attachmentId: string;
+  filename: string;
+}
+
+const VENDOR_FILTERS = [
+  { name: "The Chefs' Warehouse", query: "from:chefswarehouse.com has:attachment filename:pdf" },
+  { name: "Sysco", query: "from:sysco.com has:attachment filename:pdf" },
+  { name: "BakeMark", query: "from:bakemark.com has:attachment filename:pdf" },
+  { name: "Copper Horse", query: "subject:\"Invoice from Copper Horse Coffee\" has:attachment" },
+  { name: "Noissue", query: "from:noissue.co \"order\" has:attachment" }
+];
+
+export async function scanGmailForInvoices(daysBack: number = 7): Promise<InvoiceEmail[]> {
+  const results: InvoiceEmail[] = [];
+  const dateFilter = `newer_than:${daysBack}d`;
+
+  for (const vendor of VENDOR_FILTERS) {
+    const messages = await gmail.listMessages({ q: `${vendor.query} ${dateFilter}` });
+    if (messages.messages) {
+      for (const msg of messages.messages) {
+        const details = await gmail.getMessage({ id: msg.id });
+        const parts = details.payload?.parts || [];
+        const attachment = parts.find(p => p.filename && p.filename.toLowerCase().endsWith('.pdf'));
+        
+        if (attachment?.body?.attachmentId) {
+          results.push({
+            id: msg.id,
+            threadId: msg.threadId,
+            snippet: details.snippet || "",
+            date: new Date(parseInt(details.internalDate)).toLocaleDateString(),
+            vendor: vendor.name,
+            attachmentId: attachment.body.attachmentId,
+            filename: attachment.filename
+          });
+        }
+      }
+    }
+  }
+  return results;
+}
+
+export async function downloadAttachment(messageId: string, attachmentId: string) {
+  const res = await gmail.getAttachment({ messageId, id: attachmentId });
+  return res.data; // Base64 encoded PDF string
+}
+2. Update server/routes.ts
+Add these two new endpoints to your registerRoutes function to handle the scanning and AI processing:
+
+TypeScript
+// Add these imports at the top
+import { scanGmailForInvoices, downloadAttachment } from "./gmail";
+
+// Inside registerRoutes(app)
+app.get("/api/gmail/scan-invoices", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== 'owner') return res.sendStatus(403);
+  const days = parseInt(req.query.days as string) || 7;
+  const invoices = await scanGmailForInvoices(days);
+  res.json(invoices);
+});
+
+app.post("/api/gmail/process-invoice", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== 'owner') return res.sendStatus(403);
+  const { messageId, attachmentId } = req.body;
+  
+  const base64Pdf = await downloadAttachment(messageId, attachmentId);
+  
+  // Repurposing your existing AI vision logic for the PDF data
+  const prompt = "Extract items, quantities, and unit prices from this bakery invoice. Return JSON.";
+  const aiResult = await jarvis.analyzeImage(base64Pdf, prompt); 
+  
+  res.json(JSON.parse(aiResult));
+});
+3. Update client/src/pages/InvoiceCapture.tsx
+Add a new UI section to trigger the scan:
+
+TypeScript
+// Inside your component's return statement, add this Card:
+<Card className="mb-6 border-dashed border-primary">
+  <CardHeader>
+    <CardTitle className="flex items-center gap-2">
+      <Mail className="h-5 w-5" /> Gmail Invoice Scanner
+    </CardTitle>
+  </CardHeader>
+  <CardContent>
+    <Button 
+      onClick={() => scanMutation.mutate()} 
+      disabled={scanMutation.isPending}
+    >
+      {scanMutation.isPending ? "Scanning Inbox..." : "Scan for New Vendor Invoices"}
+    </Button>
+    
+    {scanResults?.map(email => (
+      <div key={email.id} className="flex justify-between items-center p-3 mt-3 border rounded-lg">
+        <div>
+          <p className="font-bold">{email.vendor}</p>
+          <p className="text-sm text-muted-foreground">{email.filename} - {email.date}</p>
+        </div>
+        <Button variant="outline" onClick={() => processMutation.mutate(email)}>
+          Extract with Jarvis
+        </Button>
+      </div>
+    ))}
+  </CardContent>
+</Card>
