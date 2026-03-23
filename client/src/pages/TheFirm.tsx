@@ -20,7 +20,7 @@ import {
   Building2, PiggyBank, ArrowUpRight, ArrowDownRight, Check, AlertTriangle,
   CalendarDays, Clock, Trash2, Pencil, Receipt, Banknote, CircleDollarSign,
   FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink,
-  Users, Timer, Coffee, Loader2
+  Users, Timer, Coffee, Loader2, Settings
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -272,6 +272,19 @@ interface PayrollEmployee {
   grossEstimate: number;
   isCashEmployee: boolean;
   flags: Array<{ type: string; severity: string; message: string; employeeId?: string; employeeName?: string }>;
+}
+
+interface PayrollTaxRates {
+  socialSecurity: number;
+  medicare: number;
+  federalUnemployment: number;
+  stateUnemployment: number;
+  workersComp: number;
+  disabilityInsurance: number;
+  paidFamilyLeave: number;
+  additionalFees: number;
+  adpPerCheckFee: number;
+  adpBaseWeeklyFee: number;
 }
 
 interface PayrollCompileResult {
@@ -1327,8 +1340,14 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
   const [showForm, setShowForm] = useState(false);
   const [showRecorded, setShowRecorded] = useState(false);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
+  const [showTaxSettings, setShowTaxSettings] = useState(false);
   const [form, setForm] = useState<Partial<InsertFirmPayrollEntry>>({ employeeName: "", grossAmount: 0, deductions: 0, netAmount: 0, paymentMethod: "cash", datePaid: format(new Date(), "yyyy-MM-dd"), payPeriodStart: format(new Date(), "yyyy-MM-dd"), payPeriodEnd: format(new Date(), "yyyy-MM-dd") });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("placeholder");
+  const [taxForm, setTaxForm] = useState<PayrollTaxRates>({
+    socialSecurity: 6.2, medicare: 1.45, federalUnemployment: 0.6, stateUnemployment: 2.7,
+    workersComp: 1.5, disabilityInsurance: 0, paidFamilyLeave: 0, additionalFees: 0,
+    adpPerCheckFee: 0, adpBaseWeeklyFee: 0,
+  });
 
   const { data: compiled, isLoading: loadingCompile, error: compileError, refetch: refetchCompile } = useQuery<PayrollCompileResult>({
     queryKey: ["/api/payroll/compile", startDate, endDate],
@@ -1338,6 +1357,30 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
       return res.json();
     },
     staleTime: 60000,
+  });
+
+  const { data: taxRates } = useQuery<PayrollTaxRates>({
+    queryKey: ["/api/payroll/tax-rates"],
+    queryFn: async () => {
+      const res = await fetch("/api/payroll/tax-rates", { credentials: "include" });
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (taxRates) setTaxForm(taxRates);
+  }, [taxRates]);
+
+  const saveTaxRatesMut = useMutation({
+    mutationFn: async (rates: PayrollTaxRates) => {
+      const res = await apiRequest("PUT", "/api/payroll/tax-rates", rates);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/tax-rates"] });
+      setShowTaxSettings(false);
+      toast({ title: "Tax rates saved" });
+    },
   });
 
   const createMut = useMutation({
@@ -1375,6 +1418,96 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
     return map[d] || d.charAt(0).toUpperCase() + d.slice(1);
   };
 
+  const rates = taxRates || taxForm;
+  const w2Employees = compiled?.employees.filter(e => !e.isCashEmployee) || [];
+  const cashEmployees = compiled?.employees.filter(e => e.isCashEmployee) || [];
+  const w2Gross = compiled?.totals.adpW2Gross || 0;
+  const cashGross = compiled?.totals.cashGross || 0;
+
+  const totalTaxRate = (rates.socialSecurity + rates.medicare + rates.federalUnemployment + rates.stateUnemployment + rates.workersComp + rates.disabilityInsurance + rates.paidFamilyLeave) / 100;
+  const w2TaxBurden = w2Gross * totalTaxRate + rates.additionalFees;
+  const w2Count = w2Employees.length;
+  const adpFees = rates.adpBaseWeeklyFee + (w2Count * rates.adpPerCheckFee);
+  const totalW2Cost = w2Gross + w2TaxBurden + adpFees;
+  const netPayroll = totalW2Cost + cashGross;
+
+  const renderEmployeeRow = (emp: PayrollEmployee) => {
+    const fullName = `${emp.firstName} ${emp.lastName}`.trim();
+    const isExpanded = expandedEmployee === emp.userId;
+    const adpTypes = ["not_linked", "incomplete_salary"];
+    const empFlags = emp.flags.filter(f => (f.severity === "critical" || f.severity === "warning") && !adpTypes.includes(f.type));
+    return (
+      <tr key={emp.userId} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${empFlags.length > 0 ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} onClick={() => setExpandedEmployee(isExpanded ? null : emp.userId)} data-testid={`row-payroll-emp-${emp.userId}`}>
+        <td className="p-3">
+          <div className="font-medium flex items-center gap-1.5">
+            {fullName}
+            {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
+          </div>
+          {isExpanded && (
+            <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+              <div className="md:hidden">
+                <span className="font-medium">Dept:</span> {deptLabel(emp.department)} | <span className="font-medium">Type:</span> {emp.payType === "salary" ? "Salary" : "Hourly"}
+              </div>
+              {emp.vacationHours > 0 && <div>Vacation: {emp.vacationHours.toFixed(1)}h</div>}
+              {emp.sickHours > 0 && <div>Sick: {emp.sickHours.toFixed(1)}h</div>}
+              {Object.keys(emp.departmentBreakdown).length > 1 && (
+                <div>Hours by dept: {Object.entries(emp.departmentBreakdown).map(([d, h]) => `${deptLabel(d)} ${(h as number).toFixed(1)}h`).join(", ")}</div>
+              )}
+              {empFlags.map((f, i) => (
+                <div key={i} className={`text-xs ${f.severity === "critical" ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400"}`}>{f.message}</div>
+              ))}
+            </div>
+          )}
+        </td>
+        <td className="p-3 text-xs hidden md:table-cell">{deptLabel(emp.department)}</td>
+        <td className="p-3 hidden md:table-cell">
+          <Badge variant="outline" className="text-[10px]">{emp.payType === "salary" ? "Salary" : "Hourly"}</Badge>
+        </td>
+        <td className="p-3 text-right tabular-nums">{emp.regularHours.toFixed(1)}</td>
+        <td className="p-3 text-right tabular-nums">
+          {emp.overtimeHours > 0 ? <span className="text-orange-600 dark:text-orange-400 font-medium">{emp.overtimeHours.toFixed(1)}</span> : <span className="text-muted-foreground">0.0</span>}
+        </td>
+        <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell">
+          {emp.payType === "salary"
+            ? <span title={`Annual: ${formatCurrency(emp.annualSalary || 0)}`}>{formatCurrency(emp.periodSalary || 0)}<span className="text-muted-foreground">/pd</span></span>
+            : <span>{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>}
+        </td>
+        <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell" data-testid={`true-rate-${emp.userId}`}>
+          {(() => {
+            const totalHrs = emp.regularHours + emp.overtimeHours;
+            if (totalHrs <= 0 || emp.payType === "salary") return <span className="text-muted-foreground">—</span>;
+            if (emp.tips <= 0) return <span className="text-muted-foreground">{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>;
+            const baseWages = (emp.regularHours * emp.hourlyRate) + (emp.overtimeHours * emp.hourlyRate * 1.5);
+            const trueRate = (baseWages + emp.tips) / totalHrs;
+            return <span className="text-blue-600 dark:text-blue-400 font-medium" title={`Base wages ${formatCurrency(baseWages)} + Tips ${formatCurrency(emp.tips)} / ${totalHrs.toFixed(1)} hrs`}>{formatCurrency(trueRate)}<span className="text-muted-foreground">/hr</span></span>;
+          })()}
+        </td>
+        <td className="p-3 text-right tabular-nums">
+          {emp.tips > 0 ? <span className="text-green-700 dark:text-green-400">{formatCurrency(emp.tips)}</span> : <span className="text-muted-foreground">—</span>}
+        </td>
+        <td className="p-3 text-right tabular-nums font-semibold">{formatCurrency(emp.grossEstimate)}</td>
+        <td className="p-3">
+          {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+        </td>
+      </tr>
+    );
+  };
+
+  const tableHeader = (
+    <thead><tr className="border-b bg-muted/30">
+      <th className="text-left p-3 font-medium">Employee</th>
+      <th className="text-left p-3 font-medium hidden md:table-cell">Dept</th>
+      <th className="text-left p-3 font-medium hidden md:table-cell">Type</th>
+      <th className="text-right p-3 font-medium">Reg Hrs</th>
+      <th className="text-right p-3 font-medium">OT Hrs</th>
+      <th className="text-right p-3 font-medium hidden md:table-cell">Rate</th>
+      <th className="text-right p-3 font-medium hidden md:table-cell">True Rate</th>
+      <th className="text-right p-3 font-medium">Tips</th>
+      <th className="text-right p-3 font-medium">Gross</th>
+      <th className="p-3 w-8"></th>
+    </tr></thead>
+  );
+
   return (
     <div className="space-y-6" data-testid="payroll-content">
       <div className="flex items-center justify-between">
@@ -1382,11 +1515,46 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
           Payroll Preview
           <LearnTooltip term="Payroll Preview" explanation="Live calculation of employee pay for the selected period. Hours come from your time clock, tips from TTIS (split among on-duty FOH staff), and rates from employee profiles. This is a preview — no payments are made until you record them." />
         </h3>
-        <Button size="sm" variant="outline" onClick={() => refetchCompile()} disabled={loadingCompile} data-testid="button-refresh-payroll">
-          {loadingCompile ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" />}
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowTaxSettings(true)} data-testid="button-tax-settings">
+            <Settings className="w-4 h-4 mr-1" /> Tax Rates
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => refetchCompile()} disabled={loadingCompile} data-testid="button-refresh-payroll">
+            {loadingCompile ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      <Dialog open={showTaxSettings} onOpenChange={setShowTaxSettings}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Employer Tax & Fee Rates</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">These rates are applied to W-2 gross wages to estimate total employer payroll burden.</p>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div><Label className="text-xs">Social Security (%)</Label><Input type="number" step="0.01" value={taxForm.socialSecurity} onChange={e => setTaxForm(f => ({...f, socialSecurity: parseFloat(e.target.value) || 0}))} data-testid="input-tax-ss" /></div>
+            <div><Label className="text-xs">Medicare (%)</Label><Input type="number" step="0.01" value={taxForm.medicare} onChange={e => setTaxForm(f => ({...f, medicare: parseFloat(e.target.value) || 0}))} data-testid="input-tax-medicare" /></div>
+            <div><Label className="text-xs">Federal Unemployment / FUTA (%)</Label><Input type="number" step="0.01" value={taxForm.federalUnemployment} onChange={e => setTaxForm(f => ({...f, federalUnemployment: parseFloat(e.target.value) || 0}))} data-testid="input-tax-futa" /></div>
+            <div><Label className="text-xs">State Unemployment / SUTA (%)</Label><Input type="number" step="0.01" value={taxForm.stateUnemployment} onChange={e => setTaxForm(f => ({...f, stateUnemployment: parseFloat(e.target.value) || 0}))} data-testid="input-tax-suta" /></div>
+            <div><Label className="text-xs">Workers' Comp (%)</Label><Input type="number" step="0.01" value={taxForm.workersComp} onChange={e => setTaxForm(f => ({...f, workersComp: parseFloat(e.target.value) || 0}))} data-testid="input-tax-wc" /></div>
+            <div><Label className="text-xs">Disability Insurance (%)</Label><Input type="number" step="0.01" value={taxForm.disabilityInsurance} onChange={e => setTaxForm(f => ({...f, disabilityInsurance: parseFloat(e.target.value) || 0}))} data-testid="input-tax-di" /></div>
+            <div><Label className="text-xs">Paid Family Leave (%)</Label><Input type="number" step="0.01" value={taxForm.paidFamilyLeave} onChange={e => setTaxForm(f => ({...f, paidFamilyLeave: parseFloat(e.target.value) || 0}))} data-testid="input-tax-pfl" /></div>
+            <div><Label className="text-xs">Other Flat Fees ($)</Label><Input type="number" step="0.01" value={taxForm.additionalFees} onChange={e => setTaxForm(f => ({...f, additionalFees: parseFloat(e.target.value) || 0}))} data-testid="input-tax-fees" /></div>
+          </div>
+          <div className="border-t pt-3 mt-2">
+            <p className="text-xs font-medium mb-2">ADP Processing Fees</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Base Weekly Fee ($)</Label><Input type="number" step="0.01" value={taxForm.adpBaseWeeklyFee} onChange={e => setTaxForm(f => ({...f, adpBaseWeeklyFee: parseFloat(e.target.value) || 0}))} data-testid="input-adp-weekly" /></div>
+              <div><Label className="text-xs">Per-Check Fee ($)</Label><Input type="number" step="0.01" value={taxForm.adpPerCheckFee} onChange={e => setTaxForm(f => ({...f, adpPerCheckFee: parseFloat(e.target.value) || 0}))} data-testid="input-adp-percheck" /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { if (taxRates) setTaxForm(taxRates); setShowTaxSettings(false); }} data-testid="button-cancel-tax">Cancel</Button>
+            <Button onClick={() => saveTaxRatesMut.mutate(taxForm)} disabled={saveTaxRatesMut.isPending} data-testid="button-save-tax">
+              {saveTaxRatesMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Save Rates
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {loadingCompile && (
         <div className="space-y-3">
@@ -1443,58 +1611,47 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
             </Card>
           )}
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Card data-testid="card-payroll-employees">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card data-testid="card-w2-payroll">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <Users className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Employees</span>
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">W-2 Payroll</span>
                 </div>
-                <p className="text-xl font-bold tabular-nums">{compiled.totals.employeeCount}</p>
+                <p className="text-xl font-bold tabular-nums">{formatCurrency(w2Gross)}</p>
+                <p className="text-[10px] text-muted-foreground">{w2Employees.length} employees</p>
               </CardContent>
             </Card>
-            <Card data-testid="card-payroll-hours">
+            <Card data-testid="card-cash-payroll">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <Timer className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Regular Hrs</span>
+                  <Banknote className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs text-muted-foreground">Cash Payroll</span>
                 </div>
-                <p className="text-xl font-bold tabular-nums">{compiled.totals.regularHours.toFixed(1)}</p>
-                {compiled.totals.overtimeHours > 0 && (
-                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">+{compiled.totals.overtimeHours.toFixed(1)} OT</p>
-                )}
+                <p className="text-xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(cashGross)}</p>
+                <p className="text-[10px] text-muted-foreground">{cashEmployees.length} employees</p>
               </CardContent>
             </Card>
-            <Card data-testid="card-payroll-tips">
+            <Card data-testid="card-tax-burden" className="border-orange-200 dark:border-orange-900">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <Coffee className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Tips (TTIS)</span>
+                  <Receipt className="w-4 h-4 text-orange-500" />
+                  <span className="text-xs text-muted-foreground">W-2 Tax Burden</span>
                 </div>
-                <p className="text-xl font-bold tabular-nums text-green-700 dark:text-green-400">{formatCurrency(compiled.totals.tips)}</p>
+                <p className="text-xl font-bold tabular-nums text-orange-600 dark:text-orange-400">{formatCurrency(w2TaxBurden + adpFees)}</p>
+                <p className="text-[10px] text-muted-foreground" title={`Tax: ${(totalTaxRate * 100).toFixed(2)}% = ${formatCurrency(w2TaxBurden)} | ADP: ${formatCurrency(adpFees)}`}>
+                  {(totalTaxRate * 100).toFixed(1)}% + {formatCurrency(adpFees)} ADP
+                </p>
               </CardContent>
             </Card>
-            <Card data-testid="card-payroll-gross">
+            <Card data-testid="card-net-payroll" className="border-primary/30">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <DollarSign className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Total Gross</span>
+                  <DollarSign className="w-4 h-4 text-primary" />
+                  <span className="text-xs text-muted-foreground font-semibold">Net Payroll</span>
                 </div>
-                <p className="text-xl font-bold tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</p>
-              </CardContent>
-            </Card>
-            <Card data-testid="card-payroll-recorded">
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Check className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Recorded</span>
-                </div>
-                <p className="text-xl font-bold tabular-nums">{formatCurrency(totalPaid)}</p>
-                {compiled.totals.grossEstimate > 0 && (
-                  <p className={`text-[10px] font-medium ${totalPaid >= compiled.totals.grossEstimate ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-                    {Math.round((totalPaid / compiled.totals.grossEstimate) * 100)}% of gross
-                  </p>
-                )}
+                <p className="text-xl font-bold tabular-nums">{formatCurrency(netPayroll)}</p>
+                <p className="text-[10px] text-muted-foreground">W-2 + taxes + cash</p>
               </CardContent>
             </Card>
           </div>
@@ -1502,137 +1659,55 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                Employee Breakdown
+                <Building2 className="w-4 h-4" /> W-2 Employees (ADP)
                 <Badge variant="secondary" className="text-[10px]">{compiled.payPeriodStart} – {compiled.payPeriodEnd}</Badge>
+                <Badge variant="outline" className="text-[10px]">{w2Employees.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm" data-testid="table-payroll-preview">
-                  <thead><tr className="border-b bg-muted/30">
-                    <th className="text-left p-3 font-medium">Employee</th>
-                    <th className="text-left p-3 font-medium hidden md:table-cell">Dept</th>
-                    <th className="text-left p-3 font-medium hidden md:table-cell">Type</th>
-                    <th className="text-right p-3 font-medium">Reg Hrs</th>
-                    <th className="text-right p-3 font-medium">OT Hrs</th>
-                    <th className="text-right p-3 font-medium hidden md:table-cell">Rate</th>
-                    <th className="text-right p-3 font-medium hidden md:table-cell">True Rate</th>
-                    <th className="text-right p-3 font-medium">Tips</th>
-                    <th className="text-right p-3 font-medium">Gross</th>
-                    <th className="p-3 w-8"></th>
-                  </tr></thead>
+                <table className="w-full text-sm" data-testid="table-w2-employees">
+                  {tableHeader}
                   <tbody>
-                    {compiled.employees.length === 0 ? (
-                      <tr><td colSpan={10} className="p-8 text-center text-muted-foreground italic">No employees with hours or salary in this period</td></tr>
-                    ) : [...compiled.employees]
-                      .sort((a, b) => b.grossEstimate - a.grossEstimate)
-                      .map(emp => {
-                        const fullName = `${emp.firstName} ${emp.lastName}`.trim();
-                        const isExpanded = expandedEmployee === emp.userId;
-                        const adpTypes = ["not_linked", "incomplete_salary"];
-                        const empFlags = emp.flags.filter(f => (f.severity === "critical" || f.severity === "warning") && !adpTypes.includes(f.type));
-                        return (
-                          <tr key={emp.userId} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${empFlags.length > 0 ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} onClick={() => setExpandedEmployee(isExpanded ? null : emp.userId)} data-testid={`row-payroll-emp-${emp.userId}`}>
-                            <td className="p-3">
-                              <div className="font-medium flex items-center gap-1.5">
-                                {fullName}
-                                {emp.isCashEmployee && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-400 text-emerald-700 dark:text-emerald-400" data-testid={`badge-cash-${emp.userId}`}>Cash</Badge>}
-                                {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
-                              </div>
-                              {isExpanded && (
-                                <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-                                  <div className="md:hidden">
-                                    <span className="font-medium">Dept:</span> {deptLabel(emp.department)} | <span className="font-medium">Type:</span> {emp.payType === "salary" ? "Salary" : "Hourly"}
-                                  </div>
-                                  {emp.vacationHours > 0 && <div>Vacation: {emp.vacationHours.toFixed(1)}h</div>}
-                                  {emp.sickHours > 0 && <div>Sick: {emp.sickHours.toFixed(1)}h</div>}
-                                  {Object.keys(emp.departmentBreakdown).length > 1 && (
-                                    <div>Hours by dept: {Object.entries(emp.departmentBreakdown).map(([d, h]) => `${deptLabel(d)} ${(h as number).toFixed(1)}h`).join(", ")}</div>
-                                  )}
-                                  {empFlags.map((f, i) => (
-                                    <div key={i} className={`text-xs ${f.severity === "critical" ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400"}`}>{f.message}</div>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-3 text-xs hidden md:table-cell">{deptLabel(emp.department)}</td>
-                            <td className="p-3 hidden md:table-cell">
-                              <Badge variant="outline" className="text-[10px]">
-                                {emp.payType === "salary" ? "Salary" : "Hourly"}
-                              </Badge>
-                            </td>
-                            <td className="p-3 text-right tabular-nums">{emp.regularHours.toFixed(1)}</td>
-                            <td className="p-3 text-right tabular-nums">
-                              {emp.overtimeHours > 0 ? (
-                                <span className="text-orange-600 dark:text-orange-400 font-medium">{emp.overtimeHours.toFixed(1)}</span>
-                              ) : (
-                                <span className="text-muted-foreground">0.0</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell">
-                              {emp.payType === "salary"
-                                ? <span title={`Annual: ${formatCurrency(emp.annualSalary || 0)}`}>{formatCurrency(emp.periodSalary || 0)}<span className="text-muted-foreground">/pd</span></span>
-                                : <span>{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>
-                              }
-                            </td>
-                            <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell" data-testid={`true-rate-${emp.userId}`}>
-                              {(() => {
-                                const totalHrs = emp.regularHours + emp.overtimeHours;
-                                if (totalHrs <= 0 || emp.payType === "salary") return <span className="text-muted-foreground">—</span>;
-                                if (emp.tips <= 0) return <span className="text-muted-foreground">{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>;
-                                const baseWages = (emp.regularHours * emp.hourlyRate) + (emp.overtimeHours * emp.hourlyRate * 1.5);
-                                const trueRate = (baseWages + emp.tips) / totalHrs;
-                                return <span className="text-blue-600 dark:text-blue-400 font-medium" title={`Base wages ${formatCurrency(baseWages)} + Tips ${formatCurrency(emp.tips)} / ${totalHrs.toFixed(1)} hrs`}>{formatCurrency(trueRate)}<span className="text-muted-foreground">/hr</span></span>;
-                              })()}
-                            </td>
-                            <td className="p-3 text-right tabular-nums">
-                              {emp.tips > 0 ? (
-                                <span className="text-green-700 dark:text-green-400">{formatCurrency(emp.tips)}</span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-right tabular-nums font-semibold">{formatCurrency(emp.grossEstimate)}</td>
-                            <td className="p-3">
-                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                    {w2Employees.length === 0 ? (
+                      <tr><td colSpan={10} className="p-8 text-center text-muted-foreground italic">No W-2 employees in this period</td></tr>
+                    ) : [...w2Employees].sort((a, b) => b.grossEstimate - a.grossEstimate).map(renderEmployeeRow)}
                   </tbody>
-                  {compiled.employees.length > 0 && (
+                  {w2Employees.length > 0 && (
                     <tfoot>
                       <tr className="border-t-2 bg-muted/20 font-semibold">
-                        <td className="p-3">Totals</td>
+                        <td className="p-3">Subtotal</td>
                         <td className="p-3 hidden md:table-cell"></td>
                         <td className="p-3 hidden md:table-cell"></td>
-                        <td className="p-3 text-right tabular-nums">{compiled.totals.regularHours.toFixed(1)}</td>
-                        <td className="p-3 text-right tabular-nums">{compiled.totals.overtimeHours > 0 ? compiled.totals.overtimeHours.toFixed(1) : "0.0"}</td>
+                        <td className="p-3 text-right tabular-nums">{w2Employees.reduce((s, e) => s + e.regularHours, 0).toFixed(1)}</td>
+                        <td className="p-3 text-right tabular-nums">{w2Employees.reduce((s, e) => s + e.overtimeHours, 0) > 0 ? w2Employees.reduce((s, e) => s + e.overtimeHours, 0).toFixed(1) : "0.0"}</td>
                         <td className="p-3 hidden md:table-cell"></td>
                         <td className="p-3 hidden md:table-cell"></td>
-                        <td className="p-3 text-right tabular-nums text-green-700 dark:text-green-400">{formatCurrency(compiled.totals.tips)}</td>
-                        <td className="p-3 text-right tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</td>
+                        <td className="p-3 text-right tabular-nums text-green-700 dark:text-green-400">{formatCurrency(w2Employees.reduce((s, e) => s + e.tips, 0))}</td>
+                        <td className="p-3 text-right tabular-nums">{formatCurrency(w2Gross)}</td>
                         <td className="p-3"></td>
                       </tr>
-                      <tr className="bg-muted/10 text-xs" data-testid="row-adp-w2-total">
+                      <tr className="bg-orange-50/50 dark:bg-orange-950/10 text-xs">
                         <td className="px-3 py-1.5" colSpan={8}>
-                          <span className="text-muted-foreground">ADP W-2 Total</span>
+                          <span className="text-orange-700 dark:text-orange-400">Employer Taxes ({(totalTaxRate * 100).toFixed(1)}%)</span>
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(compiled.totals.adpW2Gross)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-medium text-orange-700 dark:text-orange-400">{formatCurrency(w2TaxBurden)}</td>
                         <td className="px-3 py-1.5"></td>
                       </tr>
-                      <tr className="bg-muted/10 text-xs" data-testid="row-cash-total">
+                      {adpFees > 0 && (
+                        <tr className="bg-orange-50/30 dark:bg-orange-950/5 text-xs">
+                          <td className="px-3 py-1.5" colSpan={8}>
+                            <span className="text-muted-foreground">ADP Fees (${rates.adpBaseWeeklyFee}/wk + ${rates.adpPerCheckFee}/check × {w2Count})</span>
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-medium text-muted-foreground">{formatCurrency(adpFees)}</td>
+                          <td className="px-3 py-1.5"></td>
+                        </tr>
+                      )}
+                      <tr className="bg-muted/10 text-xs border-t font-semibold">
                         <td className="px-3 py-1.5" colSpan={8}>
-                          <span className="text-muted-foreground">Cash Employee Total</span>
+                          <span>Total W-2 Cost</span>
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">{formatCurrency(compiled.totals.cashGross)}</td>
-                        <td className="px-3 py-1.5"></td>
-                      </tr>
-                      <tr className="bg-muted/10 text-xs border-t" data-testid="row-net-total">
-                        <td className="px-3 py-1.5" colSpan={8}>
-                          <span className="font-semibold">Net Total (ADP + Cash)</span>
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums font-bold">{formatCurrency(compiled.totals.grossEstimate)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-bold">{formatCurrency(totalW2Cost)}</td>
                         <td className="px-3 py-1.5"></td>
                       </tr>
                     </tfoot>
@@ -1641,6 +1716,42 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
               </div>
             </CardContent>
           </Card>
+
+          {cashEmployees.length > 0 && (
+            <Card className="border-emerald-200 dark:border-emerald-900">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Banknote className="w-4 h-4 text-emerald-600" /> Cash Employees
+                  <Badge variant="secondary" className="text-[10px]">{compiled.payPeriodStart} – {compiled.payPeriodEnd}</Badge>
+                  <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-400">{cashEmployees.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="table-cash-employees">
+                    {tableHeader}
+                    <tbody>
+                      {[...cashEmployees].sort((a, b) => b.grossEstimate - a.grossEstimate).map(renderEmployeeRow)}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 bg-emerald-50/50 dark:bg-emerald-950/20 font-semibold">
+                        <td className="p-3">Cash Subtotal</td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 text-right tabular-nums">{cashEmployees.reduce((s, e) => s + e.regularHours, 0).toFixed(1)}</td>
+                        <td className="p-3 text-right tabular-nums">{cashEmployees.reduce((s, e) => s + e.overtimeHours, 0) > 0 ? cashEmployees.reduce((s, e) => s + e.overtimeHours, 0).toFixed(1) : "0.0"}</td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 text-right tabular-nums text-green-700 dark:text-green-400">{formatCurrency(cashEmployees.reduce((s, e) => s + e.tips, 0))}</td>
+                        <td className="p-3 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(cashGross)}</td>
+                        <td className="p-3"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
