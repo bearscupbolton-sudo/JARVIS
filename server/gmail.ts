@@ -245,6 +245,24 @@ export const VENDOR_EMAIL_RULES = [
     subjectKeywords: ["order"],
     hasAttachment: false,
   },
+  {
+    vendor: "Ecoware (Agave Straws)",
+    fromFilter: "from:store+25342246998@t.shopifyemail.com",
+    subjectKeywords: ["confirmed", "shipment"],
+    hasAttachment: false,
+  },
+  {
+    vendor: "Harney & Sons Fine Teas",
+    fromFilter: "from:email@harney.com",
+    subjectKeywords: ["delivery"],
+    hasAttachment: false,
+  },
+  {
+    vendor: "Noble Gas Solutions",
+    fromFilter: "from:orders@noblegassolutions.com",
+    subjectKeywords: ["Delivery Receipt"],
+    hasAttachment: true,
+  },
 ];
 
 export async function scanGmailForInvoices(daysBack: number = 7): Promise<{

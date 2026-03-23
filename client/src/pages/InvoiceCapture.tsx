@@ -286,7 +286,7 @@ function GmailInvoiceScanner({ onImported }: { onImported: () => void }) {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Searches: Chefs' Warehouse, Sysco, Copper Horse Coffee, BakeMark, Noissue
+          Searches: Chefs' Warehouse, Sysco, Copper Horse, BakeMark, Noissue, Ecoware, Harney & Sons, Noble Gas
         </p>
 
         {scanResults.length > 0 && !previewData && (
