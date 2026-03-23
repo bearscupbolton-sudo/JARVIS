@@ -4582,6 +4582,46 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
     }
   });
 
+  app.post("/api/shifts/:id/release", isAuthenticated, async (req: any, res) => {
+    try {
+      const shiftId = Number(req.params.id);
+      const userId = (req.appUser as any).id;
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() || null : null;
+      const shift = await storage.getShiftById(shiftId);
+      if (!shift) return res.status(404).json({ message: "Shift not found" });
+      if (shift.status !== "assigned") return res.status(400).json({ message: "Only assigned shifts can be released" });
+      if (shift.userId !== userId) {
+        const user = req.appUser as any;
+        const canRelease = user.role === "owner" || user.isShiftManager || user.isGeneralManager;
+        if (!canRelease) return res.status(403).json({ message: "You can only release your own shifts" });
+      }
+      const releasedByName = (req.appUser as any).firstName
+        ? `${(req.appUser as any).firstName} ${(req.appUser as any).lastName || ""}`.trim()
+        : (req.appUser as any).username;
+      const releaseNote = reason ? `Released by ${releasedByName}: ${reason}` : `Released by ${releasedByName}`;
+      const updated = await storage.updateShift(shiftId, {
+        status: "open",
+        notes: shift.notes ? `${shift.notes} | ${releaseNote}` : releaseNote,
+      } as any);
+      const allUsers = await authStorage.getAllUsers();
+      const notifyTargets = allUsers.filter(u =>
+        u.id !== userId && (u.department === shift.department || u.role === "owner" || u.isShiftManager)
+      );
+      for (const target of notifyTargets) {
+        sendPushToUser(target.id, {
+          title: "Shift Released",
+          body: `${releasedByName} released ${shift.shiftDate} (${shift.startTime} - ${shift.endTime}). Pick it up in the Shift Bank!`,
+          tag: `shift-release-${shiftId}`,
+          url: "/schedule",
+        }).catch(err => console.error("[Push] Shift release notification error:", err));
+      }
+      res.json(updated);
+    } catch (err) {
+      console.error("Error releasing shift:", err);
+      res.status(500).json({ message: "Failed to release shift" });
+    }
+  });
+
   app.patch("/api/shifts/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.appUser as any;
