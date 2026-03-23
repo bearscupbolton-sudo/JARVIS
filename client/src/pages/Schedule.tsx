@@ -337,6 +337,8 @@ export default function Schedule() {
   const [pickupNote, setPickupNote] = useState("");
   const [releaseDialogShift, setReleaseDialogShift] = useState<Shift | null>(null);
   const [releaseReason, setReleaseReason] = useState("");
+  const [myShiftsOpen, setMyShiftsOpen] = useState(false);
+  const [releaseConfirmShift, setReleaseConfirmShift] = useState<Shift | null>(null);
   const [shiftNoteDialogOpen, setShiftNoteDialogOpen] = useState(false);
   const [shiftNoteShift, setShiftNoteShift] = useState<Shift | null>(null);
   const [shiftNoteText, setShiftNoteText] = useState("");
@@ -461,7 +463,7 @@ export default function Schedule() {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       setPickupDialogShift(null);
       setPickupNote("");
-      toast({ title: "Shift pickup requested", description: "Waiting for lead approval" });
+      toast({ title: "Shift pick up has been submitted for approval" });
     },
     onError: (e: Error) => toast({ title: "Cannot pick up shift", description: e.message, variant: "destructive" }),
   });
@@ -490,7 +492,8 @@ export default function Schedule() {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       setReleaseDialogShift(null);
       setReleaseReason("");
-      toast({ title: "Shift released to Shift Bank", description: "Team members can now pick it up" });
+      setReleaseConfirmShift(null);
+      toast({ title: "Shift released to Shift Bank", description: "Your shift is now available for pickup. You are still responsible until someone picks it up." });
     },
     onError: (e: Error) => toast({ title: "Cannot release shift", description: e.message, variant: "destructive" }),
   });
@@ -1003,6 +1006,13 @@ export default function Schedule() {
   const pendingPickups = (shiftsData || []).filter(s => s.status === "pending");
   const openShifts = (shiftsData || []).filter(s => s.status === "open");
   const myPendingClaims = pendingPickups.filter(s => s.claimedBy === user?.id);
+  const myUpcomingShifts = useMemo(() => {
+    if (!user?.id || !shiftsData) return [];
+    const today = format(new Date(), "yyyy-MM-dd");
+    return (shiftsData as Shift[])
+      .filter(s => s.userId === user.id && s.status === "assigned" && s.shiftDate >= today)
+      .sort((a, b) => a.shiftDate.localeCompare(b.shiftDate) || a.startTime.localeCompare(b.startTime));
+  }, [shiftsData, user?.id]);
 
 
   return (
@@ -1097,6 +1107,20 @@ export default function Schedule() {
             Locations
           </Button>
         )}
+        <Button
+          variant="outline"
+          onClick={() => setMyShiftsOpen(true)}
+          data-testid="button-my-shifts"
+          className="ml-auto"
+        >
+          <UserCircle className="w-4 h-4 mr-2" />
+          My Shifts
+          {myUpcomingShifts.length > 0 && (
+            <Badge variant="secondary" className="ml-2 text-[10px]" data-testid="badge-my-shifts-count">
+              {myUpcomingShifts.length}
+            </Badge>
+          )}
+        </Button>
       </div>
 
       {activeTab === "schedule" && (
@@ -1403,8 +1427,8 @@ export default function Schedule() {
                                                     </button>
                                                     {shift.userId && shift.status === "assigned" && new Date(shift.shiftDate + "T00:00:00") >= new Date(new Date().toDateString()) && (
                                                       <button
-                                                        className="text-[10px] text-emerald-600 dark:text-emerald-400 px-1 py-0.5"
-                                                        onClick={() => { setQuickModifyShift(null); setReleaseDialogShift(shift); setReleaseReason(""); }}
+                                                        className="text-[10px] text-amber-600 dark:text-amber-400 px-1 py-0.5"
+                                                        onClick={() => { setQuickModifyShift(null); setReleaseConfirmShift(shift); }}
                                                         data-testid={`button-release-shift-${shift.id}`}
                                                         title="Release to Shift Bank"
                                                       >
@@ -1643,11 +1667,11 @@ export default function Schedule() {
                           {hasOpenShifts && (
                             <tr className="border-b border-border" data-testid="row-open-shifts">
                               <td
-                                className="sticky left-0 z-10 bg-background text-[11px] font-medium px-1.5 border-b border-r border-border w-[110px] min-w-[110px] text-emerald-600 dark:text-emerald-400/80 italic"
+                                className="sticky left-0 z-10 bg-background text-[11px] font-medium px-1.5 border-b border-r border-border w-[110px] min-w-[110px] text-amber-600 dark:text-amber-400/80 italic"
                                 style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}
                                 data-testid="cell-employee-name-open-shifts"
                               >
-                                Open Shifts
+                                Shift Bank
                               </td>
                               {weekDays.map((day) => {
                                 const dateStr = format(day, "yyyy-MM-dd");
@@ -1666,14 +1690,10 @@ export default function Schedule() {
                                             <Tooltip>
                                               <TooltipTrigger asChild>
                                                 <button
-                                                  className="w-full px-1 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors text-center leading-tight bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 border border-emerald-200/60 dark:border-emerald-700/40"
+                                                  className="w-full px-1 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors text-center leading-tight bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 border border-amber-300/60 dark:border-amber-700/40"
                                                   onClick={() => {
-                                                    if (isLeadOrAbove) {
-                                                      openEditShift(shift);
-                                                    } else {
-                                                      setPickupDialogShift(shift);
-                                                      setPickupNote("");
-                                                    }
+                                                    setPickupDialogShift(shift);
+                                                    setPickupNote("");
                                                   }}
                                                   data-testid={`shift-cell-${shift.id}`}
                                                 >
@@ -1685,9 +1705,9 @@ export default function Schedule() {
                                                   <div className="font-medium">{shift.startTime} – {shift.endTime}</div>
                                                   <div className="text-muted-foreground capitalize">{shift.department || "kitchen"}</div>
                                                   {shift.position && <div className="text-muted-foreground">{shift.position}</div>}
-                                                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">Available for pickup</div>
-                                                  {!isLeadOrAbove && <div className="text-muted-foreground italic">Click to pick up</div>}
-                                                  {isLeadOrAbove && <div className="text-muted-foreground italic">Click to edit</div>}
+                                                  {shift.notes && <div className="text-muted-foreground italic">"{shift.notes}"</div>}
+                                                  <div className="text-amber-600 dark:text-amber-400 font-medium">Available for pickup</div>
+                                                  <div className="text-muted-foreground italic">Click to pick up</div>
                                                 </div>
                                               </TooltipContent>
                                             </Tooltip>
@@ -2044,11 +2064,11 @@ export default function Schedule() {
               <h3 className="text-lg font-semibold">Available Shifts</h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {openShifts.map((shift) => (
-                  <Card key={shift.id} className="border-dashed border-emerald-400/40 dark:border-emerald-600/30" data-testid={`card-open-shift-${shift.id}`}>
+                  <Card key={shift.id} className="border-dashed border-amber-400/40 dark:border-amber-600/30" data-testid={`card-open-shift-${shift.id}`}>
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400/80 border-emerald-400/40 dark:border-emerald-600/30 mb-1">Open Shift</Badge>
+                          <Badge variant="outline" className="text-amber-700 dark:text-amber-400/80 border-amber-400/40 dark:border-amber-600/30 mb-1">Available Shift</Badge>
                           <p className="text-sm font-medium">{shift.shiftDate}</p>
                           <p className="text-sm text-muted-foreground">{shift.startTime} - {shift.endTime}</p>
                         </div>
@@ -2156,6 +2176,107 @@ export default function Schedule() {
         <LocationsManager locations={locationsData || []} />
       )}
 
+      <Dialog open={myShiftsOpen} onOpenChange={setMyShiftsOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto" data-testid="dialog-my-shifts">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCircle className="w-5 h-5" />
+              My Shifts
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {myUpcomingShifts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No upcoming shifts scheduled</p>
+            ) : (
+              myUpcomingShifts.map(shift => {
+                const dayName = format(new Date(shift.shiftDate + "T12:00:00"), "EEEE");
+                return (
+                  <div
+                    key={shift.id}
+                    className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                    data-testid={`my-shift-${shift.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">{dayName}</span>
+                        <span className="text-xs text-muted-foreground">{shift.shiftDate}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Clock className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">{shift.startTime} – {shift.endTime}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Badge variant="secondary" className="text-[10px] capitalize">{shift.department || "kitchen"}</Badge>
+                        {shift.position && <span className="text-xs text-muted-foreground">{shift.position}</span>}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950/30 shrink-0"
+                      onClick={() => setReleaseConfirmShift(shift)}
+                      data-testid={`button-release-my-shift-${shift.id}`}
+                    >
+                      <ArrowUpFromLine className="w-3.5 h-3.5 mr-1" />
+                      Release
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!releaseConfirmShift} onOpenChange={(open) => { if (!open) setReleaseConfirmShift(null); }}>
+        <DialogContent className="max-w-sm" data-testid="dialog-release-confirm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowUpFromLine className="w-5 h-5 text-amber-600" />
+              Release Shift
+            </DialogTitle>
+          </DialogHeader>
+          {releaseConfirmShift && (
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 border border-border">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{format(new Date(releaseConfirmShift.shiftDate + "T12:00:00"), "EEEE, MMM d")}</span>
+                  <Badge variant="secondary" className="capitalize">{releaseConfirmShift.department || "kitchen"}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  <Clock className="w-3.5 h-3.5 inline mr-1" />
+                  {releaseConfirmShift.startTime} – {releaseConfirmShift.endTime}
+                </p>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium leading-relaxed">
+                  I understand that I am accountable for my shift until it is confirmed as picked up by another team member.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setReleaseConfirmShift(null)}
+                  data-testid="button-cancel-release-confirm"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                  onClick={() => releaseShiftMutation.mutate({ id: releaseConfirmShift.id, reason: undefined })}
+                  disabled={releaseShiftMutation.isPending}
+                  data-testid="button-confirm-release"
+                >
+                  {releaseShiftMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4 mr-1" />}
+                  I Understand, Release
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!pickupDialogShift} onOpenChange={(open) => { if (!open) { setPickupDialogShift(null); setPickupNote(""); } }}>
         <DialogContent className="max-w-sm" data-testid="dialog-pickup">
           <DialogHeader>
@@ -2215,73 +2336,6 @@ export default function Schedule() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!releaseDialogShift} onOpenChange={(open) => { if (!open) { setReleaseDialogShift(null); setReleaseReason(""); } }}>
-        <DialogContent className="max-w-sm" data-testid="dialog-release">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowUpFromLine className="w-5 h-5 text-emerald-600" />
-              Release Shift
-            </DialogTitle>
-          </DialogHeader>
-          {releaseDialogShift && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                This will move the shift to the Shift Bank so other team members can pick it up.
-              </p>
-              <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 border border-border">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{releaseDialogShift.shiftDate}</span>
-                  <Badge variant="secondary" className="capitalize">{releaseDialogShift.department || "kitchen"}</Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  <Clock className="w-3.5 h-3.5 inline mr-1" />
-                  {releaseDialogShift.startTime} – {releaseDialogShift.endTime}
-                </p>
-                {releaseDialogShift.position && (
-                  <p className="text-xs text-muted-foreground">Position: {releaseDialogShift.position}</p>
-                )}
-                {releaseDialogShift.userId && (
-                  <p className="text-xs text-muted-foreground">
-                    Assigned to: {getUserDisplayName(String(releaseDialogShift.userId), members)}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium" htmlFor="release-reason">Reason (optional)</label>
-                <textarea
-                  id="release-reason"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
-                  placeholder="Why is this shift being released?"
-                  rows={2}
-                  value={releaseReason}
-                  onChange={(e) => setReleaseReason(e.target.value)}
-                  data-testid="input-release-reason"
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => { setReleaseDialogShift(null); setReleaseReason(""); }}
-                  data-testid="button-cancel-release"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1"
-                  variant="default"
-                  onClick={() => releaseShiftMutation.mutate({ id: releaseDialogShift.id, reason: releaseReason || undefined })}
-                  disabled={releaseShiftMutation.isPending}
-                  data-testid="button-confirm-release"
-                >
-                  {releaseShiftMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4 mr-1" />}
-                  Release Shift
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={shiftDialogOpen} onOpenChange={(open) => { setShiftDialogOpen(open); if (!open) setConfirmDeleteShiftId(null); }}>
         <DialogContent data-testid="dialog-shift">
