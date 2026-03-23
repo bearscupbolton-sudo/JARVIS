@@ -12015,6 +12015,46 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     }
   });
 
+  app.get("/api/payroll/tax-rates", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const row = await db.select().from(appSettings).where(eq(appSettings.key, "payroll_tax_rates")).limit(1);
+      const defaults = {
+        socialSecurity: 6.2,
+        medicare: 1.45,
+        federalUnemployment: 0.6,
+        stateUnemployment: 2.7,
+        workersComp: 1.5,
+        disabilityInsurance: 0,
+        paidFamilyLeave: 0,
+        additionalFees: 0,
+        adpPerCheckFee: 0,
+        adpBaseWeeklyFee: 0,
+      };
+      if (row.length > 0) {
+        res.json({ ...defaults, ...JSON.parse(row[0].value) });
+      } else {
+        res.json(defaults);
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/payroll/tax-rates", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const rates = req.body;
+      const existing = await db.select().from(appSettings).where(eq(appSettings.key, "payroll_tax_rates")).limit(1);
+      if (existing.length > 0) {
+        await db.update(appSettings).set({ value: JSON.stringify(rates) }).where(eq(appSettings.key, "payroll_tax_rates"));
+      } else {
+        await db.insert(appSettings).values({ key: "payroll_tax_rates", value: JSON.stringify(rates) });
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/payroll/push-to-adp", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { adpClient } = await import("./adp-api");
