@@ -5298,6 +5298,7 @@ Return ONLY the JSON array.`,
       const created = [];
       let skipped = 0;
       let duplicates = 0;
+      let errors = 0;
       for (const s of shiftList) {
         if (!s.shiftDate || !s.startTime || !s.endTime) {
           console.log("[Bulk Shifts] Skipping shift — missing required fields:", JSON.stringify(s));
@@ -5318,33 +5319,41 @@ Return ONLY the JSON array.`,
             continue;
           }
         }
-        const shift = await storage.createShift({
-          userId: s.userId || null,
-          shiftDate: s.shiftDate,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          department: s.department || (s.userId ? userDeptMap.get(s.userId) : null) || "kitchen",
-          position: s.position || null,
-          notes: s.notes || null,
-          locationId: s.locationId || null,
-          status: s.userId ? "assigned" : "open",
-          createdBy: user.id,
-        } as any);
-        created.push(shift);
-        existingShifts.push(shift);
-        if (s.userId) {
-          sendPushToUser(s.userId, {
-            title: "New Shift Assigned",
-            body: `You've been scheduled on ${s.shiftDate} from ${s.startTime} to ${s.endTime}`,
-            tag: `shift-${shift.id}`,
-            url: "/schedule",
-          }).catch(err => console.error("[Push] Bulk shift notification error:", err));
+        try {
+          const shift = await storage.createShift({
+            userId: s.userId || null,
+            shiftDate: s.shiftDate,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            department: s.department || (s.userId ? userDeptMap.get(s.userId) : null) || "kitchen",
+            position: s.position || null,
+            notes: s.notes || null,
+            locationId: s.locationId || null,
+            status: s.userId ? "assigned" : "open",
+            createdBy: user.id,
+          } as any);
+          created.push(shift);
+          existingShifts.push(shift);
+          if (s.userId) {
+            sendPushToUser(s.userId, {
+              title: "New Shift Assigned",
+              body: `You've been scheduled on ${s.shiftDate} from ${s.startTime} to ${s.endTime}`,
+              tag: `shift-${shift.id}`,
+              url: "/schedule",
+            }).catch(err => console.error("[Push] Bulk shift notification error:", err));
+          }
+        } catch (shiftErr: any) {
+          console.error("[Bulk Shifts] Error creating shift:", JSON.stringify(s), shiftErr?.message || shiftErr);
+          errors++;
         }
       }
-      console.log("[Bulk Shifts] Created", created.length, "shifts, skipped", skipped, "duplicates", duplicates);
-      res.status(201).json({ created, skipped, duplicates });
-    } catch (err) {
-      console.error("Error bulk creating shifts:", err);
+      console.log("[Bulk Shifts] Created", created.length, "shifts, skipped", skipped, "duplicates", duplicates, "errors", errors);
+      if (created.length === 0 && errors > 0) {
+        return res.status(500).json({ message: `Failed to create shifts (${errors} errors)` });
+      }
+      res.status(201).json({ created, skipped, duplicates, errors });
+    } catch (err: any) {
+      console.error("Error bulk creating shifts:", err?.message || err, err?.stack);
       res.status(500).json({ message: "Failed to create shifts" });
     }
   });
