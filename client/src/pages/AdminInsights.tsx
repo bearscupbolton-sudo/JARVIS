@@ -99,7 +99,9 @@ type KpiLaborDetail = {
   employees: {
     userId: string; firstName: string | null; lastName: string | null;
     username: string | null; role: string | null; hourlyRate: number | null;
+    annualSalary: number | null; periodSalary: number | null; payType: string;
     hoursWorked: number; totalCost: number; shifts: number; revenuePerHour: number;
+    isOwner: boolean;
   }[];
 };
 
@@ -366,7 +368,7 @@ export default function AdminInsights() {
     if (kpiLabor) {
       rows.push(["", "", ""], ["--- Labor Breakdown ---", "", ""]);
       rows.push(["Employee", "Hours", "Rate", "Cost", "Shifts"]);
-      kpiLabor.employees.forEach(e => rows.push([userName(e), e.hoursWorked, e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]));
+      kpiLabor.employees.forEach(e => rows.push([userName(e), e.hoursWorked, e.payType === "salary" && e.annualSalary != null ? `$${e.annualSalary.toLocaleString()}/yr` : e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]));
     }
     downloadCsv(`kpi-report-${days}days.csv`, headers, rows);
   }
@@ -1086,7 +1088,7 @@ export default function AdminInsights() {
                   <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-medium">Labor Breakdown by Employee</CardTitle>
                     <Button variant="ghost" size="icon" className="h-7 w-7" data-testid="button-export-labor"
-                      onClick={() => downloadCsv(`labor-breakdown-${days}days.csv`, ["Employee", "Role", "Hours", "Rate", "Labor Cost", "Shifts"], kpiLabor.employees.map(e => [userName(e), e.role || "member", e.hoursWorked, e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]))}>
+                      onClick={() => downloadCsv(`labor-breakdown-${days}days.csv`, ["Employee", "Role", "Hours", "Rate", "Labor Cost", "Shifts"], kpiLabor.employees.map(e => [userName(e), e.role || "member", e.hoursWorked, e.payType === "salary" && e.annualSalary != null ? `$${e.annualSalary.toLocaleString()}/yr` : e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "", `$${e.totalCost.toFixed(2)}`, e.shifts]))}>
                       <Download className="w-3.5 h-3.5" />
                     </Button>
                   </CardHeader>
@@ -1113,7 +1115,11 @@ export default function AdminInsights() {
                                 </Badge>
                               </td>
                               <td className="p-3 text-center font-mono">{emp.hoursWorked}</td>
-                              <td className="p-3 text-center font-mono">{emp.hourlyRate != null ? `$${emp.hourlyRate.toFixed(2)}` : "—"}</td>
+                              <td className="p-3 text-center font-mono">
+                                {emp.payType === "salary" && emp.annualSalary != null ? (
+                                  <span title={`$${emp.annualSalary.toLocaleString()}/yr`}>${emp.periodSalary?.toFixed(2)}/period</span>
+                                ) : emp.hourlyRate != null ? `$${emp.hourlyRate.toFixed(2)}` : "—"}
+                              </td>
                               <td className="p-3 text-center font-mono">${emp.totalCost.toFixed(2)}</td>
                               <td className="p-3 text-center font-mono">{emp.shifts}</td>
                             </tr>
@@ -1415,7 +1421,11 @@ export default function AdminInsights() {
                             <tr key={e.userId} className="border-b last:border-0">
                               <td className="p-2 text-xs font-medium">{userName(e)}</td>
                               <td className="p-2 text-center text-xs font-mono">{e.hoursWorked}</td>
-                              <td className="p-2 text-center text-xs font-mono">{e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "—"}</td>
+                              <td className="p-2 text-center text-xs font-mono">
+                                {e.payType === "salary" && e.annualSalary != null ? (
+                                  <span title={`$${e.annualSalary.toLocaleString()}/yr`}>${e.periodSalary?.toFixed(2)}/period</span>
+                                ) : e.hourlyRate != null ? `$${e.hourlyRate.toFixed(2)}` : "—"}
+                              </td>
                               <td className="p-2 text-center text-xs font-mono">${e.totalCost.toFixed(2)}</td>
                               <td className="p-2 text-center text-xs font-mono">{kpiLabor.totalCost > 0 ? ((e.totalCost / kpiLabor.totalCost) * 100).toFixed(1) : "0"}%</td>
                               <td className="p-2 text-center text-xs font-mono">{e.shifts}</td>

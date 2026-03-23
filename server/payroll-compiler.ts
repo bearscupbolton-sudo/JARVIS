@@ -22,10 +22,11 @@ export interface EmployeePayLine {
   departmentBreakdown: Record<string, number>;
   grossEstimate: number;
   flags: PayrollFlag[];
+  isOwner: boolean;
 }
 
 export interface PayrollFlag {
-  type: "unapproved_adjustment" | "active_shift" | "not_linked" | "schedule_discrepancy" | "missing_clock_out" | "incomplete_salary";
+  type: "unapproved_adjustment" | "active_shift" | "not_linked" | "schedule_discrepancy" | "missing_clock_out" | "incomplete_salary" | "owner_no_salary";
   severity: "critical" | "warning" | "info";
   message: string;
   employeeId?: string;
@@ -104,7 +105,12 @@ export async function compilePayroll(
     .from(users)
     .where(eq(users.locked, false));
 
-  const activeUsers = allUsers.filter((u) => u.role !== "owner" || u.adpAssociateOID);
+  const activeUsers = allUsers.filter((u) => {
+    if (u.role !== "owner") return true;
+    if (u.adpAssociateOID) return true;
+    if (u.payType === "salary" && u.annualSalary) return true;
+    return false;
+  });
 
   const allTimeEntries = await db
     .select()
@@ -141,6 +147,20 @@ export async function compilePayroll(
   const globalFlags: PayrollFlag[] = [];
   const employees: EmployeePayLine[] = [];
   const weeks = getWeekBoundaries(periodStart, periodEnd);
+
+  const ownersWithoutSalary = allUsers.filter(
+    (u) => u.role === "owner" && (!u.annualSalary || u.payType !== "salary") && !u.adpAssociateOID
+  );
+  for (const owner of ownersWithoutSalary) {
+    const fullName = [owner.firstName, owner.lastName].filter(Boolean).join(" ") || owner.username || "Unknown";
+    globalFlags.push({
+      type: "owner_no_salary",
+      severity: "warning",
+      message: `Owner ${fullName} has no salary information configured and is excluded from payroll`,
+      employeeId: owner.id,
+      employeeName: fullName,
+    });
+  }
 
   for (const user of activeUsers) {
     if (!user.firstName) continue;
@@ -333,6 +353,7 @@ export async function compilePayroll(
       departmentBreakdown: departmentHours,
       grossEstimate: Math.round(grossEstimate * 100) / 100,
       flags,
+      isOwner: user.role === "owner",
     });
   }
 
@@ -430,6 +451,7 @@ export async function compilePayroll(
       departmentBreakdown: {},
       grossEstimate: tipAmount,
       flags: [],
+      isOwner: tipUser.role === "owner",
     });
   }
 

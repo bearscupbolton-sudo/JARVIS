@@ -81,6 +81,7 @@ interface EmployeePayLine {
   departmentBreakdown: Record<string, number>;
   grossEstimate: number;
   flags: PayrollFlag[];
+  isOwner?: boolean;
 }
 
 interface PayrollSummary {
@@ -414,6 +415,9 @@ export default function PayrollReview() {
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-medium">{emp.firstName} {emp.lastName}</span>
+                                {emp.isOwner && (
+                                  <Badge variant="secondary" className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-300 dark:border-purple-700" data-testid={`badge-owner-${emp.userId}`}>Owner</Badge>
+                                )}
                                 {emp.adpAssociateOID ? (
                                   <Badge variant="outline" className="text-[10px] border-green-500 text-green-700 dark:text-green-400">ADP</Badge>
                                 ) : (
