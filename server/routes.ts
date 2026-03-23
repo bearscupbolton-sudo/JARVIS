@@ -12478,12 +12478,32 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
       let invoiceData: any = null;
 
       if (attachmentsToProcess.length > 0) {
+        const pdfTexts: string[] = [];
         const images: string[] = [];
+
         for (const att of attachmentsToProcess) {
           const buffer = await downloadAttachment(messageId, att.attachmentId);
-          if (att.mimeType === 'application/pdf' || att.filename.toLowerCase().endsWith('.pdf')) {
-            const base64 = buffer.toString('base64');
-            images.push(`data:application/pdf;base64,${base64}`);
+          const isPdf = att.mimeType === 'application/pdf' || att.filename.toLowerCase().endsWith('.pdf');
+
+          if (isPdf) {
+            try {
+              const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+              const uint8 = new Uint8Array(buffer);
+              const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
+              const pages: string[] = [];
+              for (let i = 1; i <= doc.numPages; i++) {
+                const page = await doc.getPage(i);
+                const content = await page.getTextContent();
+                const text = content.items
+                  .map((item: any) => item.str)
+                  .join(' ');
+                pages.push(text);
+              }
+              pdfTexts.push(`[PDF: ${att.filename}]\n${pages.join('\n---PAGE BREAK---\n')}`);
+            } catch (pdfErr) {
+              console.warn(`[Gmail] PDF parse failed for ${att.filename}, sending as base64:`, pdfErr);
+              pdfTexts.push(`[PDF: ${att.filename} - could not extract text]`);
+            }
           } else {
             const base64 = buffer.toString('base64');
             images.push(`data:${att.mimeType};base64,${base64}`);
@@ -12496,18 +12516,7 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
           baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
         });
 
-        const imageContent = images.map(img => ({
-          type: "image_url" as const,
-          image_url: { url: img }
-        }));
-
-        const response = await withRetry(() => openai.chat.completions.create({
-          model: "gpt-5.2",
-          max_completion_tokens: 8192,
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert invoice parser for Bear's Cup Bakehouse. Extract ALL data from the attached invoice document(s).
+        const systemPrompt = `You are an expert invoice parser for Bear's Cup Bakehouse. Extract ALL data from the invoice content provided.
 
 IMPORTANT GUIDELINES:
 - Common suppliers: Chefs' Warehouse, Sysco, BakeMark, Copper Horse Coffee, PFG, Noissue
@@ -12524,15 +12533,24 @@ Return JSON:
   "invoiceTotal": number or null,
   "notes": "string or null",
   "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number or null }]
-}`
-            },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: `Parse this invoice from email "${email.subject}" sent by ${email.from}. Extract all line items.` },
-                ...imageContent,
-              ]
-            }
+}`;
+
+        const userContent: any[] = [
+          { type: "text", text: `Parse this invoice from email "${email.subject}" sent by ${email.from}. Extract all line items.\n\n${pdfTexts.join('\n\n')}` },
+        ];
+
+        if (images.length > 0) {
+          for (const img of images) {
+            userContent.push({ type: "image_url", image_url: { url: img } });
+          }
+        }
+
+        const response = await withRetry(() => openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_completion_tokens: 8192,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent }
           ],
           response_format: { type: "json_object" },
         }), "gmail-invoice-scan");
