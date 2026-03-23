@@ -1671,7 +1671,47 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                   <tbody>
                     {w2Employees.length === 0 ? (
                       <tr><td colSpan={10} className="p-8 text-center text-muted-foreground italic">No W-2 employees in this period</td></tr>
-                    ) : [...w2Employees].sort((a, b) => b.grossEstimate - a.grossEstimate).map(renderEmployeeRow)}
+                    ) : (() => {
+                      const deptGroups: Record<string, PayrollEmployee[]> = {};
+                      w2Employees.forEach(e => {
+                        const d = e.department || "other";
+                        if (!deptGroups[d]) deptGroups[d] = [];
+                        deptGroups[d].push(e);
+                      });
+                      const deptOrder = Object.keys(deptGroups).sort((a, b) => {
+                        const aGross = deptGroups[a].reduce((s, e) => s + e.grossEstimate, 0);
+                        const bGross = deptGroups[b].reduce((s, e) => s + e.grossEstimate, 0);
+                        return bGross - aGross;
+                      });
+                      return deptOrder.flatMap(dept => {
+                        const emps = [...deptGroups[dept]].sort((a, b) => b.grossEstimate - a.grossEstimate);
+                        const deptReg = emps.reduce((s, e) => s + e.regularHours, 0);
+                        const deptOT = emps.reduce((s, e) => s + e.overtimeHours, 0);
+                        const deptTips = emps.reduce((s, e) => s + e.tips, 0);
+                        const deptGross = emps.reduce((s, e) => s + e.grossEstimate, 0);
+                        return [
+                          <tr key={`dept-header-${dept}`} className="bg-muted/40 border-b">
+                            <td colSpan={10} className="px-3 py-1.5">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{deptLabel(dept)}</span>
+                              <span className="text-[10px] text-muted-foreground ml-2">({emps.length})</span>
+                            </td>
+                          </tr>,
+                          ...emps.map(renderEmployeeRow),
+                          <tr key={`dept-sub-${dept}`} className="bg-muted/20 border-b" data-testid={`row-dept-subtotal-${dept}`}>
+                            <td className="px-3 py-1.5 text-xs font-medium text-muted-foreground">{deptLabel(dept)} Subtotal</td>
+                            <td className="p-1.5 hidden md:table-cell"></td>
+                            <td className="p-1.5 hidden md:table-cell"></td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-xs font-medium">{deptReg.toFixed(1)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-xs font-medium">{deptOT > 0 ? deptOT.toFixed(1) : "0.0"}</td>
+                            <td className="p-1.5 hidden md:table-cell"></td>
+                            <td className="p-1.5 hidden md:table-cell"></td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-xs font-medium text-green-700 dark:text-green-400">{formatCurrency(deptTips)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-xs font-semibold">{formatCurrency(deptGross)}</td>
+                            <td className="p-1.5"></td>
+                          </tr>,
+                        ];
+                      });
+                    })()}
                   </tbody>
                   {w2Employees.length > 0 && (
                     <tfoot>
