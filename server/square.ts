@@ -788,8 +788,8 @@ export async function syncSquareTimecards(startDate: string, endDate: string, lo
       }
 
       const jarvisUser = linkedBySquareId.get(teamMemberId)!;
-      const clockIn = tc.clockInAt ? new Date(tc.clockInAt) : null;
-      const clockOut = tc.clockOutAt ? new Date(tc.clockOutAt) : null;
+      const clockIn = (tc.startAt || tc.clockInAt) ? new Date(tc.startAt || tc.clockInAt) : null;
+      const clockOut = (tc.endAt || tc.clockOutAt) ? new Date(tc.endAt || tc.clockOutAt) : null;
       const status = clockOut ? "completed" : "active";
 
       if (!clockIn) {
