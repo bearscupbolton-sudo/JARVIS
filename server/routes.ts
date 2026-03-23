@@ -4105,6 +4105,10 @@ Rules:
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
+      const allItemsForScan = await db.select().from(inventoryItems);
+      const { buildAIMatchingContext } = await import("./item-matcher");
+      const inventoryContextScan = buildAIMatchingContext(allItemsForScan);
+
       const imageContent = imageList.map(img => ({
         type: "image_url" as const,
         image_url: {
@@ -4123,6 +4127,15 @@ Rules:
           {
             role: "system",
             content: `You are an expert invoice parser specializing in bakery and food-service supplier invoices. Extract ALL data from the invoice image${imageList.length > 1 ? "s" : ""}.${multiImageNote}
+
+ITEM DESCRIPTION MATCHING - VERY IMPORTANT:
+For each line item's "itemDescription", try to match it to our inventory list below. If you can identify which inventory item the invoice line refers to, use our inventory item name EXACTLY as the itemDescription. This helps us auto-link invoice items to our master list.
+- "BUTTER SHEETS NON AOP 83%" → if we have "Butter Sheets" in inventory, use "Butter Sheets (BUTTER SHEETS NON AOP 83%)"
+- "KA SIR LANCELOT BREAD FL 50#" → if we have "Sir Lancelot Flour" in inventory, use "Sir Lancelot Flour (KA SIR LANCELOT BREAD FL 50#)"
+- If no clear match exists, keep the original description from the invoice.
+
+OUR INVENTORY ITEMS:
+${inventoryContextScan}
 
 IMPORTANT GUIDELINES:
 - This is a bakery invoice. Common suppliers include food distributors, dairy, flour mills, packaging, and produce vendors.
@@ -4144,7 +4157,7 @@ Return a JSON object with this exact structure:
   "notes": "string or null - include tax, delivery fees, special notes here",
   "lines": [
     {
-      "itemDescription": "string - item name/description exactly as shown on invoice",
+      "itemDescription": "string - use our inventory name if matched, with original in parentheses",
       "quantity": number,
       "unit": "string or null - full word preferred (case, pound, each, box, bag, dozen, etc.)",
       "unitPrice": number or null,
@@ -12571,6 +12584,10 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
           baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
         });
 
+        const allItemsForAI = await db.select().from(inventoryItems);
+        const { buildAIMatchingContext } = await import("./item-matcher");
+        const inventoryContext = buildAIMatchingContext(allItemsForAI);
+
         const systemPrompt = `You are an expert invoice parser for Bear's Cup Bakehouse. Extract ALL data from the invoice content provided.
 
 CRITICAL RULES:
@@ -12578,8 +12595,19 @@ CRITICAL RULES:
 - Every line item MUST have a lineTotal. If lineTotal is not shown, calculate it as quantity × unitPrice.
 - invoiceNumber is REQUIRED. Look for "Invoice #", "Invoice No", "Document #", "Ref #", or similar.
 
+ITEM DESCRIPTION MATCHING - VERY IMPORTANT:
+For each line item's "itemDescription", try to match it to our inventory list below. If you can identify which inventory item the invoice line refers to, use our inventory item name EXACTLY as the itemDescription. This helps us auto-link invoice items to our master list.
+- "BUTTER SHEETS NON AOP 83%" → if we have "Butter Sheets" in inventory, use "Butter Sheets"
+- "KA SIR LANCELOT BREAD FL 50#" → if we have "Sir Lancelot Flour" in inventory, use "Sir Lancelot Flour"
+- "SPC KOSHER SALT 12/3 LB" → if we have "Kosher Salt" in inventory, use "Kosher Salt"
+- If no clear match exists, keep the original description from the invoice.
+- Also include the original vendor description in parentheses if you change it: "Butter Sheets (BUTTER SHEETS NON AOP 83%)"
+
+OUR INVENTORY ITEMS:
+${inventoryContext}
+
 IMPORTANT GUIDELINES:
-- Common suppliers: Chefs' Warehouse, Sysco, BakeMark, Copper Horse Coffee, PFG, Noissue
+- Common suppliers: Chefs' Warehouse, Sysco, BakeMark, Copper Horse Coffee, PFG, Noissue, Ecoware, Harney & Sons, Noble Gas Solutions, Amazon
 - Recognize unit abbreviations: cs=case, ea=each, bx=box, bg=bag, pk=pack, dz=dozen, lb=pound, oz=ounce, gal=gallon, ct=count
 - Tax, delivery fees, fuel surcharges = capture in "notes" NOT as line items, but DO include them in the invoiceTotal
 - If unclear, append "(?)" to that field value
@@ -12716,13 +12744,7 @@ Return JSON:
       }
 
       const allItems = await db.select().from(inventoryItems);
-      const nameMap = new Map<string, typeof allItems[0]>();
-      for (const item of allItems) {
-        nameMap.set(item.name.toLowerCase(), item);
-        if (item.aliases) {
-          for (const alias of item.aliases) nameMap.set(alias.toLowerCase(), item);
-        }
-      }
+      const { findBestMatch } = await import("./item-matcher");
 
       const lines = Array.isArray(invoiceData.lines) ? invoiceData.lines : [];
 
@@ -12737,6 +12759,7 @@ Return JSON:
 
         let matchedLines = 0;
         let unmatchedLines = 0;
+        const matchDetails: { desc: string; matchedTo: string | null; confidence: number; method: string }[] = [];
 
         for (const line of lines) {
           const desc = String(line.itemDescription || "Unknown item").slice(0, 500);
@@ -12744,8 +12767,26 @@ Return JSON:
           const uPrice = typeof line.unitPrice === "number" ? line.unitPrice : (parseFloat(line.unitPrice) || null);
           const lTotal = typeof line.lineTotal === "number" ? line.lineTotal : (parseFloat(line.lineTotal) || (qty && uPrice ? qty * uPrice : null));
 
-          const matched = nameMap.get(desc.toLowerCase());
-          const inventoryItemId = matched?.id || null;
+          const matchResult = findBestMatch(desc, allItems);
+          const inventoryItemId = matchResult?.item.id || null;
+
+          matchDetails.push({
+            desc,
+            matchedTo: matchResult ? matchResult.item.name : null,
+            confidence: matchResult?.confidence || 0,
+            method: matchResult?.method || "none",
+          });
+
+          if (matchResult && matchResult.confidence < 0.7 && matchResult.item.aliases) {
+            const descNorm = desc.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+            const alreadyAlias = matchResult.item.aliases.some(a => a.toLowerCase() === descNorm);
+            if (!alreadyAlias) {
+              const newAliases = [...matchResult.item.aliases, desc.slice(0, 200)];
+              await tx.update(inventoryItems)
+                .set({ aliases: newAliases })
+                .where(eq(inventoryItems.id, matchResult.item.id));
+            }
+          }
 
           await tx.insert(invoiceLines).values({
             invoiceId: inserted.id,
@@ -12767,7 +12808,7 @@ Return JSON:
           }
         }
 
-        return { invoiceId: inserted.id, matchedLines, unmatchedLines };
+        return { invoiceId: inserted.id, matchedLines, unmatchedLines, matchDetails };
       });
 
       res.json({
