@@ -12518,10 +12518,15 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
 
         const systemPrompt = `You are an expert invoice parser for Bear's Cup Bakehouse. Extract ALL data from the invoice content provided.
 
+CRITICAL RULES:
+- invoiceTotal is REQUIRED. Look for "Total", "Invoice Total", "Amount Due", "Balance Due", "Grand Total", "Net Amount", or similar. If you cannot find an explicit total, SUM all line item totals and use that.
+- Every line item MUST have a lineTotal. If lineTotal is not shown, calculate it as quantity × unitPrice.
+- invoiceNumber is REQUIRED. Look for "Invoice #", "Invoice No", "Document #", "Ref #", or similar.
+
 IMPORTANT GUIDELINES:
 - Common suppliers: Chefs' Warehouse, Sysco, BakeMark, Copper Horse Coffee, PFG, Noissue
 - Recognize unit abbreviations: cs=case, ea=each, bx=box, bg=bag, pk=pack, dz=dozen, lb=pound, oz=ounce, gal=gallon, ct=count
-- Tax, delivery fees, fuel surcharges = capture in "notes" NOT as line items
+- Tax, delivery fees, fuel surcharges = capture in "notes" NOT as line items, but DO include them in the invoiceTotal
 - If unclear, append "(?)" to that field value
 - Prices: numbers only, no currency symbols
 
@@ -12529,10 +12534,10 @@ Return JSON:
 {
   "vendorName": "string",
   "invoiceDate": "YYYY-MM-DD",
-  "invoiceNumber": "string or null",
-  "invoiceTotal": number or null,
-  "notes": "string or null",
-  "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number or null }]
+  "invoiceNumber": "string - NEVER null, always find it",
+  "invoiceTotal": number - NEVER null, always calculate if not found,
+  "notes": "string or null - include tax/fees breakdown here",
+  "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number - NEVER null }]
 }`;
 
         const userContent: any[] = [
@@ -12577,7 +12582,7 @@ Return JSON:
           messages: [
             {
               role: "system",
-              content: `Extract invoice data from this email body. Return JSON: { "vendorName": "string", "invoiceDate": "YYYY-MM-DD", "invoiceNumber": "string or null", "invoiceTotal": number or null, "notes": "string or null", "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number or null }] }`
+              content: `Extract invoice data from this email body. invoiceTotal is CRITICAL — look for "Total", "Amount Due", "Balance Due", etc. If not found, sum all line totals. Every line must have a lineTotal (calculate as qty × price if missing). Return JSON: { "vendorName": "string", "invoiceDate": "YYYY-MM-DD", "invoiceNumber": "string - always find it", "invoiceTotal": number - NEVER null, "notes": "string or null", "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number }] }`
             },
             { role: "user", content: `Email from: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 10000)}` }
           ],
@@ -12595,6 +12600,25 @@ Return JSON:
 
       if (!invoiceData) {
         return res.json({ success: false, message: "Could not extract invoice data from this email" });
+      }
+
+      if (Array.isArray(invoiceData.lines)) {
+        for (const line of invoiceData.lines) {
+          if (line.lineTotal == null && line.quantity && line.unitPrice) {
+            line.lineTotal = Math.round(line.quantity * line.unitPrice * 100) / 100;
+          }
+        }
+      }
+
+      if (invoiceData.invoiceTotal == null || invoiceData.invoiceTotal === 0) {
+        const lineSum = (invoiceData.lines || []).reduce((sum: number, l: any) => {
+          const lt = typeof l.lineTotal === 'number' ? l.lineTotal : parseFloat(l.lineTotal) || 0;
+          return sum + lt;
+        }, 0);
+        if (lineSum > 0) {
+          invoiceData.invoiceTotal = Math.round(lineSum * 100) / 100;
+          invoiceData.notes = (invoiceData.notes || '') + (invoiceData.notes ? ' | ' : '') + 'Total calculated from line items';
+        }
       }
 
       invoiceData.emailId = messageId;
