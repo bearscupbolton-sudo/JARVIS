@@ -58,6 +58,8 @@ PFG_SFTP_HOST = "ecomm.pfgc.com"
 PFG_SFTP_PORT = "22"
 PFG_SFTP_USERNAME = "zzBEARSCUP"
 PFG_OPCO = "170"
+GOOGLE_CLIENT_ID = "394490152904-surscnusl5bmoksgj3oecgsm0suigu74.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
 
 [postMerge]
 path = "scripts/post-merge.sh"
