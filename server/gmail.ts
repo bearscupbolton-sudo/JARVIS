@@ -179,6 +179,138 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
   };
 }
 
+export interface AttachmentInfo {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
+function findAttachments(payload: any): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.filename && part.body?.attachmentId) {
+        attachments.push({
+          attachmentId: part.body.attachmentId,
+          filename: part.filename,
+          mimeType: part.mimeType || 'application/octet-stream',
+          size: part.body.size || 0,
+        });
+      }
+      if (part.parts) {
+        attachments.push(...findAttachments(part));
+      }
+    }
+  }
+  return attachments;
+}
+
+export async function getEmailWithAttachmentInfo(messageId: string): Promise<EmailMessage & { body: string; attachments: AttachmentInfo[] }> {
+  const gmail = await getGmailClient();
+  const detail = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+  const headers = detail.data.payload?.headers || [];
+  const body = extractBody(detail.data.payload);
+  const attachments = findAttachments(detail.data.payload);
+
+  return {
+    id: detail.data.id || '',
+    threadId: detail.data.threadId || '',
+    from: getHeader(headers, 'From'),
+    to: getHeader(headers, 'To'),
+    subject: getHeader(headers, 'Subject'),
+    date: getHeader(headers, 'Date'),
+    snippet: detail.data.snippet || '',
+    body,
+    labels: detail.data.labelIds || [],
+    attachments,
+  };
+}
+
+export async function downloadAttachment(messageId: string, attachmentId: string): Promise<Buffer> {
+  const gmail = await getGmailClient();
+  const res = await gmail.users.messages.attachments.get({
+    userId: 'me',
+    messageId,
+    id: attachmentId,
+  });
+  const data = res.data.data || '';
+  return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
+export const VENDOR_EMAIL_RULES = [
+  {
+    vendor: "The Chefs' Warehouse",
+    fromFilter: "from:chefswarehouse.com",
+    subjectKeywords: ["Final Invoice", "Credit Memo"],
+    hasAttachment: true,
+  },
+  {
+    vendor: "Sysco",
+    fromFilter: "from:sysco.com",
+    subjectKeywords: ["Order Allocated", "Invoice"],
+    hasAttachment: true,
+  },
+  {
+    vendor: "Copper Horse Coffee",
+    fromFilter: "from:quickbooks@notification.intuit.com subject:\"Copper Horse\"",
+    subjectKeywords: ["Invoice"],
+    hasAttachment: true,
+  },
+  {
+    vendor: "BakeMark",
+    fromFilter: "from:bakemark.com",
+    subjectKeywords: ["Order Confirmation", "Invoice"],
+    hasAttachment: true,
+  },
+  {
+    vendor: "Noissue",
+    fromFilter: "from:noissue.co",
+    subjectKeywords: ["order"],
+    hasAttachment: false,
+  },
+];
+
+export async function scanGmailForInvoices(daysBack: number = 7): Promise<{
+  vendor: string;
+  emails: (EmailMessage & { attachments: AttachmentInfo[] })[];
+}[]> {
+  const afterDate = new Date();
+  afterDate.setDate(afterDate.getDate() - daysBack);
+  const afterStr = `${afterDate.getFullYear()}/${String(afterDate.getMonth() + 1).padStart(2, '0')}/${String(afterDate.getDate()).padStart(2, '0')}`;
+
+  const results: { vendor: string; emails: (EmailMessage & { attachments: AttachmentInfo[] })[] }[] = [];
+
+  for (const rule of VENDOR_EMAIL_RULES) {
+    try {
+      const query = `${rule.fromFilter} after:${afterStr}`;
+      const { messages } = await listEmails(query, 10);
+
+      const enriched: (EmailMessage & { attachments: AttachmentInfo[] })[] = [];
+      for (const msg of messages) {
+        try {
+          const full = await getEmailWithAttachmentInfo(msg.id);
+          if (rule.subjectKeywords.length > 0) {
+            const subjectLower = full.subject.toLowerCase();
+            const matches = rule.subjectKeywords.some(kw => subjectLower.includes(kw.toLowerCase()));
+            if (!matches) continue;
+          }
+          if (rule.hasAttachment && full.attachments.length === 0) continue;
+          enriched.push(full);
+        } catch (e) {
+          console.warn(`[Gmail] Error fetching message ${msg.id} for ${rule.vendor}:`, e);
+        }
+      }
+      results.push({ vendor: rule.vendor, emails: enriched });
+    } catch (e) {
+      console.warn(`[Gmail] Error scanning ${rule.vendor}:`, e);
+      results.push({ vendor: rule.vendor, emails: [] });
+    }
+  }
+
+  return results;
+}
+
 export async function getLabels(): Promise<{ id: string; name: string; type: string }[]> {
   const gmail = await getGmailClient();
   const res = await gmail.users.labels.list({ userId: 'me' });

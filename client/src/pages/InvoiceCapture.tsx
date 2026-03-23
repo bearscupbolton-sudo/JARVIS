@@ -30,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import {
   ArrowLeft, Plus, Trash2, FileText, CheckCircle2, AlertCircle,
   Loader2, Camera, Upload, X, ScanLine, Pencil, DollarSign, Link2, PackagePlus, FileUp,
-  ChevronDown, ChevronUp, Search, Eye
+  ChevronDown, ChevronUp, Search, Eye, Mail
 } from "lucide-react";
 import type { Invoice, InvoiceLine, InventoryItem } from "@shared/schema";
 
@@ -189,6 +189,190 @@ function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }
               <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowAll(true)} data-testid="button-show-all-invoices">
                 Show all {sorted.length} invoices
               </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GmailInvoiceScanner({ onImported }: { onImported: () => void }) {
+  const { toast } = useToast();
+  const [scanning, setScanning] = useState(false);
+  const [daysBack, setDaysBack] = useState(7);
+  const [scanResults, setScanResults] = useState<any[]>([]);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+
+  async function doScan() {
+    setScanning(true);
+    try {
+      const res = await apiRequest("GET", `/api/gmail/scan-invoices?days=${daysBack}`);
+      const data = await res.json();
+      if (data.success) {
+        setScanResults(data.results);
+        const totalEmails = data.results.reduce((s: number, r: any) => s + r.emails.length, 0);
+        toast({ title: "Gmail Scan Complete", description: `Found ${totalEmails} email(s) across ${data.results.length} vendor(s)` });
+      }
+    } catch (err: any) {
+      toast({ title: "Scan Failed", description: err.message, variant: "destructive" });
+    }
+    setScanning(false);
+  }
+
+  async function processEmail(messageId: string) {
+    setProcessingId(messageId);
+    try {
+      const res = await apiRequest("POST", "/api/gmail/process-invoice", { messageId });
+      const data = await res.json();
+      if (data.success) {
+        setPreviewData(data.invoiceData);
+        toast({ title: "Invoice Extracted", description: `${data.invoiceData.vendorName} - ${data.invoiceData.lines?.length || 0} line items` });
+      } else {
+        toast({ title: "Extraction Failed", description: data.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+    setProcessingId(null);
+  }
+
+  async function importInvoice() {
+    if (!previewData) return;
+    setImporting(true);
+    try {
+      const res = await apiRequest("POST", "/api/gmail/import-invoice", { invoiceData: previewData });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: "Invoice Imported", description: data.message });
+        setPreviewData(null);
+        onImported();
+      } else {
+        toast({ title: data.duplicate ? "Already Imported" : "Import Failed", description: data.message, variant: data.duplicate ? "default" : "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+    setImporting(false);
+  }
+
+  return (
+    <Card data-testid="card-gmail-scanner">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Mail className="w-5 h-5" />
+          Gmail Invoice Scanner
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" onClick={doScan} disabled={scanning} data-testid="button-gmail-scan">
+            {scanning ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+            Scan Gmail
+          </Button>
+          <select
+            className="h-8 text-sm border rounded-md px-2 bg-background"
+            value={daysBack}
+            onChange={e => setDaysBack(parseInt(e.target.value))}
+            data-testid="select-gmail-days"
+          >
+            <option value={3}>Last 3 days</option>
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Searches: Chefs' Warehouse, Sysco, Copper Horse Coffee, BakeMark, Noissue
+        </p>
+
+        {scanResults.length > 0 && !previewData && (
+          <div className="space-y-3">
+            {scanResults.map((group: any, gi: number) => (
+              group.emails.length > 0 && (
+                <div key={gi}>
+                  <p className="text-sm font-semibold mb-1">{group.vendor} <Badge variant="outline" className="text-xs ml-1">{group.emails.length}</Badge></p>
+                  <div className="space-y-1">
+                    {group.emails.map((email: any, ei: number) => (
+                      <div key={ei} className="flex items-center gap-2 p-2 rounded-md border text-sm" data-testid={`gmail-email-${gi}-${ei}`}>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-xs truncate">{email.subject}</p>
+                          <p className="text-[11px] text-muted-foreground">{email.date} · {email.attachments?.length || 0} attachment(s)</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => processEmail(email.id)}
+                          disabled={processingId === email.id}
+                          data-testid={`button-process-${gi}-${ei}`}
+                        >
+                          {processingId === email.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
+                          Extract
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
+        )}
+
+        {previewData && (
+          <div className="space-y-3 border rounded-md p-3 bg-muted/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-sm">{previewData.vendorName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {previewData.invoiceDate}
+                  {previewData.invoiceNumber && ` · #${previewData.invoiceNumber}`}
+                  {previewData.invoiceTotal != null && ` · $${Number(previewData.invoiceTotal).toFixed(2)}`}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" onClick={importInvoice} disabled={importing} data-testid="button-gmail-import">
+                  {importing ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                  Import
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPreviewData(null)} data-testid="button-gmail-cancel">
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+
+            {previewData.lines?.length > 0 && (
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-1.5">Item</th>
+                      <th className="text-right p-1.5 w-12">Qty</th>
+                      <th className="text-left p-1.5 w-10">Unit</th>
+                      <th className="text-right p-1.5 w-16">Price</th>
+                      <th className="text-right p-1.5 w-16">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {previewData.lines.map((line: any, i: number) => (
+                      <tr key={i} data-testid={`gmail-line-${i}`}>
+                        <td className="p-1.5 truncate max-w-[180px]">{line.itemDescription}</td>
+                        <td className="p-1.5 text-right tabular-nums">{line.quantity}</td>
+                        <td className="p-1.5 text-muted-foreground">{line.unit || ""}</td>
+                        <td className="p-1.5 text-right tabular-nums">{line.unitPrice != null ? `$${Number(line.unitPrice).toFixed(2)}` : "—"}</td>
+                        <td className="p-1.5 text-right tabular-nums font-medium">{line.lineTotal != null ? `$${Number(line.lineTotal).toFixed(2)}` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {previewData.notes && (
+              <p className="text-xs text-muted-foreground">{previewData.notes}</p>
             )}
           </div>
         )}
@@ -1057,6 +1241,13 @@ export default function InvoiceCapture() {
           </div>
         </div>
       )}
+
+      <GmailInvoiceScanner onImported={() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+      }} />
+
+      {scanMode !== "review" && <InvoiceHistorySection invoiceHistory={invoiceHistory} />}
 
       <Dialog open={createItemForLine !== null} onOpenChange={(open) => { if (!open) setCreateItemForLine(null); }}>
         <DialogContent className="max-w-md" data-testid="dialog-create-item">

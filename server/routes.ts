@@ -12442,6 +12442,247 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
     }
   });
 
+  app.get("/api/gmail/scan-invoices", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { scanGmailForInvoices } = await import("./gmail");
+      const daysBack = parseInt(req.query.days as string) || 7;
+      const results = await scanGmailForInvoices(daysBack);
+      res.json({ success: true, results });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, results: [] });
+    }
+  });
+
+  app.post("/api/gmail/process-invoice", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { getEmailWithAttachmentInfo, downloadAttachment } = await import("./gmail");
+      const { messageId } = req.body;
+      if (!messageId) return res.status(400).json({ success: false, message: "messageId required" });
+
+      const email = await getEmailWithAttachmentInfo(messageId);
+      const pdfAttachments = email.attachments.filter(a =>
+        a.mimeType === 'application/pdf' ||
+        a.filename.toLowerCase().endsWith('.pdf')
+      );
+      const imageAttachments = email.attachments.filter(a =>
+        a.mimeType.startsWith('image/') ||
+        /\.(png|jpg|jpeg|gif|webp|tiff?)$/i.test(a.filename)
+      );
+
+      const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+      const MAX_ATTACHMENTS = 5;
+      const attachmentsToProcess = (pdfAttachments.length > 0 ? pdfAttachments : imageAttachments)
+        .filter(a => a.size <= MAX_ATTACHMENT_SIZE)
+        .slice(0, MAX_ATTACHMENTS);
+
+      let invoiceData: any = null;
+
+      if (attachmentsToProcess.length > 0) {
+        const images: string[] = [];
+        for (const att of attachmentsToProcess) {
+          const buffer = await downloadAttachment(messageId, att.attachmentId);
+          if (att.mimeType === 'application/pdf' || att.filename.toLowerCase().endsWith('.pdf')) {
+            const base64 = buffer.toString('base64');
+            images.push(`data:application/pdf;base64,${base64}`);
+          } else {
+            const base64 = buffer.toString('base64');
+            images.push(`data:${att.mimeType};base64,${base64}`);
+          }
+        }
+
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
+
+        const imageContent = images.map(img => ({
+          type: "image_url" as const,
+          image_url: { url: img }
+        }));
+
+        const response = await withRetry(() => openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_completion_tokens: 8192,
+          messages: [
+            {
+              role: "system",
+              content: `You are an expert invoice parser for Bear's Cup Bakehouse. Extract ALL data from the attached invoice document(s).
+
+IMPORTANT GUIDELINES:
+- Common suppliers: Chefs' Warehouse, Sysco, BakeMark, Copper Horse Coffee, PFG, Noissue
+- Recognize unit abbreviations: cs=case, ea=each, bx=box, bg=bag, pk=pack, dz=dozen, lb=pound, oz=ounce, gal=gallon, ct=count
+- Tax, delivery fees, fuel surcharges = capture in "notes" NOT as line items
+- If unclear, append "(?)" to that field value
+- Prices: numbers only, no currency symbols
+
+Return JSON:
+{
+  "vendorName": "string",
+  "invoiceDate": "YYYY-MM-DD",
+  "invoiceNumber": "string or null",
+  "invoiceTotal": number or null,
+  "notes": "string or null",
+  "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number or null }]
+}`
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `Parse this invoice from email "${email.subject}" sent by ${email.from}. Extract all line items.` },
+                ...imageContent,
+              ]
+            }
+          ],
+          response_format: { type: "json_object" },
+        }), "gmail-invoice-scan");
+
+        const content = response.choices[0]?.message?.content;
+        if (content) {
+          try {
+            invoiceData = JSON.parse(content);
+          } catch {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) invoiceData = JSON.parse(jsonMatch[0]);
+          }
+        }
+      } else if (email.body) {
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
+
+        const response = await withRetry(() => openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_completion_tokens: 8192,
+          messages: [
+            {
+              role: "system",
+              content: `Extract invoice data from this email body. Return JSON: { "vendorName": "string", "invoiceDate": "YYYY-MM-DD", "invoiceNumber": "string or null", "invoiceTotal": number or null, "notes": "string or null", "lines": [{ "itemDescription": "string", "quantity": number, "unit": "string or null", "unitPrice": number or null, "lineTotal": number or null }] }`
+            },
+            { role: "user", content: `Email from: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 10000)}` }
+          ],
+          response_format: { type: "json_object" },
+        }), "gmail-invoice-body-scan");
+
+        const content = response.choices[0]?.message?.content;
+        if (content) {
+          try { invoiceData = JSON.parse(content); } catch {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) invoiceData = JSON.parse(jsonMatch[0]);
+          }
+        }
+      }
+
+      if (!invoiceData) {
+        return res.json({ success: false, message: "Could not extract invoice data from this email" });
+      }
+
+      invoiceData.emailId = messageId;
+      invoiceData.emailSubject = email.subject;
+      invoiceData.emailFrom = email.from;
+      invoiceData.emailDate = email.date;
+      invoiceData.attachmentCount = email.attachments.length;
+
+      res.json({ success: true, invoiceData });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post("/api/gmail/import-invoice", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { invoiceData } = req.body;
+      if (!invoiceData) return res.status(400).json({ success: false, message: "invoiceData required" });
+
+      const vendorName = String(invoiceData.vendorName || "Unknown").slice(0, 200);
+      const invoiceDate = String(invoiceData.invoiceDate || new Date().toISOString().split("T")[0]).slice(0, 10);
+      const invoiceNumber = invoiceData.invoiceNumber ? String(invoiceData.invoiceNumber).slice(0, 100) : null;
+      const invoiceTotal = typeof invoiceData.invoiceTotal === "number" ? invoiceData.invoiceTotal : (parseFloat(invoiceData.invoiceTotal) || null);
+      const emailId = invoiceData.emailId ? String(invoiceData.emailId) : null;
+
+      if (invoiceNumber) {
+        const existingInvoice = await db.select({ id: invoices.id }).from(invoices)
+          .where(eq(invoices.invoiceNumber, invoiceNumber)).limit(1);
+        if (existingInvoice.length > 0) {
+          return res.json({ success: false, message: `Invoice #${invoiceNumber} already exists`, duplicate: true });
+        }
+      }
+
+      if (emailId) {
+        const existingByEmail = await db.select({ id: invoices.id }).from(invoices)
+          .where(sql`${invoices.notes} LIKE ${'%' + emailId + '%'}`).limit(1);
+        if (existingByEmail.length > 0) {
+          return res.json({ success: false, message: `This email has already been imported`, duplicate: true });
+        }
+      }
+
+      const allItems = await db.select().from(inventoryItems);
+      const nameMap = new Map<string, typeof allItems[0]>();
+      for (const item of allItems) {
+        nameMap.set(item.name.toLowerCase(), item);
+        if (item.aliases) {
+          for (const alias of item.aliases) nameMap.set(alias.toLowerCase(), item);
+        }
+      }
+
+      const lines = Array.isArray(invoiceData.lines) ? invoiceData.lines : [];
+
+      const result = await db.transaction(async (tx) => {
+        const [inserted] = await tx.insert(invoices).values({
+          vendorName,
+          invoiceDate,
+          invoiceNumber,
+          invoiceTotal,
+          notes: `Gmail import · ${invoiceData.emailSubject || ""} · emailId:${emailId || "none"} · ${new Date().toLocaleDateString()}`,
+        }).returning();
+
+        let matchedLines = 0;
+        let unmatchedLines = 0;
+
+        for (const line of lines) {
+          const desc = String(line.itemDescription || "Unknown item").slice(0, 500);
+          const qty = typeof line.quantity === "number" ? line.quantity : (parseFloat(line.quantity) || 0);
+          const uPrice = typeof line.unitPrice === "number" ? line.unitPrice : (parseFloat(line.unitPrice) || null);
+          const lTotal = typeof line.lineTotal === "number" ? line.lineTotal : (parseFloat(line.lineTotal) || (qty && uPrice ? qty * uPrice : null));
+
+          const matched = nameMap.get(desc.toLowerCase());
+          const inventoryItemId = matched?.id || null;
+
+          await tx.insert(invoiceLines).values({
+            invoiceId: inserted.id,
+            itemDescription: desc,
+            quantity: qty,
+            unit: line.unit ? String(line.unit).slice(0, 50) : null,
+            unitPrice: uPrice,
+            lineTotal: lTotal,
+            inventoryItemId,
+          });
+
+          if (inventoryItemId && uPrice && uPrice > 0) {
+            await tx.update(inventoryItems)
+              .set({ costPerUnit: uPrice, lastUpdatedCost: new Date() })
+              .where(eq(inventoryItems.id, inventoryItemId));
+            matchedLines++;
+          } else {
+            unmatchedLines++;
+          }
+        }
+
+        return { invoiceId: inserted.id, matchedLines, unmatchedLines };
+      });
+
+      res.json({
+        success: true,
+        ...result,
+        message: `Invoice from ${vendorName} imported: ${result.matchedLines} matched, ${result.unmatchedLines} unmatched`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.get("/api/gmail/labels", isAuthenticated, isOwner, async (_req, res) => {
     try {
       const { getLabels } = await import("./gmail");
