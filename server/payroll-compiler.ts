@@ -120,7 +120,17 @@ export async function compilePayroll(
     .from(users)
     .where(eq(users.locked, false));
 
+  const allTimeEntryUserIds = new Set(
+    (await db.select({ userId: timeEntries.userId }).from(timeEntries).where(
+      and(
+        lte(timeEntries.clockIn, periodEnd),
+        or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, periodStart)),
+      ),
+    )).map(e => e.userId)
+  );
+
   const activeUsers = allUsers.filter((u) => {
+    if (allTimeEntryUserIds.has(u.id)) return true;
     if (u.role !== "owner") return true;
     if (u.adpAssociateOID) return true;
     if (u.payType === "salary" && u.annualSalary) return true;
@@ -342,12 +352,26 @@ export async function compilePayroll(
         sickHours * rate;
     }
 
-    if (totalRegular === 0 && totalOvertime === 0 && vacationHours === 0 && sickHours === 0 && !isSalaried) {
+    const hasAnyHours = totalRegular > 0 || totalOvertime > 0 || vacationHours > 0 || sickHours > 0;
+    const hasSquareLink = !!user.squareTeamMemberId;
+    const hasRate = rate > 0 || isSalaried;
+
+    if (!hasAnyHours && !isSalaried && !hasSquareLink) {
       continue;
     }
 
-    if (isSalaried && !annualSalary && totalRegular === 0 && totalOvertime === 0) {
+    if (isSalaried && !annualSalary && !hasAnyHours) {
       continue;
+    }
+
+    if (!hasAnyHours && !isSalaried) {
+      flags.push({
+        type: "missing_clock_out" as const,
+        severity: "warning",
+        message: `${fullName} is linked but has no clock-ins this period`,
+        employeeId: user.id,
+        employeeName: fullName,
+      });
     }
 
     employees.push({
