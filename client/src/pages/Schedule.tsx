@@ -677,7 +677,8 @@ export default function Schedule() {
       }
       return;
     }
-    const dept = deptFilter !== "all" ? deptFilter : "kitchen";
+    const emp = members.find(m => m.id === userId);
+    const dept = deptFilter !== "all" ? deptFilter : (emp?.department || "kitchen");
     createShiftMutation.mutate({
       userId,
       shiftDate: dateStr,
@@ -698,7 +699,8 @@ export default function Schedule() {
   }
 
   function handlePresetClick(userId: string, dateStr: string, preset: ShiftPreset) {
-    const dept = deptFilter !== "all" ? deptFilter : "kitchen";
+    const emp = members.find(m => m.id === userId);
+    const dept = deptFilter !== "all" ? deptFilter : (emp?.department || "kitchen");
     createShiftMutation.mutate({
       userId,
       shiftDate: dateStr,
@@ -1010,7 +1012,7 @@ export default function Schedule() {
     if (!user?.id || !shiftsData) return [];
     const today = format(new Date(), "yyyy-MM-dd");
     return (shiftsData as Shift[])
-      .filter(s => s.userId === user.id && s.status === "assigned" && s.shiftDate >= today)
+      .filter(s => s.userId === user.id && (s.status === "assigned" || s.status === "posted") && s.shiftDate >= today)
       .sort((a, b) => a.shiftDate.localeCompare(b.shiftDate) || a.startTime.localeCompare(b.startTime));
   }, [shiftsData, user?.id]);
 
@@ -1253,7 +1255,12 @@ export default function Schedule() {
             </div>
           ) : (() => {
             const filteredShifts = (shiftsData || []).filter(s => {
-              if (deptFilter !== "all" && (s.department || "kitchen") !== deptFilter) return false;
+              if (deptFilter !== "all") {
+                const shiftDept = s.department || "kitchen";
+                const emp = members.find(m => m.id === s.userId);
+                const empDept = emp?.department;
+                if (shiftDept !== deptFilter && empDept !== deptFilter) return false;
+              }
               return true;
             });
 
