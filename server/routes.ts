@@ -4521,8 +4521,14 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${input.department || "kitchen"}` });
       }
       const isOpenShift = !input.userId;
+      let department = input.department;
+      if (input.userId && !department) {
+        const emp = await storage.getUser(input.userId);
+        if (emp?.department) department = emp.department;
+      }
       const shiftData = {
         ...input,
+        department: department || input.department,
         status: isOpenShift ? "open" : "assigned",
         createdBy: (req.appUser as any).id,
       };
@@ -4589,7 +4595,7 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
       const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() || null : null;
       const shift = await storage.getShiftById(shiftId);
       if (!shift) return res.status(404).json({ message: "Shift not found" });
-      if (shift.status !== "assigned") return res.status(400).json({ message: "Only assigned shifts can be released" });
+      if (shift.status !== "assigned" && shift.status !== "posted") return res.status(400).json({ message: "Only assigned or posted shifts can be released" });
       if (shift.userId !== userId) {
         const user = req.appUser as any;
         const canRelease = user.role === "owner" || user.isShiftManager || user.isGeneralManager;
