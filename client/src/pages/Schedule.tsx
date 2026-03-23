@@ -1283,7 +1283,7 @@ export default function Schedule() {
                   if (m.department && m.department !== deptFilter) return false;
                   if (!m.department) return false;
                 }
-                return true;
+                return shiftsByUser.has(m.id);
               })
               .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
 
