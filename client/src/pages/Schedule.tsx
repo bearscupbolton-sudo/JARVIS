@@ -505,10 +505,10 @@ export default function Schedule() {
       setUploadDialogOpen(false);
       setUploadPreview(null);
       setReplaceExisting(true);
-      const msg = data.duplicates > 0
-        ? `${data.created?.length || 0} shifts imported, ${data.duplicates} duplicates skipped`
-        : `${data.created?.length || 0} shifts imported successfully`;
-      toast({ title: "Schedule imported", description: msg });
+      const parts = [`${data.created?.length || 0} shifts imported`];
+      if (data.duplicates > 0) parts.push(`${data.duplicates} duplicates skipped`);
+      if (data.errors > 0) parts.push(`${data.errors} failed`);
+      toast({ title: "Schedule imported", description: parts.join(", ") });
     },
     onError: (e: Error) => toast({ title: "Failed to import schedule", description: e.message, variant: "destructive" }),
   });
@@ -793,7 +793,7 @@ export default function Schedule() {
       .filter(s => s.userId)
       .map(s => {
         const shiftDay = new Date(s.shiftDate + "T12:00:00");
-        const dayOfWeek = (shiftDay.getDay() + 6) % 7;
+        const dayOfWeek = (shiftDay.getDay() + 4) % 7;
         return {
           userId: s.userId!,
           dayOfWeek,
