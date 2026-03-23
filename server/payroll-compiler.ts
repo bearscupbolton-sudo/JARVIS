@@ -103,6 +103,18 @@ export async function compilePayroll(
   const periodStart = easternDayStart(startDate);
   const periodEnd = easternDayEnd(endDate);
 
+  try {
+    const { syncSquareTimecards } = await import("./square");
+    const syncResult = await syncSquareTimecards(startDate, endDate, locationId);
+    if (syncResult.success) {
+      console.log(`[Payroll] Square sync: ${syncResult.synced} new, ${syncResult.updated} updated, ${syncResult.skipped} skipped`);
+    } else {
+      console.warn(`[Payroll] Square sync warning: ${syncResult.error}`);
+    }
+  } catch (err: any) {
+    console.warn(`[Payroll] Square sync failed (non-fatal): ${err.message}`);
+  }
+
   const allUsers = await db
     .select()
     .from(users)
