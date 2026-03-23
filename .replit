@@ -60,6 +60,7 @@ PFG_SFTP_USERNAME = "zzBEARSCUP"
 PFG_OPCO = "170"
 GOOGLE_CLIENT_ID = "394490152904-surscnusl5bmoksgj3oecgsm0suigu74.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET = "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"
+GOOGLE_REFRESH_TOKEN = "1//04pCqU696VM1wCgYIARAAGAQSNwF-L9IrsyCkTnjLKbZ_-aqV4HL1EstFHNsmQauW9xBjF1OkekfZsFEQ7XC1qGH0QDsX-c8rfPs"
 
 [postMerge]
 path = "scripts/post-merge.sh"
