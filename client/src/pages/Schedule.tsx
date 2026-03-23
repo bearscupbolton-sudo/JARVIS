@@ -30,7 +30,7 @@ import {
   MessageSquare, ChefHat, Store, CakeSlice, MapPin, Send, Check,
   HandMetal, Upload, FileSpreadsheet, AlertTriangle, Coffee, UserPlus, Copy,
   Save, FolderOpen, StickyNote, Palette, Settings2, X, GripVertical, Download,
-  Wrench
+  Wrench, ArrowUpFromLine
 } from "lucide-react";
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, subDays } from "date-fns";
 
@@ -41,6 +41,12 @@ const DEPARTMENTS = [
   { value: "foh", label: "FOH", icon: Store, color: "text-blue-600 dark:text-blue-400" },
   { value: "bakery", label: "Bakery", icon: CakeSlice, color: "text-amber-700 dark:text-amber-400" },
   { value: "bar", label: "Bar", icon: Coffee, color: "text-purple-600 dark:text-purple-400" },
+] as const;
+
+const FOH_POSITIONS = [
+  { value: "bar", label: "Bar" },
+  { value: "reg", label: "Reg" },
+  { value: "expo", label: "Expo" },
 ] as const;
 
 function getDisplayName(member: TeamMember): string {
@@ -329,6 +335,8 @@ export default function Schedule() {
   const [openShiftPendingPreset, setOpenShiftPendingPreset] = useState<ShiftPreset | null>(null);
   const [pickupDialogShift, setPickupDialogShift] = useState<Shift | null>(null);
   const [pickupNote, setPickupNote] = useState("");
+  const [releaseDialogShift, setReleaseDialogShift] = useState<Shift | null>(null);
+  const [releaseReason, setReleaseReason] = useState("");
   const [shiftNoteDialogOpen, setShiftNoteDialogOpen] = useState(false);
   const [shiftNoteShift, setShiftNoteShift] = useState<Shift | null>(null);
   const [shiftNoteText, setShiftNoteText] = useState("");
@@ -474,6 +482,17 @@ export default function Schedule() {
       toast({ title: "Shift pickup denied" });
     },
     onError: (e: Error) => toast({ title: "Failed to deny", description: e.message, variant: "destructive" }),
+  });
+
+  const releaseShiftMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) => apiRequest("POST", `/api/shifts/${id}/release`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setReleaseDialogShift(null);
+      setReleaseReason("");
+      toast({ title: "Shift released to Shift Bank", description: "Team members can now pick it up" });
+    },
+    onError: (e: Error) => toast({ title: "Cannot release shift", description: e.message, variant: "destructive" }),
   });
 
   const bulkCreateShiftsMutation = useMutation({
@@ -1061,7 +1080,7 @@ export default function Schedule() {
           data-testid="button-tab-pickups"
         >
           <HandMetal className="w-4 h-4 mr-2" />
-          Shift Pickups
+          Shift Bank
           {(canManagePickups ? pendingPickups.length : myPendingClaims.length) > 0 && (
             <Badge variant="destructive" className="ml-2 text-[10px]" data-testid="badge-pending-pickups">
               {canManagePickups ? pendingPickups.length : myPendingClaims.length}
@@ -1382,6 +1401,16 @@ export default function Schedule() {
                                                     >
                                                       <Pencil className="w-2.5 h-2.5" />
                                                     </button>
+                                                    {shift.userId && shift.status === "assigned" && new Date(shift.shiftDate + "T00:00:00") >= new Date(new Date().toDateString()) && (
+                                                      <button
+                                                        className="text-[10px] text-emerald-600 dark:text-emerald-400 px-1 py-0.5"
+                                                        onClick={() => { setQuickModifyShift(null); setReleaseDialogShift(shift); setReleaseReason(""); }}
+                                                        data-testid={`button-release-shift-${shift.id}`}
+                                                        title="Release to Shift Bank"
+                                                      >
+                                                        <ArrowUpFromLine className="w-2.5 h-2.5" />
+                                                      </button>
+                                                    )}
                                                     {new Date(shift.shiftDate + "T23:59:59") < new Date() && shift.userId && (
                                                       <button
                                                         className="text-[10px] text-amber-600 dark:text-amber-400 px-1 py-0.5"
@@ -2004,7 +2033,7 @@ export default function Schedule() {
       {activeTab === "pickups" && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xl font-display font-bold">Shift Pickups</h2>
+            <h2 className="text-xl font-display font-bold">Shift Bank</h2>
             <p className="text-sm text-muted-foreground">
               {canManagePickups ? "Review and approve shift pickup requests" : "View available shifts and your pending requests"}
             </p>
@@ -2012,7 +2041,7 @@ export default function Schedule() {
 
           {openShifts.length > 0 && !canManagePickups && (
             <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Available Open Shifts</h3>
+              <h3 className="text-lg font-semibold">Available Shifts</h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {openShifts.map((shift) => (
                   <Card key={shift.id} className="border-dashed border-emerald-400/40 dark:border-emerald-600/30" data-testid={`card-open-shift-${shift.id}`}>
@@ -2186,6 +2215,74 @@ export default function Schedule() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!releaseDialogShift} onOpenChange={(open) => { if (!open) { setReleaseDialogShift(null); setReleaseReason(""); } }}>
+        <DialogContent className="max-w-sm" data-testid="dialog-release">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowUpFromLine className="w-5 h-5 text-emerald-600" />
+              Release Shift
+            </DialogTitle>
+          </DialogHeader>
+          {releaseDialogShift && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This will move the shift to the Shift Bank so other team members can pick it up.
+              </p>
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 border border-border">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{releaseDialogShift.shiftDate}</span>
+                  <Badge variant="secondary" className="capitalize">{releaseDialogShift.department || "kitchen"}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  <Clock className="w-3.5 h-3.5 inline mr-1" />
+                  {releaseDialogShift.startTime} – {releaseDialogShift.endTime}
+                </p>
+                {releaseDialogShift.position && (
+                  <p className="text-xs text-muted-foreground">Position: {releaseDialogShift.position}</p>
+                )}
+                {releaseDialogShift.userId && (
+                  <p className="text-xs text-muted-foreground">
+                    Assigned to: {getUserDisplayName(String(releaseDialogShift.userId), members)}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="release-reason">Reason (optional)</label>
+                <textarea
+                  id="release-reason"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+                  placeholder="Why is this shift being released?"
+                  rows={2}
+                  value={releaseReason}
+                  onChange={(e) => setReleaseReason(e.target.value)}
+                  data-testid="input-release-reason"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setReleaseDialogShift(null); setReleaseReason(""); }}
+                  data-testid="button-cancel-release"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  variant="default"
+                  onClick={() => releaseShiftMutation.mutate({ id: releaseDialogShift.id, reason: releaseReason || undefined })}
+                  disabled={releaseShiftMutation.isPending}
+                  data-testid="button-confirm-release"
+                >
+                  {releaseShiftMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4 mr-1" />}
+                  Release Shift
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={shiftDialogOpen} onOpenChange={(open) => { setShiftDialogOpen(open); if (!open) setConfirmDeleteShiftId(null); }}>
         <DialogContent data-testid="dialog-shift">
           <DialogHeader>
@@ -2318,19 +2415,39 @@ export default function Schedule() {
               <FormField
                 control={shiftForm.control}
                 name="position"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Position / Role (optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="e.g., Lead Baker, Cashier"
-                        data-testid="input-shift-position"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const dept = shiftForm.watch("department");
+                  const isFoh = dept === "foh" || dept === "bar";
+                  return (
+                    <FormItem>
+                      <FormLabel>Position / Role{isFoh ? "" : " (optional)"}</FormLabel>
+                      {isFoh ? (
+                        <Select value={field.value || ""} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-shift-position">
+                              <SelectValue placeholder="Select FOH position..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {FOH_POSITIONS.map(p => (
+                              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                            ))}
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., Lead Baker, Prep"
+                            data-testid="input-shift-position"
+                          />
+                        </FormControl>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
               <FormField
                 control={shiftForm.control}
