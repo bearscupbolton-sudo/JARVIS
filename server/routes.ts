@@ -12395,6 +12395,63 @@ Consider: seasonal relevance, time of day, customer psychology, visual flow betw
     }
   });
 
+  // === GMAIL INTEGRATION ===
+  app.get("/api/gmail/profile", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { getProfile } = await import("./gmail");
+      const profile = await getProfile();
+      res.json({ success: true, ...profile });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get("/api/gmail/messages", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { listEmails } = await import("./gmail");
+      const query = req.query.q as string | undefined;
+      const maxResults = parseInt(req.query.maxResults as string) || 20;
+      const result = await listEmails(query, maxResults);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, messages: [] });
+    }
+  });
+
+  app.get("/api/gmail/messages/:id", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { getEmail } = await import("./gmail");
+      const email = await getEmail(req.params.id);
+      res.json({ success: true, ...email });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post("/api/gmail/send", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { sendEmail } = await import("./gmail");
+      const { to, subject, body, cc, bcc, replyToMessageId } = req.body;
+      if (!to || !subject || !body) {
+        return res.status(400).json({ success: false, message: "to, subject, and body are required" });
+      }
+      const result = await sendEmail({ to, subject, body, cc, bcc, replyToMessageId });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get("/api/gmail/labels", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { getLabels } = await import("./gmail");
+      const labels = await getLabels();
+      res.json({ success: true, labels });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message, labels: [] });
+    }
+  });
+
   app.post("/api/pfg/push-order", isAuthenticated, isOwner, async (req, res) => {
     try {
       const { pushPfgOrder } = await import("./pfg-sftp");
