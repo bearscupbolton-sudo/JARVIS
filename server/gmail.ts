@@ -263,6 +263,12 @@ export const VENDOR_EMAIL_RULES = [
     subjectKeywords: ["Delivery Receipt"],
     hasAttachment: true,
   },
+  {
+    vendor: "Amazon",
+    fromFilter: "from:auto-confirm@amazon.com",
+    subjectKeywords: ["Ordered"],
+    hasAttachment: false,
+  },
 ];
 
 export async function scanGmailForInvoices(daysBack: number = 7): Promise<{
