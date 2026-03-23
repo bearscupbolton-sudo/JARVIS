@@ -1516,13 +1516,14 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                     <th className="text-right p-3 font-medium">Reg Hrs</th>
                     <th className="text-right p-3 font-medium">OT Hrs</th>
                     <th className="text-right p-3 font-medium hidden md:table-cell">Rate</th>
+                    <th className="text-right p-3 font-medium hidden md:table-cell">True Rate</th>
                     <th className="text-right p-3 font-medium">Tips</th>
                     <th className="text-right p-3 font-medium">Gross</th>
                     <th className="p-3 w-8"></th>
                   </tr></thead>
                   <tbody>
                     {compiled.employees.length === 0 ? (
-                      <tr><td colSpan={9} className="p-8 text-center text-muted-foreground italic">No employees with hours or salary in this period</td></tr>
+                      <tr><td colSpan={10} className="p-8 text-center text-muted-foreground italic">No employees with hours or salary in this period</td></tr>
                     ) : [...compiled.employees]
                       .sort((a, b) => b.grossEstimate - a.grossEstimate)
                       .map(emp => {
@@ -1574,6 +1575,16 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                                 : <span>{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>
                               }
                             </td>
+                            <td className="p-3 text-right tabular-nums text-xs hidden md:table-cell" data-testid={`true-rate-${emp.userId}`}>
+                              {(() => {
+                                const totalHrs = emp.regularHours + emp.overtimeHours;
+                                if (totalHrs <= 0 || emp.payType === "salary") return <span className="text-muted-foreground">—</span>;
+                                if (emp.tips <= 0) return <span className="text-muted-foreground">{formatCurrency(emp.hourlyRate)}<span className="text-muted-foreground">/hr</span></span>;
+                                const baseWages = (emp.regularHours * emp.hourlyRate) + (emp.overtimeHours * emp.hourlyRate * 1.5);
+                                const trueRate = (baseWages + emp.tips) / totalHrs;
+                                return <span className="text-blue-600 dark:text-blue-400 font-medium" title={`Base wages ${formatCurrency(baseWages)} + Tips ${formatCurrency(emp.tips)} / ${totalHrs.toFixed(1)} hrs`}>{formatCurrency(trueRate)}<span className="text-muted-foreground">/hr</span></span>;
+                              })()}
+                            </td>
                             <td className="p-3 text-right tabular-nums">
                               {emp.tips > 0 ? (
                                 <span className="text-green-700 dark:text-green-400">{formatCurrency(emp.tips)}</span>
@@ -1598,26 +1609,27 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
                         <td className="p-3 text-right tabular-nums">{compiled.totals.regularHours.toFixed(1)}</td>
                         <td className="p-3 text-right tabular-nums">{compiled.totals.overtimeHours > 0 ? compiled.totals.overtimeHours.toFixed(1) : "0.0"}</td>
                         <td className="p-3 hidden md:table-cell"></td>
+                        <td className="p-3 hidden md:table-cell"></td>
                         <td className="p-3 text-right tabular-nums text-green-700 dark:text-green-400">{formatCurrency(compiled.totals.tips)}</td>
                         <td className="p-3 text-right tabular-nums">{formatCurrency(compiled.totals.grossEstimate)}</td>
                         <td className="p-3"></td>
                       </tr>
                       <tr className="bg-muted/10 text-xs" data-testid="row-adp-w2-total">
-                        <td className="px-3 py-1.5" colSpan={7}>
+                        <td className="px-3 py-1.5" colSpan={8}>
                           <span className="text-muted-foreground">ADP W-2 Total</span>
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(compiled.totals.adpW2Gross)}</td>
                         <td className="px-3 py-1.5"></td>
                       </tr>
                       <tr className="bg-muted/10 text-xs" data-testid="row-cash-total">
-                        <td className="px-3 py-1.5" colSpan={7}>
+                        <td className="px-3 py-1.5" colSpan={8}>
                           <span className="text-muted-foreground">Cash Employee Total</span>
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums font-medium text-emerald-700 dark:text-emerald-400">{formatCurrency(compiled.totals.cashGross)}</td>
                         <td className="px-3 py-1.5"></td>
                       </tr>
                       <tr className="bg-muted/10 text-xs border-t" data-testid="row-net-total">
-                        <td className="px-3 py-1.5" colSpan={7}>
+                        <td className="px-3 py-1.5" colSpan={8}>
                           <span className="font-semibold">Net Total (ADP + Cash)</span>
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums font-bold">{formatCurrency(compiled.totals.grossEstimate)}</td>
