@@ -475,6 +475,20 @@ export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 
+// === REGIONAL PRICING ===
+export const regionalPricing = pgTable("regional_pricing", {
+  id: serial("id").primaryKey(),
+  inventoryItemId: integer("inventory_item_id").notNull().references(() => inventoryItems.id),
+  matchedProduct: text("matched_product").notNull(),
+  regionalAvgPrice: doublePrecision("regional_avg_price"),
+  priceSource: text("price_source"),
+  region: text("region").notNull().default("Springfield, MA"),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  manualOverride: boolean("manual_override").notNull().default(false),
+});
+
+export type RegionalPricing = typeof regionalPricing.$inferSelect;
+
 // === INVOICES ===
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
