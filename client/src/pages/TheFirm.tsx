@@ -212,10 +212,11 @@ export default function TheFirm() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:grid-cols-7 md:w-full gap-1" data-testid="tabs-firm">
+          <TabsList className="inline-flex w-max md:grid md:grid-cols-8 md:w-full gap-1" data-testid="tabs-firm">
             <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
             <TabsTrigger value="ledger" className="whitespace-nowrap px-3" data-testid="tab-ledger">Ledger</TabsTrigger>
+            <TabsTrigger value="reconcile" className="whitespace-nowrap px-3" data-testid="tab-reconcile">Reconcile</TabsTrigger>
             <TabsTrigger value="obligations" className="whitespace-nowrap px-3" data-testid="tab-obligations">Obligations</TabsTrigger>
             <TabsTrigger value="payroll" className="whitespace-nowrap px-3" data-testid="tab-payroll">Payroll</TabsTrigger>
             <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
@@ -231,6 +232,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="ledger">
           <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} />
+        </TabsContent>
+        <TabsContent value="reconcile">
+          <ReconciliationTab startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="obligations">
           <ObligationsTab obligations={Array.isArray(obligations) ? obligations : []} accounts={Array.isArray(accounts) ? accounts : []} />
@@ -1854,6 +1858,299 @@ function CashTab({ cashCounts, startDate, endDate }: { cashCounts: FirmCashCount
           </table>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { toast } = useToast();
+  const [view, setView] = useState<"unreconciled" | "reconciled">("unreconciled");
+  const [matchingInternal, setMatchingInternal] = useState<any>(null);
+  const [matchCategory, setMatchCategory] = useState("cogs");
+  const [matchNotes, setMatchNotes] = useState("");
+  const [selectedBankId, setSelectedBankId] = useState<number | null>(null);
+
+  const { data: recon, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/firm/reconciliation", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reconciliation?startDate=${startDate}&endDate=${endDate}`, { credentials: "include" });
+      return res.json();
+    },
+  });
+
+  const reconcileMut = useMutation({
+    mutationFn: async (body: any) => {
+      const res = await apiRequest("POST", "/api/firm/reconcile", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Reconciled successfully" });
+      refetch();
+      setMatchingInternal(null);
+      setSelectedBankId(null);
+      setMatchCategory("cogs");
+      setMatchNotes("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const markBankReconciled = (bankTxnId: number) => {
+    reconcileMut.mutate({ bankTxnId });
+  };
+
+  const matchInternalToBank = () => {
+    if (!matchingInternal || !selectedBankId) return;
+    reconcileMut.mutate({
+      bankTxnId: selectedBankId,
+      internalType: matchingInternal.type,
+      internalId: matchingInternal.id,
+      category: matchCategory,
+      notes: matchNotes || undefined,
+    });
+  };
+
+  const handleQBExport = () => {
+    window.open(`/api/firm/export-qb?startDate=${startDate}&endDate=${endDate}`, "_blank");
+  };
+
+  const formatCurrency = (amt: number) => {
+    const abs = Math.abs(amt);
+    return `${amt < 0 ? "-" : ""}$${abs.toFixed(2)}`;
+  };
+
+  const categoryLabels: Record<string, string> = {
+    cogs: "Cost of Goods",
+    revenue: "Revenue",
+    labor: "Labor",
+    rent: "Rent",
+    utilities: "Utilities",
+    insurance: "Insurance",
+    supplies: "Supplies",
+    marketing: "Marketing",
+    debt_payment: "Debt Payment",
+    loan_interest: "Interest",
+    equipment: "Equipment",
+    taxes: "Taxes",
+    misc: "Miscellaneous",
+    other_income: "Other Income",
+  };
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (!recon) return null;
+
+  const { unreconciledInternal, unreconciledBank, reconciledItems, summary } = recon;
+
+  return (
+    <div className="space-y-4" data-testid="reconciliation-content">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">Unreconciled Internal</p>
+            <p className="text-xl font-bold text-orange-600" data-testid="text-unreconciled-internal-count">{summary.totalUnreconciledInternal}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(summary.unreconciledInternalAmount)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">Unreconciled Bank</p>
+            <p className="text-xl font-bold text-orange-600" data-testid="text-unreconciled-bank-count">{summary.totalUnreconciledBank}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(summary.unreconciledBankAmount)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">Reconciled</p>
+            <p className="text-xl font-bold text-green-600" data-testid="text-reconciled-count">{summary.totalReconciled}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <Button size="sm" variant="outline" onClick={handleQBExport} className="w-full" data-testid="button-qb-export">
+              <FileText className="w-4 h-4 mr-1.5" /> QuickBooks Export
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => refetch()} className="w-full mt-1" data-testid="button-refresh-recon">
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant={view === "unreconciled" ? "default" : "outline"} size="sm" onClick={() => setView("unreconciled")} data-testid="button-view-unreconciled">
+          <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Unreconciled
+          {(summary.totalUnreconciledInternal + summary.totalUnreconciledBank) > 0 && (
+            <Badge variant="destructive" className="ml-1.5 text-[10px] h-4 px-1">{summary.totalUnreconciledInternal + summary.totalUnreconciledBank}</Badge>
+          )}
+        </Button>
+        <Button variant={view === "reconciled" ? "default" : "outline"} size="sm" onClick={() => setView("reconciled")} data-testid="button-view-reconciled">
+          <Check className="w-3.5 h-3.5 mr-1" /> Reconciled
+        </Button>
+      </div>
+
+      {view === "unreconciled" ? (
+        <div className="grid md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Receipt className="w-4 h-4" /> Internal Entries
+                <Badge variant="outline" className="text-xs">{unreconciledInternal.length}</Badge>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Invoices, payroll, obligations not yet matched to bank</p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {unreconciledInternal.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">All internal entries reconciled</p>
+              ) : (
+                <div className="divide-y max-h-[500px] overflow-y-auto">
+                  {unreconciledInternal.map((item: any, idx: number) => (
+                    <div key={`${item.type}-${item.id}`} className={`p-3 hover:bg-muted/30 transition-colors ${matchingInternal?.id === item.id && matchingInternal?.type === item.type ? "bg-primary/5 border-l-2 border-primary" : ""}`} data-testid={`internal-entry-${idx}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{item.description}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">{item.date}</span>
+                            <Badge variant="outline" className="text-[10px] h-4 px-1">{item.type}</Badge>
+                            <Badge variant="secondary" className="text-[10px] h-4 px-1">{categoryLabels[item.category] || item.category}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-medium tabular-nums text-red-600">{formatCurrency(item.amount)}</p>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs mt-0.5" onClick={() => { setMatchingInternal(item); setMatchCategory(item.category); }} data-testid={`button-match-internal-${idx}`}>
+                            <Link2 className="w-3 h-3 mr-1" /> Match
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CreditCard className="w-4 h-4" /> Bank Transactions (TD / Amex)
+                <Badge variant="outline" className="text-xs">{unreconciledBank.length}</Badge>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {matchingInternal ? `Select a bank transaction to match "${matchingInternal.description}"` : "Plaid-synced transactions not yet reconciled"}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {unreconciledBank.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No unreconciled bank transactions</p>
+              ) : (
+                <div className="divide-y max-h-[500px] overflow-y-auto">
+                  {unreconciledBank.map((txn: any) => (
+                    <div key={txn.id} className={`p-3 hover:bg-muted/30 transition-colors cursor-pointer ${selectedBankId === txn.id ? "bg-primary/5 border-l-2 border-primary" : ""}`} onClick={() => matchingInternal ? setSelectedBankId(txn.id) : null} data-testid={`bank-entry-${txn.id}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{txn.description}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">{txn.date}</span>
+                            {txn.accountName && <Badge variant="outline" className="text-[10px] h-4 px-1">{txn.accountName}</Badge>}
+                            {txn.institution && <span className="text-[10px] text-muted-foreground">{txn.institution}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-medium tabular-nums ${txn.amount < 0 ? "text-red-600" : "text-green-600"}`}>{formatCurrency(txn.amount)}</p>
+                          {!matchingInternal && (
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs mt-0.5" onClick={(e) => { e.stopPropagation(); markBankReconciled(txn.id); }} data-testid={`button-reconcile-bank-${txn.id}`}>
+                              <Check className="w-3 h-3 mr-1" /> Clear
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {matchingInternal && selectedBankId && (
+            <Card className="md:col-span-2 border-primary/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Confirm Match</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-muted/30 rounded p-2.5">
+                    <p className="text-xs text-muted-foreground">Internal Entry</p>
+                    <p className="text-sm font-medium">{matchingInternal.description}</p>
+                    <p className="text-xs">{matchingInternal.date} — {formatCurrency(matchingInternal.amount)}</p>
+                  </div>
+                  <div className="bg-muted/30 rounded p-2.5">
+                    <p className="text-xs text-muted-foreground">Bank Transaction</p>
+                    <p className="text-sm font-medium">{unreconciledBank.find((b: any) => b.id === selectedBankId)?.description}</p>
+                    <p className="text-xs">{unreconciledBank.find((b: any) => b.id === selectedBankId)?.date} — {formatCurrency(unreconciledBank.find((b: any) => b.id === selectedBankId)?.amount || 0)}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs">Category</Label>
+                    <Select value={matchCategory} onValueChange={setMatchCategory}>
+                      <SelectTrigger className="h-8 text-sm" data-testid="select-match-category"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(categoryLabels).map(([k, v]) => (
+                          <SelectItem key={k} value={k}>{v}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Notes</Label>
+                    <Input value={matchNotes} onChange={e => setMatchNotes(e.target.value)} className="h-8 text-sm" placeholder="Optional notes..." data-testid="input-match-notes" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={matchInternalToBank} disabled={reconcileMut.isPending} data-testid="button-confirm-match">
+                    {reconcileMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Check className="w-4 h-4 mr-1" />}
+                    Reconcile Match
+                  </Button>
+                  <Button variant="outline" onClick={() => { setMatchingInternal(null); setSelectedBankId(null); }} data-testid="button-cancel-match">Cancel</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Check className="w-4 h-4 text-green-600" /> Reconciled Transactions
+              <Badge variant="outline" className="text-xs">{reconciledItems.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {reconciledItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No reconciled transactions in this period</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/30">
+                  <th className="text-left p-3 font-medium">Date</th>
+                  <th className="text-left p-3 font-medium">Description</th>
+                  <th className="text-left p-3 font-medium">Category</th>
+                  <th className="text-left p-3 font-medium">Source</th>
+                  <th className="text-right p-3 font-medium">Amount</th>
+                </tr></thead>
+                <tbody className="divide-y">
+                  {reconciledItems.map((item: any) => (
+                    <tr key={item.id} className="hover:bg-muted/20" data-testid={`reconciled-row-${item.id}`}>
+                      <td className="p-3 text-muted-foreground">{item.date}</td>
+                      <td className="p-3 font-medium">{item.description}</td>
+                      <td className="p-3"><Badge variant="secondary" className="text-[10px]">{categoryLabels[item.category] || item.category}</Badge></td>
+                      <td className="p-3"><Badge variant="outline" className="text-[10px]">{item.referenceType}</Badge>{item.accountName && <span className="text-xs text-muted-foreground ml-1">{item.accountName}</span>}</td>
+                      <td className={`p-3 text-right tabular-nums font-medium ${item.amount < 0 ? "text-red-600" : "text-green-600"}`}>{formatCurrency(item.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

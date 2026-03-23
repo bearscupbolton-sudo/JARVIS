@@ -11163,6 +11163,182 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.get("/api/firm/reconciliation", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const bankTxns = await storage.getFirmTransactions({ startDate: startDate as string, endDate: endDate as string });
+      const bankEntries = bankTxns.filter(t => t.referenceType === "plaid");
+      const internalEntries = bankTxns.filter(t => t.referenceType !== "plaid");
+
+      const invoiceList = await db.select().from(invoices);
+      const filteredInvoices = invoiceList.filter(inv =>
+        inv.invoiceDate && inv.invoiceDate >= (startDate as string) && inv.invoiceDate <= (endDate as string)
+      );
+
+      const allAccounts = await storage.getFirmAccounts();
+      const accountMap = new Map(allAccounts.map(a => [a.id, a]));
+
+      const unreconciledInternal: any[] = [];
+      for (const inv of filteredInvoices) {
+        const matchedTxn = bankTxns.find(t =>
+          t.reconciled && t.referenceType === "invoice" && t.referenceId === String(inv.id)
+        );
+        if (!matchedTxn) {
+          unreconciledInternal.push({
+            type: "invoice",
+            id: inv.id,
+            date: inv.invoiceDate,
+            description: `${inv.vendorName} Invoice${inv.invoiceNumber ? ` #${inv.invoiceNumber}` : ""}`,
+            amount: -(inv.invoiceTotal || 0),
+            vendor: inv.vendorName,
+            category: "cogs",
+            reconciled: false,
+            matchedBankTxnId: null,
+          });
+        }
+      }
+
+      for (const txn of internalEntries) {
+        if (!txn.reconciled) {
+          unreconciledInternal.push({
+            type: txn.referenceType,
+            id: txn.id,
+            date: txn.date,
+            description: txn.description,
+            amount: txn.amount,
+            vendor: null,
+            category: txn.category,
+            reconciled: false,
+            matchedBankTxnId: null,
+          });
+        }
+      }
+
+      const unreconciledBank = bankEntries.filter(t => !t.reconciled).map(t => ({
+        id: t.id,
+        date: t.date,
+        description: t.description,
+        amount: t.amount,
+        category: t.category,
+        accountId: t.accountId,
+        accountName: t.accountId ? accountMap.get(t.accountId)?.name || "Unknown" : null,
+        institution: t.accountId ? accountMap.get(t.accountId)?.institution || null : null,
+        reconciled: false,
+        referenceId: t.referenceId,
+        notes: t.notes,
+      }));
+
+      const reconciledItems = bankTxns.filter(t => t.reconciled).map(t => ({
+        id: t.id,
+        date: t.date,
+        description: t.description,
+        amount: t.amount,
+        category: t.category,
+        referenceType: t.referenceType,
+        accountId: t.accountId,
+        accountName: t.accountId ? accountMap.get(t.accountId)?.name || "Unknown" : null,
+      }));
+
+      res.json({
+        unreconciledInternal,
+        unreconciledBank,
+        reconciledItems,
+        summary: {
+          totalUnreconciledInternal: unreconciledInternal.length,
+          totalUnreconciledBank: unreconciledBank.length,
+          totalReconciled: reconciledItems.length,
+          unreconciledInternalAmount: unreconciledInternal.reduce((s, e) => s + e.amount, 0),
+          unreconciledBankAmount: unreconciledBank.reduce((s, e) => s + e.amount, 0),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/reconcile", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { bankTxnId, internalType, internalId, category, notes } = req.body;
+
+      if (bankTxnId) {
+        await storage.updateFirmTransaction(bankTxnId, {
+          reconciled: true,
+          ...(category && { category }),
+          ...(notes && { notes }),
+          ...(internalType === "invoice" && internalId && {
+            referenceType: "invoice",
+            referenceId: String(internalId),
+          }),
+        });
+      }
+
+      if (internalType === "manual" && internalId) {
+        await storage.updateFirmTransaction(internalId, { reconciled: true });
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/export-qb", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const txns = await storage.getFirmTransactions({ startDate: startDate as string, endDate: endDate as string });
+
+      const qbCategoryMap: Record<string, string> = {
+        cogs: "Cost of Goods Sold",
+        revenue: "Sales Income",
+        labor: "Payroll Expenses",
+        rent: "Rent or Lease",
+        utilities: "Utilities",
+        insurance: "Insurance",
+        supplies: "Office Supplies",
+        marketing: "Advertising/Marketing",
+        debt_payment: "Loan Payment",
+        loan_interest: "Interest Expense",
+        equipment: "Equipment",
+        taxes: "Taxes & Licenses",
+        misc: "Miscellaneous",
+        other_income: "Other Income",
+      };
+
+      const allAccounts = await storage.getFirmAccounts();
+      const accountMap = new Map(allAccounts.map(a => [a.id, a]));
+
+      const rows = txns.map(t => ({
+        Date: t.date,
+        Description: t.description,
+        Amount: Math.abs(t.amount).toFixed(2),
+        "Debit/Credit": t.amount < 0 ? "Debit" : "Credit",
+        Category: qbCategoryMap[t.category] || t.category,
+        Account: t.accountId ? accountMap.get(t.accountId)?.name || "" : "",
+        "Reference Type": t.referenceType,
+        "Reference ID": t.referenceId || "",
+        Reconciled: t.reconciled ? "Yes" : "No",
+        Department: t.department || "",
+        Notes: t.notes || "",
+      }));
+
+      const headers = Object.keys(rows[0] || {});
+      const csv = [headers.join(","), ...rows.map(r => headers.map(h => {
+        const val = String((r as any)[h] || "").replace(/"/g, '""');
+        return val.includes(",") || val.includes('"') || val.includes("\n") ? `"${val}"` : val;
+      }).join(","))].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="quickbooks_export_${startDate}_to_${endDate}.csv"`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Firm Obligations
   app.get("/api/firm/obligations", isAuthenticated, isOwner, async (_req, res) => {
     try {
