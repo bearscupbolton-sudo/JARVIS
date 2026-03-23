@@ -40,6 +40,7 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const Inventory = lazy(() => import("@/pages/Inventory"));
 const InventoryItems = lazy(() => import("@/pages/InventoryItems"));
 const InvoiceCapture = lazy(() => import("@/pages/InvoiceCapture"));
+const PriceHeatmap = lazy(() => import("@/pages/PriceHeatmap"));
 const InventoryCount = lazy(() => import("@/pages/InventoryCount"));
 const Schedule = lazy(() => import("@/pages/Schedule"));
 const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
@@ -411,6 +412,9 @@ function Router() {
         </Route>
         <Route path="/inventory/invoices">
           {() => <ProtectedRoute component={InvoiceCapture} />}
+        </Route>
+        <Route path="/inventory/price-heatmap">
+          {() => <ProtectedRoute component={PriceHeatmap} />}
         </Route>
         <Route path="/inventory/count">
           {() => <ProtectedRoute component={InventoryCount} />}

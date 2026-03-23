@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
-import { Package, FileText, ClipboardCheck, Settings, Loader2 } from "lucide-react";
+import { Package, FileText, ClipboardCheck, Settings, Loader2, Grid3X3 } from "lucide-react";
 import type { InventoryItem } from "@shared/schema";
 
 const CATEGORIES = ["Bakery", "Bar", "Kitchen", "FOH"] as const;
@@ -28,7 +28,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link href="/inventory/items">
           <Card className="hover-elevate cursor-pointer" data-testid="link-manage-items">
             <CardContent className="flex items-center gap-4 p-6">
@@ -64,6 +64,19 @@ export default function Inventory() {
               <div>
                 <p className="font-semibold">End-of-Day Count</p>
                 <p className="text-sm text-muted-foreground">Physical inventory count</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/inventory/price-heatmap">
+          <Card className="hover-elevate cursor-pointer" data-testid="link-price-heatmap">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <Grid3X3 className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold">Price Heat Map</p>
+                <p className="text-sm text-muted-foreground">Compare costs to regional averages</p>
               </div>
             </CardContent>
           </Card>

@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12732,6 +12732,213 @@ Return JSON:
       res.json({ success: true, labels });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message, labels: [] });
+    }
+  });
+
+  // === PRICE HEAT MAP ===
+  app.get("/api/price-heatmap", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const items = await db.select().from(inventoryItems).where(isNotNull(inventoryItems.costPerUnit));
+      const pricing = await db.select().from(regionalPricing);
+      const pricingMap = new Map<number, typeof pricing[0]>();
+      for (const p of pricing) pricingMap.set(p.inventoryItemId, p);
+
+      const heatmapData = items.map(item => {
+        const regional = pricingMap.get(item.id);
+        let variance: number | null = null;
+        if (regional?.regionalAvgPrice && item.costPerUnit) {
+          variance = Math.round(((item.costPerUnit - regional.regionalAvgPrice) / regional.regionalAvgPrice) * 10000) / 100;
+        }
+        return {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          unit: item.unit,
+          costPerUnit: item.costPerUnit,
+          lastUpdatedCost: item.lastUpdatedCost,
+          regional: regional ? {
+            id: regional.id,
+            matchedProduct: regional.matchedProduct,
+            regionalAvgPrice: regional.regionalAvgPrice,
+            priceSource: regional.priceSource,
+            lastUpdated: regional.lastUpdated,
+            manualOverride: regional.manualOverride,
+          } : null,
+          variance,
+        };
+      });
+
+      res.json(heatmapData);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/price-heatmap/fetch-regional", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { itemIds } = req.body;
+      if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ message: "itemIds required" });
+      }
+
+      const batchSize = 15;
+      const targetIds = itemIds.slice(0, batchSize);
+      const items = await db.select().from(inventoryItems).where(inArray(inventoryItems.id, targetIds));
+
+      if (items.length === 0) return res.json({ fetched: 0 });
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const itemList = items.map(i => `- ID ${i.id}: "${i.name}" (unit: ${i.unit}, our cost: $${i.costPerUnit?.toFixed(2) || 'unknown'})`).join('\n');
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are a food service pricing analyst for the Springfield, MA region. For each item below, provide:
+1. The most accurate matching wholesale/distributor product name
+2. The estimated regional average wholesale price per unit
+3. Your source reasoning (USDA market data, distributor catalogs, industry averages, etc.)
+
+Consider: this is a bakery (Bear's Cup Bakehouse). Items come from distributors like Sysco, Chefs' Warehouse, PFG, BakeMark.
+Factor in: New England region pricing, wholesale/case pricing vs retail, current market conditions.
+
+Return JSON array:
+[{ "id": number, "matchedProduct": "string - the standard wholesale product name", "regionalAvgPrice": number, "priceSource": "string - brief source description" }]`
+          },
+          { role: "user", content: `Estimate regional wholesale prices for these items in Springfield, MA:\n${itemList}` }
+        ],
+        response_format: { type: "json_object" },
+      }), "regional-pricing");
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) return res.json({ fetched: 0 });
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const match = content.match(/\[[\s\S]*\]/);
+        if (match) parsed = JSON.parse(match[0]);
+        else return res.json({ fetched: 0 });
+      }
+
+      const results = Array.isArray(parsed) ? parsed : parsed.items || parsed.results || [];
+      let fetched = 0;
+
+      for (const r of results) {
+        if (!r.id || r.regionalAvgPrice == null) continue;
+
+        const existing = await db.select({ id: regionalPricing.id, manualOverride: regionalPricing.manualOverride })
+          .from(regionalPricing).where(eq(regionalPricing.inventoryItemId, r.id)).limit(1);
+
+        if (existing.length > 0 && existing[0].manualOverride) continue;
+
+        if (existing.length > 0) {
+          await db.update(regionalPricing)
+            .set({
+              matchedProduct: r.matchedProduct || r.name,
+              regionalAvgPrice: r.regionalAvgPrice,
+              priceSource: r.priceSource || "AI estimate",
+              lastUpdated: new Date(),
+            })
+            .where(eq(regionalPricing.id, existing[0].id));
+        } else {
+          await db.insert(regionalPricing).values({
+            inventoryItemId: r.id,
+            matchedProduct: r.matchedProduct || r.name,
+            regionalAvgPrice: r.regionalAvgPrice,
+            priceSource: r.priceSource || "AI estimate",
+          });
+        }
+        fetched++;
+      }
+
+      res.json({ fetched, total: results.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/price-heatmap/regional/:id", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { matchedProduct, regionalAvgPrice } = req.body;
+
+      const updates: any = { manualOverride: true, lastUpdated: new Date() };
+      if (matchedProduct) updates.matchedProduct = matchedProduct;
+      if (regionalAvgPrice != null) updates.regionalAvgPrice = parseFloat(regionalAvgPrice);
+
+      const [updated] = await db.update(regionalPricing).set(updates).where(eq(regionalPricing.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/price-heatmap/refresh-single", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { inventoryItemId, matchedProduct } = req.body;
+      if (!inventoryItemId || !matchedProduct) return res.status(400).json({ message: "inventoryItemId and matchedProduct required" });
+
+      const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, inventoryItemId));
+      if (!item) return res.status(404).json({ message: "Item not found" });
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: `You are a food service pricing analyst. Return the current regional wholesale price for the given product in Springfield, MA. Return JSON: { "regionalAvgPrice": number, "priceSource": "string" }`
+          },
+          { role: "user", content: `What is the wholesale price for "${matchedProduct}" (unit: ${item.unit}) in the Springfield, MA area?` }
+        ],
+        response_format: { type: "json_object" },
+      }), "regional-pricing-single");
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) return res.json({ success: false });
+
+      const data = JSON.parse(content);
+
+      const existing = await db.select({ id: regionalPricing.id }).from(regionalPricing)
+        .where(eq(regionalPricing.inventoryItemId, inventoryItemId)).limit(1);
+
+      if (existing.length > 0) {
+        await db.update(regionalPricing).set({
+          matchedProduct,
+          regionalAvgPrice: data.regionalAvgPrice,
+          priceSource: data.priceSource || "AI estimate (corrected)",
+          manualOverride: true,
+          lastUpdated: new Date(),
+        }).where(eq(regionalPricing.id, existing[0].id));
+      } else {
+        await db.insert(regionalPricing).values({
+          inventoryItemId,
+          matchedProduct,
+          regionalAvgPrice: data.regionalAvgPrice,
+          priceSource: data.priceSource || "AI estimate (corrected)",
+          manualOverride: true,
+        });
+      }
+
+      res.json({ success: true, regionalAvgPrice: data.regionalAvgPrice, priceSource: data.priceSource });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
