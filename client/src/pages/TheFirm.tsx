@@ -4769,8 +4769,20 @@ function AssetsTab() {
 
   if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>;
 
+  const seedLegacyMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/assets/seed-legacy", {}),
+    onSuccess: async (res: any) => {
+      const data = await res.json();
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      toast({ title: "2024 Tax DNA Upload Complete", description: `${data.seeded} assets imported, ${data.skipped} already existed` });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const pendingAssets = assets?.filter(a => a.status === "pending") || [];
   const capitalizedAssets = assets?.filter(a => a.status === "capitalized") || [];
+  const legacyAssets = assets?.filter(a => a.status === "fully_depreciated") || [];
   const currentPeriod = format(new Date(), "yyyy-MM-dd");
 
   return (
@@ -4835,6 +4847,12 @@ function AssetsTab() {
             {depreciatePostMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Clock className="h-4 w-4 mr-1" />}
             Post {format(new Date(), "MMM yyyy")} Depreciation
           </Button>
+          {legacyAssets.length === 0 && (
+            <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 dark:text-amber-400" onClick={() => seedLegacyMut.mutate()} disabled={seedLegacyMut.isPending} data-testid="button-seed-legacy">
+              {seedLegacyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+              2024 Tax DNA Upload
+            </Button>
+          )}
           <Button size="sm" onClick={() => setShowForm(!showForm)} data-testid="button-add-asset">
             <Plus className="h-4 w-4 mr-1" /> Register Asset
           </Button>
@@ -5052,6 +5070,51 @@ function AssetsTab() {
               </Card>
             );
           })
+        )}
+
+        {legacyAssets.length > 0 && (
+          <>
+            <h4 className="font-semibold flex items-center gap-2 mt-4">
+              <Shield className="h-4 w-4 text-amber-500" /> Legacy Assets — 2024 Tax Transfer ({legacyAssets.length})
+            </h4>
+            <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-2">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  These assets were transferred from the prior entity. All were fully expensed via Section 179 in prior years — <strong>$0 net book value, $0 monthly depreciation</strong>. They remain on the register for continuity and insurance/audit purposes. Total original cost basis: <strong>${legacyAssets.reduce((s: number, a: any) => s + a.purchasePrice, 0).toLocaleString()}</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="table-legacy-assets">
+                <thead><tr className="border-b bg-muted/30">
+                  <th className="text-left p-2 font-medium">Asset</th>
+                  <th className="text-left p-2 font-medium">Location</th>
+                  <th className="text-left p-2 font-medium">In Service</th>
+                  <th className="text-right p-2 font-medium">Cost Basis</th>
+                  <th className="text-right p-2 font-medium">Net Book Value</th>
+                  <th className="text-center p-2 font-medium">Status</th>
+                </tr></thead>
+                <tbody className="divide-y">
+                  {legacyAssets.map((asset: any) => (
+                    <tr key={asset.id} data-testid={`row-legacy-asset-${asset.id}`}>
+                      <td className="p-2">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="font-medium">{asset.name}</span>
+                        </div>
+                      </td>
+                      <td className="p-2"><Badge variant="outline" className="text-xs">{asset.locationTag}</Badge></td>
+                      <td className="p-2 text-muted-foreground">{asset.placedInServiceDate}</td>
+                      <td className="p-2 text-right">${asset.purchasePrice.toLocaleString()}</td>
+                      <td className="p-2 text-right text-muted-foreground">$0</td>
+                      <td className="p-2 text-center"><Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs">§179 Fully Expensed</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
