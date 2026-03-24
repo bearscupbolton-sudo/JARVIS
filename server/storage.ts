@@ -1559,6 +1559,20 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    if (invoice.invoiceTotal == null || invoice.invoiceTotal === 0) {
+      const computedTotal = createdLines.reduce((sum, cl) => {
+        if (cl.lineTotal != null) return sum + cl.lineTotal;
+        if (cl.unitPrice != null && cl.quantity != null) return sum + (cl.unitPrice * cl.quantity);
+        return sum;
+      }, 0);
+      if (computedTotal > 0) {
+        await db.update(invoices)
+          .set({ invoiceTotal: Math.round(computedTotal * 100) / 100 })
+          .where(eq(invoices.id, invoice.id));
+        (invoice as any).invoiceTotal = Math.round(computedTotal * 100) / 100;
+      }
+    }
+
     const { validateInvoiceLines } = await import("./usfoods-validator");
     const alerts = await validateInvoiceLines(invoice.id, createdLines.map(cl => ({
       id: cl.id,
@@ -4631,7 +4645,27 @@ export class DatabaseStorage implements IStorage {
 
     const squareRevenue = summaryRows.reduce((sum, r) => sum + (r.totalRevenue || 0), 0);
     const squareOrderCount = summaryRows.reduce((sum, r) => sum + (r.orderCount || 0), 0);
-    const invoiceExpenseTotal = invoiceRows.reduce((sum, r) => sum + (r.invoiceTotal || 0), 0);
+
+    let invoiceExpenseTotal = 0;
+    const invoiceIdsWithNullTotal: number[] = [];
+    for (const inv of invoiceRows) {
+      if (inv.invoiceTotal != null && inv.invoiceTotal > 0) {
+        invoiceExpenseTotal += inv.invoiceTotal;
+      } else {
+        invoiceIdsWithNullTotal.push(inv.id);
+      }
+    }
+    if (invoiceIdsWithNullTotal.length > 0) {
+      const orphanLines = await db.select().from(invoiceLines)
+        .where(inArray(invoiceLines.invoiceId, invoiceIdsWithNullTotal));
+      for (const line of orphanLines) {
+        if (line.lineTotal != null) {
+          invoiceExpenseTotal += line.lineTotal;
+        } else if (line.unitPrice != null && line.quantity != null) {
+          invoiceExpenseTotal += line.unitPrice * line.quantity;
+        }
+      }
+    }
 
     let laborCost = 0;
     const allUsers = await db.select().from(users);

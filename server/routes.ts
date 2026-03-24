@@ -11318,18 +11318,31 @@ IMPORTANT GUIDELINES:
       const allAccounts = await storage.getFirmAccounts();
       const accountMap = new Map(allAccounts.map(a => [a.id, a]));
 
+      const allInvoiceLines = filteredInvoices.length > 0
+        ? await db.select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, filteredInvoices.map(i => i.id)))
+        : [];
+
       const unreconciledInternal: any[] = [];
       for (const inv of filteredInvoices) {
         const matchedTxn = bankTxns.find(t =>
           t.reconciled && t.referenceType === "invoice" && t.referenceId === String(inv.id)
         );
         if (!matchedTxn) {
+          let invAmount = inv.invoiceTotal || 0;
+          if (invAmount === 0) {
+            const lines = allInvoiceLines.filter(l => l.invoiceId === inv.id);
+            invAmount = lines.reduce((sum, l) => {
+              if (l.lineTotal != null) return sum + l.lineTotal;
+              if (l.unitPrice != null && l.quantity != null) return sum + (l.unitPrice * l.quantity);
+              return sum;
+            }, 0);
+          }
           unreconciledInternal.push({
             type: "invoice",
             id: inv.id,
             date: inv.invoiceDate,
             description: `${inv.vendorName} Invoice${inv.invoiceNumber ? ` #${inv.invoiceNumber}` : ""}`,
-            amount: -(inv.invoiceTotal || 0),
+            amount: -invAmount,
             vendor: inv.vendorName,
             category: "cogs",
             reconciled: false,
