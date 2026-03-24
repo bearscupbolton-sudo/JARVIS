@@ -221,24 +221,24 @@ export default function TheFirm() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:grid-cols-13 md:w-full gap-1" data-testid="tabs-firm">
-            <TabsTrigger value="command-center" className="whitespace-nowrap px-3" data-testid="tab-command-center">Command Center</TabsTrigger>
-            <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
-            <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
-            <TabsTrigger value="ledger" className="whitespace-nowrap px-3" data-testid="tab-ledger">Ledger</TabsTrigger>
-            <TabsTrigger value="reconcile" className="whitespace-nowrap px-3" data-testid="tab-reconcile">Reconcile</TabsTrigger>
-            <TabsTrigger value="coa" className="whitespace-nowrap px-3" data-testid="tab-coa">COA</TabsTrigger>
-            <TabsTrigger value="journal" className="whitespace-nowrap px-3" data-testid="tab-journal">Journal</TabsTrigger>
-            <TabsTrigger value="reports" className="whitespace-nowrap px-3" data-testid="tab-reports">Reports</TabsTrigger>
-            <TabsTrigger value="obligations" className="whitespace-nowrap px-3" data-testid="tab-obligations">Obligations</TabsTrigger>
-            <TabsTrigger value="payroll" className="whitespace-nowrap px-3" data-testid="tab-payroll">Payroll</TabsTrigger>
-            <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
-            <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
-            <TabsTrigger value="compliance" className="whitespace-nowrap px-3" data-testid="tab-compliance">Compliance</TabsTrigger>
-            <TabsTrigger value="donations" className="whitespace-nowrap px-3" data-testid="tab-donations">Donations</TabsTrigger>
-            <TabsTrigger value="assets" className="whitespace-nowrap px-3" data-testid="tab-assets">Assets</TabsTrigger>
-            <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-thin">
+          <TabsList className="inline-flex w-max gap-1 flex-nowrap" data-testid="tabs-firm">
+            <TabsTrigger value="command-center" className="whitespace-nowrap px-3 text-xs" data-testid="tab-command-center">Command Center</TabsTrigger>
+            <TabsTrigger value="overview" className="whitespace-nowrap px-3 text-xs" data-testid="tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="accounts" className="whitespace-nowrap px-3 text-xs" data-testid="tab-accounts">Accounts</TabsTrigger>
+            <TabsTrigger value="ledger" className="whitespace-nowrap px-3 text-xs" data-testid="tab-ledger">Ledger</TabsTrigger>
+            <TabsTrigger value="reconcile" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reconcile">Reconcile</TabsTrigger>
+            <TabsTrigger value="coa" className="whitespace-nowrap px-3 text-xs" data-testid="tab-coa">COA</TabsTrigger>
+            <TabsTrigger value="journal" className="whitespace-nowrap px-3 text-xs" data-testid="tab-journal">Journal</TabsTrigger>
+            <TabsTrigger value="reports" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reports">Reports</TabsTrigger>
+            <TabsTrigger value="obligations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-obligations">Obligations</TabsTrigger>
+            <TabsTrigger value="payroll" className="whitespace-nowrap px-3 text-xs" data-testid="tab-payroll">Payroll</TabsTrigger>
+            <TabsTrigger value="cash" className="whitespace-nowrap px-3 text-xs" data-testid="tab-cash">Cash</TabsTrigger>
+            <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3 text-xs" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
+            <TabsTrigger value="compliance" className="whitespace-nowrap px-3 text-xs" data-testid="tab-compliance">Compliance</TabsTrigger>
+            <TabsTrigger value="donations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-donations">Donations</TabsTrigger>
+            <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
+            <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
           </TabsList>
         </div>
 
