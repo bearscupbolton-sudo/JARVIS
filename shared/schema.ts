@@ -2030,6 +2030,7 @@ export const ledgerLines = pgTable("ledger_lines", {
   debit: doublePrecision("debit").default(0).notNull(),
   credit: doublePrecision("credit").default(0).notNull(),
   memo: text("memo"),
+  receiptUrl: text("receipt_url"),
 });
 
 export const insertLedgerLineSchema = createInsertSchema(ledgerLines).omit({ id: true });
@@ -2255,4 +2256,72 @@ export const assetAuditLog = pgTable("asset_audit_log", {
 export const insertAssetAuditLogSchema = createInsertSchema(assetAuditLog).omit({ id: true, createdAt: true });
 export type AssetAuditLogEntry = typeof assetAuditLog.$inferSelect;
 export type InsertAssetAuditLogEntry = z.infer<typeof insertAssetAuditLogSchema>;
+
+// === EMPLOYEE REIMBURSEMENTS ===
+export const employeeReimbursements = pgTable("employee_reimbursements", {
+  id: serial("id").primaryKey(),
+  employeeName: text("employee_name").notNull(),
+  employeeId: text("employee_id"),
+  amount: doublePrecision("amount").notNull(),
+  category: text("category").notNull(),
+  coaCode: text("coa_code"),
+  description: text("description").notNull(),
+  receiptImageUrl: text("receipt_image_url"),
+  ocrExtractedTotal: doublePrecision("ocr_extracted_total"),
+  ocrExtractedDate: text("ocr_extracted_date"),
+  expenseDate: text("expense_date").notNull(),
+  locationId: integer("location_id"),
+  status: text("status").notNull().default("pending"),
+  paidFrom: text("paid_from"),
+  paidAt: timestamp("paid_at"),
+  paidBy: text("paid_by"),
+  journalEntryId: integer("journal_entry_id"),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEmployeeReimbursementSchema = createInsertSchema(employeeReimbursements).omit({ id: true, createdAt: true, paidAt: true, journalEntryId: true });
+export type EmployeeReimbursement = typeof employeeReimbursements.$inferSelect;
+export type InsertEmployeeReimbursement = z.infer<typeof insertEmployeeReimbursementSchema>;
+
+// === AI LEARNING RULES (Dynamic Vendor Classification) ===
+export const aiLearningRules = pgTable("ai_learning_rules", {
+  id: serial("id").primaryKey(),
+  vendorString: text("vendor_string").notNull(),
+  matchedCoaCode: text("matched_coa_code").notNull(),
+  matchedCoaName: text("matched_coa_name"),
+  category: text("category"),
+  confidenceScore: doublePrecision("confidence_score").notNull().default(1.0),
+  source: text("source").notNull().default("manual"),
+  locationId: integer("location_id"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAiLearningRuleSchema = createInsertSchema(aiLearningRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type AiLearningRule = typeof aiLearningRules.$inferSelect;
+export type InsertAiLearningRule = z.infer<typeof insertAiLearningRuleSchema>;
+
+// === CASH PAYOUT LOGS ===
+export const cashPayoutLogs = pgTable("cash_payout_logs", {
+  id: serial("id").primaryKey(),
+  amount: doublePrecision("amount").notNull(),
+  payoutType: text("payout_type").notNull(),
+  recipientName: text("recipient_name").notNull(),
+  description: text("description").notNull(),
+  sourceAccount: text("source_account").notNull().default("1030"),
+  targetCoaCode: text("target_coa_code").notNull(),
+  locationId: integer("location_id"),
+  reimbursementId: integer("reimbursement_id"),
+  journalEntryId: integer("journal_entry_id"),
+  payoutDate: text("payout_date").notNull(),
+  performedBy: text("performed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCashPayoutLogSchema = createInsertSchema(cashPayoutLogs).omit({ id: true, createdAt: true, journalEntryId: true });
+export type CashPayoutLog = typeof cashPayoutLogs.$inferSelect;
+export type InsertCashPayoutLog = z.infer<typeof insertCashPayoutLogSchema>;
 
