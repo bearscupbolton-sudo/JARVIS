@@ -949,7 +949,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [filterAccount, setFilterAccount] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterSource, setFilterSource] = useState("all");
-  const [filterReconciled, setFilterReconciled] = useState("all");
+  const [filterReconciled, setFilterReconciled] = useState("no");
   const [filterTag, setFilterTag] = useState("all");
   const [tagInput, setTagInput] = useState("");
   const [form, setForm] = useState<Partial<InsertFirmTransaction>>({ date: format(new Date(), "yyyy-MM-dd"), description: "", amount: 0, category: "misc", referenceType: "manual", notes: "", tags: [], department: undefined });
