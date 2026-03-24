@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12167,6 +12167,162 @@ IMPORTANT GUIDELINES:
       const { markStalePlaceholders } = await import("./reconciler");
       const result = await markStalePlaceholders();
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DONATION ROI PIPELINE ===
+  app.get("/api/firm/donations", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(donations).orderBy(desc(donations.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/donations", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { recipientName, recipientType, is501c3, ein, itemDescription, quantity, unitCogs, retailValue, donationDate, locationId, notes } = req.body;
+      if (!recipientName || !itemDescription || !donationDate) {
+        return res.status(400).json({ message: "recipientName, itemDescription, and donationDate are required" });
+      }
+      const totalCogs = (unitCogs || 0) * (quantity || 1);
+      const [donation] = await db.insert(donations).values({
+        recipientName,
+        recipientType: recipientType || "other",
+        is501c3: is501c3 || false,
+        ein: ein || null,
+        itemDescription,
+        quantity: quantity || 1,
+        unitCogs: unitCogs || null,
+        totalCogs: totalCogs || null,
+        retailValue: retailValue || null,
+        donationDate,
+        locationId: locationId || null,
+        notes: notes || null,
+        status: "pending",
+        createdBy: user?.username || user?.firstName || "Unknown",
+      }).returning();
+      res.status(201).json(donation);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/donations/:id/approve", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = await getUserFromReq(req);
+      const [donation] = await db.select().from(donations).where(eq(donations.id, id));
+      if (!donation) return res.status(404).json({ message: "Donation not found" });
+      if (donation.status === "approved") return res.status(400).json({ message: "Already approved" });
+
+      const cogsAmount = donation.totalCogs || 0;
+      const expenseCode = donation.is501c3 ? "7700" : "7040";
+
+      const { createJournalEntry } = await import("./accounting-engine");
+      const entry = await createJournalEntry({
+        date: donation.donationDate,
+        memo: `Donation to ${donation.recipientName}: ${donation.itemDescription}${donation.is501c3 ? " (501c3 Charity)" : " (Marketing/Promotional)"}`,
+        lines: [
+          { accountCode: expenseCode, debit: cogsAmount, credit: 0 },
+          { accountCode: "1100", debit: 0, credit: cogsAmount },
+        ],
+        createdBy: user?.username || "System",
+      });
+
+      await db.update(donations).set({
+        status: "approved",
+        ledgerEntryId: entry?.id || null,
+        approvedBy: user?.username || user?.firstName || "Unknown",
+        approvedAt: new Date(),
+      }).where(eq(donations.id, id));
+
+      const [updated] = await db.select().from(donations).where(eq(donations.id, id));
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/donations/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [donation] = await db.select().from(donations).where(eq(donations.id, id));
+      if (!donation) return res.status(404).json({ message: "Donation not found" });
+      if (donation.status === "approved") return res.status(400).json({ message: "Cannot delete approved donations" });
+      await db.delete(donations).where(eq(donations.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/donations/summary", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const year = (req.query.year as string) || new Date().getFullYear().toString();
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+      const rows = await db.select().from(donations).where(
+        and(gte(donations.donationDate, startDate), lte(donations.donationDate, endDate), eq(donations.status, "approved"))
+      );
+      const totalCogs = rows.reduce((s, r) => s + (r.totalCogs || 0), 0);
+      const totalRetail = rows.reduce((s, r) => s + (r.retailValue || 0), 0);
+      const charity = rows.filter(r => r.is501c3);
+      const promo = rows.filter(r => !r.is501c3);
+      res.json({
+        totalDonations: rows.length,
+        totalCogsWrittenOff: totalCogs,
+        totalRetailValue: totalRetail,
+        charitableDonations: { count: charity.length, totalCogs: charity.reduce((s, r) => s + (r.totalCogs || 0), 0) },
+        promotionalDonations: { count: promo.length, totalCogs: promo.reduce((s, r) => s + (r.totalCogs || 0), 0) },
+        roi: totalRetail > 0 ? ((totalRetail - totalCogs) / totalCogs * 100) : 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Lightning-Offset: vendor template suggestions for bank transactions
+  app.post("/api/firm/reconcile/suggest", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { description, amount } = req.body;
+      if (!description) return res.status(400).json({ message: "description required" });
+
+      const { findVendorTemplate, findPlaceholderMatch } = await import("./reconciler");
+      const template = findVendorTemplate(description);
+
+      let placeholderMatch = null;
+      if (template || amount) {
+        placeholderMatch = await findPlaceholderMatch(description, Math.abs(amount || 0));
+      }
+
+      if (placeholderMatch && placeholderMatch.matchType !== "none") {
+        res.json({
+          type: "accrual_offset",
+          debitCode: "2100",
+          debitName: "Accrued Liabilities",
+          creditCode: "1010",
+          creditName: "Operating Cash",
+          placeholder: placeholderMatch,
+          confidence: placeholderMatch.matchType === "exact" ? 0.95 : placeholderMatch.matchType === "close" ? 0.8 : 0.6,
+        });
+      } else if (template) {
+        res.json({
+          type: "vendor_template",
+          debitCode: template.coaCode,
+          debitName: template.category,
+          creditCode: "1010",
+          creditName: "Operating Cash",
+          vendor: template,
+          confidence: 0.85,
+        });
+      } else {
+        res.json({ type: "none", confidence: 0 });
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

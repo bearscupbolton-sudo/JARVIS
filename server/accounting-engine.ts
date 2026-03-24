@@ -45,23 +45,42 @@ export const DEFAULT_COA = [
   { code: "6100", name: "Professional Services", type: "Expense", category: "Operating" },
   { code: "6110", name: "Merchant Processing Fees", type: "Expense", category: "Operating" },
   { code: "6120", name: "Delivery & Freight", type: "Expense", category: "Operating" },
+  { code: "7040", name: "Promotional Donations (Non-501c3)", type: "Expense", category: "Operating" },
+  { code: "7700", name: "Charitable Donations (501c3)", type: "Expense", category: "Operating" },
 ];
 
 export async function seedChartOfAccounts() {
-  const existing = await db.select().from(chartOfAccounts).limit(1);
-  if (existing.length > 0) return;
-
-  for (const acct of DEFAULT_COA) {
-    await db.insert(chartOfAccounts).values({
-      code: acct.code,
-      name: acct.name,
-      type: acct.type,
-      category: acct.category,
-      locationId: acct.locationId || null,
-      isActive: true,
-    });
+  const existing = await db.select().from(chartOfAccounts);
+  if (existing.length === 0) {
+    for (const acct of DEFAULT_COA) {
+      await db.insert(chartOfAccounts).values({
+        code: acct.code,
+        name: acct.name,
+        type: acct.type,
+        category: acct.category,
+        locationId: acct.locationId || null,
+        isActive: true,
+      });
+    }
+    console.log(`[Accounting] Seeded ${DEFAULT_COA.length} Chart of Accounts entries`);
+  } else {
+    const existingCodes = new Set(existing.map(a => a.code));
+    let added = 0;
+    for (const acct of DEFAULT_COA) {
+      if (!existingCodes.has(acct.code)) {
+        await db.insert(chartOfAccounts).values({
+          code: acct.code,
+          name: acct.name,
+          type: acct.type,
+          category: acct.category,
+          locationId: acct.locationId || null,
+          isActive: true,
+        });
+        added++;
+      }
+    }
+    if (added > 0) console.log(`[Accounting] Added ${added} new COA entries`);
   }
-  console.log(`[Accounting] Seeded ${DEFAULT_COA.length} Chart of Accounts entries`);
 }
 
 export async function postJournalEntry(
@@ -124,6 +143,38 @@ export async function postJournalEntry(
   }
 
   return { ...journalEntry, lines: createdLines };
+}
+
+export async function createJournalEntry(params: {
+  date: string;
+  memo: string;
+  lines: Array<{ accountCode: string; debit: number; credit: number }>;
+  createdBy?: string;
+  referenceId?: string;
+  referenceType?: string;
+  locationId?: number;
+}) {
+  const allAccounts = await db.select().from(chartOfAccounts);
+  const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
+
+  const resolvedLines = params.lines.map(line => {
+    const accountId = codeToId.get(line.accountCode);
+    if (!accountId) throw new Error(`COA code ${line.accountCode} not found`);
+    return { accountId, debit: line.debit, credit: line.credit };
+  });
+
+  return postJournalEntry(
+    {
+      transactionDate: params.date,
+      description: params.memo,
+      referenceId: params.referenceId || undefined,
+      referenceType: params.referenceType || "donation",
+      status: "posted",
+      locationId: params.locationId,
+      createdBy: params.createdBy,
+    },
+    resolvedLines
+  );
 }
 
 export async function reconcilePlaidTransaction(

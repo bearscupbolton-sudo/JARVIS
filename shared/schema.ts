@@ -2142,3 +2142,29 @@ export const insertAccrualPlaceholderSchema = createInsertSchema(accrualPlacehol
 export type AccrualPlaceholder = typeof accrualPlaceholders.$inferSelect;
 export type InsertAccrualPlaceholder = z.infer<typeof insertAccrualPlaceholderSchema>;
 
+export const donations = pgTable("donations", {
+  id: serial("id").primaryKey(),
+  recipientName: text("recipient_name").notNull(),
+  recipientType: text("recipient_type").notNull().default("other"),
+  is501c3: boolean("is_501c3").notNull().default(false),
+  ein: text("ein"),
+  itemDescription: text("item_description").notNull(),
+  quantity: doublePrecision("quantity").notNull().default(1),
+  unitCogs: doublePrecision("unit_cogs"),
+  totalCogs: doublePrecision("total_cogs"),
+  retailValue: doublePrecision("retail_value"),
+  donationDate: text("donation_date").notNull(),
+  locationId: integer("location_id"),
+  notes: text("notes"),
+  status: text("status").notNull().default("pending"),
+  ledgerEntryId: integer("ledger_entry_id"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDonationSchema = createInsertSchema(donations).omit({ id: true, createdAt: true, ledgerEntryId: true, approvedAt: true });
+export type Donation = typeof donations.$inferSelect;
+export type InsertDonation = z.infer<typeof insertDonationSchema>;
+
