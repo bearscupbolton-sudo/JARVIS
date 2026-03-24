@@ -1,0 +1,66 @@
+This fourth and final optimization pass is the **"Silicon Polish"**—moving beyond just the look and feel to the actual "intelligence" of the system. We are shifting from a tool you *manage* to a tool that *operates* the bakery on your behalf.
+
+Here is the final refinement, followed by the **R Agent Binary Specification**.
+
+---
+
+### **Pass 4: The "Anticipatory" Optimization**
+**Focus:** *Predictive intelligence and total hands-off continuity.*
+
+* **The "Smart Fill" Grid:** Instead of just "Copy Last Week," Jarvis analyzes your **Square Sales Trends** for Saratoga and Bolton. If the forecast says it’s going to be a 75-degree sunny Saturday in Bolton, Jarvis pre-fills the grid with an extra "Runner" shift and highlights it in a pulsing gold.
+    * *Layman Continuity:* You don't "build" a schedule; you "approve" the one Jarvis suggested based on the weather and sales.
+* **Haptic Reconciliation:** If an employee is scheduled for 7:00 AM but hasn't clocked into Square by 7:05 AM, the "Shift Card" doesn't just turn red—it sends a **"Vibe Check"** push notification to the employee: *"Running late? Tap here to let Lou know."* If they tap, your home screen widget updates instantly.
+* **Audit-Shield Integration:** This is the "March 20th" insurance. Every shift edit, swap, or claim is now stored as an **Immutable Event Stream**. If an auditor ever asks why labor was high in February, you don't show them a grid; you show them the "Event Log" of every weather-related shift addition.
+
+
+
+---
+
+### **R Agent Binary Specification: "Project Heartbeat v4.0"**
+
+This specification is designed for the **R Agent** to execute a total architectural transformation of the scheduling and home-screen modules.
+
+#### **1. The Component "State" (Binary Flags)**
+To ensure zero lag in the "iPhone" UI, we use a 16-bit integer to track shift status.
+* `0x0001`: Active (Clocked in via Square)
+* `0x0002`: Late (Shift start passed, no clock-in)
+* `0x0004`: Swappable (In the Shift Bank)
+* `0x0008`: Audited (Locked for payroll)
+
+#### **2. UI Architecture: The "Glass" Stack**
+* **Engine:** `Framer Motion` + `Tailwind CSS`.
+* **Visual Logic:**
+    ```typescript
+    const VIBE_THEME = {
+      Saratoga: "bg-rose-400/20 border-rose-200/30 text-rose-900",
+      Bolton: "bg-sky-400/20 border-sky-200/30 text-sky-900",
+      Glass: "backdrop-blur-xl saturate-150"
+    };
+    ```
+* **Interaction:** Implement `useSwipeable` hooks on every grid cell. 
+    * `deltaX > 50` ⮕ Trigger `releaseShift()`
+    * `deltaX < -50` ⮕ Trigger `openShiftDetail()`
+
+#### **3. The "Intelligence" Layer (Back-end Logic)**
+* **`predictive_labor_model()`**: R Agent must call the Square `orders` API to calculate `Sales_Per_Labor_Hour` (SPLH). If SPLH > $65, R Agent automatically flags the "Grid" with a recommendation for an extra FOH person.
+* **`reimbursement_ledger_link()`**: 
+    * **Trigger:** Employee scans receipt on the "Cute" UI.
+    * **Action:** R Agent creates a `ledger_lines` entry.
+    * **Double Entry:** `DEBIT 5010 (COGS)` | `CREDIT 1010 (Petty Cash/Undeposited)`.
+    * **Support:** R Agent moves the receipt image to `object_storage` and links the `uuid` to the ledger line.
+
+
+
+#### **4. The "Home Screen" Payload**
+The R Agent will refactor the root `Dashboard.tsx` to a **Widget Grid**.
+* **Top:** `VibeStatus` (Animated SVG of a Bear, changes based on Saratoga/Bolton toggle).
+* **Middle:** `LiveLineup` (Horizontal scroll of circular avatars with "Live" badges for those clocked in).
+* **Bottom:** `PowerGrid` (The 7-day scheduler, now with a 20% transparency "Glass" overlay).
+
+### **Final Audit & Continuity Verification**
+1.  **Hard Fail Check:** Does the "Cute" UI break the ledger? **No.** Every "iPhone" action (swipe/tap) is a wrapper for a hard accounting entry.
+2.  **Audit Check:** Are the March 20th records safe? **Yes.** The `schedule_archives` table captures every "Published" grid state with a cryptographic hash.
+
+**This is the complete R Agent roadmap.** You are ready to transform Jarvis into a tool that your "heartbeat" staff will love using, while keeping your business's financial engine bulletproof.
+
+**Should I begin by refactoring the `shared/schema.ts` to include the new binary shift states and audit logging?**
