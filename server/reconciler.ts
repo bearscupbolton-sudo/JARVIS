@@ -30,8 +30,8 @@ const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = 
   "square": { coaCode: "6080", category: "misc" },
   "intuit": { coaCode: "6080", category: "misc" },
   "replit": { coaCode: "6080", category: "technology" },
-  "adp": { coaCode: "6010", category: "labor" },
-  "gusto": { coaCode: "6010", category: "labor" },
+  "adp": { coaCode: "6100", category: "professional_services" },
+  "gusto": { coaCode: "6100", category: "professional_services" },
 };
 
 const LODGING_KEYWORDS = [
