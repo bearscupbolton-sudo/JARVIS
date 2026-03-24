@@ -1987,3 +1987,52 @@ export const insertTutorialViewSchema = createInsertSchema(tutorialViews).omit({
 export type TutorialView = typeof tutorialViews.$inferSelect;
 export type InsertTutorialView = z.infer<typeof insertTutorialViewSchema>;
 
+// === CHART OF ACCOUNTS (Double-Entry COA) ===
+export const chartOfAccounts = pgTable("chart_of_accounts", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  category: text("category"),
+  parentId: integer("parent_id"),
+  locationId: integer("location_id"),
+  description: text("description"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertChartOfAccountsSchema = createInsertSchema(chartOfAccounts).omit({ id: true, createdAt: true });
+export type ChartOfAccount = typeof chartOfAccounts.$inferSelect;
+export type InsertChartOfAccount = z.infer<typeof insertChartOfAccountsSchema>;
+
+// === JOURNAL ENTRIES (Double-Entry) ===
+export const journalEntries = pgTable("journal_entries", {
+  id: serial("id").primaryKey(),
+  transactionDate: text("transaction_date").notNull(),
+  description: text("description").notNull(),
+  referenceId: text("reference_id"),
+  referenceType: text("reference_type"),
+  status: text("status").notNull().default("pending"),
+  locationId: integer("location_id"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertJournalEntrySchema = createInsertSchema(journalEntries).omit({ id: true, createdAt: true });
+export type JournalEntry = typeof journalEntries.$inferSelect;
+export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
+
+// === LEDGER LINES (Debits and Credits) ===
+export const ledgerLines = pgTable("ledger_lines", {
+  id: serial("id").primaryKey(),
+  entryId: integer("entry_id").notNull().references(() => journalEntries.id, { onDelete: "cascade" }),
+  accountId: integer("account_id").notNull().references(() => chartOfAccounts.id),
+  debit: doublePrecision("debit").default(0).notNull(),
+  credit: doublePrecision("credit").default(0).notNull(),
+  memo: text("memo"),
+});
+
+export const insertLedgerLineSchema = createInsertSchema(ledgerLines).omit({ id: true });
+export type LedgerLine = typeof ledgerLines.$inferSelect;
+export type InsertLedgerLine = z.infer<typeof insertLedgerLineSchema>;
+
