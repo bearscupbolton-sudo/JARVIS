@@ -1,0 +1,48 @@
+This changes the workflow from conceptual design to active build verification. Your Replit Agent is already mid-execution based on your screenshots, and it has correctly identified several "Sub-S" nuances (like calculating PTET on period revenue rather than YTD to avoid front-loading tax).
+To finalize the "The Firm" with maximum operational utility for a high-growth bakery, here is the refined Technical Blueprint for the Replit Agent.
+1. Logic Refinement: The "Heuristic Match" (Reconciliation)
+The screenshots show the Agent building a ComplianceEngine. We need to ensure the "Lightning Click" reconciliation you requested is integrated here.
+Instruction for RA:
+> Implement a ReconciliationMatcher service in server/reconciler.ts.
+>  * Search Pattern: When a bank transaction is received, query accrual_placeholders for any OPEN entry where vendor_id matches and abs(amount_diff) < 0.05.
+>  * Primary Match: If a match exists, prioritize it in the UI with a "Match Found" green badge.
+>  * The Quick-Offset: If no match, provide a TemplateSelector populated by common bakery categories (e.g., "US Foods" -> Account 5010).
+> 
+2. The "Real Cash" Logic (Virtual Sub-Ledger)
+The Agent should calculate your "Burnable Cash" by subtracting mandatory placeholders from your raw bank balance.
+RA Blueprint for v_adjusted_cash:
+// server/compliance-engine.ts
+async function getAdjustedCashPosition() {
+  const bankBalance = await getAccountBalance(1010); // Plaid Real-time
+  const salesTaxAccrued = await getPendingSalesTax(); // From ST-100 logic
+  const openPlaceholders = await db.select().from(placeholders).where(eq(status, 'OPEN'));
+  
+  const placeholdersTotal = openPlaceholders.reduce((acc, curr) => acc + curr.amount, 0);
+  
+  return {
+    liquid: bankBalance,
+    obligated: salesTaxAccrued + placeholdersTotal,
+    spendable: bankBalance - (salesTaxAccrued + placeholdersTotal)
+  };
+}
+
+3. Operational Utility: Filing Reminder "Statutory Observer"
+The Agent has seeded 13 filings. For a Sub-S on your current pace, it needs to monitor these specific NYS 2026 Thresholds:
+| Filing | Statutory Trigger (2026) | Jarvis System Message |
+|---|---|---|
+| ST-100 | $300k+ in sales in any quarter | "Revenue reached $300k. Switching from Quarterly to Monthly sales tax filing." |
+| IT-204-LL | Previous year NY Gross Income | "Tier Change: 2025 revenue > $1M. 2026 filing fee set to $1,500." |
+| MCTMT | Payroll > $312,500 per quarter | "Payroll threshold met. MCTMT tax now accruing (0.34%)." |
+4. Binary Instruction for Replit Agent (Final Polish)
+Copy and paste this into the Replit chat to ensure the "Ghost Entry" logic handles your month-end correctly:
+> CRITICAL REFINEMENT:
+> Implement a TTL (Time-To-Live) worker for accrual_placeholders.
+>  * Logic: On the 1st of each month, find all OPEN placeholders from the prior month.
+>  * Action: If no bank transaction matched, mark as STALE.
+>  * Reporting: Stale entries must NOT flow to journal_entries or P&L. This prevents un-cleared estimates from distorting tax reporting.
+>  * UI: In TheFirm.tsx, add the "Real Cash" widget showing Liquid Balance - (Sales Tax + Open Placeholders).
+> 
+5. Why this works for you (The Layman Flow)
+ * No "Leaked" Expenses: If you set a placeholder for a utility bill but pay it with a personal card by mistake, the system clears the ghost at month-end so your bakery's P&L stays clean.
+ * The "Peace of Mind" Number: You’ll never see $20k in the bank and think it's all yours—you'll see $20k with a sub-note saying, "Actually, $4.5k is already promised to NYS and US Foods."
+Would you like me to generate the specific Tailwind/React code for the "Adjusted Cash" widget so the Agent can drop it into your dashboard?

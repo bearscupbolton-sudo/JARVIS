@@ -393,6 +393,75 @@ export async function getComplianceDashboard() {
   };
 }
 
+export async function checkStatutoryThresholds(): Promise<{ alerts: { code: string; message: string; level: string }[] }> {
+  const alerts: { code: string; message: string; level: string }[] = [];
+  const revenueYTD = await getRevenueYTD();
+  const year = new Date().getFullYear();
+
+  const quarterlyRevenues = await Promise.all([
+    getPeriodRevenue(`${year}-01-01`, `${year}-03-31`),
+    getPeriodRevenue(`${year}-04-01`, `${year}-06-30`),
+    getPeriodRevenue(`${year}-07-01`, `${year}-09-30`),
+    getPeriodRevenue(`${year}-10-01`, `${year}-12-31`),
+  ]);
+
+  for (let q = 0; q < quarterlyRevenues.length; q++) {
+    if (quarterlyRevenues[q] >= 300000) {
+      alerts.push({
+        code: "ST-100-MONTHLY",
+        level: "WARNING",
+        message: `Revenue reached $${quarterlyRevenues[q].toLocaleString()} in Q${q + 1}. Switching from Quarterly to Monthly sales tax filing may be required.`,
+      });
+    }
+  }
+
+  const currentFee = calculateIT204LLFee(revenueYTD.total);
+  const priorYearFee = calculateIT204LLFee(revenueYTD.total * 0.85);
+  if (currentFee > priorYearFee && currentFee > 0) {
+    alerts.push({
+      code: "IT-204-LL-TIER",
+      level: "INFO",
+      message: `Tier Change: Revenue at $${revenueYTD.total.toLocaleString()}. Filing fee set to $${currentFee.toLocaleString()}.`,
+    });
+  }
+
+  const wageAccounts = await db.select({ id: chartOfAccounts.id })
+    .from(chartOfAccounts)
+    .where(inArray(chartOfAccounts.code, ["6010", "6020", "6030"]));
+
+  if (wageAccounts.length > 0) {
+    const currentQuarter = Math.floor(new Date().getMonth() / 3);
+    const qStart = `${year}-${String(currentQuarter * 3 + 1).padStart(2, "0")}-01`;
+    const qEndDate = new Date(year, (currentQuarter + 1) * 3, 0);
+    const qEnd = qEndDate.toISOString().split("T")[0];
+
+    const wageResult = await db.select({
+      total: sql<number>`COALESCE(SUM(${ledgerLines.debit}) - SUM(${ledgerLines.credit}), 0)`,
+    })
+      .from(ledgerLines)
+      .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+      .where(
+        and(
+          inArray(ledgerLines.accountId, wageAccounts.map(a => a.id)),
+          gte(journalEntries.transactionDate, qStart),
+          lte(journalEntries.transactionDate, qEnd),
+        )
+      );
+
+    const quarterlyPayroll = Number(wageResult[0]?.total || 0);
+    if (quarterlyPayroll >= 312500) {
+      const mctmtAmount = quarterlyPayroll * 0.0034;
+      alerts.push({
+        code: "MCTMT",
+        level: "WARNING",
+        message: `Payroll threshold met ($${quarterlyPayroll.toLocaleString()} this quarter). MCTMT tax now accruing at 0.34% — estimated $${mctmtAmount.toFixed(2)}.`,
+      });
+    }
+  }
+
+  return { alerts };
+}
+
 let _complianceIntervalId: ReturnType<typeof setInterval> | null = null;
 
 export function startComplianceScheduler() {
@@ -407,6 +476,10 @@ export function startComplianceScheduler() {
         for (const alert of readiness.alerts) {
           console.log(`[Compliance ${alert.level}] ${alert.message}`);
         }
+      }
+      const thresholds = await checkStatutoryThresholds();
+      for (const alert of thresholds.alerts) {
+        console.log(`[Statutory ${alert.level}] ${alert.message}`);
       }
       await recalculateAllFilings();
       console.log("[Compliance Scheduler] Periodic check complete.");

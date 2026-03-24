@@ -494,6 +494,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
         </CardContent>
       </Card>
 
+      <RealCashWidget />
+
       <div className="grid md:grid-cols-2 gap-4">
         <Card data-testid="card-expense-breakdown">
           <CardHeader className="pb-2">
@@ -2051,11 +2053,17 @@ function CashTab({ cashCounts, startDate, endDate }: { cashCounts: FirmCashCount
 
 function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate: string }) {
   const { toast } = useToast();
-  const [view, setView] = useState<"unreconciled" | "reconciled">("unreconciled");
+  const [view, setView] = useState<"unreconciled" | "reconciled" | "placeholders">("unreconciled");
   const [matchingInternal, setMatchingInternal] = useState<any>(null);
   const [matchCategory, setMatchCategory] = useState("cogs");
   const [matchNotes, setMatchNotes] = useState("");
   const [selectedBankId, setSelectedBankId] = useState<number | null>(null);
+  const [showPlaceholderForm, setShowPlaceholderForm] = useState(false);
+  const [phVendor, setPhVendor] = useState("");
+  const [phDesc, setPhDesc] = useState("");
+  const [phAmount, setPhAmount] = useState("");
+  const [phDate, setPhDate] = useState("");
+  const [phCoa, setPhCoa] = useState("5010");
 
   const { data: recon, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/firm/reconciliation", startDate, endDate],
@@ -2079,6 +2087,31 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
       setMatchNotes("");
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const { data: placeholders, refetch: refetchPH } = useQuery<any[]>({
+    queryKey: ["/api/firm/placeholders"],
+    queryFn: () => fetch("/api/firm/placeholders", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const createPHMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/firm/placeholders", data),
+    onSuccess: () => {
+      refetchPH();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/adjusted-cash"] });
+      setShowPlaceholderForm(false);
+      setPhVendor(""); setPhDesc(""); setPhAmount(""); setPhDate(""); setPhCoa("5010");
+      toast({ title: "Placeholder created" });
+    },
+  });
+
+  const voidPHMut = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/firm/placeholders/${id}`, { status: "VOID" }),
+    onSuccess: () => {
+      refetchPH();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/adjusted-cash"] });
+      toast({ title: "Placeholder voided" });
+    },
   });
 
   const markBankReconciled = (bankTxnId: number) => {
@@ -2171,6 +2204,12 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
         </Button>
         <Button variant={view === "reconciled" ? "default" : "outline"} size="sm" onClick={() => setView("reconciled")} data-testid="button-view-reconciled">
           <Check className="w-3.5 h-3.5 mr-1" /> Reconciled
+        </Button>
+        <Button variant={view === "placeholders" ? "default" : "outline"} size="sm" onClick={() => setView("placeholders")} data-testid="button-view-placeholders">
+          <FileText className="w-3.5 h-3.5 mr-1" /> Ghost Entries
+          {placeholders && placeholders.filter((p: any) => p.status === "OPEN").length > 0 && (
+            <Badge variant="secondary" className="ml-1.5 text-[10px] h-4 px-1">{placeholders.filter((p: any) => p.status === "OPEN").length}</Badge>
+          )}
         </Button>
       </div>
 
@@ -2337,7 +2376,114 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
             )}
           </CardContent>
         </Card>
-      )}
+      ) : view === "placeholders" ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Accrual Placeholders (Ghost Entries)</h3>
+              <p className="text-xs text-muted-foreground">Expected expenses that haven't hit the bank yet. These reduce your "spendable" cash.</p>
+            </div>
+            <Button size="sm" onClick={() => setShowPlaceholderForm(!showPlaceholderForm)} data-testid="button-add-placeholder">
+              <Plus className="w-3.5 h-3.5 mr-1" /> New Placeholder
+            </Button>
+          </div>
+
+          {showPlaceholderForm && (
+            <Card className="border-primary/20">
+              <CardContent className="pt-4 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div>
+                    <Label className="text-xs">Vendor</Label>
+                    <Input value={phVendor} onChange={e => setPhVendor(e.target.value)} className="h-8 text-sm" placeholder="US Foods" data-testid="input-ph-vendor" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <Input value={phDesc} onChange={e => setPhDesc(e.target.value)} className="h-8 text-sm" placeholder="Weekly food order" data-testid="input-ph-desc" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Amount</Label>
+                    <Input type="number" step="0.01" value={phAmount} onChange={e => setPhAmount(e.target.value)} className="h-8 text-sm" placeholder="2500.00" data-testid="input-ph-amount" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Expected Date</Label>
+                    <Input type="date" value={phDate} onChange={e => setPhDate(e.target.value)} className="h-8 text-sm" data-testid="input-ph-date" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">COA Code</Label>
+                    <Select value={phCoa} onValueChange={setPhCoa}>
+                      <SelectTrigger className="h-8 text-sm" data-testid="select-ph-coa"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5010">5010 - COGS Food</SelectItem>
+                        <SelectItem value="5020">5020 - COGS Packaging</SelectItem>
+                        <SelectItem value="5030">5030 - COGS Beverages</SelectItem>
+                        <SelectItem value="6010">6010 - Wages</SelectItem>
+                        <SelectItem value="6050">6050 - Utilities</SelectItem>
+                        <SelectItem value="6060">6060 - Insurance</SelectItem>
+                        <SelectItem value="6090">6090 - Supplies</SelectItem>
+                        <SelectItem value="6080">6080 - Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => {
+                    if (!phVendor || !phDesc || !phAmount) return toast({ title: "Fill required fields", variant: "destructive" });
+                    createPHMut.mutate({ vendorName: phVendor, description: phDesc, amount: parseFloat(phAmount), expectedDate: phDate || undefined, coaCode: phCoa });
+                  }} disabled={createPHMut.isPending} data-testid="button-save-placeholder">
+                    {createPHMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+                    Create
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowPlaceholderForm(false)}>Cancel</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardContent className="p-0">
+              {!placeholders || placeholders.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No placeholders created yet. Add expected expenses to track your real spendable cash.</p>
+              ) : (
+                <table className="w-full text-sm" data-testid="table-placeholders">
+                  <thead><tr className="border-b bg-muted/30">
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Vendor</th>
+                    <th className="text-left p-3 font-medium">Description</th>
+                    <th className="text-left p-3 font-medium">COA</th>
+                    <th className="text-left p-3 font-medium">Expected</th>
+                    <th className="text-right p-3 font-medium">Amount</th>
+                    <th className="text-right p-3 font-medium">Actions</th>
+                  </tr></thead>
+                  <tbody className="divide-y">
+                    {placeholders.map((ph: any) => (
+                      <tr key={ph.id} className="hover:bg-muted/20" data-testid={`placeholder-row-${ph.id}`}>
+                        <td className="p-3">
+                          {ph.status === "OPEN" ? <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">Open</Badge> :
+                           ph.status === "MATCHED" ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px]"><CheckCircle2 className="h-3 w-3 mr-0.5" />Matched</Badge> :
+                           ph.status === "STALE" ? <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-[10px]"><Clock className="h-3 w-3 mr-0.5" />Stale</Badge> :
+                           <Badge variant="outline" className="text-[10px]">{ph.status}</Badge>}
+                        </td>
+                        <td className="p-3 font-medium">{ph.vendorName}</td>
+                        <td className="p-3 text-muted-foreground">{ph.description}</td>
+                        <td className="p-3"><Badge variant="outline" className="text-[10px]">{ph.coaCode || "—"}</Badge></td>
+                        <td className="p-3 text-muted-foreground">{ph.expectedDate || "—"}</td>
+                        <td className="p-3 text-right tabular-nums font-medium">{formatCurrency(ph.amount)}</td>
+                        <td className="p-3 text-right">
+                          {ph.status === "OPEN" && (
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => voidPHMut.mutate(ph.id)} data-testid={`button-void-ph-${ph.id}`}>
+                              <XCircle className="w-3 h-3 mr-1" /> Void
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3725,6 +3871,73 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
         </div>
       </div>
     </div>
+  );
+}
+
+function RealCashWidget() {
+  const { data: cashData, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/adjusted-cash"],
+    queryFn: () => fetch("/api/firm/adjusted-cash", { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading || !cashData) return null;
+
+  const formatCurrency = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const { liquid, obligated, spendable, breakdown } = cashData;
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent" data-testid="card-real-cash">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Shield className="w-4 h-4 text-primary" /> Real Cash Position
+          <Badge variant="outline" className="text-[10px] ml-auto">Live</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Liquid Balance</p>
+            <p className="text-xl font-bold tabular-nums" data-testid="text-liquid">{formatCurrency(liquid)}</p>
+            <p className="text-[10px] text-muted-foreground">Bank + cash drawers</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Already Obligated</p>
+            <p className="text-xl font-bold tabular-nums text-orange-600" data-testid="text-obligated">-{formatCurrency(obligated)}</p>
+            <p className="text-[10px] text-muted-foreground">Tax + placeholders + filings</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Spendable ("Burnable")</p>
+            <p className={`text-xl font-bold tabular-nums ${spendable >= 0 ? "text-green-600" : "text-red-600"}`} data-testid="text-spendable">
+              {spendable < 0 ? "-" : ""}{formatCurrency(spendable)}
+            </p>
+            <p className="text-[10px] text-muted-foreground">What you can actually spend</p>
+          </div>
+        </div>
+        {obligated > 0 && (
+          <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Obligation Breakdown</p>
+            {breakdown.salesTaxAccrued > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1"><Receipt className="h-3 w-3" /> Sales Tax Accrued</span>
+                <span className="tabular-nums font-medium">{formatCurrency(breakdown.salesTaxAccrued)}</span>
+              </div>
+            )}
+            {breakdown.openPlaceholders > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1"><FileText className="h-3 w-3" /> Open Placeholders</span>
+                <span className="tabular-nums font-medium">{formatCurrency(breakdown.openPlaceholders)}</span>
+              </div>
+            )}
+            {breakdown.upcomingFilings > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> Upcoming Filings (30d)</span>
+                <span className="tabular-nums font-medium">{formatCurrency(breakdown.upcomingFilings)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

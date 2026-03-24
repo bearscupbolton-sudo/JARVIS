@@ -2119,3 +2119,26 @@ export const insertComplianceCalendarSchema = createInsertSchema(complianceCalen
 export type ComplianceCalendarEntry = typeof complianceCalendar.$inferSelect;
 export type InsertComplianceCalendarEntry = z.infer<typeof insertComplianceCalendarSchema>;
 
+// === ACCRUAL PLACEHOLDERS (Ghost Entries) ===
+export const accrualPlaceholders = pgTable("accrual_placeholders", {
+  id: serial("id").primaryKey(),
+  vendorName: text("vendor_name").notNull(),
+  vendorId: text("vendor_id"),
+  description: text("description").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  expectedDate: text("expected_date"),
+  coaCode: text("coa_code"),
+  accountId: integer("account_id"),
+  locationId: integer("location_id"),
+  status: text("status").notNull().default("OPEN"),
+  matchedTransactionId: integer("matched_transaction_id"),
+  matchedAt: timestamp("matched_at"),
+  staleSince: timestamp("stale_since"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAccrualPlaceholderSchema = createInsertSchema(accrualPlaceholders).omit({ id: true, createdAt: true });
+export type AccrualPlaceholder = typeof accrualPlaceholders.$inferSelect;
+export type InsertAccrualPlaceholder = z.infer<typeof insertAccrualPlaceholderSchema>;
+
