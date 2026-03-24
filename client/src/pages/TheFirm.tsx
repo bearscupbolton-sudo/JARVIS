@@ -89,6 +89,7 @@ const CATEGORIES = [
   { value: "meals_deductible", label: "Meals (Deductible)" },
   { value: "interest_mortgage", label: "Mortgage Interest" },
   { value: "interest_other", label: "Other Interest" },
+  { value: "technology", label: "Technology & Software" },
   { value: "misc", label: "Misc" },
 ];
 
@@ -102,7 +103,7 @@ const CATEGORY_TO_COA: Record<string, string> = {
   professional_services: "6100", licenses_permits: "6190",
   bank_charges: "6200", amortization: "6210", pension_plans: "6220",
   llc_fee: "6230", meals_deductible: "6240", interest_mortgage: "6250",
-  interest_other: "6260", misc: "6090",
+  interest_other: "6260", technology: "6080", misc: "6090",
 };
 
 const ACCOUNT_TYPES = [
@@ -2285,6 +2286,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     meals_deductible: "Meals (Deductible)",
     interest_mortgage: "Mortgage Interest",
     interest_other: "Other Interest",
+    technology: "Technology & Software",
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;

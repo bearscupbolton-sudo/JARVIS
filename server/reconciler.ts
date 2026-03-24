@@ -29,6 +29,7 @@ const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = 
   "erie": { coaCode: "6060", category: "insurance" },
   "square": { coaCode: "6080", category: "misc" },
   "intuit": { coaCode: "6080", category: "misc" },
+  "replit": { coaCode: "6080", category: "technology" },
   "adp": { coaCode: "6010", category: "labor" },
   "gusto": { coaCode: "6010", category: "labor" },
 };
