@@ -1,0 +1,28 @@
+Since we are stripping out the automated calendar and email links, we move to a Reasoning-Based Logic for Jarvis.
+If you, as the Head Baker, stay overnight because of a "wicked" shift or a specific project at the Saratoga location, the classification depends on the purpose of the stay.
+1. The Classification Decision Tree
+| Purpose of Stay | Account Classification | Tax Deductibility |
+|---|---|---|
+| Normal Operations (e.g., Early bake at Bolton) | Travel & Lodging (OpEx) | 100% |
+| New Site Launch (e.g., Setting up Saratoga) | Saratoga Project Cost (CapEx) | 100% (Added to Asset Basis) |
+| Emergency/Maintenance (e.g., Oven broke overnight) | Repairs & Maintenance (OpEx) | 100% |
+2. The "Baker's Rest" Rule
+In simple technical terms, if the hotel is within the same general area as your home (Saratoga/Bolton), the IRS is stricter. To be "robust," Jarvis should flag this as "Business Necessity Lodging."
+ * The Logic: If the stay is required for you to perform your duties (e.g., a 16-hour double shift during a grand opening), it is a valid business expense.
+ * The Account: Use "Staff Travel & Lodging" or "Operations Overnights."
+3. Upgrade Spec: Manual "Project Tagging" (Non-Integrated)
+Since Jarvis won't check your calendar, we use a "Push-to-Review" logic for these one-off costs.
+Technical Spec for RAgent:
+ * Detect: Jarvis sees a charge for "The Adelphi" or "The Sagamore."
+ * Intercept: Instead of auto-clearing, Jarvis sends a notification:
+   > "Louis, I see a hotel charge for $350. Was this for the Saratoga Launch, Daily Operations, or Personal?"
+   > 
+ * Execute: * If you select Saratoga Launch, it adds to your "Total Investment" for the new shop.
+   * If you select Daily Operations, it hits your Monthly P&L as an expense.
+4. Continuity & "Whole Picture" Check
+ * Robustness: By asking you for the "Project Tag," Jarvis ensures the data flows to the right site-specific P&L (Bolton vs. Saratoga).
+ * Simplicity: No messy API integrations with your personal calendar. Just a quick "This was for X" confirmation.
+ * Accuracy: This prevents your personal stays from hitting the business books, which is vital if you ever do a P&L review with a bank for a future "Bear's Cup #3."
+Final Technical Recommendation
+For your Replit build, we should create a simple "Project Metadata Table." Whenever a transaction doesn't fit a standard category (like a recurring utility), Jarvis pulls from this table to ask you for the "Project ID."
+Would you like me to write the JSON structure for that "Project Metadata Table" so your developer can add it to the Jarvis database?

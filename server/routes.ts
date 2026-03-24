@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -11262,7 +11262,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "misc"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -12316,6 +12316,27 @@ IMPORTANT GUIDELINES:
         return;
       }
 
+      const { isLodgingCharge } = await import("./reconciler");
+      if (isLodgingCharge(description)) {
+        const projects = await db.select().from(projectMetadata).where(eq(projectMetadata.status, "active"));
+        res.json({
+          type: "project_tag_required",
+          debitCode: "6140",
+          debitName: "Travel & Lodging",
+          creditCode: "1010",
+          creditName: "Operating Cash",
+          confidence: 0.75,
+          message: `Jarvis detected a lodging charge ($${Math.abs(amount || 0).toFixed(2)}). Was this for a project launch, daily operations, or maintenance?`,
+          projects: projects.map(p => ({ id: p.id, name: p.name, code: p.code, type: p.type, coaCode: p.coaCode })),
+          defaultOptions: [
+            { label: "Daily Operations", coaCode: "6140", type: "opex", category: "travel_lodging" },
+            { label: "Emergency / Maintenance", coaCode: "6070", type: "opex", category: "repairs" },
+            { label: "Personal (Do Not Book)", coaCode: null, type: "personal", category: null },
+          ],
+        });
+        return;
+      }
+
       if (placeholderMatch && placeholderMatch.matchType !== "none") {
         res.json({
           type: "accrual_offset",
@@ -12689,6 +12710,94 @@ IMPORTANT GUIDELINES:
         performedBy: user?.username || "Unknown",
       }).returning();
       res.status(201).json(payout);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PROJECT METADATA (Project Tagging) ===
+  app.get("/api/firm/projects", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(projectMetadata).orderBy(desc(projectMetadata.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/projects", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { name, code, type, coaCode, locationId, description, totalBudget } = req.body;
+      if (!name || !code || !coaCode) {
+        return res.status(400).json({ message: "name, code, and coaCode are required" });
+      }
+      const [project] = await db.insert(projectMetadata).values({
+        name,
+        code,
+        type: type || "opex",
+        coaCode,
+        locationId: locationId || null,
+        description: description || null,
+        totalBudget: totalBudget || null,
+        createdBy: user?.username || "Unknown",
+      }).returning();
+      res.status(201).json(project);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/projects/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updates: any = {};
+      if (req.body.name !== undefined) updates.name = req.body.name;
+      if (req.body.status !== undefined) updates.status = req.body.status;
+      if (req.body.description !== undefined) updates.description = req.body.description;
+      if (req.body.totalBudget !== undefined) updates.totalBudget = req.body.totalBudget;
+      const [updated] = await db.update(projectMetadata).set(updates).where(eq(projectMetadata.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: "Project not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/projects/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await db.delete(projectMetadata).where(eq(projectMetadata.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/transactions/:id/tag-project", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const txnId = Number(req.params.id);
+      const { projectId } = req.body;
+      if (!projectId) return res.status(400).json({ message: "projectId is required" });
+
+      const [project] = await db.select().from(projectMetadata).where(eq(projectMetadata.id, projectId));
+      if (!project) return res.status(404).json({ message: "Project not found" });
+
+      const [txn] = await db.select().from(firmTransactions).where(eq(firmTransactions.id, txnId));
+      if (!txn) return res.status(404).json({ message: "Transaction not found" });
+
+      await db.update(firmTransactions).set({
+        projectId,
+        category: project.type === "capex" ? "equipment" : txn.category,
+      }).where(eq(firmTransactions.id, txnId));
+
+      const absAmount = Math.abs(txn.amount);
+      await db.update(projectMetadata).set({
+        totalSpent: sql`COALESCE(${projectMetadata.totalSpent}, 0) + ${absAmount}`,
+      }).where(eq(projectMetadata.id, projectId));
+
+      const [updated] = await db.select().from(firmTransactions).where(eq(firmTransactions.id, txnId));
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

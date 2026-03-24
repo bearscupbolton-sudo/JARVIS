@@ -1666,6 +1666,7 @@ export const firmTransactions = pgTable("firm_transactions", {
   tags: text("tags").array(),
   department: text("department"),
   departmentAllocations: jsonb("department_allocations").$type<Array<{ department: string; amount: number; percent: number }>>(),
+  projectId: integer("project_id"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -2324,4 +2325,24 @@ export const cashPayoutLogs = pgTable("cash_payout_logs", {
 export const insertCashPayoutLogSchema = createInsertSchema(cashPayoutLogs).omit({ id: true, createdAt: true, journalEntryId: true });
 export type CashPayoutLog = typeof cashPayoutLogs.$inferSelect;
 export type InsertCashPayoutLog = z.infer<typeof insertCashPayoutLogSchema>;
+
+// === PROJECT METADATA (Project Tagging for CapEx/OpEx Classification) ===
+export const projectMetadata = pgTable("project_metadata", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  type: text("type").notNull().default("opex"),
+  coaCode: text("coa_code").notNull(),
+  locationId: integer("location_id"),
+  description: text("description"),
+  status: text("status").notNull().default("active"),
+  totalBudget: doublePrecision("total_budget"),
+  totalSpent: doublePrecision("total_spent").default(0),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertProjectMetadataSchema = createInsertSchema(projectMetadata).omit({ id: true, createdAt: true, totalSpent: true });
+export type ProjectMetadata = typeof projectMetadata.$inferSelect;
+export type InsertProjectMetadata = z.infer<typeof insertProjectMetadataSchema>;
 
