@@ -230,8 +230,8 @@ export async function compilePayroll(
     if (activeEntries.length > 0) {
       flags.push({
         type: "active_shift",
-        severity: "critical",
-        message: `${fullName} has ${activeEntries.length} active shift(s) without clock-out`,
+        severity: "info",
+        message: `${fullName} is on shift`,
         employeeId: user.id,
         employeeName: fullName,
       });

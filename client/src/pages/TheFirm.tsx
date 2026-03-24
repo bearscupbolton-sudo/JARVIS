@@ -1528,8 +1528,10 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
   }
 
   const adpFlagTypes = ["not_linked", "incomplete_salary"];
-  const criticalFlags = compiled?.flags.filter(f => f.severity === "critical" && !adpFlagTypes.includes(f.type)) || [];
-  const warningFlags = compiled?.flags.filter(f => f.severity === "warning" && !adpFlagTypes.includes(f.type)) || [];
+  const hiddenFlagTypes = [...adpFlagTypes, "active_shift"];
+  const criticalFlags = compiled?.flags.filter(f => f.severity === "critical" && !hiddenFlagTypes.includes(f.type)) || [];
+  const warningFlags = compiled?.flags.filter(f => f.severity === "warning" && !hiddenFlagTypes.includes(f.type)) || [];
+  const onShiftFlags = compiled?.flags.filter(f => f.type === "active_shift") || [];
 
   const totalPaid = payroll.reduce((s, p) => s + p.netAmount, 0);
 
@@ -1556,12 +1558,14 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
     const fullName = `${emp.firstName} ${emp.lastName}`.trim();
     const isExpanded = expandedEmployee === emp.userId;
     const adpTypes = ["not_linked", "incomplete_salary"];
-    const empFlags = emp.flags.filter(f => (f.severity === "critical" || f.severity === "warning") && !adpTypes.includes(f.type));
+    const empFlags = emp.flags.filter(f => (f.severity === "critical" || f.severity === "warning") && !adpTypes.includes(f.type) && f.type !== "active_shift");
+    const isOnShift = emp.flags.some(f => f.type === "active_shift");
     return (
       <tr key={emp.userId} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${empFlags.length > 0 ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} onClick={() => setExpandedEmployee(isExpanded ? null : emp.userId)} data-testid={`row-payroll-emp-${emp.userId}`}>
         <td className="p-3">
           <div className="font-medium flex items-center gap-1.5">
             {fullName}
+            {isOnShift && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="On shift" />}
             {empFlags.length > 0 && <AlertTriangle className="w-3 h-3 text-yellow-500" />}
           </div>
           {isExpanded && (
@@ -1635,6 +1639,12 @@ function PayrollTab({ payroll, accounts, startDate, endDate }: { payroll: FirmPa
         <h3 className="text-sm font-medium flex items-center gap-2">
           Payroll Preview
           <LearnTooltip term="Payroll Preview" explanation="Live calculation of employee pay for the selected period. Hours come from your time clock, tips from TTIS (split among on-duty FOH staff), and rates from employee profiles. This is a preview — no payments are made until you record them." />
+          {onShiftFlags.length > 0 && (
+            <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 border-green-500/50 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30" data-testid="badge-on-shift">
+              <Shield className="w-3 h-3" />
+              {onShiftFlags.length} on shift
+            </Badge>
+          )}
         </h3>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowTaxSettings(true)} data-testid="button-tax-settings">
