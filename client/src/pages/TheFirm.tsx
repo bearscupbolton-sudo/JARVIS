@@ -2415,7 +2415,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
             </Card>
           )}
         </div>
-      ) : (
+      ) : view === "reconciled" ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
