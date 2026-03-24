@@ -74,6 +74,20 @@ const CATEGORIES = [
   { value: "other_income", label: "Other Income" },
   { value: "travel_lodging", label: "Travel & Lodging" },
   { value: "repairs", label: "Repairs & Maintenance" },
+  { value: "advertising", label: "Advertising" },
+  { value: "car_mileage", label: "Car & Mileage" },
+  { value: "commissions", label: "Commissions & Fees" },
+  { value: "contract_labor", label: "Contract Labor" },
+  { value: "employee_benefits", label: "Employee Benefits" },
+  { value: "professional_services", label: "Professional Services" },
+  { value: "licenses_permits", label: "Licenses & Permits" },
+  { value: "bank_charges", label: "Bank Charges" },
+  { value: "amortization", label: "Amortization" },
+  { value: "pension_plans", label: "Pension & Profit Sharing" },
+  { value: "llc_fee", label: "LLC Filing Fees" },
+  { value: "meals_deductible", label: "Meals (Deductible)" },
+  { value: "interest_mortgage", label: "Mortgage Interest" },
+  { value: "interest_other", label: "Other Interest" },
   { value: "misc", label: "Misc" },
 ];
 
@@ -82,7 +96,12 @@ const CATEGORY_TO_COA: Record<string, string> = {
   utilities: "6050", rent: "6020", insurance: "6030", marketing: "6100",
   debt_payment: "2200", loan_interest: "6110", equipment: "6070",
   taxes: "6060", other_income: "4020", travel_lodging: "6140",
-  repairs: "6070", misc: "6090",
+  repairs: "6070", advertising: "6060", car_mileage: "6150",
+  commissions: "6160", contract_labor: "6170", employee_benefits: "6180",
+  professional_services: "6100", licenses_permits: "6190",
+  bank_charges: "6200", amortization: "6210", pension_plans: "6220",
+  llc_fee: "6230", meals_deductible: "6240", interest_mortgage: "6250",
+  interest_other: "6260", misc: "6090",
 };
 
 const ACCOUNT_TYPES = [
@@ -2243,6 +2262,20 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     other_income: "Other Income",
     travel_lodging: "Travel & Lodging",
     repairs: "Repairs & Maintenance",
+    advertising: "Advertising",
+    car_mileage: "Car & Mileage",
+    commissions: "Commissions & Fees",
+    contract_labor: "Contract Labor",
+    employee_benefits: "Employee Benefits",
+    professional_services: "Professional Services",
+    licenses_permits: "Licenses & Permits",
+    bank_charges: "Bank Charges",
+    amortization: "Amortization",
+    pension_plans: "Pension & Profit Sharing",
+    llc_fee: "LLC Filing Fees",
+    meals_deductible: "Meals (Deductible)",
+    interest_mortgage: "Mortgage Interest",
+    interest_other: "Other Interest",
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
