@@ -7799,8 +7799,22 @@ ${sopsHtml}
         allUsers.filter(u => u.role === "owner" && u.payType === "salary" && u.annualSalary).map(u => u.id)
       );
 
+      const VALID_MIN_TS = new Date("2020-01-01").getTime();
+      const VALID_MAX_TS = new Date("2030-12-31").getTime();
+      const isValidTimeEntry = (te: any): boolean => {
+        const inMs = new Date(te.clockIn).getTime();
+        if (isNaN(inMs) || inMs < VALID_MIN_TS || inMs > VALID_MAX_TS) return false;
+        if (te.clockOut) {
+          const outMs = new Date(te.clockOut).getTime();
+          if (isNaN(outMs) || outMs < VALID_MIN_TS || outMs > VALID_MAX_TS) return false;
+          if (outMs - inMs > 24 * 60 * 60 * 1000) return false;
+        }
+        return true;
+      };
+
       for (const te of allTimeEntries) {
         if (!te.clockOut) continue;
+        if (!isValidTimeEntry(te)) continue;
         const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
         const breakMs = breaksByEntry.get(te.id) || 0;
         const netMs = Math.max(0, msWorked - breakMs);
@@ -7825,6 +7839,7 @@ ${sopsHtml}
       let prevLaborHours = 0;
       for (const te of prevTimeEntries) {
         if (!te.clockOut) continue;
+        if (!isValidTimeEntry(te)) continue;
         const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
         const breakMs = breaksByEntry.get(te.id) || 0;
         const netMs = Math.max(0, msWorked - breakMs);
@@ -8016,9 +8031,15 @@ ${sopsHtml}
         allUsers.filter(u => u.role === "owner" && u.payType === "salary" && u.annualSalary).map(u => u.id)
       );
 
+      const VALID_MIN = new Date("2020-01-01").getTime();
+      const VALID_MAX = new Date("2030-12-31").getTime();
       for (const te of entries) {
         if (!te.clockOut) continue;
-        const msWorked = new Date(te.clockOut).getTime() - new Date(te.clockIn).getTime();
+        const ciMs = new Date(te.clockIn).getTime();
+        const coMs = new Date(te.clockOut).getTime();
+        if (isNaN(ciMs) || isNaN(coMs) || ciMs < VALID_MIN || ciMs > VALID_MAX || coMs < VALID_MIN || coMs > VALID_MAX) continue;
+        if (coMs - ciMs > 24 * 60 * 60 * 1000) continue;
+        const msWorked = coMs - ciMs;
         const breakMs = breaksByEntry.get(te.id) || 0;
         const netMs = Math.max(0, msWorked - breakMs);
         const hours = netMs / (1000 * 60 * 60);
@@ -14733,6 +14754,69 @@ Return JSON array:
         dismissedAt: new Date(),
       }).where(eq(vibeAlerts.id, id));
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === TIME ENTRY CLEANUP (corrupted dates) ===
+  app.get("/api/admin/time-entries/corrupted", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const allEntries = await db.select({
+        id: timeEntries.id,
+        userId: timeEntries.userId,
+        clockIn: timeEntries.clockIn,
+        clockOut: timeEntries.clockOut,
+        status: timeEntries.status,
+      }).from(timeEntries);
+
+      const VALID_MIN = new Date("2020-01-01").getTime();
+      const VALID_MAX = new Date("2030-12-31").getTime();
+
+      const corrupted = allEntries.filter((te) => {
+        const ciMs = new Date(te.clockIn).getTime();
+        if (isNaN(ciMs) || ciMs < VALID_MIN || ciMs > VALID_MAX) return true;
+        if (te.clockOut) {
+          const coMs = new Date(te.clockOut).getTime();
+          if (isNaN(coMs) || coMs < VALID_MIN || coMs > VALID_MAX) return true;
+          if (coMs - ciMs > 24 * 60 * 60 * 1000) return true;
+        }
+        return false;
+      });
+
+      res.json({ total: allEntries.length, corrupted: corrupted.length, entries: corrupted });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/time-entries/corrupted", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const allEntries = await db.select({
+        id: timeEntries.id,
+        clockIn: timeEntries.clockIn,
+        clockOut: timeEntries.clockOut,
+      }).from(timeEntries);
+
+      const VALID_MIN = new Date("2020-01-01").getTime();
+      const VALID_MAX = new Date("2030-12-31").getTime();
+
+      const corruptedIds = allEntries.filter((te) => {
+        const ciMs = new Date(te.clockIn).getTime();
+        if (isNaN(ciMs) || ciMs < VALID_MIN || ciMs > VALID_MAX) return true;
+        if (te.clockOut) {
+          const coMs = new Date(te.clockOut).getTime();
+          if (isNaN(coMs) || coMs < VALID_MIN || coMs > VALID_MAX) return true;
+          if (coMs - ciMs > 24 * 60 * 60 * 1000) return true;
+        }
+        return false;
+      }).map(te => te.id);
+
+      if (corruptedIds.length > 0) {
+        await db.delete(timeEntries).where(inArray(timeEntries.id, corruptedIds));
+      }
+
+      res.json({ deleted: corruptedIds.length, ids: corruptedIds });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
