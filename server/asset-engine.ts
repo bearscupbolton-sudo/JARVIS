@@ -329,6 +329,112 @@ export async function getCapExRecommendation(purchasePrice: number, ytdNetIncome
   return recommendation;
 }
 
+const LEGACY_ASSETS_2024 = [
+  { name: "Spiral Mixer", placedInServiceDate: "2019-05-23", purchasePrice: 15322, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Gas Oven with Stones", placedInServiceDate: "2019-05-23", purchasePrice: 28030, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Bagel Roller", placedInServiceDate: "2023-02-01", purchasePrice: 32000, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Kitchen Hood", placedInServiceDate: "2019-05-23", purchasePrice: 5189, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Espresso Machine", placedInServiceDate: "2019-05-23", purchasePrice: 9684, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Walk-in Refrigerator", placedInServiceDate: "2019-05-23", purchasePrice: 8305, group: "Saratoga/Bolton Machinery", locationTag: "SARATOGA_01" },
+  { name: "Beer Towers", placedInServiceDate: "2022-08-01", purchasePrice: 4569, group: "The Tap System Assets", locationTag: "BOLTON_02" },
+  { name: "Countertop High Speed Oven", placedInServiceDate: "2022-08-01", purchasePrice: 6779, group: "The Tap System Assets", locationTag: "BOLTON_02" },
+  { name: "Frozen Beverage Machine", placedInServiceDate: "2022-08-01", purchasePrice: 2589, group: "The Tap System Assets", locationTag: "BOLTON_02" },
+  { name: "Undercounter Nugget Ice", placedInServiceDate: "2022-08-01", purchasePrice: 3069, group: "The Tap System Assets", locationTag: "BOLTON_02" },
+];
+
+export async function seedLegacyAssets(createdBy: string) {
+  const existing = await db.select().from(fixedAssets);
+  const existingNames = new Set(existing.map(a => a.name.toLowerCase()));
+
+  let seeded = 0;
+  let skipped = 0;
+
+  for (const legacy of LEGACY_ASSETS_2024) {
+    if (existingNames.has(legacy.name.toLowerCase())) {
+      skipped++;
+      continue;
+    }
+
+    const locationId = legacy.locationTag === "SARATOGA_01" ? 1 : legacy.locationTag === "BOLTON_02" ? 2 : null;
+
+    const [asset] = await db.insert(fixedAssets).values({
+      name: legacy.name,
+      description: `${legacy.group} — Transferred from prior entity. Section 179 fully expensed in prior year. Net book value $0.`,
+      vendor: null,
+      purchasePrice: legacy.purchasePrice,
+      placedInServiceDate: legacy.placedInServiceDate,
+      usefulLifeMonths: 0,
+      salvageValue: 0,
+      locationId,
+      locationTag: legacy.locationTag,
+      status: "fully_depreciated",
+      section179Eligible: true,
+      section179Elected: true,
+      bookDepreciationMethod: "section_179",
+      taxDepreciationMethod: "section_179",
+      capitalizedBy: createdBy,
+      capitalizedAt: new Date(),
+      createdBy,
+    }).returning();
+
+    const yearStr = legacy.placedInServiceDate.split("-")[0];
+    const [taxSched] = await db.insert(depreciationSchedules).values({
+      assetId: asset.id,
+      ledgerType: "tax",
+      method: "section_179",
+      totalAmount: legacy.purchasePrice,
+      monthlyAmount: null,
+      startDate: legacy.placedInServiceDate,
+      endDate: `${yearStr}-12-31`,
+      totalMonths: 1,
+      yearOneDeduction: legacy.purchasePrice,
+    }).returning();
+
+    await db.insert(depreciationEntries).values({
+      scheduleId: taxSched.id,
+      assetId: asset.id,
+      periodDate: `${yearStr}-12-31`,
+      amount: legacy.purchasePrice,
+      accumulatedDepreciation: legacy.purchasePrice,
+      netBookValue: 0,
+      posted: true,
+    });
+
+    const [bookSched] = await db.insert(depreciationSchedules).values({
+      assetId: asset.id,
+      ledgerType: "book",
+      method: "section_179",
+      totalAmount: legacy.purchasePrice,
+      monthlyAmount: 0,
+      startDate: legacy.placedInServiceDate,
+      endDate: `${yearStr}-12-31`,
+      totalMonths: 1,
+      yearOneDeduction: legacy.purchasePrice,
+    }).returning();
+
+    await db.insert(depreciationEntries).values({
+      scheduleId: bookSched.id,
+      assetId: asset.id,
+      periodDate: `${yearStr}-12-31`,
+      amount: legacy.purchasePrice,
+      accumulatedDepreciation: legacy.purchasePrice,
+      netBookValue: 0,
+      posted: true,
+    });
+
+    await db.insert(assetAuditLog).values({
+      assetId: asset.id,
+      action: "LEGACY_IMPORT",
+      details: `2024 tax DNA upload: ${legacy.name} ($${legacy.purchasePrice.toLocaleString()}) from ${legacy.group}. Section 179 fully expensed in prior year. Net book value $0. No future depreciation.`,
+      performedBy: createdBy,
+    });
+
+    seeded++;
+  }
+
+  return { seeded, skipped, total: LEGACY_ASSETS_2024.length };
+}
+
 export async function logAssetAudit(assetId: number, action: string, details: string, performedBy: string, previousValues?: any, newValues?: any, reason?: string) {
   await db.insert(assetAuditLog).values({
     assetId,

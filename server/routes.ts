@@ -12481,6 +12481,17 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/assets/seed-legacy", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { seedLegacyAssets } = await import("./asset-engine");
+      const result = await seedLegacyAssets(user?.username || user?.firstName || "System");
+      res.json({ message: `Legacy asset DNA upload complete`, ...result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/firm/assets/capex-check", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { description, amount } = req.body;
