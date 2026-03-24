@@ -981,6 +981,17 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     },
   });
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
+  const [editingDescriptionText, setEditingDescriptionText] = useState("");
+  const updateDescriptionMut = useMutation({
+    mutationFn: ({ id, description }: { id: number; description: string }) =>
+      apiRequest("PATCH", `/api/firm/transactions/${id}`, { description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      setEditingDescriptionId(null);
+      toast({ title: "Description updated" });
+    },
+  });
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/firm/transactions/${id}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] }); queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] }); toast({ title: "Transaction deleted" }); },
@@ -1172,7 +1183,36 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                   <tr key={txn.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-txn-${txn.id}`}>
                     <td className="p-3 text-muted-foreground whitespace-nowrap">{txn.date}</td>
                     <td className="p-3">
-                      <div className="font-medium">{txn.description}</div>
+                      {editingDescriptionId === txn.id ? (
+                        <input
+                          autoFocus
+                          className="w-full text-sm font-medium bg-transparent border-b border-primary outline-none py-0.5"
+                          value={editingDescriptionText}
+                          onChange={e => setEditingDescriptionText(e.target.value)}
+                          onBlur={() => {
+                            const trimmed = editingDescriptionText.trim();
+                            if (trimmed && trimmed !== txn.description) {
+                              updateDescriptionMut.mutate({ id: txn.id, description: trimmed });
+                            } else {
+                              setEditingDescriptionId(null);
+                            }
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
+                            if (e.key === "Escape") { setEditingDescriptionId(null); }
+                          }}
+                          data-testid={`input-description-${txn.id}`}
+                        />
+                      ) : (
+                        <div
+                          className="font-medium cursor-pointer hover:underline hover:text-primary transition-colors"
+                          onClick={() => { setEditingDescriptionId(txn.id); setEditingDescriptionText(txn.description); }}
+                          title="Click to edit description"
+                          data-testid={`text-description-${txn.id}`}
+                        >
+                          {txn.description}
+                        </div>
+                      )}
                       {txn.department && <span className="text-[10px] text-muted-foreground capitalize">{txn.department.replace(/_/g, " ")}</span>}
                     </td>
                     <td className="p-3">
