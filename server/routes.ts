@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12337,7 +12337,21 @@ IMPORTANT GUIDELINES:
           confidence: 0.85,
         });
       } else {
-        res.json({ type: "none", confidence: 0 });
+        const { findLearnedVendorRule } = await import("./reconciler");
+        const learned = await findLearnedVendorRule(description);
+        if (learned) {
+          res.json({
+            type: "learned_rule",
+            debitCode: learned.coaCode,
+            debitName: learned.category,
+            creditCode: "1010",
+            creditName: "Operating Cash",
+            confidence: learned.confidence,
+            source: learned.source,
+          });
+        } else {
+          res.json({ type: "none", confidence: 0 });
+        }
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -12477,6 +12491,204 @@ IMPORTANT GUIDELINES:
       await db.delete(assetAuditLog).where(eq(assetAuditLog.assetId, id));
       await db.delete(fixedAssets).where(eq(fixedAssets.id, id));
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EMPLOYEE REIMBURSEMENTS ===
+  app.get("/api/firm/reimbursements", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(employeeReimbursements).orderBy(desc(employeeReimbursements.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/reimbursements", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { employeeName, employeeId, amount, category, coaCode, description, receiptImageUrl, expenseDate, locationId, notes } = req.body;
+      const parsedAmount = parseFloat(amount);
+      if (!employeeName || !parsedAmount || parsedAmount <= 0 || !description || !expenseDate) {
+        return res.status(400).json({ message: "employeeName, positive amount, description, and expenseDate are required" });
+      }
+      const [reimbursement] = await db.insert(employeeReimbursements).values({
+        employeeName,
+        employeeId: employeeId || null,
+        amount,
+        category: category || "supplies",
+        coaCode: coaCode || "6090",
+        description,
+        receiptImageUrl: receiptImageUrl || null,
+        expenseDate,
+        locationId: locationId || null,
+        notes: notes || null,
+        status: "pending",
+        createdBy: user?.username || user?.firstName || "Unknown",
+      }).returning();
+      res.status(201).json(reimbursement);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/reimbursements/:id/pay", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = await getUserFromReq(req);
+      const [reimbursement] = await db.select().from(employeeReimbursements).where(eq(employeeReimbursements.id, id));
+      if (!reimbursement) return res.status(404).json({ message: "Reimbursement not found" });
+      if (reimbursement.status === "paid") return res.status(400).json({ message: "Already paid" });
+
+      const locId = reimbursement.locationId || 1;
+      const cashDrawerCode = locId === 2 ? "1031" : "1030";
+      const expenseCode = reimbursement.coaCode || "6090";
+      const now = new Date();
+      const paymentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+      const { createJournalEntry } = await import("./accounting-engine");
+
+      const result = await db.transaction(async (tx) => {
+        const entry = await createJournalEntry({
+          date: paymentDate,
+          memo: `Reimbursement to ${reimbursement.employeeName}: ${reimbursement.description}`,
+          lines: [
+            { accountCode: expenseCode, debit: reimbursement.amount, credit: 0 },
+            { accountCode: cashDrawerCode, debit: 0, credit: reimbursement.amount },
+          ],
+          createdBy: user?.username || "System",
+          referenceType: "reimbursement",
+          referenceId: String(id),
+          locationId: reimbursement.locationId || undefined,
+        });
+
+        await tx.insert(cashPayoutLogs).values({
+          amount: reimbursement.amount,
+          payoutType: "reimbursement",
+          recipientName: reimbursement.employeeName,
+          description: reimbursement.description,
+          sourceAccount: cashDrawerCode,
+          targetCoaCode: expenseCode,
+          locationId: reimbursement.locationId || null,
+          reimbursementId: id,
+          journalEntryId: entry?.id || null,
+          payoutDate: paymentDate,
+          performedBy: user?.username || "Unknown",
+        });
+
+        await tx.update(employeeReimbursements).set({
+          status: "paid",
+          paidFrom: cashDrawerCode,
+          paidAt: new Date(),
+          paidBy: user?.username || user?.firstName || "Unknown",
+          journalEntryId: entry?.id || null,
+        }).where(eq(employeeReimbursements.id, id));
+
+        const [updated] = await tx.select().from(employeeReimbursements).where(eq(employeeReimbursements.id, id));
+        return updated;
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/reimbursements/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [r] = await db.select().from(employeeReimbursements).where(eq(employeeReimbursements.id, id));
+      if (!r) return res.status(404).json({ message: "Not found" });
+      if (r.status === "paid") return res.status(400).json({ message: "Cannot delete paid reimbursements" });
+      await db.delete(employeeReimbursements).where(eq(employeeReimbursements.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI LEARNING RULES ===
+  app.get("/api/firm/learning-rules", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(aiLearningRules).orderBy(desc(aiLearningRules.confidenceScore));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/learning-rules", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { vendorString, matchedCoaCode, matchedCoaName, category } = req.body;
+      if (!vendorString || !matchedCoaCode) {
+        return res.status(400).json({ message: "vendorString and matchedCoaCode are required" });
+      }
+      const { learnVendorRule } = await import("./reconciler");
+      const rule = await learnVendorRule(vendorString, matchedCoaCode, matchedCoaName || "", category || "learned", user?.username || "Unknown");
+      res.status(201).json(rule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/learning-rules/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await db.delete(aiLearningRules).where(eq(aiLearningRules.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === CASH PAYOUT LOGS ===
+  app.get("/api/firm/cash-payouts", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(cashPayoutLogs).orderBy(desc(cashPayoutLogs.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/cash-payouts", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { amount, payoutType, recipientName, description, sourceAccount, targetCoaCode, locationId, payoutDate } = req.body;
+      if (!amount || !recipientName || !description || !payoutDate || !targetCoaCode) {
+        return res.status(400).json({ message: "amount, recipientName, description, payoutDate, and targetCoaCode are required" });
+      }
+      const cashCode = sourceAccount || (locationId === 2 ? "1031" : "1030");
+
+      const { createJournalEntry } = await import("./accounting-engine");
+      const entry = await createJournalEntry({
+        date: payoutDate,
+        memo: `Cash payout to ${recipientName}: ${description}`,
+        lines: [
+          { accountCode: targetCoaCode, debit: amount, credit: 0 },
+          { accountCode: cashCode, debit: 0, credit: amount },
+        ],
+        createdBy: user?.username || "System",
+        referenceType: "cash_payout",
+        locationId: locationId || undefined,
+      });
+
+      const [payout] = await db.insert(cashPayoutLogs).values({
+        amount,
+        payoutType: payoutType || "manual",
+        recipientName,
+        description,
+        sourceAccount: cashCode,
+        targetCoaCode,
+        locationId: locationId || null,
+        journalEntryId: entry?.id || null,
+        payoutDate,
+        performedBy: user?.username || "Unknown",
+      }).returning();
+      res.status(201).json(payout);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

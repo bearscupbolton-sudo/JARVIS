@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts } from "@shared/schema";
-import { eq, and, gte, lte, sql, lt, inArray, or } from "drizzle-orm";
+import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules } from "@shared/schema";
+import { eq, and, gte, lte, sql, lt, inArray, or, desc, ilike } from "drizzle-orm";
 
 const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = {
   "us foods": { coaCode: "5010", category: "cogs" },
@@ -50,6 +50,47 @@ export function findVendorTemplate(description: string): { coaCode: string; cate
     if (lower.includes(vendor)) return template;
   }
   return null;
+}
+
+export async function findLearnedVendorRule(description: string): Promise<{ coaCode: string; category: string; confidence: number; source: string } | null> {
+  const rules = await db.select().from(aiLearningRules).orderBy(desc(aiLearningRules.confidenceScore));
+  const lower = description.toLowerCase();
+  for (const rule of rules) {
+    if (lower.includes(rule.vendorString.toLowerCase())) {
+      return {
+        coaCode: rule.matchedCoaCode,
+        category: rule.category || "learned",
+        confidence: rule.confidenceScore,
+        source: rule.source,
+      };
+    }
+  }
+  return null;
+}
+
+export async function learnVendorRule(vendorString: string, coaCode: string, coaName: string, category: string, createdBy: string, source: string = "manual") {
+  const existing = await db.select().from(aiLearningRules)
+    .where(eq(aiLearningRules.vendorString, vendorString.toLowerCase()));
+  if (existing.length > 0) {
+    await db.update(aiLearningRules).set({
+      matchedCoaCode: coaCode,
+      matchedCoaName: coaName,
+      category,
+      confidenceScore: Math.min((existing[0].confidenceScore || 0.8) + 0.05, 1.0),
+      updatedAt: new Date(),
+    }).where(eq(aiLearningRules.id, existing[0].id));
+    return existing[0];
+  }
+  const [rule] = await db.insert(aiLearningRules).values({
+    vendorString: vendorString.toLowerCase(),
+    matchedCoaCode: coaCode,
+    matchedCoaName: coaName,
+    category,
+    confidenceScore: 0.9,
+    source,
+    createdBy,
+  }).returning();
+  return rule;
 }
 
 export async function findPlaceholderMatch(

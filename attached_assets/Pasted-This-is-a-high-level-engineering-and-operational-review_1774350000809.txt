@@ -1,0 +1,45 @@
+This is a high-level engineering and operational review of the **Jarvis Accounting & Reconciliation System**. I have performed three distinct "passes" over your codebase, focusing on evolving the workflow from a basic ledger to a sophisticated, user-friendly bakery operating system.
+
+---
+
+### **Pass 1: Workflow Optimization & Data Continuity**
+**Focus:** *Ensuring a seamless "Paper-to-Ledger" pipeline.*
+
+* **Unified Vendor Intelligence:** Currently, you have two separate "source of truths" for vendor mapping: `mapUSFoodsToAccount` in `accounting-engine.ts` and `VENDOR_TEMPLATES` in `reconciler.ts`.
+    * **The Optimization:** Consolidate these into a single `VendorMaster` database table (already partially defined in your schema). By moving these rules from static code to the database, you allow the UI to "learn" in real-time. When you manually reclassify an item in the ledger, Jarvis should automatically create a new entry in the `VendorMaster` table.
+* **The "Contextual Bridge":** You have a clever `detectLocationFromAddress` helper.
+    * **The Optimization:** This should be integrated directly into the `scanGmailForInvoices` loop. As soon as a PDF is pulled from Gmail, Jarvis should immediately tag it as "Saratoga" or "Bolton" based on the delivery address in the header. This prevents the "Where did this flour go?" audit headache later.
+
+### **Pass 2: Layman Continuity (The "Lou-First" UI)**
+**Focus:** *Making complex accounting feel like a simple bakery task.*
+
+* **From "Journal Entry" to "Action Cards":** In your schema, you have a `financial_consultations` table.
+    * **The Optimization:** Instead of showing a raw list of ledger entries, the "First Screen" should present **Action Cards**. 
+        * *Layman Translation:* Instead of "Posted Debit 5010 / Credit 1010," the card says: *"Processed $1,505.80 invoice from Chefs' Warehouse for the Saratoga shop. Click to view line items."*
+* **The "Reimbursement Receipt" Flow:** You requested an employee reimbursement page. 
+    * **The Optimization:** Use your `media.ts` and `object_storage` infrastructure. An employee takes a photo; Jarvis uses OCR to extract the total and date. 
+    * **Continuity:** In the ledger, this creates a **"Pending Payout"** entry. When you hand the employee $50 from the Saratoga cash drawer, you click "Mark Paid" in Jarvis, and it automatically moves that $50 from **"Cash Drawer - Saratoga" (1030)** to the expense account (e.g., **5010** for emergency ingredients).
+
+### **Pass 3: Structural Integrity & Record Retention**
+**Focus:** *Audit-proofing the bakery for tax and growth.*
+
+* **Hard-Linking Attachments:** Your `ledger_lines` table needs a `receipt_url` or `attachment_id` column.
+    * **The Optimization:** Every single transaction in the ledger should have a direct link to the Gmail PDF or the employee's receipt photo. This provides the "Daily Record Retention" you mentioned, ensuring that if NYS auditors ask about a March 20th filing, you can produce the original document in one click.
+* **"Spendable" Cash Intelligence:** Your `getAdjustedCashPosition` logic is the "secret sauce." 
+    * **The Optimization:** Incorporate your `compliance_calendar` and `salesTaxJurisdictions` more deeply. Jarvis should calculate the **Saratoga vs. Bolton** sales tax split daily based on your Square Sales data and subtract that "obligated" money from your dashboard's balance immediately. This ensures you never "accidentally" spend tax money on a new mixer.
+
+---
+
+### **The "Ragent" Spec: Next-Gen Database Schema Additions**
+
+To support your requested features, I recommend adding these three tables to your `schema.ts`:
+
+1.  **`employee_reimbursements`**: 
+    * Fields: `amount`, `status` (Pending/Paid), `category` (from COA), `receipt_image_url`, `location_id`, `employee_name`.
+2.  **`ai_learning_rules`**: 
+    * Fields: `vendor_string` (e.g., "AMZN MKTP"), `matched_coa_code`, `confidence_score`. This replaces the static `VENDOR_TEMPLATES`.
+3.  **`cash_payout_logs`**: 
+    * Links manual cash withdrawals to the specific `cash_drawer` account to keep your "Undeposited Cash" ledger accurate.
+
+
+**Would you like me to generate the specific TypeScript code for these three new database tables so you can add them to your `shared/schema.ts` file?**

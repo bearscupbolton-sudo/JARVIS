@@ -23,7 +23,7 @@ import {
   Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
-  FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory
+  FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -231,6 +231,7 @@ export default function TheFirm() {
             <TabsTrigger value="compliance" className="whitespace-nowrap px-3" data-testid="tab-compliance">Compliance</TabsTrigger>
             <TabsTrigger value="donations" className="whitespace-nowrap px-3" data-testid="tab-donations">Donations</TabsTrigger>
             <TabsTrigger value="assets" className="whitespace-nowrap px-3" data-testid="tab-assets">Assets</TabsTrigger>
+            <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
           </TabsList>
         </div>
 
@@ -278,6 +279,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="assets">
           <AssetsTab />
+        </TabsContent>
+        <TabsContent value="reimbursements">
+          <ReimbursementsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -4925,6 +4929,263 @@ function AssetsTab() {
           })
         )}
       </div>
+    </div>
+  );
+}
+
+function ReimbursementsTab() {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [empName, setEmpName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("supplies");
+  const [coaCode, setCoaCode] = useState("6090");
+  const [desc, setDesc] = useState("");
+  const [expDate, setExpDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [locId, setLocId] = useState("1");
+  const [notes, setNotes] = useState("");
+
+  const EXPENSE_CATEGORIES = [
+    { value: "supplies", label: "Supplies", code: "6090" },
+    { value: "ingredients", label: "Emergency Ingredients", code: "5010" },
+    { value: "packaging", label: "Packaging", code: "5020" },
+    { value: "equipment", label: "Small Equipment (<$2,500)", code: "6070" },
+    { value: "delivery", label: "Delivery/Gas", code: "6120" },
+    { value: "technology", label: "Technology", code: "6080" },
+    { value: "other", label: "Other", code: "6090" },
+  ];
+
+  const { data: reimbursements, isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/firm/reimbursements"],
+    queryFn: () => fetch("/api/firm/reimbursements", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/firm/reimbursements", data),
+    onSuccess: () => {
+      refetch();
+      setShowForm(false);
+      setEmpName(""); setAmount(""); setDesc(""); setNotes("");
+      toast({ title: "Reimbursement request submitted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const payMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/firm/reimbursements/${id}/pay`, {}),
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Reimbursement paid — journal entry posted to ledger" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/firm/reimbursements/${id}`, undefined),
+    onSuccess: () => { refetch(); toast({ title: "Reimbursement removed" }); },
+  });
+
+  const handleCategoryChange = (val: string) => {
+    setCategory(val);
+    const cat = EXPENSE_CATEGORIES.find(c => c.value === val);
+    if (cat) setCoaCode(cat.code);
+  };
+
+  const handleCreate = () => {
+    const amt = parseFloat(amount);
+    if (!empName || !amt || amt <= 0 || !desc) {
+      toast({ title: "Employee name, amount, and description are required", variant: "destructive" });
+      return;
+    }
+    createMut.mutate({
+      employeeName: empName,
+      amount: amt,
+      category,
+      coaCode,
+      description: desc,
+      expenseDate: expDate,
+      locationId: parseInt(locId) || 1,
+      notes: notes || undefined,
+    });
+  };
+
+  if (isLoading) return <div className="p-6"><Skeleton className="h-32 w-full" /></div>;
+
+  const pending = reimbursements?.filter(r => r.status === "pending") || [];
+  const paid = reimbursements?.filter(r => r.status === "paid") || [];
+  const totalPending = pending.reduce((s, r) => s + r.amount, 0);
+  const totalPaid = paid.reduce((s, r) => s + r.amount, 0);
+
+  return (
+    <div className="space-y-6" data-testid="reimbursements-tab">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card data-testid="card-pending-reimbursements">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="h-4 w-4 text-yellow-500" />
+              <span className="text-xs text-muted-foreground">Pending Payouts</span>
+            </div>
+            <p className="text-2xl font-bold">{pending.length}</p>
+            <p className="text-sm text-muted-foreground">${totalPending.toFixed(2)} owed</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-paid-reimbursements">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <span className="text-xs text-muted-foreground">Paid This Period</span>
+            </div>
+            <p className="text-2xl font-bold">{paid.length}</p>
+            <p className="text-sm text-muted-foreground">${totalPaid.toFixed(2)} disbursed</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-total-reimbursements">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <HandCoins className="h-4 w-4 text-primary" />
+              <span className="text-xs text-muted-foreground">Total Requests</span>
+            </div>
+            <p className="text-2xl font-bold">{reimbursements?.length || 0}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <Lightbulb className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">How Reimbursements Work</p>
+              <p className="text-amber-600 dark:text-amber-300">
+                When you click <strong>"Mark Paid"</strong>, Jarvis automatically moves the money from your <strong>Cash Drawer</strong> (Saratoga 1030 or Bolton 1031) to the appropriate expense account in the ledger. No manual journal entry needed.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-lg">Reimbursement Requests</h3>
+        <Button size="sm" onClick={() => setShowForm(!showForm)} data-testid="button-add-reimbursement">
+          <Plus className="h-4 w-4 mr-1" /> New Request
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card data-testid="form-add-reimbursement">
+          <CardContent className="p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Employee Name *</Label>
+                <Input placeholder="e.g., Lexi Gordon" value={empName} onChange={e => setEmpName(e.target.value)} data-testid="input-reimb-employee" />
+              </div>
+              <div className="space-y-2">
+                <Label>Amount *</Label>
+                <Input type="number" step="0.01" placeholder="50.00" value={amount} onChange={e => setAmount(e.target.value)} data-testid="input-reimb-amount" />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={category} onValueChange={handleCategoryChange}>
+                  <SelectTrigger data-testid="select-reimb-category"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map(c => (
+                      <SelectItem key={c.value} value={c.value}>{c.label} ({c.code})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Expense Date</Label>
+                <Input type="date" value={expDate} onChange={e => setExpDate(e.target.value)} data-testid="input-reimb-date" />
+              </div>
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Select value={locId} onValueChange={setLocId}>
+                  <SelectTrigger data-testid="select-reimb-location"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Saratoga (Cash Drawer 1030)</SelectItem>
+                    <SelectItem value="2">Bolton (Cash Drawer 1031)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Description *</Label>
+                <Input placeholder="What was purchased?" value={desc} onChange={e => setDesc(e.target.value)} data-testid="input-reimb-description" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Input placeholder="Additional context..." value={notes} onChange={e => setNotes(e.target.value)} data-testid="input-reimb-notes" />
+            </div>
+            {parseFloat(amount) > 0 && (
+              <div className="bg-muted/50 rounded p-3 text-sm">
+                <p>Ledger Preview: DR <strong>{EXPENSE_CATEGORIES.find(c => c.value === category)?.label}</strong> ({coaCode}) / CR <strong>Cash Drawer {locId === "2" ? "Bolton (1031)" : "Saratoga (1030)"}</strong> for ${parseFloat(amount).toFixed(2)}</p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} disabled={createMut.isPending} data-testid="button-submit-reimbursement">
+                {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                Submit Request
+              </Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {pending.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
+            <Clock className="h-4 w-4 text-yellow-500" /> Pending Payouts ({pending.length})
+          </h4>
+          {pending.map(r => (
+            <Card key={r.id} className="border-yellow-200 dark:border-yellow-800" data-testid={`card-pending-reimb-${r.id}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{r.employeeName}</p>
+                    <p className="text-sm text-muted-foreground">{r.description} · {r.expenseDate} · {r.category}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold">${r.amount.toFixed(2)}</span>
+                    <Button size="sm" onClick={() => payMut.mutate(r.id)} disabled={payMut.isPending} data-testid={`button-pay-${r.id}`}>
+                      {payMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Banknote className="h-4 w-4 mr-1" />}
+                      Mark Paid
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => deleteMut.mutate(r.id)} data-testid={`button-delete-reimb-${r.id}`}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {paid.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-green-500" /> Paid ({paid.length})
+          </h4>
+          {paid.map(r => (
+            <Card key={r.id} className="bg-muted/30" data-testid={`card-paid-reimb-${r.id}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{r.employeeName}</p>
+                    <p className="text-sm text-muted-foreground">{r.description} · {r.expenseDate} · Paid from {r.paidFrom || "Cash Drawer"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-green-600">${r.amount.toFixed(2)}</span>
+                    <Badge variant="outline" className="text-xs text-green-600">Paid</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
