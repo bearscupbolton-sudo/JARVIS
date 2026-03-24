@@ -2168,3 +2168,91 @@ export const insertDonationSchema = createInsertSchema(donations).omit({ id: tru
 export type Donation = typeof donations.$inferSelect;
 export type InsertDonation = z.infer<typeof insertDonationSchema>;
 
+// === FIXED ASSETS (Capital Equipment) ===
+export const fixedAssets = pgTable("fixed_assets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  vendor: text("vendor"),
+  purchasePrice: doublePrecision("purchase_price").notNull(),
+  serialNumber: text("serial_number"),
+  warrantyExpiration: text("warranty_expiration"),
+  placedInServiceDate: text("placed_in_service_date").notNull(),
+  usefulLifeMonths: integer("useful_life_months").notNull().default(120),
+  salvageValue: doublePrecision("salvage_value").notNull().default(0),
+  locationId: integer("location_id"),
+  locationTag: text("location_tag"),
+  status: text("status").notNull().default("active"),
+  section179Eligible: boolean("section_179_eligible").notNull().default(true),
+  section179Elected: boolean("section_179_elected").notNull().default(false),
+  bookDepreciationMethod: text("book_depreciation_method").notNull().default("straight_line"),
+  taxDepreciationMethod: text("tax_depreciation_method").notNull().default("section_179"),
+  purchaseTransactionId: integer("purchase_transaction_id"),
+  journalEntryId: integer("journal_entry_id"),
+  capitalizedBy: text("capitalized_by"),
+  capitalizedAt: timestamp("capitalized_at"),
+  disposedAt: timestamp("disposed_at"),
+  disposalMethod: text("disposal_method"),
+  disposalProceeds: doublePrecision("disposal_proceeds"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFixedAssetSchema = createInsertSchema(fixedAssets).omit({ id: true, createdAt: true, journalEntryId: true, capitalizedAt: true, disposedAt: true });
+export type FixedAsset = typeof fixedAssets.$inferSelect;
+export type InsertFixedAsset = z.infer<typeof insertFixedAssetSchema>;
+
+// === DEPRECIATION SCHEDULES ===
+export const depreciationSchedules = pgTable("depreciation_schedules", {
+  id: serial("id").primaryKey(),
+  assetId: integer("asset_id").notNull(),
+  ledgerType: text("ledger_type").notNull(),
+  method: text("method").notNull(),
+  totalAmount: doublePrecision("total_amount").notNull(),
+  monthlyAmount: doublePrecision("monthly_amount"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  totalMonths: integer("total_months"),
+  yearOneDeduction: doublePrecision("year_one_deduction"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDepreciationScheduleSchema = createInsertSchema(depreciationSchedules).omit({ id: true, createdAt: true });
+export type DepreciationSchedule = typeof depreciationSchedules.$inferSelect;
+export type InsertDepreciationSchedule = z.infer<typeof insertDepreciationScheduleSchema>;
+
+// === DEPRECIATION ENTRIES (Monthly postings) ===
+export const depreciationEntries = pgTable("depreciation_entries", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").notNull(),
+  assetId: integer("asset_id").notNull(),
+  periodDate: text("period_date").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  accumulatedDepreciation: doublePrecision("accumulated_depreciation").notNull(),
+  netBookValue: doublePrecision("net_book_value").notNull(),
+  journalEntryId: integer("journal_entry_id"),
+  posted: boolean("posted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDepreciationEntrySchema = createInsertSchema(depreciationEntries).omit({ id: true, createdAt: true });
+export type DepreciationEntry = typeof depreciationEntries.$inferSelect;
+export type InsertDepreciationEntry = z.infer<typeof insertDepreciationEntrySchema>;
+
+// === ASSET AUDIT LOG ===
+export const assetAuditLog = pgTable("asset_audit_log", {
+  id: serial("id").primaryKey(),
+  assetId: integer("asset_id").notNull(),
+  action: text("action").notNull(),
+  details: text("details"),
+  previousValues: text("previous_values"),
+  newValues: text("new_values"),
+  reason: text("reason"),
+  performedBy: text("performed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAssetAuditLogSchema = createInsertSchema(assetAuditLog).omit({ id: true, createdAt: true });
+export type AssetAuditLogEntry = typeof assetAuditLog.$inferSelect;
+export type InsertAssetAuditLogEntry = z.infer<typeof insertAssetAuditLogSchema>;
+
