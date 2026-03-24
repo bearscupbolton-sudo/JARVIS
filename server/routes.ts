@@ -4074,6 +4074,13 @@ Rules:
           invoiceTotal: input.invoiceTotal ?? null,
           notes: input.notes || null,
           enteredBy: user?.username || user?.firstName || "Unknown",
+          documentType: input.documentType || "invoice",
+          locationTag: input.locationTag || null,
+          deliveryDate: input.deliveryDate || null,
+          hasShorts: input.hasShorts || false,
+          hasSubstitutions: input.hasSubstitutions || false,
+          hasPriceAlerts: input.hasPriceAlerts || false,
+          reviewStatus: input.reviewStatus || "pending",
         },
         input.lines
       );
@@ -4219,18 +4226,41 @@ Return a JSON object with this exact structure:
   "invoiceNumber": "string or null",
   "invoiceTotal": number or null,
   "notes": "string or null - include tax, delivery fees, special notes here",
+  "documentType": "string or null - 'order_confirmation', 'invoice', 'will_call', or null if standard invoice",
+  "deliveryDate": "string in YYYY-MM-DD format or null",
+  "locationTag": "string or null - delivery location name/address if visible",
   "lines": [
     {
       "itemDescription": "string - use our inventory name if matched, with original in parentheses",
       "quantity": number,
       "unit": "string or null - full word preferred (case, pound, each, box, bag, dozen, etc.)",
       "unitPrice": number or null,
-      "lineTotal": number or null
+      "lineTotal": number or null,
+      "packSize": "string or null - vendor pack description like '6/5 LB' or '4/1 GAL'",
+      "quantityOrdered": number or null,
+      "quantityShipped": number or null,
+      "isSubstitution": boolean or null,
+      "originalProduct": "string or null - only if isSubstitution is true"
     }
   ]
 }
 
-Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON object.`
+Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON object.
+
+US FOODS / DISTRIBUTOR-SPECIFIC INSTRUCTIONS:
+If this is from US Foods (or similar distributors like Sysco, Performance Food Group):
+- Include "documentType": "order_confirmation" or "invoice" or "will_call" based on what you see
+- Include "deliveryDate" if visible (YYYY-MM-DD format)
+- Include "locationTag" if the delivery location/address is visible
+- For each line item, also include:
+  - "packSize": e.g. "6/5 LB", "4/1 GAL", "1/50 LB" — the vendor's pack description
+  - "quantityOrdered": the quantity the customer originally ordered (if shown)
+  - "quantityShipped": the quantity actually shipped/delivered (if different from ordered)
+  - "isSubstitution": true if the item shows as a substitute for another product
+  - "originalProduct": if isSubstitution is true, what was the original item ordered
+- If ordered and shipped quantities differ, the item was "shorted" — mark both fields
+- If you see "OUT" or "0" shipped for an item, set quantityShipped to 0
+- If you see "SUB" or "SUBSTITUTE" notation, set isSubstitution to true`
           },
           {
             role: "user",
@@ -4267,6 +4297,24 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         return res.status(400).json({ message: "No line items found on the invoice. Make sure the full invoice is visible in the photo and text is readable." });
       }
 
+      const { validateInvoiceLines } = await import("./usfoods-validator");
+      const alerts = await validateInvoiceLines(0, invoiceData.lines.map((l: any) => ({
+        itemDescription: l.itemDescription,
+        quantity: l.quantity,
+        quantityOrdered: l.quantityOrdered,
+        quantityShipped: l.quantityShipped,
+        unitPrice: l.unitPrice,
+        packSize: l.packSize,
+        isSubstitution: l.isSubstitution,
+        originalProduct: l.originalProduct,
+        inventoryItemId: null,
+      })));
+
+      invoiceData.alerts = alerts;
+      invoiceData.hasShorts = alerts.some((a: any) => a.type === "short");
+      invoiceData.hasSubstitutions = alerts.some((a: any) => a.type === "substitution");
+      invoiceData.hasPriceAlerts = alerts.some((a: any) => a.type === "price_variance");
+
       res.json(invoiceData);
     } catch (err: any) {
       console.error("Invoice scan error:", err);
@@ -4278,6 +4326,41 @@ Be thorough — capture EVERY line item on the invoice. Return ONLY the JSON obj
         return res.status(400).json({ message: "Scanning timed out — the image may be too complex. Try scanning one page at a time." });
       }
       res.status(500).json({ message: "Failed to scan invoice. Please try again with a clearer photo." });
+    }
+  });
+
+  app.post("/api/invoices/:id/validate", isAuthenticated, isManager, async (req, res) => {
+    try {
+      const invoiceId = Number(req.params.id);
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const { validateInvoiceLines } = await import("./usfoods-validator");
+      const alerts = await validateInvoiceLines(invoiceId, invoice.lines.map(l => ({
+        id: l.id,
+        itemDescription: l.itemDescription,
+        quantity: l.quantity,
+        quantityOrdered: l.quantityOrdered,
+        quantityShipped: l.quantityShipped,
+        unitPrice: l.unitPrice,
+        packSize: l.packSize,
+        isSubstitution: l.isSubstitution || false,
+        originalProduct: l.originalProduct,
+        inventoryItemId: l.inventoryItemId,
+      })));
+
+      const hasShorts = alerts.some(a => a.type === "short");
+      const hasSubs = alerts.some(a => a.type === "substitution");
+      const hasPriceAlerts = alerts.some(a => a.type === "price_variance");
+
+      await db.update(invoices)
+        .set({ hasShorts, hasSubstitutions: hasSubs, hasPriceAlerts })
+        .where(eq(invoices.id, invoiceId));
+
+      res.json({ alerts, hasShorts, hasSubstitutions: hasSubs, hasPriceAlerts });
+    } catch (err: any) {
+      console.error("[Invoice Validate] Error:", err.message);
+      res.status(500).json({ message: err.message });
     }
   });
 

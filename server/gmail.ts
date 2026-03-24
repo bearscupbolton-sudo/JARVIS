@@ -269,6 +269,12 @@ export const VENDOR_EMAIL_RULES = [
     subjectKeywords: ["Ordered"],
     hasAttachment: false,
   },
+  {
+    vendor: "US Foods",
+    fromFilter: "from:usfoods.com OR from:usfoodservice.com",
+    subjectKeywords: ["Order Confirmation", "Invoice", "ACH Payment Notification", "Will Call Invoice"],
+    hasAttachment: false,
+  },
 ];
 
 export async function scanGmailForInvoices(daysBack: number = 7): Promise<{

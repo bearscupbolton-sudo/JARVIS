@@ -1,0 +1,27 @@
+get Jarvis ready to handle your US Foods orders and invoices, we need to define the Input Source, Data Fields, and Validation Rules. Since you’re running a tight ship at Bear’s Cup, the goal is to have Jarvis automatically distinguish between what’s ordered versus what actually arrived (the invoice).
+Here is the criteria to feed into your Jarvis development:
+1. The Trigger (Input Sources)
+Jarvis needs to monitor your bakery’s inbox for two distinct types of emails from US Foods:
+• Order Confirmations: Usually sent immediately after you place an order.
+• Digital Invoices: Sent after delivery (e.g., your recent ones from March 21 and 20).
+• Keywords to watch: "Order Confirmation", "Invoice #", "ACH Payment Notification", and "Will Call Invoice".
+2. Header Data (The "Identity" Fields)
+Jarvis must extract these to categorize the entry:
+• Vendor: US Foods
+• Location: (Crucial since you have Saratoga and Bolton Landing) – Look for the shipping address to tag the correct "Location ID."
+• Invoice/Order Number: Unique ID for tracking.
+• Date: Invoice Date vs. Delivery Date.
+• Total Amount: To match against your bank/ACH records.
+3. Line Item Extraction (The Granular Stuff)
+This is where Jarvis adds real value. He needs to pull:
+• Product Description: (e.g., "Whole Milk," "Oat Milk," "Heavy Whipping Cream").
+• Pack/Size: US Foods uses specific codes like 6/10# or 12/32oz. Jarvis needs to keep these separate so you can track unit costs.
+• Quantity: Number of cases or "eaches" delivered.
+• Unit Price & Extended Price: To catch price creeping on your core ingredients (like flour and eggs).
+4. Logic & Validation (The "Jarvis Brain")
+Tell Jarvis to perform these checks:
+• The "Short" Check: Flag any line items where the "Quantity Ordered" does not match "Quantity Shipped" (to catch out-of-stocks).
+• Price Variance: Alert you if the price of a staple (like your King Arthur flour or high-fat butter) increases by more than 5% since the last invoice.
+• Substitution Alert: Flag the "Subbed product indicator" so you know if they swapped your preferred milk or flour for a different brand.
+Example Data Structure for Jarvis
+If you are coding this or using a tool like Nanonets or Docparser, here is the JSON-style structure he should aim for:

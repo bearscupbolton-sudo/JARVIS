@@ -54,6 +54,23 @@ type LineEntry = {
   lineTotal: number | null;
   manualMatchId?: number | null;
   saveAsAlias?: boolean;
+  packSize?: string | null;
+  quantityOrdered?: number | null;
+  quantityShipped?: number | null;
+  isShort?: boolean;
+  isSubstitution?: boolean;
+  originalProduct?: string | null;
+  priceVariancePercent?: number | null;
+  previousUnitPrice?: number | null;
+};
+
+type InvoiceAlert = {
+  type: "short" | "price_variance" | "substitution";
+  severity: "warning" | "critical";
+  lineId?: number;
+  itemDescription: string;
+  message: string;
+  details: Record<string, any>;
 };
 
 type ScanMode = "idle" | "capturing" | "scanning" | "review";
@@ -312,6 +329,15 @@ function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }
                           {inv.notes?.includes("Auto-imported") && (
                             <Badge variant="outline" className="text-[10px] h-4 px-1">PFG</Badge>
                           )}
+                          {inv.hasShorts && (
+                            <Badge variant="destructive" className="text-[10px] h-4 px-1">SHORTS</Badge>
+                          )}
+                          {inv.hasSubstitutions && (
+                            <Badge className="text-[10px] h-4 px-1 bg-orange-500">SUBS</Badge>
+                          )}
+                          {inv.hasPriceAlerts && (
+                            <Badge variant="outline" className="text-[10px] h-4 px-1 text-amber-600 border-amber-400">PRICE</Badge>
+                          )}
                         </div>
                       </div>
                       {inv.invoiceTotal != null && (
@@ -338,21 +364,32 @@ function InvoiceHistorySection({ invoiceHistory }: { invoiceHistory: Invoice[] }
                                 <tr key={line.id} data-testid={`invoice-line-${line.id}`}>
                                   <td className="p-2">
                                     <span className="truncate block max-w-[160px]">{line.itemDescription}</span>
-                                    {line.inventoryItemId ? (
-                                      <Badge variant="outline" className="text-[10px] h-4 px-1 mt-0.5 text-green-600 border-green-300">
-                                        <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> linked
-                                      </Badge>
-                                    ) : (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-5 px-1.5 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50 mt-0.5"
-                                        onClick={(e) => { e.stopPropagation(); setLinkingLine(line); }}
-                                        data-testid={`button-link-line-${line.id}`}
-                                      >
-                                        <Link2 className="w-2.5 h-2.5 mr-0.5" /> link item
-                                      </Button>
-                                    )}
+                                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                      {line.inventoryItemId ? (
+                                        <Badge variant="outline" className="text-[10px] h-4 px-1 text-green-600 border-green-300">
+                                          <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> linked
+                                        </Badge>
+                                      ) : (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 px-1.5 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                          onClick={(e) => { e.stopPropagation(); setLinkingLine(line); }}
+                                          data-testid={`button-link-line-${line.id}`}
+                                        >
+                                          <Link2 className="w-2.5 h-2.5 mr-0.5" /> link item
+                                        </Button>
+                                      )}
+                                      {line.isShort && (
+                                        <Badge variant="destructive" className="text-[10px] h-4 px-1">SHORT</Badge>
+                                      )}
+                                      {line.isSubstitution && (
+                                        <Badge className="text-[10px] h-4 px-1 bg-orange-500">SUB</Badge>
+                                      )}
+                                      {line.packSize && (
+                                        <span className="text-[10px] text-muted-foreground">{line.packSize}</span>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="p-2 text-right tabular-nums">{line.quantity}</td>
                                   <td className="p-2 text-muted-foreground">{line.unit || ""}</td>
@@ -605,6 +642,8 @@ export default function InvoiceCapture() {
   const addMoreFileRef = useRef<HTMLInputElement>(null);
   const addMoreCameraRef = useRef<HTMLInputElement>(null);
   const [stagedImages, setStagedImages] = useState<string[]>([]);
+  const [scanAlerts, setScanAlerts] = useState<InvoiceAlert[]>([]);
+  const [scanMeta, setScanMeta] = useState<{ documentType?: string; locationTag?: string; deliveryDate?: string }>({});
   const [processingPdfCount, setProcessingPdfCount] = useState(0);
   const processingPdf = processingPdfCount > 0;
 
@@ -626,6 +665,11 @@ export default function InvoiceCapture() {
       const res = await apiRequest("POST", "/api/invoices", {
         ...data,
         invoiceTotal: data.invoiceTotal ? Number(data.invoiceTotal) : null,
+        documentType: scanMeta.documentType || "invoice",
+        locationTag: scanMeta.locationTag || null,
+        deliveryDate: scanMeta.deliveryDate || null,
+        hasShorts: data.lines.some(l => l.isShort),
+        hasSubstitutions: data.lines.some(l => l.isSubstitution),
         lines: data.lines.map(l => ({
           itemDescription: l.itemDescription,
           quantity: l.quantity,
@@ -634,6 +678,12 @@ export default function InvoiceCapture() {
           lineTotal: l.lineTotal ?? null,
           manualMatchId: l.manualMatchId || null,
           saveAsAlias: l.saveAsAlias || false,
+          packSize: l.packSize || null,
+          quantityOrdered: l.quantityOrdered ?? null,
+          quantityShipped: l.quantityShipped ?? null,
+          isShort: l.isShort || false,
+          isSubstitution: l.isSubstitution || false,
+          originalProduct: l.originalProduct || null,
         })),
       });
       return res.json();
@@ -670,6 +720,12 @@ export default function InvoiceCapture() {
       if (data.invoiceTotal != null) form.setValue("invoiceTotal", String(data.invoiceTotal));
       if (data.notes) form.setValue("notes", data.notes);
 
+      setScanMeta({
+        documentType: data.documentType || undefined,
+        locationTag: data.locationTag || undefined,
+        deliveryDate: data.deliveryDate || undefined,
+      });
+
       if (data.lines && Array.isArray(data.lines)) {
         const parsedLines: LineEntry[] = data.lines.map((l: any) => ({
           itemDescription: l.itemDescription || "",
@@ -677,14 +733,29 @@ export default function InvoiceCapture() {
           unit: l.unit || "",
           unitPrice: l.unitPrice != null ? Number(l.unitPrice) : null,
           lineTotal: l.lineTotal != null ? Number(l.lineTotal) : null,
+          packSize: l.packSize || null,
+          quantityOrdered: l.quantityOrdered != null ? Number(l.quantityOrdered) : null,
+          quantityShipped: l.quantityShipped != null ? Number(l.quantityShipped) : null,
+          isShort: l.quantityOrdered != null && l.quantityShipped != null && l.quantityShipped < l.quantityOrdered,
+          isSubstitution: l.isSubstitution || false,
+          originalProduct: l.originalProduct || null,
         }));
         setLines(parsedLines);
       }
 
+      setScanAlerts(data.alerts || []);
+
       setScanMode("review");
+
+      const shortCount = data.alerts?.filter((a: any) => a.type === "short").length || 0;
+      const subCount = data.alerts?.filter((a: any) => a.type === "substitution").length || 0;
+      const alertNote = (shortCount > 0 || subCount > 0)
+        ? ` Found ${shortCount} short${shortCount !== 1 ? "s" : ""} and ${subCount} substitution${subCount !== 1 ? "s" : ""}.`
+        : "";
+
       toast({
         title: "Invoice scanned",
-        description: `Found ${data.lines?.length || 0} line items from ${stagedImages.length} photo${stagedImages.length > 1 ? "s" : ""}. Review and edit before saving.`,
+        description: `Found ${data.lines?.length || 0} line items from ${stagedImages.length} photo${stagedImages.length > 1 ? "s" : ""}. Review and edit before saving.${alertNote}`,
       });
     },
     onError: (err: Error) => {
@@ -923,6 +994,8 @@ export default function InvoiceCapture() {
     setPreviewImage(null);
     setStagedImages([]);
     setScanMode("idle");
+    setScanAlerts([]);
+    setScanMeta({});
     form.reset({ vendorName: "", invoiceDate: getToday(), invoiceNumber: "", invoiceTotal: "", notes: "" });
     setLines([]);
   }
@@ -1281,6 +1354,19 @@ export default function InvoiceCapture() {
                                             {masterItems.find(i => i.id === line.manualMatchId)?.name || "Matched"}
                                           </Badge>
                                         )}
+                                        {line.isShort && (
+                                          <Badge variant="destructive" className="shrink-0 text-[10px]" data-testid={`badge-short-${idx}`}>
+                                            SHORT: {line.quantityShipped ?? 0}/{line.quantityOrdered ?? line.quantity}
+                                          </Badge>
+                                        )}
+                                        {line.isSubstitution && (
+                                          <Badge className="shrink-0 text-[10px] bg-orange-500" data-testid={`badge-sub-${idx}`}>
+                                            SUB {line.originalProduct ? `for ${line.originalProduct}` : ""}
+                                          </Badge>
+                                        )}
+                                        {line.packSize && (
+                                          <span className="text-xs text-muted-foreground shrink-0">({line.packSize})</span>
+                                        )}
                                       </div>
                                       <div className="flex items-center gap-1 shrink-0">
                                         <Button type="button" variant="ghost" size="icon" onClick={() => setEditingLine(idx)} data-testid={`button-edit-line-${idx}`}>
@@ -1416,6 +1502,49 @@ export default function InvoiceCapture() {
           </div>
 
           <div className="space-y-4">
+            {scanAlerts.length > 0 && (
+              <Card data-testid="card-scan-alerts">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-500" />
+                    Delivery Alerts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {scanAlerts.filter(a => a.type === "short").length > 0 && (
+                    <div className="p-2 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-1">
+                        Shorts ({scanAlerts.filter(a => a.type === "short").length})
+                      </p>
+                      {scanAlerts.filter(a => a.type === "short").map((a, i) => (
+                        <p key={i} className="text-xs text-red-600 dark:text-red-400" data-testid={`alert-short-${i}`}>{a.message}</p>
+                      ))}
+                    </div>
+                  )}
+                  {scanAlerts.filter(a => a.type === "substitution").length > 0 && (
+                    <div className="p-2 rounded-md bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
+                      <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 mb-1">
+                        Substitutions ({scanAlerts.filter(a => a.type === "substitution").length})
+                      </p>
+                      {scanAlerts.filter(a => a.type === "substitution").map((a, i) => (
+                        <p key={i} className="text-xs text-orange-600 dark:text-orange-400" data-testid={`alert-sub-${i}`}>{a.message}</p>
+                      ))}
+                    </div>
+                  )}
+                  {scanAlerts.filter(a => a.type === "price_variance").length > 0 && (
+                    <div className="p-2 rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">
+                        Price Changes ({scanAlerts.filter(a => a.type === "price_variance").length})
+                      </p>
+                      {scanAlerts.filter(a => a.type === "price_variance").map((a, i) => (
+                        <p key={i} className="text-xs text-amber-600 dark:text-amber-400" data-testid={`alert-price-${i}`}>{a.message}</p>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {previewImage && (
               <Card>
                 <CardHeader>

@@ -498,6 +498,13 @@ export const invoices = pgTable("invoices", {
   invoiceTotal: doublePrecision("invoice_total"),
   notes: text("notes"),
   enteredBy: text("entered_by"),
+  documentType: text("document_type").default("invoice"),
+  locationTag: text("location_tag"),
+  deliveryDate: text("delivery_date"),
+  hasShorts: boolean("has_shorts").default(false),
+  hasSubstitutions: boolean("has_substitutions").default(false),
+  hasPriceAlerts: boolean("has_price_alerts").default(false),
+  reviewStatus: text("review_status").default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -515,6 +522,14 @@ export const invoiceLines = pgTable("invoice_lines", {
   unitPrice: doublePrecision("unit_price"),
   lineTotal: doublePrecision("line_total"),
   inventoryItemId: integer("inventory_item_id").references(() => inventoryItems.id),
+  packSize: text("pack_size"),
+  quantityOrdered: doublePrecision("quantity_ordered"),
+  quantityShipped: doublePrecision("quantity_shipped"),
+  isShort: boolean("is_short").default(false),
+  isSubstitution: boolean("is_substitution").default(false),
+  originalProduct: text("original_product"),
+  priceVariancePercent: doublePrecision("price_variance_percent"),
+  previousUnitPrice: doublePrecision("previous_unit_price"),
 });
 
 export const insertInvoiceLineSchema = createInsertSchema(invoiceLines).omit({ id: true });
