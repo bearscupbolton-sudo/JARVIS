@@ -75,6 +75,13 @@ const CATEGORIES = [
   { value: "misc", label: "Misc" },
 ];
 
+const CATEGORY_TO_COA: Record<string, string> = {
+  revenue: "4010", cogs: "5010", labor: "6010", supplies: "6090",
+  utilities: "6050", rent: "6020", insurance: "6030", marketing: "6100",
+  debt_payment: "2200", loan_interest: "6110", equipment: "6070",
+  taxes: "6060", other_income: "4020", misc: "6090",
+};
+
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },
@@ -923,6 +930,25 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     mutationFn: ({ id, reconciled }: { id: number; reconciled: boolean }) => apiRequest("PATCH", `/api/firm/transactions/${id}`, { reconciled }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] }); },
   });
+  const reclassifyMut = useMutation({
+    mutationFn: ({ id, category, description }: { id: number; category: string; description?: string }) =>
+      apiRequest("PATCH", `/api/firm/transactions/${id}`, { category }).then(() => {
+        if (description) {
+          return apiRequest("POST", "/api/firm/learning-rules", {
+            vendorString: description,
+            matchedCoaCode: CATEGORY_TO_COA[category] || "6090",
+            matchedCoaName: CATEGORIES.find(c => c.value === category)?.label || category,
+            category: "learned",
+          }).catch(() => {});
+        }
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      toast({ title: "Transaction reclassified", description: "Jarvis will remember this for future matches." });
+    },
+  });
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/firm/transactions/${id}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] }); queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] }); toast({ title: "Transaction deleted" }); },
@@ -1117,7 +1143,32 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       <div className="font-medium">{txn.description}</div>
                       {txn.department && <span className="text-[10px] text-muted-foreground capitalize">{txn.department.replace(/_/g, " ")}</span>}
                     </td>
-                    <td className="p-3 capitalize text-muted-foreground">{txn.category.replace(/_/g, " ")}</td>
+                    <td className="p-3">
+                      {editingCategoryId === txn.id ? (
+                        <Select
+                          value={txn.category}
+                          onValueChange={(val) => {
+                            setEditingCategoryId(null);
+                            if (val !== txn.category) {
+                              reclassifyMut.mutate({ id: txn.id, category: val, description: txn.description });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-xs w-[130px]" data-testid={`select-reclassify-${txn.id}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <button
+                          onClick={() => setEditingCategoryId(txn.id)}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          data-testid={`button-reclassify-${txn.id}`}
+                        >
+                          {txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                        </button>
+                      )}
+                    </td>
                     <td className="p-3">{sourceBadge(txn.referenceType)}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-0.5">
