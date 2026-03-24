@@ -2076,3 +2076,46 @@ export const insertFinancialConsultationSchema = createInsertSchema(financialCon
 export type FinancialConsultation = typeof financialConsultations.$inferSelect;
 export type InsertFinancialConsultation = z.infer<typeof insertFinancialConsultationSchema>;
 
+// === SALES TAX JURISDICTIONS ===
+export const salesTaxJurisdictions = pgTable("sales_tax_jurisdictions", {
+  locationId: integer("location_id").primaryKey().references(() => locations.id),
+  jurisdictionCode: text("jurisdiction_code").notNull(),
+  jurisdictionName: text("jurisdiction_name").notNull(),
+  stateRate: doublePrecision("state_rate").notNull().default(0.04),
+  countyRate: doublePrecision("county_rate").notNull().default(0),
+  cityRate: doublePrecision("city_rate").notNull().default(0),
+  combinedRate: doublePrecision("combined_rate").notNull().default(0.08),
+  effectiveDate: text("effective_date").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSalesTaxJurisdictionSchema = createInsertSchema(salesTaxJurisdictions);
+export type SalesTaxJurisdiction = typeof salesTaxJurisdictions.$inferSelect;
+export type InsertSalesTaxJurisdiction = z.infer<typeof insertSalesTaxJurisdictionSchema>;
+
+// === COMPLIANCE CALENDAR (Statutory Filing Deadlines) ===
+export const complianceCalendar = pgTable("compliance_calendar", {
+  id: serial("id").primaryKey(),
+  eventCode: text("event_code").notNull(),
+  filingName: text("filing_name").notNull(),
+  description: text("description"),
+  filingFrequency: text("filing_frequency").notNull(),
+  dueDate: text("due_date").notNull(),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  estimatedAmount: doublePrecision("estimated_amount"),
+  calculatedAmount: doublePrecision("calculated_amount"),
+  status: text("status").notNull().default("OPEN"),
+  filingUrl: text("filing_url"),
+  notes: text("notes"),
+  jarvisMessage: text("jarvis_message"),
+  lastCalculatedAt: timestamp("last_calculated_at"),
+  completedAt: timestamp("completed_at"),
+  completedBy: text("completed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertComplianceCalendarSchema = createInsertSchema(complianceCalendar).omit({ id: true, createdAt: true });
+export type ComplianceCalendarEntry = typeof complianceCalendar.$inferSelect;
+export type InsertComplianceCalendarEntry = z.infer<typeof insertComplianceCalendarSchema>;
+

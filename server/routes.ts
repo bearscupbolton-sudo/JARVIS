@@ -14,8 +14,8 @@ import { sendPushToUsers, sendPushToUser } from "./push";
 import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
-import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs } from "@shared/schema";
+import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -11943,6 +11943,103 @@ IMPORTANT GUIDELINES:
       }
       const summary = await storage.getFirmSummary(startDate, endDate);
       res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === COMPLIANCE & STATUTORY REPORTING ===
+
+  app.get("/api/firm/compliance/dashboard", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getComplianceDashboard } = await import("./compliance-engine");
+      const dashboard = await getComplianceDashboard();
+      res.json(dashboard);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/compliance/calendar", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const filings = await db.select().from(complianceCalendar).orderBy(asc(complianceCalendar.dueDate));
+      res.json(filings);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/compliance/recalculate", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { recalculateAllFilings } = await import("./compliance-engine");
+      const result = await recalculateAllFilings();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/compliance/calendar/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, notes, completedBy } = req.body;
+      const updates: any = {};
+      if (status) updates.status = status;
+      if (notes !== undefined) updates.notes = notes;
+      if (status === "COMPLETED") {
+        updates.completedAt = new Date();
+        updates.completedBy = completedBy || "Owner";
+      }
+      const [updated] = await db.update(complianceCalendar).set(updates).where(eq(complianceCalendar.id, id)).returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/compliance/tax-liability", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const periodStart = req.query.periodStart as string;
+      const periodEnd = req.query.periodEnd as string;
+      if (!periodStart || !periodEnd) return res.status(400).json({ message: "periodStart and periodEnd required" });
+      const { calculateSalesTaxLiability } = await import("./compliance-engine");
+      const liability = await calculateSalesTaxLiability(periodStart, periodEnd);
+      res.json(liability);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/compliance/readiness", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { validateComplianceReadiness } = await import("./compliance-engine");
+      const readiness = await validateComplianceReadiness();
+      res.json(readiness);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/compliance/jurisdictions", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const jurisdictions = await db.select().from(salesTaxJurisdictions);
+      res.json(jurisdictions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/compliance/jurisdictions/:locationId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const locationId = parseInt(req.params.locationId);
+      const { combinedRate, stateRate, countyRate, cityRate } = req.body;
+      const updates: any = { updatedAt: new Date() };
+      if (combinedRate !== undefined) updates.combinedRate = combinedRate;
+      if (stateRate !== undefined) updates.stateRate = stateRate;
+      if (countyRate !== undefined) updates.countyRate = countyRate;
+      if (cityRate !== undefined) updates.cityRate = cityRate;
+      const [updated] = await db.update(salesTaxJurisdictions).set(updates).where(eq(salesTaxJurisdictions.locationId, locationId)).returning();
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
