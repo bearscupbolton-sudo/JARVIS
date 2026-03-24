@@ -22,7 +22,8 @@ import {
   FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink,
   Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
-  CheckCircle2, XCircle, MessageSquare, Zap, Target
+  CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
+  FileCheck, AlertOctagon, ArrowRight
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -214,7 +215,7 @@ export default function TheFirm() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:grid-cols-12 md:w-full gap-1" data-testid="tabs-firm">
+          <TabsList className="inline-flex w-max md:grid md:grid-cols-13 md:w-full gap-1" data-testid="tabs-firm">
             <TabsTrigger value="command-center" className="whitespace-nowrap px-3" data-testid="tab-command-center">Command Center</TabsTrigger>
             <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
@@ -227,6 +228,7 @@ export default function TheFirm() {
             <TabsTrigger value="payroll" className="whitespace-nowrap px-3" data-testid="tab-payroll">Payroll</TabsTrigger>
             <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
             <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
+            <TabsTrigger value="compliance" className="whitespace-nowrap px-3" data-testid="tab-compliance">Compliance</TabsTrigger>
           </TabsList>
         </div>
 
@@ -265,6 +267,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="sales-tax">
           <SalesTaxTab startDate={startDate} endDate={endDate} />
+        </TabsContent>
+        <TabsContent value="compliance">
+          <ComplianceTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -3719,6 +3724,307 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ComplianceTab() {
+  const { toast } = useToast();
+  const [expandedFiling, setExpandedFiling] = useState<number | null>(null);
+
+  const { data: dashboard, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/compliance/dashboard"],
+    queryFn: () => fetch("/api/firm/compliance/dashboard", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const recalcMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/compliance/recalculate"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/compliance/dashboard"] });
+      toast({ title: "Filings recalculated", description: "All open filings have been updated with current ledger data." });
+    },
+  });
+
+  const markCompleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/firm/compliance/calendar/${id}`, { status: "COMPLETED" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/compliance/dashboard"] });
+      toast({ title: "Filing marked complete" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <Card><CardContent className="py-12 text-center text-muted-foreground">
+        <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="font-medium">Unable to load compliance data</p>
+      </CardContent></Card>
+    );
+  }
+
+  const { overdue, upcoming, completed, jurisdictions, readiness, revenueYTD, daysToNextFiling, it204llFee, totalOpenFilings } = dashboard;
+
+  const severityColor = (level: string) => {
+    switch (level) {
+      case "CRITICAL": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+      case "URGENT": return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400";
+      case "WARNING": return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
+      default: return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+    }
+  };
+
+  const statusBadge = (status: string) => {
+    switch (status) {
+      case "COMPLETED": return <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400" data-testid="badge-completed"><CheckCircle2 className="h-3 w-3 mr-1" />Filed</Badge>;
+      case "OPEN": return <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" data-testid="badge-open"><Clock className="h-3 w-3 mr-1" />Open</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const getDaysUntil = (dueDate: string) => {
+    const days = Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return days;
+  };
+
+  const formatCurrency = (n: number) => `$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="space-y-6" data-testid="compliance-tab">
+      {readiness?.alerts?.length > 0 && (
+        <div className="space-y-2">
+          {readiness.alerts.map((alert: any, i: number) => (
+            <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${severityColor(alert.level)}`} data-testid={`alert-compliance-${i}`}>
+              {alert.level === "CRITICAL" ? <AlertOctagon className="h-5 w-5 flex-shrink-0 mt-0.5" /> : <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />}
+              <div>
+                <p className="font-semibold text-sm">{alert.level}</p>
+                <p className="text-sm">{alert.message}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card data-testid="card-open-filings">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Open Filings</p>
+            <p className="text-2xl font-bold tabular-nums">{totalOpenFilings}</p>
+            {(overdue?.length || 0) > 0 && <p className="text-xs text-red-500 font-medium mt-1">{overdue.length} overdue</p>}
+          </CardContent>
+        </Card>
+        <Card data-testid="card-days-to-next">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Next Filing In</p>
+            <p className="text-2xl font-bold tabular-nums">{daysToNextFiling !== null ? `${daysToNextFiling}d` : "—"}</p>
+            {upcoming?.[0] && <p className="text-xs text-muted-foreground mt-1 truncate">{upcoming[0].eventCode}</p>}
+          </CardContent>
+        </Card>
+        <Card data-testid="card-revenue-ytd">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Revenue YTD</p>
+            <p className="text-2xl font-bold tabular-nums text-primary">{formatCurrency(revenueYTD?.total || 0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">NY source income</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-it204ll">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">IT-204-LL Fee</p>
+            <p className="text-2xl font-bold tabular-nums">{formatCurrency(it204llFee || 0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Tiered LLC fee</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-cash-readiness">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Cash on Hand</p>
+            <p className={`text-2xl font-bold tabular-nums ${readiness?.cashSufficient ? "text-green-600" : "text-red-600"}`}>{formatCurrency(readiness?.cashOnHand || 0)}</p>
+            {!readiness?.cashSufficient && <p className="text-xs text-red-500 mt-1">Shortfall: {formatCurrency(readiness?.deficit || 0)}</p>}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold flex items-center gap-2"><Shield className="h-5 w-5" /> Statutory Filings</h3>
+        <Button variant="outline" size="sm" onClick={() => recalcMutation.mutate()} disabled={recalcMutation.isPending} data-testid="button-recalculate">
+          <RefreshCw className={`h-4 w-4 mr-2 ${recalcMutation.isPending ? "animate-spin" : ""}`} />
+          {recalcMutation.isPending ? "Calculating..." : "Recalculate All"}
+        </Button>
+      </div>
+
+      {(overdue?.length || 0) > 0 && (
+        <Card className="border-red-200 dark:border-red-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2 text-red-600">
+              <AlertOctagon className="h-4 w-4" /> Overdue ({overdue.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {overdue.map((f: any) => (
+                <FilingRow key={f.id} filing={f} expanded={expandedFiling === f.id} onToggle={() => setExpandedFiling(expandedFiling === f.id ? null : f.id)} onMarkComplete={() => markCompleteMutation.mutate(f.id)} formatCurrency={formatCurrency} getDaysUntil={getDaysUntil} statusBadge={statusBadge} isOverdue />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Calendar className="h-4 w-4" /> Upcoming Filings ({upcoming?.length || 0})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {upcoming?.length > 0 ? (
+            <div className="space-y-2">
+              {upcoming.map((f: any) => (
+                <FilingRow key={f.id} filing={f} expanded={expandedFiling === f.id} onToggle={() => setExpandedFiling(expandedFiling === f.id ? null : f.id)} onMarkComplete={() => markCompleteMutation.mutate(f.id)} formatCurrency={formatCurrency} getDaysUntil={getDaysUntil} statusBadge={statusBadge} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground italic py-4 text-center">All filings complete for the current cycle.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {jurisdictions?.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <MapPin className="h-4 w-4" /> Sales Tax Jurisdictions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-sm" data-testid="table-jurisdictions">
+              <thead><tr className="border-b text-muted-foreground">
+                <th className="text-left p-2 font-medium">Jurisdiction</th>
+                <th className="text-left p-2 font-medium">Code</th>
+                <th className="text-right p-2 font-medium">State</th>
+                <th className="text-right p-2 font-medium">County</th>
+                <th className="text-right p-2 font-medium">Combined</th>
+                <th className="text-right p-2 font-medium">Effective</th>
+              </tr></thead>
+              <tbody>
+                {jurisdictions.map((j: any) => (
+                  <tr key={j.locationId} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-jurisdiction-${j.locationId}`}>
+                    <td className="p-2 font-medium">{j.jurisdictionName}</td>
+                    <td className="p-2 text-muted-foreground">{j.jurisdictionCode}</td>
+                    <td className="p-2 text-right tabular-nums">{(j.stateRate * 100).toFixed(1)}%</td>
+                    <td className="p-2 text-right tabular-nums">{(j.countyRate * 100).toFixed(1)}%</td>
+                    <td className="p-2 text-right tabular-nums font-semibold">{(j.combinedRate * 100).toFixed(1)}%</td>
+                    <td className="p-2 text-right text-muted-foreground">{j.effectiveDate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {completed?.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+              <FileCheck className="h-4 w-4" /> Completed ({completed.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {completed.map((f: any) => (
+                <div key={f.id} className="flex items-center justify-between py-2 px-2 rounded hover:bg-muted/20 text-sm" data-testid={`filing-completed-${f.id}`}>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    <span className="font-medium">{f.eventCode}</span>
+                    <span className="text-muted-foreground">{f.filingName}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{f.dueDate}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function FilingRow({ filing, expanded, onToggle, onMarkComplete, formatCurrency, getDaysUntil, statusBadge, isOverdue }: {
+  filing: any; expanded: boolean; onToggle: () => void; onMarkComplete: () => void;
+  formatCurrency: (n: number) => string; getDaysUntil: (d: string) => number; statusBadge: (s: string) => any; isOverdue?: boolean;
+}) {
+  const daysUntil = getDaysUntil(filing.dueDate);
+  const urgency = isOverdue ? "text-red-600" : daysUntil <= 15 ? "text-orange-600" : daysUntil <= 30 ? "text-yellow-600" : "text-muted-foreground";
+
+  return (
+    <div className={`border rounded-lg ${isOverdue ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10" : "hover:bg-muted/20"}`} data-testid={`filing-${filing.id}`}>
+      <button onClick={onToggle} className="w-full flex items-center justify-between p-3 text-left" data-testid={`button-toggle-filing-${filing.id}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0">
+            {filing.eventCode.startsWith("ST-100") ? <Receipt className="h-5 w-5 text-blue-500" /> :
+             filing.eventCode.startsWith("NY-45") ? <Users className="h-5 w-5 text-purple-500" /> :
+             filing.eventCode.startsWith("PTET") ? <Scale className="h-5 w-5 text-green-500" /> :
+             filing.eventCode.startsWith("IT-204") ? <FileText className="h-5 w-5 text-orange-500" /> :
+             <Shield className="h-5 w-5 text-gray-500" />}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm">{filing.eventCode}</span>
+              {statusBadge(filing.status)}
+            </div>
+            <p className="text-xs text-muted-foreground truncate">{filing.filingName}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {(filing.calculatedAmount || filing.estimatedAmount) && (
+            <span className="text-sm font-semibold tabular-nums">{formatCurrency(filing.calculatedAmount || filing.estimatedAmount)}</span>
+          )}
+          <div className="text-right">
+            <p className="text-xs font-medium">{filing.dueDate}</p>
+            <p className={`text-xs font-medium ${urgency}`}>
+              {isOverdue ? `${Math.abs(daysUntil)}d overdue` : `${daysUntil}d`}
+            </p>
+          </div>
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 border-t pt-3 space-y-3">
+          {filing.description && <p className="text-sm text-muted-foreground">{filing.description}</p>}
+          {filing.periodStart && filing.periodEnd && (
+            <div className="text-xs text-muted-foreground">Period: {filing.periodStart} to {filing.periodEnd}</div>
+          )}
+          {filing.jarvisMessage && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Brain className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-primary mb-1">Jarvis Analysis</p>
+                  <p className="text-sm">{filing.jarvisMessage}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            {filing.filingUrl && (
+              <a href={filing.filingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline" data-testid={`link-filing-url-${filing.id}`}>
+                <Link2 className="h-3 w-3" /> NYS Filing Portal <ArrowRight className="h-3 w-3" />
+              </a>
+            )}
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onMarkComplete(); }} data-testid={`button-mark-complete-${filing.id}`}>
+              <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Filed
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

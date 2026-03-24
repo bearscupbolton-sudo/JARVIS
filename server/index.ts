@@ -86,6 +86,12 @@ app.use((req, res, next) => {
     seedChartOfAccounts().catch(err => console.error("[Accounting] COA seed failed:", err));
   });
 
+  import("./compliance-engine").then(({ seedSalesTaxJurisdictions, seedComplianceCalendar2026, startComplianceScheduler }) => {
+    seedSalesTaxJurisdictions().catch(err => console.error("[Compliance] Jurisdiction seed failed:", err));
+    seedComplianceCalendar2026().catch(err => console.error("[Compliance] Calendar seed failed:", err));
+    startComplianceScheduler();
+  });
+
   db.update(users).set({ lastName: "Wilhelm" }).where(eq(users.lastName, "Wihelm"))
     .then((result) => { if (result.rowCount && result.rowCount > 0) console.log("[Fix] Corrected Wihelm → Wilhelm"); })
     .catch(() => {});

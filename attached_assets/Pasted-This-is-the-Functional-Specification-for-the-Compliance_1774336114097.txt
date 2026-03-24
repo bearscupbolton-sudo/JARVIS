@@ -1,0 +1,66 @@
+This is the Functional Specification for the Compliance & Statutory Reporting Layer (CSRL). To maximize utility for the Replit Agent (RA), this is structured as an Event-Driven State Machine.
+The system will treat "Filings" as a specific Class of objects that inherit from a LegalObligation base class, with a recursive "Observer" to handle NYS Department of Taxation (DTF) updates.
+1. Core Logic: The Compliance Observer Pattern
+The RA should implement a ComplianceEngine that monitors the ledger_lines table and compares aggregate sums against NYS statutory thresholds.
+Technical Specification for RA:
+ * Dependency: apscheduler (for cron-based monitoring) + openai-function-calling (for statutory research).
+ * Input: SUM(credit) FROM ledger_lines WHERE account_type = 'REVENUE'.
+ * Logic: If Revenue_YTD crosses a tier, re-calculate the IT-204-LL estimated fee.
+2. The ST-100 (Sales Tax) Autonomous Module
+Since you have two locations (Saratoga/Bolton), the system must differentiate by Jurisdiction Code.
+-- Jurisdiction Mapping for NYS Sales Tax
+CREATE TABLE sales_tax_jurisdictions (
+    location_id INT PRIMARY KEY,
+    jurisdiction_code VARCHAR(10), -- e.g., '4103' for Saratoga Springs
+    combined_rate DECIMAL(5, 4)    -- e.g., 0.0700 (7%)
+);
+
+-- Real-Time Liability Tracking
+CREATE VIEW v_sales_tax_liability AS
+SELECT 
+    location_id,
+    SUM(credit) * 0.07 AS total_due -- Simplified; logic should use jurisdiction_code
+FROM ledger_lines 
+WHERE account_code = 4000 -- Revenue
+AND timestamp >= CURRENT_DATE - INTERVAL '3 months'
+GROUP BY location_id;
+
+RA Instruction: Implement a SalesTaxCoordinator that:
+ * Polls: Every Friday at 23:59.
+ * Calculates: Expected ST-100 payment based on Ledger Revenue vs. Sales Tax Payable account.
+ * Alerts: If Cash_On_Hand < Sales_Tax_Liability, trigger CRITICAL system message: "Liquidity Alert: Sales Tax Reserve is underfunded by $X."
+3. The S-Corp & PTET Statutory Calendar (2026)
+The Agent must populate a compliance_calendar table with these non-negotiable events.
+| Event ID | Statutory Filing | Frequency | Trigger / Logic |
+|---|---|---|---|
+| NY-45 | Quarterly Payroll/UI | Q (Apr/Jul/Oct/Jan) | Reconcile Wages_Expense to Withholding_Payable. |
+| ST-100 | Sales & Use Tax | Q or Monthly | Depends on volume ($300k+ moves to monthly). |
+| PTET-EST | PTET Estimated | Q (Jun/Sep/Dec) | Condition: ptet_status == 'ELECTED'. Calculate 6.85% of Net. |
+| IT-204-LL | LLC/S-Corp Fee | Annual (Mar 15) | Tiered based on NY Source Income. |
+| CT-3-S | S-Corp Franchise | Annual (Mar 15) | Fixed minimum tax ($25). |
+4. System Messaging Integration (The "Coordinator" UX)
+To ensure "layman fluidity," the RA should wrap these technical triggers in a Natural Language Interface.
+Binary Logic to Human Message:
+ * IF days_until_filing <= 15:
+   * Jarvis Action: Query the Journal_Entries for the current quarter.
+   * System Message: "I've analyzed your Q2 performance for Saratoga and Bolton. Based on $X revenue, your ST-100 is approximately $Y. You have $Z in your Tax Reserve. Proceed with draft?"
+ * IF NYS_Regulatory_Update == TRUE:
+   * Jarvis Action: Update the sales_tax_jurisdictions.combined_rate in the DB.
+   * System Message: "NYS has updated the rate for Saratoga County. I have adjusted the accrual logic to 7.xx% starting today."
+5. Operational Utility Check (RA Validation)
+To confirm the system is "computationally thorough," the RA must run this validation check daily:
+def validate_compliance_readiness():
+    # Check 1: Do we have the cash for the next due date?
+    next_due = db.query("SELECT * FROM compliance_calendar WHERE status = 'OPEN' ORDER BY due_date ASC LIMIT 1")
+    available_cash = db.query("SELECT balance FROM accounts WHERE name = 'Operating Cash'")
+    
+    if available_cash < next_due.estimated_amount:
+        notify_user("CASH_FLOW_CRITICAL", f"Insufficient funds for {next_due.name}")
+
+    # Check 2: Is Jarvis Research up to date?
+    if last_statutory_refresh > 30_days:
+        trigger_jarvis_research("NYS Tax Requirements 2026")
+
+Next Step for Replit Agent:
+Initialize the compliance_calendar and the SalesTaxCoordinator service.
+Should I generate the Python class for the SalesTaxCoordinator or the SQL migration for the compliance_calendar first?
