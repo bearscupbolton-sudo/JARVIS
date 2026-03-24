@@ -21,7 +21,8 @@ import {
   CalendarDays, Clock, Trash2, Pencil, Receipt, Banknote, CircleDollarSign,
   FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink,
   Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
-  Search, Filter, Eye, EyeOff, Minus
+  Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
+  CheckCircle2, XCircle, MessageSquare, Zap, Target
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -213,7 +214,8 @@ export default function TheFirm() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:grid-cols-11 md:w-full gap-1" data-testid="tabs-firm">
+          <TabsList className="inline-flex w-max md:grid md:grid-cols-12 md:w-full gap-1" data-testid="tabs-firm">
+            <TabsTrigger value="command-center" className="whitespace-nowrap px-3" data-testid="tab-command-center">Command Center</TabsTrigger>
             <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
             <TabsTrigger value="ledger" className="whitespace-nowrap px-3" data-testid="tab-ledger">Ledger</TabsTrigger>
@@ -228,6 +230,9 @@ export default function TheFirm() {
           </TabsList>
         </div>
 
+        <TabsContent value="command-center">
+          <CommandCenterTab startDate={startDate} endDate={endDate} />
+        </TabsContent>
         <TabsContent value="overview">
           <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} />
         </TabsContent>
@@ -3322,5 +3327,398 @@ function TrialBalanceReport({ startDate, endDate }: { startDate: string; endDate
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface Consultation {
+  id: number;
+  category: string;
+  title: string;
+  messageBody: string;
+  suggestedAction: any;
+  impactEstimate: number | null;
+  severity: string | null;
+  locationId: number | null;
+  status: string;
+  dismissedBy: string | null;
+  implementedAt: string | null;
+  createdAt: string;
+}
+
+function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { toast } = useToast();
+  const [aiClassifyInput, setAiClassifyInput] = useState({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
+  const [classifyResult, setClassifyResult] = useState<any>(null);
+
+  const { data: pnl, isLoading: pnlLoading } = useQuery<any>({
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const { data: consultations = [], isLoading: consultLoading } = useQuery<Consultation[]>({
+    queryKey: ["/api/firm/ai/consultations"],
+  });
+
+  const { data: summaryData, isLoading: summaryLoading, refetch: refetchSummary } = useQuery<{ summary: string }>({
+    queryKey: ["/api/firm/ai/summary", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/ai/summary?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: false,
+  });
+
+  const { data: auditTrail = [] } = useQuery<any[]>({
+    queryKey: ["/api/firm/ai/audit-trail"],
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/ai/analyze", { startDate, endDate });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/consultations"] });
+      toast({ title: "Analysis Complete", description: `${data.newInsights.length} new insight(s) generated` });
+    },
+    onError: (err: any) => toast({ title: "Analysis Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const classifyMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/ai/classify", data);
+      return res.json();
+    },
+    onSuccess: (data) => setClassifyResult(data),
+    onError: (err: any) => toast({ title: "Classification Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const inferPostMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/ai/infer-and-post", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/journal"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/audit-trail"] });
+      toast({
+        title: data.autoCommitted ? "Auto-committed to Ledger" : "Pending Review",
+        description: `Classified as ${data.classification.coaName} (${(data.classification.confidence * 100).toFixed(0)}% confidence)`,
+      });
+      setClassifyResult(null);
+      setAiClassifyInput({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const dismissMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/firm/ai/consultations/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/consultations"] }),
+  });
+
+  const openConsultations = consultations.filter(c => c.status === "OPEN");
+  const implementedConsultations = consultations.filter(c => c.status === "IMPLEMENTED");
+
+  const severityIcon = (sev: string | null) => {
+    switch (sev) {
+      case "critical": return <ShieldAlert className="h-5 w-5 text-red-500" />;
+      case "warning": return <AlertTriangle className="h-5 w-5 text-amber-500" />;
+      default: return <Lightbulb className="h-5 w-5 text-blue-500" />;
+    }
+  };
+
+  const severityBg = (sev: string | null) => {
+    switch (sev) {
+      case "critical": return "border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/10";
+      case "warning": return "border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/10";
+      default: return "border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/10";
+    }
+  };
+
+  const categoryLabel = (cat: string) => {
+    switch (cat) {
+      case "TAX_STRATEGY": return { label: "Tax Strategy", color: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300" };
+      case "MARGIN_OPTIMIZATION": return { label: "Margin", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" };
+      case "CASH_FLOW_PREDICTION": return { label: "Cash Flow", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" };
+      default: return { label: cat, color: "bg-gray-100 text-gray-800" };
+    }
+  };
+
+  return (
+    <div className="space-y-4" data-testid="command-center-tab">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* LEFT: Real-Time P&L */}
+        <div className="lg:col-span-3 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-primary" /> Real-Time P&L
+                  <span className="text-xs text-muted-foreground font-normal">{startDate} to {endDate}</span>
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
+                    {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
+                    AI Summary
+                  </Button>
+                  <Button size="sm" onClick={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending} data-testid="button-run-analysis">
+                    {analyzeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+                    Run Analysis
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {summaryData?.summary && (
+                <div className="mb-4 p-3 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20" data-testid="text-ai-summary">
+                  <div className="flex items-start gap-2">
+                    <Brain className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+                    <p className="text-sm">{summaryData.summary}</p>
+                  </div>
+                </div>
+              )}
+
+              {pnlLoading ? (
+                <div className="space-y-2">{[1,2,3,4].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
+              ) : pnl ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border">
+                      <div className="text-xs text-muted-foreground">Revenue</div>
+                      <div className="text-lg font-bold tabular-nums text-green-600" data-testid="text-cc-revenue">{formatCurrency(pnl.totalRevenue)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border">
+                      <div className="text-xs text-muted-foreground">COGS</div>
+                      <div className="text-lg font-bold tabular-nums text-orange-600" data-testid="text-cc-cogs">{formatCurrency(pnl.totalCOGS)}</div>
+                      <div className="text-xs text-muted-foreground">{pnl.totalRevenue > 0 ? `${((pnl.totalCOGS / pnl.totalRevenue) * 100).toFixed(1)}%` : "—"}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border">
+                      <div className="text-xs text-muted-foreground">Gross Profit</div>
+                      <div className="text-lg font-bold tabular-nums text-blue-600" data-testid="text-cc-gross">{formatCurrency(pnl.grossProfit)}</div>
+                      <div className="text-xs text-muted-foreground">{pnl.grossMargin.toFixed(1)}% margin</div>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${pnl.netIncome >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+                      <div className="text-xs text-muted-foreground">Net Income</div>
+                      <div className={`text-lg font-bold tabular-nums ${pnl.netIncome >= 0 ? "text-green-600" : "text-red-600"}`} data-testid="text-cc-net">{formatCurrency(pnl.netIncome)}</div>
+                      <div className="text-xs text-muted-foreground">{pnl.netMargin.toFixed(1)}% margin</div>
+                    </div>
+                  </div>
+
+                  {pnl.revenue.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1">Revenue Breakdown</div>
+                      {pnl.revenue.map((r: any) => (
+                        <div key={r.accountId} className="flex justify-between items-center text-sm py-1 border-b last:border-0">
+                          <span>{r.accountName}</span>
+                          <span className="tabular-nums font-medium text-green-600">{formatCurrency(r.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(pnl.cogs.length > 0 || pnl.operatingExpenses.length > 0) && (
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1">Expense Breakdown</div>
+                      {[...pnl.cogs, ...pnl.operatingExpenses].filter((e: any) => e.amount > 0).map((e: any) => {
+                        const pct = pnl.totalRevenue > 0 ? (e.amount / pnl.totalRevenue) * 100 : 0;
+                        return (
+                          <div key={e.accountId} className="flex justify-between items-center text-sm py-1 border-b last:border-0">
+                            <span className="flex items-center gap-2">
+                              {e.accountName}
+                              {pct > 10 && <Badge variant="destructive" className="text-[10px] px-1 py-0">{pct.toFixed(0)}%</Badge>}
+                            </span>
+                            <span className="tabular-nums font-medium text-red-600">{formatCurrency(e.amount)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p>No financial data for this period</p>
+                  <p className="text-sm">Post journal entries to see your P&L</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* AI Transaction Classifier */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="h-5 w-5 text-amber-500" /> AI Transaction Classifier
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input
+                  placeholder="Transaction description"
+                  value={aiClassifyInput.description}
+                  onChange={e => setAiClassifyInput({...aiClassifyInput, description: e.target.value})}
+                  data-testid="input-ai-description"
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Amount (negative = expense)"
+                  value={aiClassifyInput.amount}
+                  onChange={e => setAiClassifyInput({...aiClassifyInput, amount: e.target.value})}
+                  data-testid="input-ai-amount"
+                />
+                <Input
+                  type="date"
+                  value={aiClassifyInput.date}
+                  onChange={e => setAiClassifyInput({...aiClassifyInput, date: e.target.value})}
+                  data-testid="input-ai-date"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => classifyMutation.mutate({
+                  description: aiClassifyInput.description,
+                  amount: Number(aiClassifyInput.amount),
+                  date: aiClassifyInput.date,
+                })} disabled={classifyMutation.isPending || !aiClassifyInput.description || !aiClassifyInput.amount} data-testid="button-ai-classify">
+                  {classifyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
+                  Classify Only
+                </Button>
+                <Button size="sm" onClick={() => inferPostMutation.mutate({
+                  description: aiClassifyInput.description,
+                  amount: Number(aiClassifyInput.amount),
+                  date: aiClassifyInput.date,
+                })} disabled={inferPostMutation.isPending || !aiClassifyInput.description || !aiClassifyInput.amount} data-testid="button-ai-post">
+                  {inferPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+                  Classify & Post
+                </Button>
+              </div>
+
+              {classifyResult && (
+                <div className="p-3 rounded-lg border bg-muted/30" data-testid="card-classify-result">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Badge className="text-xs">{classifyResult.coaCode}</Badge>
+                    <span className="font-medium text-sm">{classifyResult.coaName}</span>
+                    <Badge variant={classifyResult.confidence > 0.8 ? "default" : "secondary"} className="text-xs ml-auto">
+                      {(classifyResult.confidence * 100).toFixed(0)}% confidence
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{classifyResult.logicSummary}</p>
+                  {classifyResult.anomalyScore >= 0.1 && (
+                    <div className="mt-2 flex items-center gap-1 text-xs text-amber-600">
+                      <AlertTriangle className="h-3 w-3" /> Anomaly Score: {(classifyResult.anomalyScore * 100).toFixed(0)}%
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {auditTrail.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Recent AI Classifications</div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {auditTrail.slice(0, 10).map((log: any) => (
+                      <div key={log.id} className="flex items-center justify-between text-xs p-2 rounded border bg-background" data-testid={`row-audit-${log.id}`}>
+                        <div className="flex items-center gap-2 truncate flex-1 mr-2">
+                          {log.anomalyFlag ? <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" /> : <Check className="h-3 w-3 text-green-500 shrink-0" />}
+                          <span className="truncate">{log.rawInput}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-[10px]">{log.appliedCoaCode}</Badge>
+                          <span className="tabular-nums">{(log.confidenceScore * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* RIGHT: Jarvis Recommendations */}
+        <div className="lg:col-span-2 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="h-5 w-5 text-primary" /> Jarvis Recommendations
+                  {openConsultations.length > 0 && (
+                    <Badge variant="destructive" className="text-xs">{openConsultations.length}</Badge>
+                  )}
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {consultLoading ? (
+                <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full" />)}</div>
+              ) : openConsultations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Sparkles className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p className="font-medium">No open recommendations</p>
+                  <p className="text-sm">Click "Run Analysis" to generate insights</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {openConsultations.map(c => {
+                    const cat = categoryLabel(c.category);
+                    return (
+                      <div key={c.id} className={`p-3 rounded-lg ${severityBg(c.severity)}`} data-testid={`card-consult-${c.id}`}>
+                        <div className="flex items-start gap-2">
+                          {severityIcon(c.severity)}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-sm">{c.title}</span>
+                              <Badge className={`text-[10px] ${cat.color}`}>{cat.label}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{c.messageBody}</p>
+                            {c.impactEstimate && (
+                              <div className="mt-1 text-xs font-medium">
+                                Estimated Impact: <span className="text-primary">{formatCurrency(c.impactEstimate)}</span>
+                              </div>
+                            )}
+                            {c.locationId && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Location: {c.locationId === 1 ? "Saratoga" : "Bolton"}
+                              </div>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => dismissMutation.mutate({ id: c.id, status: "IMPLEMENTED" })} data-testid={`button-implement-${c.id}`}>
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Implement
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => dismissMutation.mutate({ id: c.id, status: "DISMISSED" })} data-testid={`button-dismiss-${c.id}`}>
+                                <XCircle className="h-3 w-3 mr-1" /> Dismiss
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {implementedConsultations.length > 0 && (
+                <div className="mt-4 border-t pt-3">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Implemented ({implementedConsultations.length})</div>
+                  {implementedConsultations.slice(0, 5).map(c => (
+                    <div key={c.id} className="flex items-center gap-2 text-xs py-1 text-muted-foreground">
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      <span className="truncate">{c.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }
