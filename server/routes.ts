@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12040,6 +12040,120 @@ IMPORTANT GUIDELINES:
       if (cityRate !== undefined) updates.cityRate = cityRate;
       const [updated] = await db.update(salesTaxJurisdictions).set(updates).where(eq(salesTaxJurisdictions.locationId, locationId)).returning();
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ACCRUAL PLACEHOLDERS & ADJUSTED CASH ===
+
+  app.get("/api/firm/placeholders", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const placeholders = await db.select().from(accrualPlaceholders).orderBy(desc(accrualPlaceholders.createdAt));
+      res.json(placeholders);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/placeholders", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { vendorName, vendorId, description, amount, expectedDate, coaCode, accountId, locationId } = req.body;
+      if (!vendorName || !description || amount === undefined) {
+        return res.status(400).json({ message: "vendorName, description, and amount are required" });
+      }
+      const [ph] = await db.insert(accrualPlaceholders).values({
+        vendorName, vendorId, description, amount, expectedDate, coaCode, accountId, locationId,
+        status: "OPEN", createdBy: user?.username || user?.firstName || "Owner",
+      }).returning();
+      res.status(201).json(ph);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/placeholders/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, vendorName, description, amount, expectedDate, coaCode } = req.body;
+      const updates: any = {};
+      if (status) updates.status = status;
+      if (vendorName) updates.vendorName = vendorName;
+      if (description) updates.description = description;
+      if (amount !== undefined) updates.amount = amount;
+      if (expectedDate) updates.expectedDate = expectedDate;
+      if (coaCode) updates.coaCode = coaCode;
+      if (status === "VOID") updates.staleSince = new Date();
+      const [updated] = await db.update(accrualPlaceholders).set(updates).where(eq(accrualPlaceholders.id, id)).returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/placeholders/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(accrualPlaceholders).where(eq(accrualPlaceholders.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/placeholders/:id/match", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const placeholderId = parseInt(req.params.id);
+      const { transactionId } = req.body;
+      if (!transactionId) return res.status(400).json({ message: "transactionId required" });
+      const { matchAndReconcilePlaceholder } = await import("./reconciler");
+      const result = await matchAndReconcilePlaceholder(placeholderId, transactionId);
+      if (!result.success) return res.status(400).json({ message: result.message });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/placeholders/find-match", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { description, amount } = req.body;
+      if (!description || amount === undefined) return res.status(400).json({ message: "description and amount required" });
+      const { findPlaceholderMatch, findVendorTemplate } = await import("./reconciler");
+      const match = await findPlaceholderMatch(description, amount);
+      const template = findVendorTemplate(description);
+      res.json({ match, template });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/adjusted-cash", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getAdjustedCashPosition } = await import("./reconciler");
+      const position = await getAdjustedCashPosition();
+      res.json(position);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/compliance/thresholds", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { checkStatutoryThresholds } = await import("./compliance-engine");
+      const thresholds = await checkStatutoryThresholds();
+      res.json(thresholds);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/placeholders/stale-check", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { markStalePlaceholders } = await import("./reconciler");
+      const result = await markStalePlaceholders();
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

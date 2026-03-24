@@ -92,6 +92,10 @@ app.use((req, res, next) => {
     startComplianceScheduler();
   });
 
+  import("./reconciler").then(({ startPlaceholderTTLWorker }) => {
+    startPlaceholderTTLWorker();
+  });
+
   db.update(users).set({ lastName: "Wilhelm" }).where(eq(users.lastName, "Wihelm"))
     .then((result) => { if (result.rowCount && result.rowCount > 0) console.log("[Fix] Corrected Wihelm → Wilhelm"); })
     .catch(() => {});
