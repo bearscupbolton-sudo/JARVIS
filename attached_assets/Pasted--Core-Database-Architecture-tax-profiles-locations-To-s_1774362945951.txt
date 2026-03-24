@@ -1,0 +1,65 @@
+. Core Database Architecture: tax_profiles & locations
+To support the expansion and the S-Corp structure, RAgent must initialize these tables:
+
+locations Table: * Fields: location_id, name (Bolton, Saratoga), square_id_alias, is_expansion_active.
+
+tax_profiles Table:
+
+de_minimis_limit: Set to $2,500 (Based on 2024 Election).
+
+qbi_carryforward: $11,216 (From 2024 Form 8995).
+
+fica_tip_credit_benchmark: $2,277 (2024 Form 8846).
+
+reasonable_salary_floor: $42,369/ea (Based on 2024 Officer Comp).
+
+2. Multi-Location Logistics (MLL) Feature Set
+This module solves the "bulk buying" problem and ensures accurate store-level margins.
+
+Dual-Path Invoice Processing:
+
+Path A (Specific): If an invoice (e.g., Chefs' Warehouse) is for a single store, RAgent tags the location_id.
+
+Path B (Bulk/Pool): For bulk buys, RAgent tags the expense to a "General Pool" bucket.
+
+The Transfer Logic (Internal Zero-Sum):
+
+Input: A mobile UI trigger: "Move [Item/Qty] from Bolton to Saratoga."
+
+Action: RAgent executes a Journal Entry moving the Weighted Average Cost from Bolton Inventory to Saratoga Inventory.
+
+Impact: No tax event is created (same entity), but Saratoga’s COGS becomes accurate for the March 20th sales tax filing.
+
+3. Square Labor & Timecard Integration
+RAgent must sync with the Square Labor API to automate expense classification.
+
+Expansion Cost Auto-Tagging: * Rule: Any labor hours logged at the Saratoga location_id prior to the official 2025 opening date must be flagged as "Business Expansion Costs."
+
+Deduction Logic: Unlike a new business, these are fully deductible current-year expenses because they represent the expansion of an existing trade.
+
+FICA Tip Credit Monitor: * RAgent must calculate the FICA tax paid on tips exceeding the federal minimum wage ($5.15/hr) at both locations to maximize the Form 8846 credit.
+
+4. Asset & Depreciation Management (S-Corp Transition)
+WDR is transferring depreciation to the new S-Corp; Jarvis must mirror their ledger.
+
+The "Transfer" Schedule:
+
+Spiral Mixer: $15,322 (Basis) | $0 remaining (Fully Depreciated 2024).
+
+Gas Oven: $28,030 (Basis) | $0 remaining.
+
+Tap System Assets: (Beer Towers $4,569, Ice Machine $3,069, etc.) | $0 remaining via Section 179.
+
+New Asset Logic: Any Saratoga equipment purchased in 2025 >$2,500 must be flagged for capitalization; <$2,500 must be auto-expensed per the De Minimis election.
+
+5. Financial "Vibe Thresholds" (The Early Warning System)
+RAgent will use 2024 benchmarks to trigger home-screen alerts:
+
+COGS Alert: Trigger if ingredient purchases exceed 15-20% of gross sales (based on 2024 ratios).
+
+Payroll Alert: Trigger if total officer draws exceed the Reasonable Salary threshold without a corresponding W-2 payroll run.
+
+PTET Monitor: Track the $5,000+ quarterly estimated payments to ensure the NYS Pass-Through Entity Tax deduction is maximized for the S-Corp.
+
+Summary for RAgent Implementation:
+"RAgent, your primary objective is to rebuild the 2025 ledger by syncing Square timecards for location data and applying the 2024 Tax DNA. Prioritize the MLL Transfer Feature to ensure inventory moved from Bolton to Saratoga is cost-accounted correctly without creating duplicate invoices. All equipment under $2,500 is an immediate expense; all labor at Saratoga in late 2025 is an expansion deduction."
