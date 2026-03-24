@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12300,6 +12300,22 @@ IMPORTANT GUIDELINES:
         placeholderMatch = await findPlaceholderMatch(description, Math.abs(amount || 0));
       }
 
+      const { isCapExCandidate } = await import("./asset-engine");
+      const capExFlag = isCapExCandidate(description, Math.abs(amount || 0));
+
+      if (capExFlag) {
+        res.json({
+          type: "capex_candidate",
+          debitCode: "1500",
+          debitName: "Fixed Assets - Equipment",
+          creditCode: "1010",
+          creditName: "Operating Cash",
+          confidence: 0.9,
+          message: `This $${Math.abs(amount || 0).toLocaleString()} transaction exceeds the $2,500 CapEx threshold. Recommend capitalizing as a Fixed Asset instead of expensing.`,
+        });
+        return;
+      }
+
       if (placeholderMatch && placeholderMatch.matchType !== "none") {
         res.json({
           type: "accrual_offset",
@@ -12323,6 +12339,144 @@ IMPORTANT GUIDELINES:
       } else {
         res.json({ type: "none", confidence: 0 });
       }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === FIXED ASSETS (Capital Equipment) ===
+  app.get("/api/firm/assets", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(fixedAssets).orderBy(desc(fixedAssets.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/assets", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { name, description, vendor, purchasePrice, serialNumber, warrantyExpiration, placedInServiceDate, usefulLifeMonths, salvageValue, locationId, section179Eligible } = req.body;
+      if (!name || !purchasePrice || !placedInServiceDate) {
+        return res.status(400).json({ message: "name, purchasePrice, and placedInServiceDate are required" });
+      }
+      const { getLocationTag } = await import("./asset-engine");
+      const [asset] = await db.insert(fixedAssets).values({
+        name,
+        description: description || null,
+        vendor: vendor || null,
+        purchasePrice,
+        serialNumber: serialNumber || null,
+        warrantyExpiration: warrantyExpiration || null,
+        placedInServiceDate,
+        usefulLifeMonths: usefulLifeMonths || 120,
+        salvageValue: salvageValue || 0,
+        locationId: locationId || null,
+        locationTag: getLocationTag(locationId || null),
+        status: "pending",
+        section179Eligible: section179Eligible !== false,
+        bookDepreciationMethod: "straight_line",
+        taxDepreciationMethod: section179Eligible !== false ? "section_179" : "straight_line",
+        createdBy: user?.username || user?.firstName || "Unknown",
+      }).returning();
+
+      const { logAssetAudit } = await import("./asset-engine");
+      await logAssetAudit(asset.id, "CREATED", `Asset registered: ${name} at $${purchasePrice}`, user?.username || "Unknown");
+
+      res.status(201).json(asset);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/assets/:id/capitalize", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = await getUserFromReq(req);
+      const { capitalizeAsset } = await import("./asset-engine");
+      const asset = await capitalizeAsset(id, user?.username || user?.firstName || "System");
+      res.json(asset);
+    } catch (err: any) {
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/assets/:id/schedules", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const assetId = Number(req.params.id);
+      const schedules = await db.select().from(depreciationSchedules).where(eq(depreciationSchedules.assetId, assetId));
+      const entries = await db.select().from(depreciationEntries).where(eq(depreciationEntries.assetId, assetId)).orderBy(depreciationEntries.periodDate);
+      res.json({ schedules, entries });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/assets/:id/audit-log", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const assetId = Number(req.params.id);
+      const logs = await db.select().from(assetAuditLog).where(eq(assetAuditLog.assetId, assetId)).orderBy(desc(assetAuditLog.createdAt));
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/assets/summary", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getAssetSummary } = await import("./asset-engine");
+      const summary = await getAssetSummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/assets/depreciation/post", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { periodDate } = req.body;
+      if (!periodDate) return res.status(400).json({ message: "periodDate required (YYYY-MM-DD)" });
+      const { postMonthlyDepreciation } = await import("./asset-engine");
+      const result = await postMonthlyDepreciation(periodDate, user?.username || "System");
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/assets/capex-check", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { description, amount } = req.body;
+      const { isCapExCandidate, getCapExRecommendation } = await import("./asset-engine");
+      const isCapEx = isCapExCandidate(description || "", amount || 0);
+      let recommendation = null;
+      if (isCapEx) {
+        const { getTrialBalance } = await import("./accounting-engine");
+        const trial = await getTrialBalance(`${new Date().getFullYear()}-01-01`);
+        const revenue = trial.filter((a: any) => a.accountType === "Revenue").reduce((s: number, a: any) => s + (a.totalCredit - a.totalDebit), 0);
+        const expenses = trial.filter((a: any) => a.accountType === "Expense").reduce((s: number, a: any) => s + (a.totalDebit - a.totalCredit), 0);
+        const ytdNetIncome = revenue - expenses;
+        recommendation = await getCapExRecommendation(Math.abs(amount), ytdNetIncome);
+      }
+      res.json({ isCapEx, recommendation });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/assets/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [asset] = await db.select().from(fixedAssets).where(eq(fixedAssets.id, id));
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      if (asset.status === "capitalized") return res.status(400).json({ message: "Cannot delete capitalized assets — use disposal workflow" });
+      await db.delete(depreciationEntries).where(eq(depreciationEntries.assetId, id));
+      await db.delete(depreciationSchedules).where(eq(depreciationSchedules.assetId, id));
+      await db.delete(assetAuditLog).where(eq(assetAuditLog.assetId, id));
+      await db.delete(fixedAssets).where(eq(fixedAssets.id, id));
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

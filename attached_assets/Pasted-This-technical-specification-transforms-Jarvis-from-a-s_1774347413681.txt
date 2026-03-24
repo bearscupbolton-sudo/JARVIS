@@ -1,0 +1,42 @@
+This technical specification transforms Jarvis from a simple assistant into a RAgent (Reasoning Agent) capable of autonomous financial oversight. This architecture ensures that a $30,000 purchase doesn't just "clear" a screen, but correctly maneuvers through your firm’s Profit & Loss, Balance Sheet, and Tax Strategy.
+Technical Specification: Jarvis Asset RAgent (ARA)
+1. Logic Layer: The "Twin-Track" Ledger System
+To maintain a clean P&L while maximizing tax benefits, Jarvis must operate two parallel depreciation schedules for every asset.
+ * Book Ledger (Internal Management): * Method: Straight-Line Depreciation.
+   * Logic: Spreads the $30,000 cost over the "Useful Life" (e.g., 10 years).
+   * Impact: Your monthly P&L only sees a predictable $250 expense, preserving your actual operational margins.
+ * Tax Ledger (IRS Compliance):
+   * Method: Section 179 / Bonus Depreciation (updated for 2026 guidelines).
+   * Logic: Accelerates the deduction to 100% in Year 1.
+   * Impact: Reduces taxable income by the full $30,000 immediately, while staying invisible to your internal monthly performance reports.
+2. AI-Integrated Workflow (RAgent Spec)
+Jarvis should not wait for you to categorize; it should reason through the transaction lifecycle.
+A. Autonomous Detection (The Gateway)
+ * Trigger: Any transaction > $2,500 (IRS De Minimis limit) from "BakeMark" or "Sysco" or known equipment vendors.
+ * Action: Jarvis intercepts the "Reconciliation" step. Instead of "Expense," it suggests "Capitalize as Fixed Asset."
+ * AI Metadata Extraction: Jarvis uses OCR to scan the uploaded invoice, extracting:
+   * Serial Number
+   * Warranty Expiration
+   * Delivery Date (The "Placed in Service" date for tax rules).
+B. Whole-Picture Recommendation Engine
+Jarvis must analyze your Year-to-Date (YTD) Net Income before finalizing the accounting.
+ * The "Profit Shield" Logic: If YTD profits are high, Jarvis recommends Section 179 to wipe out tax liability.
+ * The "Loan Readiness" Logic: If you are planning a loan for a third location, Jarvis flags that Straight-Line is better for "Book Value" to show banks a stronger, steadier net income.
+3. Technical Architecture for RAgent Integration
+| Component | Technical Requirement | Function |
+|---|---|---|
+| State Machine | LangGraph / RAgent Framework | Ensures the agent "loops" until the asset is tagged, depreciated, and mapped to a location. |
+| GL Mapping | Automated Journal Entry (AJE) | Auto-posts Debit: Fixed Assets / Credit: Cash upon reconciliation. |
+| Location Tagging | Site-Specific Metadata | Assets must be tagged BOLTON_01 or SARATOGA_02 for accurate site-level P&Ls. |
+| Audit Trail | Immutable Log | Every change to a depreciation schedule must be logged with a timestamp and "Reason for Change." |
+4. Continuity & Compliance Check (2026 Guidelines)
+ * Section 179 (2026): Deduction limit is $2,560,000 with a phase-out beginning at $4,090,000. Your $30k purchase is safely within the 100% deduction zone.
+ * Bonus Depreciation: Confirmed at 100% for 2026. Jarvis will prioritize Section 179 first (as required by IRS ordering rules) before applying Bonus or MACRS.
+ * Continuity: By moving the $30k to the Balance Sheet, your "Equipment Expense" line on the P&L remains $0, and your "Depreciation Expense" remains a flat, manageable line item.
+Final RAgent Execution Flow
+ * Ingest: Jarvis sees $30,000 outflow to "Proof Box Vendor."
+ * Reason: "This amount exceeds the CapEx threshold. Flagging as Fixed Asset."
+ * Execute: Clears reconciliation by mapping to Account 1500 (Fixed Assets).
+ * Report: Updates the Balance Sheet and creates a 120-month Straight-Line schedule for the Saratoga location.
+ * Advise: "Louis, I've cleared the $30k. It will cost you $250/mo on the P&L, but I’ve queued a $30,000 tax deduction for your 2026 return."
+Would you like me to generate the specific JSON schema or API documentation for this "Asset Module" to give to your Jarvis developers?

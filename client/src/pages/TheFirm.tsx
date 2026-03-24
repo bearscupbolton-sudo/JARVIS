@@ -23,7 +23,7 @@ import {
   Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
-  FileCheck, AlertOctagon, ArrowRight
+  FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -230,6 +230,7 @@ export default function TheFirm() {
             <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
             <TabsTrigger value="compliance" className="whitespace-nowrap px-3" data-testid="tab-compliance">Compliance</TabsTrigger>
             <TabsTrigger value="donations" className="whitespace-nowrap px-3" data-testid="tab-donations">Donations</TabsTrigger>
+            <TabsTrigger value="assets" className="whitespace-nowrap px-3" data-testid="tab-assets">Assets</TabsTrigger>
           </TabsList>
         </div>
 
@@ -274,6 +275,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="donations">
           <DonationsTab />
+        </TabsContent>
+        <TabsContent value="assets">
+          <AssetsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -4542,6 +4546,385 @@ function FilingRow({ filing, expanded, onToggle, onMarkComplete, formatCurrency,
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AssetsTab() {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [showSchedule, setShowSchedule] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [purchasePrice, setPurchasePrice] = useState("");
+  const [serialNumber, setSerialNumber] = useState("");
+  const [warrantyExp, setWarrantyExp] = useState("");
+  const [placedDate, setPlacedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [usefulLife, setUsefulLife] = useState("120");
+  const [salvageValue, setSalvageValue] = useState("0");
+  const [locationId, setLocationId] = useState("1");
+  const [section179, setSection179] = useState(true);
+
+  const { data: assets, isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/firm/assets"],
+    queryFn: () => fetch("/api/firm/assets", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: summary } = useQuery<any>({
+    queryKey: ["/api/firm/assets/summary"],
+    queryFn: () => fetch("/api/firm/assets/summary", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: scheduleData } = useQuery<any>({
+    queryKey: ["/api/firm/assets", showSchedule, "schedules"],
+    queryFn: () => showSchedule ? fetch(`/api/firm/assets/${showSchedule}/schedules`, { credentials: "include" }).then(r => r.json()) : null,
+    enabled: !!showSchedule,
+  });
+
+  const createMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/firm/assets", data),
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      setShowForm(false);
+      setName(""); setDescription(""); setVendor(""); setPurchasePrice(""); setSerialNumber("");
+      setWarrantyExp(""); setUsefulLife("120"); setSalvageValue("0");
+      toast({ title: "Asset registered" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const capitalizeMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/firm/assets/${id}/capitalize`, {}),
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      toast({ title: "Asset capitalized — journal entries posted, depreciation schedules created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/firm/assets/${id}`, undefined),
+    onSuccess: () => { refetch(); queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] }); toast({ title: "Asset removed" }); },
+  });
+
+  const depreciatePostMut = useMutation({
+    mutationFn: (periodDate: string) => apiRequest("POST", "/api/firm/assets/depreciation/post", { periodDate }),
+    onSuccess: (_data: any) => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      toast({ title: "Monthly depreciation posted to ledger" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleCreate = () => {
+    const price = parseFloat(purchasePrice);
+    if (!name || !price || price <= 0) {
+      toast({ title: "Name and purchase price are required", variant: "destructive" });
+      return;
+    }
+    createMut.mutate({
+      name, description, vendor, purchasePrice: price,
+      serialNumber: serialNumber || undefined,
+      warrantyExpiration: warrantyExp || undefined,
+      placedInServiceDate: placedDate,
+      usefulLifeMonths: parseInt(usefulLife) || 120,
+      salvageValue: parseFloat(salvageValue) || 0,
+      locationId: parseInt(locationId) || 1,
+      section179Eligible: section179,
+    });
+  };
+
+  if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>;
+
+  const pendingAssets = assets?.filter(a => a.status === "pending") || [];
+  const capitalizedAssets = assets?.filter(a => a.status === "capitalized") || [];
+  const currentPeriod = format(new Date(), "yyyy-MM-dd");
+
+  return (
+    <div className="space-y-6" data-testid="assets-tab">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card data-testid="card-total-assets">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Factory className="h-4 w-4 text-primary" />
+              <span className="text-xs text-muted-foreground">Total Assets</span>
+            </div>
+            <p className="text-2xl font-bold">{summary?.totalAssets || 0}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-total-cost">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign className="h-4 w-4 text-blue-500" />
+              <span className="text-xs text-muted-foreground">Total Cost Basis</span>
+            </div>
+            <p className="text-2xl font-bold">${(summary?.totalCost || 0).toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-net-book-value">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <BookOpen className="h-4 w-4 text-green-500" />
+              <span className="text-xs text-muted-foreground">Net Book Value</span>
+            </div>
+            <p className="text-2xl font-bold">${(summary?.netBookValue || 0).toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-section179">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Shield className="h-4 w-4 text-orange-500" />
+              <span className="text-xs text-muted-foreground">Section 179 Deductions</span>
+            </div>
+            <p className="text-2xl font-bold">${(summary?.totalSection179Deduction || 0).toLocaleString()}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <Brain className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold text-blue-700 dark:text-blue-400 mb-1">Twin-Track Depreciation Engine</p>
+              <p className="text-blue-600 dark:text-blue-300">
+                Every asset runs two parallel schedules: <strong>Book</strong> (Straight-Line for clean P&L) and <strong>Tax</strong> (Section 179 / Bonus Depreciation for maximum deductions). Your monthly P&L sees predictable depreciation expense while your tax return gets accelerated deductions. 2026 Section 179 limit: $2,560,000.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-lg">Fixed Assets Register</h3>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => depreciatePostMut.mutate(currentPeriod)} disabled={depreciatePostMut.isPending || capitalizedAssets.length === 0} data-testid="button-post-depreciation">
+            {depreciatePostMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Clock className="h-4 w-4 mr-1" />}
+            Post {format(new Date(), "MMM yyyy")} Depreciation
+          </Button>
+          <Button size="sm" onClick={() => setShowForm(!showForm)} data-testid="button-add-asset">
+            <Plus className="h-4 w-4 mr-1" /> Register Asset
+          </Button>
+        </div>
+      </div>
+
+      {showForm && (
+        <Card data-testid="form-add-asset">
+          <CardContent className="p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Asset Name *</Label>
+                <Input placeholder="e.g., Hobart Mixer H-600" value={name} onChange={e => setName(e.target.value)} data-testid="input-asset-name" />
+              </div>
+              <div className="space-y-2">
+                <Label>Vendor</Label>
+                <Input placeholder="e.g., BakeMark" value={vendor} onChange={e => setVendor(e.target.value)} data-testid="input-asset-vendor" />
+              </div>
+              <div className="space-y-2">
+                <Label>Purchase Price *</Label>
+                <Input type="number" step="0.01" placeholder="30000" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} data-testid="input-asset-price" />
+              </div>
+              <div className="space-y-2">
+                <Label>Placed in Service Date *</Label>
+                <Input type="date" value={placedDate} onChange={e => setPlacedDate(e.target.value)} data-testid="input-asset-placed-date" />
+              </div>
+              <div className="space-y-2">
+                <Label>Serial Number</Label>
+                <Input placeholder="SN-12345" value={serialNumber} onChange={e => setSerialNumber(e.target.value)} data-testid="input-asset-serial" />
+              </div>
+              <div className="space-y-2">
+                <Label>Warranty Expiration</Label>
+                <Input type="date" value={warrantyExp} onChange={e => setWarrantyExp(e.target.value)} data-testid="input-asset-warranty" />
+              </div>
+              <div className="space-y-2">
+                <Label>Useful Life (months)</Label>
+                <Input type="number" value={usefulLife} onChange={e => setUsefulLife(e.target.value)} data-testid="input-asset-useful-life" />
+              </div>
+              <div className="space-y-2">
+                <Label>Salvage Value</Label>
+                <Input type="number" step="0.01" value={salvageValue} onChange={e => setSalvageValue(e.target.value)} data-testid="input-asset-salvage" />
+              </div>
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Select value={locationId} onValueChange={setLocationId}>
+                  <SelectTrigger data-testid="select-asset-location"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Saratoga</SelectItem>
+                    <SelectItem value="2">Bolton</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input placeholder="Optional description" value={description} onChange={e => setDescription(e.target.value)} data-testid="input-asset-description" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={section179} onCheckedChange={setSection179} data-testid="switch-section179" />
+              <Label>Section 179 Eligible (100% Year 1 Tax Deduction)</Label>
+            </div>
+            {parseFloat(purchasePrice) > 0 && (
+              <div className="bg-muted/50 rounded p-3 text-sm space-y-1">
+                <p className="font-semibold">Preview:</p>
+                <p>Book P&L Impact: <strong>${((parseFloat(purchasePrice) - (parseFloat(salvageValue) || 0)) / (parseInt(usefulLife) || 120)).toFixed(2)}/mo</strong> depreciation expense for {usefulLife} months</p>
+                {section179 && <p>Tax Deduction: <strong>${parseFloat(purchasePrice).toLocaleString()}</strong> Section 179 deduction in Year 1</p>}
+                <p>Balance Sheet: DR Fixed Assets (1500) / CR Cash (1010) for ${parseFloat(purchasePrice).toLocaleString()}</p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} disabled={createMut.isPending} data-testid="button-submit-asset">
+                {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                Register Asset
+              </Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {pendingAssets.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-yellow-500" /> Pending Capitalization ({pendingAssets.length})
+          </h4>
+          {pendingAssets.map(asset => (
+            <Card key={asset.id} className="border-yellow-200 dark:border-yellow-800" data-testid={`card-pending-asset-${asset.id}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{asset.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {asset.vendor && `${asset.vendor} · `}${asset.purchasePrice.toLocaleString()} · {asset.locationTag || "Unassigned"}
+                      {asset.serialNumber && ` · S/N: ${asset.serialNumber}`}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => capitalizeMut.mutate(asset.id)} disabled={capitalizeMut.isPending} data-testid={`button-capitalize-${asset.id}`}>
+                      {capitalizeMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+                      Capitalize
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => deleteMut.mutate(asset.id)} data-testid={`button-delete-asset-${asset.id}`}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
+          <Factory className="h-4 w-4 text-green-500" /> Capitalized Assets ({capitalizedAssets.length})
+        </h4>
+        {capitalizedAssets.length === 0 ? (
+          <Card><CardContent className="p-6 text-center text-muted-foreground">No capitalized assets yet. Register and capitalize equipment above.</CardContent></Card>
+        ) : (
+          capitalizedAssets.map(asset => {
+            const summaryAsset = summary?.assets?.find((a: any) => a.id === asset.id);
+            const isExpanded = showSchedule === asset.id;
+            return (
+              <Card key={asset.id} data-testid={`card-asset-${asset.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowSchedule(isExpanded ? null : asset.id)}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-primary" />
+                        <p className="font-semibold">{asset.name}</p>
+                        <Badge variant="outline" className="text-xs">{asset.locationTag}</Badge>
+                        {asset.section179Elected && <Badge className="bg-orange-100 text-orange-700 text-xs">§179</Badge>}
+                      </div>
+                      <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
+                        <span>Cost: ${asset.purchasePrice.toLocaleString()}</span>
+                        {summaryAsset && <span>Book Value: ${summaryAsset.netBookValue.toLocaleString()}</span>}
+                        {summaryAsset && <span>Monthly Depr: ${summaryAsset.monthlyDepreciation.toFixed(2)}</span>}
+                        {asset.serialNumber && <span>S/N: {asset.serialNumber}</span>}
+                      </div>
+                    </div>
+                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </div>
+
+                  {isExpanded && scheduleData && (
+                    <div className="mt-4 space-y-4 border-t pt-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {scheduleData.schedules.map((sched: any) => (
+                          <Card key={sched.id} className={sched.ledgerType === "book" ? "border-blue-200 dark:border-blue-800" : "border-orange-200 dark:border-orange-800"}>
+                            <CardHeader className="p-3 pb-1">
+                              <CardTitle className="text-sm flex items-center gap-2">
+                                {sched.ledgerType === "book" ? <BookOpen className="h-4 w-4 text-blue-500" /> : <Shield className="h-4 w-4 text-orange-500" />}
+                                {sched.ledgerType === "book" ? "Book Ledger (P&L)" : "Tax Ledger (IRS)"}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-3 pt-0 text-sm space-y-1">
+                              <p>Method: <strong>{sched.method === "straight_line" ? "Straight-Line" : "Section 179"}</strong></p>
+                              <p>Total: <strong>${sched.totalAmount.toLocaleString()}</strong></p>
+                              {sched.monthlyAmount && <p>Monthly: <strong>${sched.monthlyAmount.toFixed(2)}</strong></p>}
+                              {sched.yearOneDeduction && <p>Year 1 Deduction: <strong>${sched.yearOneDeduction.toLocaleString()}</strong></p>}
+                              <p>Period: {sched.startDate} → {sched.endDate || "ongoing"}</p>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+
+                      {scheduleData.entries.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold mb-2">Depreciation Schedule (Book — next 12 months)</p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left p-1">Period</th>
+                                  <th className="text-right p-1">Amount</th>
+                                  <th className="text-right p-1">Accumulated</th>
+                                  <th className="text-right p-1">Net Book Value</th>
+                                  <th className="text-center p-1">Posted</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {scheduleData.entries
+                                  .filter((e: any) => {
+                                    const s = scheduleData.schedules.find((s: any) => s.id === e.scheduleId);
+                                    return s?.ledgerType === "book";
+                                  })
+                                  .slice(0, 12)
+                                  .map((entry: any, idx: number) => (
+                                    <tr key={entry.id || idx} className="border-b border-muted/50">
+                                      <td className="p-1">{entry.periodDate}</td>
+                                      <td className="text-right p-1">${entry.amount.toFixed(2)}</td>
+                                      <td className="text-right p-1">${entry.accumulatedDepreciation.toFixed(2)}</td>
+                                      <td className="text-right p-1">${entry.netBookValue.toFixed(2)}</td>
+                                      <td className="text-center p-1">
+                                        {entry.posted ? <CheckCircle2 className="h-3 w-3 text-green-500 mx-auto" /> : <Clock className="h-3 w-3 text-muted-foreground mx-auto" />}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-start gap-2 bg-muted/50 rounded p-3">
+                        <Lightbulb className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+                        <p className="text-sm">
+                          <strong>Jarvis says:</strong> This ${asset.purchasePrice.toLocaleString()} purchase shows $
+                          {((asset.purchasePrice - (asset.salvageValue || 0)) / (asset.usefulLifeMonths || 120)).toFixed(2)}/mo on your P&L
+                          {asset.section179Elected ? `, but I've queued a $${asset.purchasePrice.toLocaleString()} tax deduction for your ${asset.placedInServiceDate?.split("-")[0]} return.` : "."}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
