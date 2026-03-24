@@ -137,7 +137,7 @@ export async function compilePayroll(
     return false;
   });
 
-  const allTimeEntries = await db
+  const rawTimeEntries = await db
     .select()
     .from(timeEntries)
     .where(
@@ -146,6 +146,23 @@ export async function compilePayroll(
         or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, periodStart)),
       ),
     );
+
+  const MIN_VALID_DATE = new Date("2020-01-01").getTime();
+  const MAX_VALID_DATE = new Date("2030-12-31").getTime();
+  const allTimeEntries = rawTimeEntries.filter((te) => {
+    const clockInMs = new Date(te.clockIn).getTime();
+    if (isNaN(clockInMs) || clockInMs < MIN_VALID_DATE || clockInMs > MAX_VALID_DATE) return false;
+    if (te.clockOut) {
+      const clockOutMs = new Date(te.clockOut).getTime();
+      if (isNaN(clockOutMs) || clockOutMs < MIN_VALID_DATE || clockOutMs > MAX_VALID_DATE) return false;
+      if (clockOutMs - clockInMs > 24 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  });
+
+  if (rawTimeEntries.length !== allTimeEntries.length) {
+    console.warn(`[Payroll Compile] Filtered out ${rawTimeEntries.length - allTimeEntries.length} invalid time entries with corrupted dates`);
+  }
 
   const timeEntryIds = allTimeEntries.map((te) => te.id);
   let allBreaks: Array<typeof breakEntries.$inferSelect> = [];
