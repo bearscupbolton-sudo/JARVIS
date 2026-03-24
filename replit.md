@@ -21,7 +21,7 @@ The application is built as a monorepo with a React 18 frontend (Vite, TypeScrip
     *   **Maintenance & Solutions Hub:** Manages equipment, problems, and service contacts.
     *   **Prep EQ:** Tracks in-house components, calculates demand, and generates prep tasks.
     *   **COGS System:** Real-time production cost calculation using invoice, inventory, and recipe data.
-    *   **Invoice Capture:** AI vision model for processing multi-image bakery invoices.
+    *   **Invoice Capture:** AI vision model for processing multi-image bakery invoices. Enhanced with US Foods integration: automatic shorts detection (ordered vs shipped), substitution tracking, price variance alerts (>5% increase flagged), pack-size extraction, and delivery alert badges. Gmail auto-scan configured for US Foods order confirmations, invoices, ACH payments, and will-call invoices.
     *   **Schedule & Shift Management:** Spreadsheet-style scheduling with AI import, shift pickups, and reusable templates. Business week runs Wednesday to Tuesday.
     *   **Time Card System:** PIN-based Kiosk Clock, personal time management, and seamless Square Labor Sync.
     *   **Department-Aware Inventory:** Inventory items are managed with department filters for accuracy in recipe linking and counts.

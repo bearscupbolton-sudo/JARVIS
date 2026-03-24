@@ -326,7 +326,7 @@ export interface IStorage {
   // Invoices
   getInvoices(): Promise<Invoice[]>;
   getInvoice(id: number): Promise<(Invoice & { lines: InvoiceLine[] }) | undefined>;
-  createInvoiceWithLines(invoice: InsertInvoice, lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean }[]): Promise<Invoice & { lines: InvoiceLine[] }>;
+  createInvoiceWithLines(invoice: InsertInvoice, lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean; packSize?: string | null; quantityOrdered?: number | null; quantityShipped?: number | null; isShort?: boolean; isSubstitution?: boolean; originalProduct?: string | null; priceVariancePercent?: number | null; previousUnitPrice?: number | null }[]): Promise<Invoice & { lines: InvoiceLine[] }>;
 
   // Inventory Counts
   getInventoryCounts(): Promise<InventoryCount[]>;
@@ -1449,7 +1449,7 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoiceWithLines(
     invoiceData: InsertInvoice,
-    lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean }[]
+    lines: { itemDescription: string; quantity: number; unit?: string | null; unitPrice?: number | null; lineTotal?: number | null; manualMatchId?: number | null; saveAsAlias?: boolean; packSize?: string | null; quantityOrdered?: number | null; quantityShipped?: number | null; isShort?: boolean; isSubstitution?: boolean; originalProduct?: string | null; priceVariancePercent?: number | null; previousUnitPrice?: number | null }[]
   ): Promise<Invoice & { lines: InvoiceLine[] }> {
     const [invoice] = await db.insert(invoices).values(invoiceData).returning();
 
@@ -1500,6 +1500,14 @@ export class DatabaseStorage implements IStorage {
         unitPrice: line.unitPrice ?? null,
         lineTotal: line.lineTotal ?? null,
         inventoryItemId: matchedItemId,
+        packSize: line.packSize || null,
+        quantityOrdered: line.quantityOrdered ?? null,
+        quantityShipped: line.quantityShipped ?? null,
+        isShort: line.isShort || false,
+        isSubstitution: line.isSubstitution || false,
+        originalProduct: line.originalProduct || null,
+        priceVariancePercent: line.priceVariancePercent ?? null,
+        previousUnitPrice: line.previousUnitPrice ?? null,
       }).returning();
       createdLines.push(createdLine);
 
@@ -1551,7 +1559,43 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    return { ...invoice, lines: createdLines };
+    const { validateInvoiceLines } = await import("./usfoods-validator");
+    const alerts = await validateInvoiceLines(invoice.id, createdLines.map(cl => ({
+      id: cl.id,
+      itemDescription: cl.itemDescription,
+      quantity: cl.quantity,
+      quantityOrdered: cl.quantityOrdered,
+      quantityShipped: cl.quantityShipped,
+      unitPrice: cl.unitPrice,
+      packSize: cl.packSize,
+      isSubstitution: cl.isSubstitution || false,
+      originalProduct: cl.originalProduct,
+      inventoryItemId: cl.inventoryItemId,
+    })));
+
+    const hasPriceAlerts = alerts.some(a => a.type === "price_variance");
+    if (hasPriceAlerts || invoiceData.hasShorts || invoiceData.hasSubstitutions) {
+      await db.update(invoices)
+        .set({
+          hasPriceAlerts,
+          hasShorts: invoiceData.hasShorts || false,
+          hasSubstitutions: invoiceData.hasSubstitutions || false,
+        })
+        .where(eq(invoices.id, invoice.id));
+    }
+
+    for (const alert of alerts.filter(a => a.type === "price_variance")) {
+      if (alert.lineId) {
+        await db.update(invoiceLines)
+          .set({
+            priceVariancePercent: alert.details.variancePercent,
+            previousUnitPrice: alert.details.previousPrice,
+          })
+          .where(eq(invoiceLines.id, alert.lineId));
+      }
+    }
+
+    return { ...invoice, lines: createdLines, hasPriceAlerts };
   }
 
   // Inventory Counts
