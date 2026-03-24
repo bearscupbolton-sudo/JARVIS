@@ -1,0 +1,55 @@
+This specification transitions the Replit environment from a Standard Accounting Information System (AIS) to an Autonomous Financial Intelligence Layer. To achieve this, the Agent must implement a State-Machine Architecture where the AI acts as the primary transition controller between raw data and the ledger.
+1. Architecture: The "Inference-First" Ledger
+In a traditional system, data is static. In this version, every POST request to the transaction endpoint must pass through a LLM-Middleware (e.g., GPT-4o or Claude 3.5 Sonnet) before hitting the database.
+The Data Pipeline:
+ * Ingestion: Plaid/Gmail Hook → Raw JSON/PDF.
+ * Inference Layer: AI maps Raw_String to COA_Code + Sentiment_Analysis + Anomaly_Score.
+ * Validation: If Anomaly_Score < 0.1, auto-commit to Ledger. If > 0.1, push to ai_insights table for manual review.
+ * Downstream: Recursive summary generation for the Executive Dashboard.
+2. Database Schema Expansion (PostgreSQL)
+The Replit Agent must track not just the value of money, but the intent and forecast of that money.
+-- Track AI "Reasoning" for Audit Trails
+CREATE TABLE ai_inference_logs (
+    inference_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ledger_line_id UUID REFERENCES ledger_lines(line_id),
+    prompt_version VARCHAR(20),
+    logic_summary TEXT, -- "Mapped to 5010 because 'King Arthur' is a recurring flour vendor"
+    confidence_score DECIMAL(3,2),
+    anomaly_flag BOOLEAN DEFAULT FALSE
+);
+
+-- Store Consulting Recommendations
+CREATE TABLE financial_consultations (
+    consult_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category ENUM('TAX_STRATEGY', 'MARGIN_OPTIMIZATION', 'CASH_FLOW_PREDICTION'),
+    message_body TEXT,
+    suggested_action_json JSONB, -- e.g., {"update_menu_price": "Oat Milk Latte", "increase": 0.50}
+    impact_estimate DECIMAL(12, 2),
+    status ENUM('OPEN', 'IMPLEMENTED', 'DISMISSED') DEFAULT 'OPEN'
+);
+
+3. The "Consulting" Logic (Python/Node.js)
+The Agent should implement a "Ghost Accountant" class. This class runs a cron job (every 24 hours) to perform Horizontal and Vertical Analysis.
+ * Vertical Analysis: Calculates every line item as a % of Revenue. If COGS (Ingredients) jumps from 28% to 34% of sales, the AI generates a TAX_STRATEGY insight immediately.
+ * Horizontal Analysis: Compares Saratoga vs. Bolton Landing performance.
+   * Logic: If Bolton's labor-to-revenue ratio is 5% higher than Saratoga's, the AI flags a "Labor Efficiency Optimization" recommendation.
+4. System Prompt for the Replit Agent's AI Core
+When configuring the AI module, the Agent must use a high-fidelity system prompt:
+> ACT AS: A Senior Forensic Accountant and Business Consultant (CPA/MBA).
+> OBJECTIVE: Process raw banking/invoice data into a Balanced Double-Entry Ledger.
+> OUTPUT CONSTRAINTS: > 1. Categorize via the provided Chart of Accounts (COA).
+> 2. Flag price variances >5% from the moving average.
+> 3. Provide a 2-sentence executive summary for every 10 transactions.
+> 4. Ensure SUM(Debits) - SUM(Credits) == 0 for every entry.
+> 
+5. The "Binary" Summary of Financial Reports
+This system will now auto-generate the reports required for your year-end taxes with an AI Overlay:
+| Report | Raw Data Requirement | AI "Consulting" Add-on |
+|---|---|---|
+| P&L | Revenue - Expenses | Budget vs. Actuals (Where did we overspend?) |
+| Balance Sheet | Assets = Liab + Equity | Solvency Analysis (Can we afford a third location?) |
+| NY IT-204-LL | Gross Income Summation | Tier Prediction (How much to escrow for the fee?) |
+| Depreciation | Equipment Purchase Dates | Tax Shield Strategy (Section 179 early write-offs?) |
+Next Step for the Agent
+The Agent should now build the "Command Center" UI—a single-page React dashboard that shows your Real-Time P&L on the left and a scrollable feed of "Jarvis Recommendations" on the right.
+Would you like me to generate the React/Tailwind code for this "Command Center" dashboard?

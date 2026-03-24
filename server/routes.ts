@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12107,16 +12107,39 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
 
   app.post("/api/firm/journal", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const { transactionDate, description, referenceId, referenceType, locationId, lines } = req.body;
+      const { transactionDate, description, referenceId, referenceType, locationId, lines, skipInference } = req.body;
       if (!transactionDate || !description || !lines || lines.length < 2) {
         return res.status(400).json({ message: "transactionDate, description, and at least 2 lines are required" });
       }
       const user = await getUserFromReq(req);
+      const createdBy = user?.username || user?.firstName || "Unknown";
       const { postJournalEntry } = await import("./accounting-engine");
       const entry = await postJournalEntry(
-        { transactionDate, description, referenceId, referenceType, locationId, createdBy: user?.username || user?.firstName || "Unknown" },
+        { transactionDate, description, referenceId, referenceType, locationId, createdBy },
         lines
       );
+
+      if (!skipInference) {
+        try {
+          const { classifyTransaction } = await import("./ghost-accountant");
+          const totalAmount = lines.reduce((s: number, l: any) => s + (l.debit || 0), 0);
+          const classification = await classifyTransaction(description, -totalAmount, transactionDate);
+          await db.insert(aiInferenceLogs).values({
+            journalEntryId: entry.id,
+            rawInput: `${description} | $${totalAmount.toFixed(2)} | ${transactionDate}`,
+            promptVersion: "v1.0",
+            logicSummary: classification.logicSummary,
+            confidenceScore: classification.confidence,
+            anomalyFlag: classification.anomalyScore >= 0.1,
+            anomalyScore: classification.anomalyScore,
+            suggestedCoaCode: classification.coaCode,
+            appliedCoaCode: lines[0]?.accountId ? String(lines[0].accountId) : classification.coaCode,
+          });
+        } catch (inferErr: any) {
+          console.error("[AI Inference] Post-commit inference failed:", inferErr.message);
+        }
+      }
+
       res.status(201).json(entry);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -12199,6 +12222,102 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       await seedChartOfAccounts();
       const accounts = await db.select().from(chartOfAccounts).orderBy(chartOfAccounts.code);
       res.json({ message: "Chart of Accounts seeded", accounts });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GHOST ACCOUNTANT / AI FINANCIAL INTELLIGENCE ===
+  app.post("/api/firm/ai/classify", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { description, amount, date } = req.body;
+      if (!description || amount == null || !date) return res.status(400).json({ message: "description, amount, date required" });
+      const { classifyTransaction } = await import("./ghost-accountant");
+      const result = await classifyTransaction(description, amount, date);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/ai/infer-and-post", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { description, amount, date, referenceId, referenceType, locationId } = req.body;
+      if (!description || amount == null || !date) return res.status(400).json({ message: "description, amount, date required" });
+      const user = await getUserFromReq(req);
+      const { inferAndPostTransaction } = await import("./ghost-accountant");
+      const result = await inferAndPostTransaction(
+        description, amount, date, referenceId, referenceType, locationId,
+        user?.username || user?.firstName || "Unknown"
+      );
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/ai/analyze", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+      const { generateAIConsultation } = await import("./ghost-accountant");
+      const result = await generateAIConsultation(startDate, endDate);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/ai/consultations", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { status } = req.query;
+      let conditions = [];
+      if (status) conditions.push(eq(financialConsultations.status, status as string));
+      const results = await db.select().from(financialConsultations)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(financialConsultations.createdAt))
+        .limit(100);
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/ai/consultations/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { status, dismissedBy } = req.body;
+      const updates: any = {};
+      if (status) updates.status = status;
+      if (dismissedBy) updates.dismissedBy = dismissedBy;
+      if (status === "IMPLEMENTED") updates.implementedAt = new Date();
+      const [updated] = await db.update(financialConsultations)
+        .set(updates)
+        .where(eq(financialConsultations.id, Number(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Consultation not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/ai/summary", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+      const { generateExecutiveSummary } = await import("./ghost-accountant");
+      const summary = await generateExecutiveSummary(startDate as string, endDate as string);
+      res.json({ summary });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/ai/audit-trail", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getInferenceAuditTrail } = await import("./ghost-accountant");
+      const trail = await getInferenceAuditTrail();
+      res.json(trail);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

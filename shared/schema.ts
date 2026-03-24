@@ -2036,3 +2036,43 @@ export const insertLedgerLineSchema = createInsertSchema(ledgerLines).omit({ id:
 export type LedgerLine = typeof ledgerLines.$inferSelect;
 export type InsertLedgerLine = z.infer<typeof insertLedgerLineSchema>;
 
+// === AI INFERENCE LOGS (Audit Trail for AI-classified transactions) ===
+export const aiInferenceLogs = pgTable("ai_inference_logs", {
+  id: serial("id").primaryKey(),
+  ledgerLineId: integer("ledger_line_id").references(() => ledgerLines.id),
+  journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
+  rawInput: text("raw_input"),
+  promptVersion: text("prompt_version"),
+  logicSummary: text("logic_summary"),
+  confidenceScore: doublePrecision("confidence_score"),
+  anomalyFlag: boolean("anomaly_flag").default(false).notNull(),
+  anomalyScore: doublePrecision("anomaly_score").default(0),
+  suggestedCoaCode: text("suggested_coa_code"),
+  appliedCoaCode: text("applied_coa_code"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiInferenceLogSchema = createInsertSchema(aiInferenceLogs).omit({ id: true, createdAt: true });
+export type AiInferenceLog = typeof aiInferenceLogs.$inferSelect;
+export type InsertAiInferenceLog = z.infer<typeof insertAiInferenceLogSchema>;
+
+// === FINANCIAL CONSULTATIONS (AI Recommendations) ===
+export const financialConsultations = pgTable("financial_consultations", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  messageBody: text("message_body").notNull(),
+  suggestedAction: jsonb("suggested_action"),
+  impactEstimate: doublePrecision("impact_estimate"),
+  severity: text("severity").default("info"),
+  locationId: integer("location_id"),
+  status: text("status").notNull().default("OPEN"),
+  dismissedBy: text("dismissed_by"),
+  implementedAt: timestamp("implemented_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFinancialConsultationSchema = createInsertSchema(financialConsultations).omit({ id: true, createdAt: true });
+export type FinancialConsultation = typeof financialConsultations.$inferSelect;
+export type InsertFinancialConsultation = z.infer<typeof insertFinancialConsultationSchema>;
+
