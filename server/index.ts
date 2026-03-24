@@ -82,6 +82,10 @@ app.use((req, res, next) => {
 
   seedMarchShifts().catch(err => console.error("[Seed] March shift seeding failed:", err));
 
+  import("./accounting-engine").then(({ seedChartOfAccounts }) => {
+    seedChartOfAccounts().catch(err => console.error("[Accounting] COA seed failed:", err));
+  });
+
   db.update(users).set({ lastName: "Wilhelm" }).where(eq(users.lastName, "Wihelm"))
     .then((result) => { if (result.rowCount && result.rowCount > 0) console.log("[Fix] Corrected Wihelm → Wilhelm"); })
     .catch(() => {});

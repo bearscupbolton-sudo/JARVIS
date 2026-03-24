@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -12037,6 +12037,170 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     } catch (err: any) {
       console.error("Firm Jarvis insight error:", err.message);
       res.json({ insight: "I'm having trouble analyzing the finances right now. The data is all here — try again in a moment." });
+    }
+  });
+
+  // === DOUBLE-ENTRY ACCOUNTING (Chart of Accounts, Journal, Reports) ===
+
+  app.get("/api/firm/coa", isAuthenticated, isOwner, async (_req, res) => {
+    const accounts = await db.select().from(chartOfAccounts).orderBy(chartOfAccounts.code);
+    res.json(accounts);
+  });
+
+  app.post("/api/firm/coa", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { code, name, type, category, parentId, locationId, description } = req.body;
+      if (!code || !name || !type) return res.status(400).json({ message: "code, name, and type are required" });
+      const [acct] = await db.insert(chartOfAccounts).values({
+        code, name, type, category: category || null, parentId: parentId || null,
+        locationId: locationId || null, description: description || null, isActive: true,
+      }).returning();
+      res.status(201).json(acct);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/coa/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const [updated] = await db.update(chartOfAccounts).set(req.body).where(eq(chartOfAccounts.id, Number(req.params.id))).returning();
+      if (!updated) return res.status(404).json({ message: "Account not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/journal", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate, status } = req.query;
+      let conditions = [];
+      if (startDate) conditions.push(gte(journalEntries.transactionDate, startDate as string));
+      if (endDate) conditions.push(lte(journalEntries.transactionDate, endDate as string));
+      if (status) conditions.push(eq(journalEntries.status, status as string));
+
+      const entries = await db.select().from(journalEntries)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(journalEntries.transactionDate))
+        .limit(200);
+
+      const result = [];
+      for (const entry of entries) {
+        const lines = await db.select({
+          id: ledgerLines.id,
+          accountId: ledgerLines.accountId,
+          accountCode: chartOfAccounts.code,
+          accountName: chartOfAccounts.name,
+          debit: ledgerLines.debit,
+          credit: ledgerLines.credit,
+          memo: ledgerLines.memo,
+        }).from(ledgerLines)
+          .innerJoin(chartOfAccounts, eq(ledgerLines.accountId, chartOfAccounts.id))
+          .where(eq(ledgerLines.entryId, entry.id));
+        result.push({ ...entry, lines });
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/journal", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionDate, description, referenceId, referenceType, locationId, lines } = req.body;
+      if (!transactionDate || !description || !lines || lines.length < 2) {
+        return res.status(400).json({ message: "transactionDate, description, and at least 2 lines are required" });
+      }
+      const user = await getUserFromReq(req);
+      const { postJournalEntry } = await import("./accounting-engine");
+      const entry = await postJournalEntry(
+        { transactionDate, description, referenceId, referenceType, locationId, createdBy: user?.username || user?.firstName || "Unknown" },
+        lines
+      );
+      res.status(201).json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/journal/reconcile-plaid", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidTxnId, amount, description, transactionDate, debitAccountId, creditAccountId, locationId } = req.body;
+      if (!plaidTxnId || amount == null || !debitAccountId || !creditAccountId) {
+        return res.status(400).json({ message: "plaidTxnId, amount, debitAccountId, creditAccountId are required" });
+      }
+      const user = await getUserFromReq(req);
+      const { reconcilePlaidTransaction } = await import("./accounting-engine");
+      const entry = await reconcilePlaidTransaction(
+        plaidTxnId, amount, description || "Plaid Transaction", transactionDate || new Date().toISOString().split("T")[0],
+        debitAccountId, creditAccountId, user?.username || user?.firstName || "Unknown", locationId
+      );
+
+      await db.update(firmTransactions)
+        .set({ reconciled: true })
+        .where(eq(firmTransactions.referenceId, plaidTxnId));
+
+      res.status(201).json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/reports/pnl", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+      const { getProfitAndLoss } = await import("./accounting-engine");
+      const pnl = await getProfitAndLoss(startDate as string, endDate as string);
+      res.json(pnl);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/reports/balance-sheet", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { asOfDate } = req.query;
+      if (!asOfDate) return res.status(400).json({ message: "asOfDate required" });
+      const { getBalanceSheet } = await import("./accounting-engine");
+      const bs = await getBalanceSheet(asOfDate as string);
+      res.json(bs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/reports/cash-flow", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+      const { getCashFlow } = await import("./accounting-engine");
+      const cf = await getCashFlow(startDate as string, endDate as string);
+      res.json(cf);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/reports/trial-balance", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const { getTrialBalance } = await import("./accounting-engine");
+      const tb = await getTrialBalance(startDate as string | undefined, endDate as string | undefined);
+      res.json(tb);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/coa/seed", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { seedChartOfAccounts } = await import("./accounting-engine");
+      await seedChartOfAccounts();
+      const accounts = await db.select().from(chartOfAccounts).orderBy(chartOfAccounts.code);
+      res.json({ message: "Chart of Accounts seeded", accounts });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

@@ -20,7 +20,8 @@ import {
   Building2, PiggyBank, ArrowUpRight, ArrowDownRight, Check, AlertTriangle,
   CalendarDays, Clock, Trash2, Pencil, Receipt, Banknote, CircleDollarSign,
   FileText, RefreshCw, Info, ChevronDown, ChevronUp, Link2, Unlink,
-  Users, Timer, Coffee, Loader2, Settings
+  Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
+  Search, Filter, Eye, EyeOff, Minus
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -212,11 +213,14 @@ export default function TheFirm() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:grid-cols-8 md:w-full gap-1" data-testid="tabs-firm">
+          <TabsList className="inline-flex w-max md:grid md:grid-cols-11 md:w-full gap-1" data-testid="tabs-firm">
             <TabsTrigger value="overview" className="whitespace-nowrap px-3" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="accounts" className="whitespace-nowrap px-3" data-testid="tab-accounts">Accounts</TabsTrigger>
             <TabsTrigger value="ledger" className="whitespace-nowrap px-3" data-testid="tab-ledger">Ledger</TabsTrigger>
             <TabsTrigger value="reconcile" className="whitespace-nowrap px-3" data-testid="tab-reconcile">Reconcile</TabsTrigger>
+            <TabsTrigger value="coa" className="whitespace-nowrap px-3" data-testid="tab-coa">COA</TabsTrigger>
+            <TabsTrigger value="journal" className="whitespace-nowrap px-3" data-testid="tab-journal">Journal</TabsTrigger>
+            <TabsTrigger value="reports" className="whitespace-nowrap px-3" data-testid="tab-reports">Reports</TabsTrigger>
             <TabsTrigger value="obligations" className="whitespace-nowrap px-3" data-testid="tab-obligations">Obligations</TabsTrigger>
             <TabsTrigger value="payroll" className="whitespace-nowrap px-3" data-testid="tab-payroll">Payroll</TabsTrigger>
             <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
@@ -235,6 +239,15 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="reconcile">
           <ReconciliationTab startDate={startDate} endDate={endDate} />
+        </TabsContent>
+        <TabsContent value="coa">
+          <ChartOfAccountsTab />
+        </TabsContent>
+        <TabsContent value="journal">
+          <JournalTab startDate={startDate} endDate={endDate} />
+        </TabsContent>
+        <TabsContent value="reports">
+          <ReportsTab startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="obligations">
           <ObligationsTab obligations={Array.isArray(obligations) ? obligations : []} accounts={Array.isArray(accounts) ? accounts : []} />
@@ -2519,5 +2532,795 @@ function SalesTaxTab({ startDate, endDate }: { startDate: string; endDate: strin
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+interface COAAccount {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  category: string | null;
+  parentId: number | null;
+  locationId: number | null;
+  description: string | null;
+  isActive: boolean;
+}
+
+function ChartOfAccountsTab() {
+  const { toast } = useToast();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [filterType, setFilterType] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [newAccount, setNewAccount] = useState({ code: "", name: "", type: "Asset", category: "", description: "" });
+
+  const { data: accounts = [], isLoading } = useQuery<COAAccount[]>({ queryKey: ["/api/firm/coa"] });
+
+  const addMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/coa", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/coa"] });
+      setShowAddForm(false);
+      setNewAccount({ code: "", name: "", type: "Asset", category: "", description: "" });
+      toast({ title: "Account added" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/firm/coa/${id}`, { isActive });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/coa"] });
+    },
+  });
+
+  const filtered = useMemo(() => {
+    return accounts.filter(a => {
+      if (filterType !== "all" && a.type !== filterType) return false;
+      if (searchTerm && !a.name.toLowerCase().includes(searchTerm.toLowerCase()) && !a.code.includes(searchTerm)) return false;
+      return true;
+    });
+  }, [accounts, filterType, searchTerm]);
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, COAAccount[]> = {};
+    for (const a of filtered) {
+      const key = a.type;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(a);
+    }
+    return groups;
+  }, [filtered]);
+
+  const typeOrder = ["Asset", "Liability", "Equity", "Revenue", "Expense"];
+  const typeColors: Record<string, string> = {
+    Asset: "text-blue-600 dark:text-blue-400",
+    Liability: "text-red-600 dark:text-red-400",
+    Equity: "text-purple-600 dark:text-purple-400",
+    Revenue: "text-green-600 dark:text-green-400",
+    Expense: "text-orange-600 dark:text-orange-400",
+  };
+
+  if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>;
+
+  return (
+    <div className="space-y-4" data-testid="coa-tab">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex gap-2 items-center flex-1">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search accounts..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+              data-testid="input-coa-search"
+            />
+          </div>
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="w-[140px]" data-testid="select-coa-filter">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="Asset">Asset</SelectItem>
+              <SelectItem value="Liability">Liability</SelectItem>
+              <SelectItem value="Equity">Equity</SelectItem>
+              <SelectItem value="Revenue">Revenue</SelectItem>
+              <SelectItem value="Expense">Expense</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} data-testid="button-add-coa">
+          <Plus className="h-4 w-4 mr-1" /> Add Account
+        </Button>
+      </div>
+
+      {showAddForm && (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <Input placeholder="Code (e.g. 6200)" value={newAccount.code} onChange={e => setNewAccount({...newAccount, code: e.target.value})} data-testid="input-coa-code" />
+              <Input placeholder="Account Name" value={newAccount.name} onChange={e => setNewAccount({...newAccount, name: e.target.value})} className="col-span-2" data-testid="input-coa-name" />
+              <Select value={newAccount.type} onValueChange={v => setNewAccount({...newAccount, type: v})}>
+                <SelectTrigger data-testid="select-coa-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {typeOrder.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Input placeholder="Category" value={newAccount.category} onChange={e => setNewAccount({...newAccount, category: e.target.value})} data-testid="input-coa-category" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" onClick={() => addMutation.mutate(newAccount)} disabled={addMutation.isPending || !newAccount.code || !newAccount.name} data-testid="button-save-coa">
+                {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />} Save
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="text-sm text-muted-foreground">{filtered.length} accounts</div>
+
+      {typeOrder.filter(t => grouped[t]).map(type => (
+        <Card key={type}>
+          <CardHeader className="py-3">
+            <CardTitle className={`text-base flex items-center gap-2 ${typeColors[type]}`}>
+              {type === "Asset" && <Building2 className="h-4 w-4" />}
+              {type === "Liability" && <CreditCard className="h-4 w-4" />}
+              {type === "Equity" && <Scale className="h-4 w-4" />}
+              {type === "Revenue" && <TrendingUp className="h-4 w-4" />}
+              {type === "Expense" && <TrendingDown className="h-4 w-4" />}
+              {type} ({grouped[type].length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-muted-foreground">
+                  <th className="text-left p-2 w-20">Code</th>
+                  <th className="text-left p-2">Name</th>
+                  <th className="text-left p-2 hidden sm:table-cell">Category</th>
+                  <th className="text-center p-2 w-20">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped[type].map(a => (
+                  <tr key={a.id} className={`border-b last:border-0 hover:bg-muted/30 ${!a.isActive ? "opacity-50" : ""}`} data-testid={`row-coa-${a.id}`}>
+                    <td className="p-2 font-mono text-xs">{a.code}</td>
+                    <td className="p-2 font-medium">{a.name}</td>
+                    <td className="p-2 hidden sm:table-cell text-muted-foreground">{a.category || "—"}</td>
+                    <td className="p-2 text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={() => toggleMutation.mutate({ id: a.id, isActive: !a.isActive })}
+                        data-testid={`button-toggle-coa-${a.id}`}
+                      >
+                        {a.isActive ? <Eye className="h-4 w-4 text-green-600" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+interface JournalLine {
+  id?: number;
+  accountId: number;
+  accountCode?: string;
+  accountName?: string;
+  debit: number;
+  credit: number;
+  memo?: string | null;
+}
+
+interface JournalEntry {
+  id: number;
+  transactionDate: string;
+  description: string;
+  referenceId: string | null;
+  referenceType: string | null;
+  status: string;
+  locationId: number | null;
+  createdBy: string | null;
+  createdAt: string;
+  lines: JournalLine[];
+}
+
+function JournalTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { toast } = useToast();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [newEntry, setNewEntry] = useState({
+    transactionDate: format(new Date(), "yyyy-MM-dd"),
+    description: "",
+    lines: [
+      { accountId: 0, debit: 0, credit: 0, memo: "" },
+      { accountId: 0, debit: 0, credit: 0, memo: "" },
+    ] as JournalLine[],
+  });
+
+  const { data: entries = [], isLoading } = useQuery<JournalEntry[]>({
+    queryKey: ["/api/firm/journal", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/journal?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed to load journal");
+      return res.json();
+    },
+  });
+
+  const { data: coaAccounts = [] } = useQuery<COAAccount[]>({ queryKey: ["/api/firm/coa"] });
+
+  const activeAccounts = useMemo(() => coaAccounts.filter(a => a.isActive), [coaAccounts]);
+
+  const postMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/journal", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/journal", startDate, endDate] });
+      setShowAddForm(false);
+      setNewEntry({
+        transactionDate: format(new Date(), "yyyy-MM-dd"),
+        description: "",
+        lines: [
+          { accountId: 0, debit: 0, credit: 0, memo: "" },
+          { accountId: 0, debit: 0, credit: 0, memo: "" },
+        ],
+      });
+      toast({ title: "Journal entry posted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setNewEntry(prev => {
+      const lines = [...prev.lines];
+      lines[idx] = { ...lines[idx], [field]: value };
+      return { ...prev, lines };
+    });
+  };
+
+  const addLine = () => {
+    setNewEntry(prev => ({
+      ...prev,
+      lines: [...prev.lines, { accountId: 0, debit: 0, credit: 0, memo: "" }],
+    }));
+  };
+
+  const removeLine = (idx: number) => {
+    if (newEntry.lines.length <= 2) return;
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const totalDebits = newEntry.lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+  const totalCredits = newEntry.lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01 && totalDebits > 0;
+
+  if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>;
+
+  return (
+    <div className="space-y-4" data-testid="journal-tab">
+      <div className="flex justify-between items-center">
+        <div className="text-sm text-muted-foreground">{entries.length} entries</div>
+        <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} data-testid="button-add-journal">
+          <Plus className="h-4 w-4 mr-1" /> New Entry
+        </Button>
+      </div>
+
+      {showAddForm && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2"><BookOpen className="h-4 w-4" /> New Journal Entry</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>Date</Label>
+                <Input type="date" value={newEntry.transactionDate} onChange={e => setNewEntry({...newEntry, transactionDate: e.target.value})} data-testid="input-journal-date" />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Input value={newEntry.description} onChange={e => setNewEntry({...newEntry, description: e.target.value})} placeholder="e.g. US Foods Invoice #12345" data-testid="input-journal-desc" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground px-1">
+                <div className="col-span-4">Account</div>
+                <div className="col-span-3">Debit</div>
+                <div className="col-span-3">Credit</div>
+                <div className="col-span-2"></div>
+              </div>
+              {newEntry.lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center" data-testid={`row-journal-line-${idx}`}>
+                  <div className="col-span-4">
+                    <Select value={String(line.accountId)} onValueChange={v => updateLine(idx, "accountId", Number(v))}>
+                      <SelectTrigger className="text-xs" data-testid={`select-journal-account-${idx}`}><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {activeAccounts.map(a => (
+                          <SelectItem key={a.id} value={String(a.id)}>
+                            <span className="font-mono text-xs mr-1">{a.code}</span> {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-3">
+                    <Input type="number" min="0" step="0.01" value={line.debit || ""} onChange={e => updateLine(idx, "debit", Number(e.target.value))} placeholder="0.00" className="text-right tabular-nums" data-testid={`input-journal-debit-${idx}`} />
+                  </div>
+                  <div className="col-span-3">
+                    <Input type="number" min="0" step="0.01" value={line.credit || ""} onChange={e => updateLine(idx, "credit", Number(e.target.value))} placeholder="0.00" className="text-right tabular-nums" data-testid={`input-journal-credit-${idx}`} />
+                  </div>
+                  <div className="col-span-2 flex gap-1">
+                    {newEntry.lines.length > 2 && (
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
+                        <Minus className="h-4 w-4 text-red-500" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addLine} data-testid="button-add-line">
+                <Plus className="h-4 w-4 mr-1" /> Add Line
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between border-t pt-3">
+              <div className="flex gap-4 text-sm">
+                <span>Debits: <strong className="tabular-nums">{formatCurrency(totalDebits)}</strong></span>
+                <span>Credits: <strong className="tabular-nums">{formatCurrency(totalCredits)}</strong></span>
+                {!isBalanced && totalDebits > 0 && (
+                  <Badge variant="destructive" className="text-xs" data-testid="badge-unbalanced">
+                    <AlertTriangle className="h-3 w-3 mr-1" /> Unbalanced
+                  </Badge>
+                )}
+                {isBalanced && (
+                  <Badge className="text-xs bg-green-600" data-testid="badge-balanced">
+                    <Check className="h-3 w-3 mr-1" /> Balanced
+                  </Badge>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => postMutation.mutate({
+                  transactionDate: newEntry.transactionDate,
+                  description: newEntry.description,
+                  lines: newEntry.lines.filter(l => l.accountId > 0),
+                })} disabled={postMutation.isPending || !isBalanced || !newEntry.description} data-testid="button-post-journal">
+                  {postMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />} Post Entry
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {entries.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No journal entries in this period</p>
+            <p className="text-sm">Create a new entry to get started</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {entries.map(entry => (
+        <Card key={entry.id} className="overflow-hidden" data-testid={`card-journal-${entry.id}`}>
+          <div
+            className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/30"
+            onClick={() => toggleExpand(entry.id)}
+            data-testid={`button-expand-journal-${entry.id}`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="text-sm">
+                <span className="font-mono text-xs text-muted-foreground mr-2">#{entry.id}</span>
+                <span className="font-medium">{entry.description}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">{entry.transactionDate}</span>
+              <Badge variant={entry.status === "reconciled" ? "default" : "secondary"} className="text-xs" data-testid={`badge-status-${entry.id}`}>
+                {entry.status}
+              </Badge>
+              {entry.referenceType && (
+                <Badge variant="outline" className="text-xs">{entry.referenceType}</Badge>
+              )}
+              {expandedIds.has(entry.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </div>
+          </div>
+          {expandedIds.has(entry.id) && (
+            <div className="border-t">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50 text-xs text-muted-foreground">
+                    <th className="text-left p-2">Account</th>
+                    <th className="text-right p-2">Debit</th>
+                    <th className="text-right p-2">Credit</th>
+                    <th className="text-left p-2 hidden sm:table-cell">Memo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entry.lines.map((line, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="p-2">
+                        <span className="font-mono text-xs mr-2">{line.accountCode}</span>
+                        {line.accountName}
+                      </td>
+                      <td className="p-2 text-right tabular-nums">{Number(line.debit) > 0 ? formatCurrency(Number(line.debit)) : ""}</td>
+                      <td className="p-2 text-right tabular-nums">{Number(line.credit) > 0 ? formatCurrency(Number(line.credit)) : ""}</td>
+                      <td className="p-2 text-muted-foreground hidden sm:table-cell">{line.memo || ""}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t font-semibold bg-muted/30">
+                    <td className="p-2">Total</td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(entry.lines.reduce((s, l) => s + Number(l.debit), 0))}</td>
+                    <td className="p-2 text-right tabular-nums">{formatCurrency(entry.lines.reduce((s, l) => s + Number(l.credit), 0))}</td>
+                    <td className="p-2 hidden sm:table-cell"></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="px-3 pb-2 text-xs text-muted-foreground flex gap-4">
+                {entry.createdBy && <span>By: {entry.createdBy}</span>}
+                {entry.locationId && <span>Location: {entry.locationId === 1 ? "Saratoga" : "Bolton"}</span>}
+              </div>
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+type ReportView = "pnl" | "balance-sheet" | "cash-flow" | "trial-balance";
+
+function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [view, setView] = useState<ReportView>("pnl");
+
+  return (
+    <div className="space-y-4" data-testid="reports-tab">
+      <div className="flex gap-2 flex-wrap">
+        <Button size="sm" variant={view === "pnl" ? "default" : "outline"} onClick={() => setView("pnl")} data-testid="button-report-pnl">
+          <BarChart3 className="h-4 w-4 mr-1" /> P&L
+        </Button>
+        <Button size="sm" variant={view === "balance-sheet" ? "default" : "outline"} onClick={() => setView("balance-sheet")} data-testid="button-report-bs">
+          <Scale className="h-4 w-4 mr-1" /> Balance Sheet
+        </Button>
+        <Button size="sm" variant={view === "cash-flow" ? "default" : "outline"} onClick={() => setView("cash-flow")} data-testid="button-report-cf">
+          <DollarSign className="h-4 w-4 mr-1" /> Cash Flow
+        </Button>
+        <Button size="sm" variant={view === "trial-balance" ? "default" : "outline"} onClick={() => setView("trial-balance")} data-testid="button-report-tb">
+          <FileText className="h-4 w-4 mr-1" /> Trial Balance
+        </Button>
+      </div>
+
+      {view === "pnl" && <PnLReport startDate={startDate} endDate={endDate} />}
+      {view === "balance-sheet" && <BalanceSheetReport asOfDate={endDate} />}
+      {view === "cash-flow" && <CashFlowReport startDate={startDate} endDate={endDate} />}
+      {view === "trial-balance" && <TrialBalanceReport startDate={startDate} endDate={endDate} />}
+    </div>
+  );
+}
+
+function PnLReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { data: pnl, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (!pnl) return null;
+
+  return (
+    <Card data-testid="card-pnl">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <BarChart3 className="h-5 w-5" /> Profit & Loss
+          <span className="text-xs text-muted-foreground font-normal ml-2">{startDate} to {endDate}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="text-left p-2">Account</th>
+              <th className="text-right p-2">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="bg-green-50 dark:bg-green-900/20 font-semibold">
+              <td className="p-2" colSpan={2}>Revenue</td>
+            </tr>
+            {pnl.revenue.map((r: any) => (
+              <tr key={r.accountId} className="border-b">
+                <td className="p-2 pl-6"><span className="font-mono text-xs mr-2">{r.accountCode}</span>{r.accountName}</td>
+                <td className="p-2 text-right tabular-nums text-green-600">{formatCurrency(r.amount)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold border-b bg-muted/20">
+              <td className="p-2">Total Revenue</td>
+              <td className="p-2 text-right tabular-nums text-green-600">{formatCurrency(pnl.totalRevenue)}</td>
+            </tr>
+
+            <tr className="bg-orange-50 dark:bg-orange-900/20 font-semibold">
+              <td className="p-2" colSpan={2}>Cost of Goods Sold</td>
+            </tr>
+            {pnl.cogs.map((r: any) => (
+              <tr key={r.accountId} className="border-b">
+                <td className="p-2 pl-6"><span className="font-mono text-xs mr-2">{r.accountCode}</span>{r.accountName}</td>
+                <td className="p-2 text-right tabular-nums text-orange-600">{formatCurrency(r.amount)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold border-b bg-muted/20">
+              <td className="p-2">Total COGS</td>
+              <td className="p-2 text-right tabular-nums text-orange-600">{formatCurrency(pnl.totalCOGS)}</td>
+            </tr>
+
+            <tr className="font-bold border-b-2 text-base">
+              <td className="p-2">Gross Profit</td>
+              <td className="p-2 text-right tabular-nums">
+                {formatCurrency(pnl.grossProfit)}
+                <span className="text-xs text-muted-foreground ml-2">({pnl.grossMargin.toFixed(1)}%)</span>
+              </td>
+            </tr>
+
+            <tr className="bg-red-50 dark:bg-red-900/20 font-semibold">
+              <td className="p-2" colSpan={2}>Operating Expenses</td>
+            </tr>
+            {pnl.operatingExpenses.map((r: any) => (
+              <tr key={r.accountId} className="border-b">
+                <td className="p-2 pl-6"><span className="font-mono text-xs mr-2">{r.accountCode}</span>{r.accountName}</td>
+                <td className="p-2 text-right tabular-nums text-red-600">{formatCurrency(r.amount)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold border-b bg-muted/20">
+              <td className="p-2">Total Operating Expenses</td>
+              <td className="p-2 text-right tabular-nums text-red-600">{formatCurrency(pnl.totalOperatingExpenses)}</td>
+            </tr>
+
+            <tr className="font-bold text-base border-t-2">
+              <td className="p-3">Net Income</td>
+              <td className={`p-3 text-right tabular-nums ${pnl.netIncome >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatCurrency(pnl.netIncome)}
+                <span className="text-xs text-muted-foreground ml-2">({pnl.netMargin.toFixed(1)}%)</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BalanceSheetReport({ asOfDate }: { asOfDate: string }) {
+  const { data: bs, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/reports/balance-sheet", asOfDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/balance-sheet?asOfDate=${asOfDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (!bs) return null;
+
+  const renderSection = (title: string, items: any[], total: number, color: string) => (
+    <>
+      <tr className={`font-semibold ${color}`}>
+        <td className="p-2" colSpan={2}>{title}</td>
+      </tr>
+      {items.map((r: any) => (
+        <tr key={r.accountId} className="border-b">
+          <td className="p-2 pl-6"><span className="font-mono text-xs mr-2">{r.accountCode}</span>{r.accountName}</td>
+          <td className="p-2 text-right tabular-nums">{formatCurrency(r.balance)}</td>
+        </tr>
+      ))}
+      <tr className="font-semibold border-b bg-muted/20">
+        <td className="p-2">Total {title}</td>
+        <td className="p-2 text-right tabular-nums">{formatCurrency(total)}</td>
+      </tr>
+    </>
+  );
+
+  return (
+    <Card data-testid="card-balance-sheet">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Scale className="h-5 w-5" /> Balance Sheet
+          <span className="text-xs text-muted-foreground font-normal ml-2">as of {asOfDate}</span>
+          {bs.isBalanced ? (
+            <Badge className="text-xs bg-green-600 ml-auto"><Check className="h-3 w-3 mr-1" /> Balanced</Badge>
+          ) : (
+            <Badge variant="destructive" className="text-xs ml-auto"><AlertTriangle className="h-3 w-3 mr-1" /> Unbalanced</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="text-left p-2">Account</th>
+              <th className="text-right p-2">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {renderSection("Assets", bs.assets, bs.totalAssets, "bg-blue-50 dark:bg-blue-900/20")}
+            {renderSection("Liabilities", bs.liabilities, bs.totalLiabilities, "bg-red-50 dark:bg-red-900/20")}
+            {renderSection("Equity", bs.equity, bs.totalEquity, "bg-purple-50 dark:bg-purple-900/20")}
+            <tr className="font-bold text-base border-t-2">
+              <td className="p-3">Liabilities + Equity</td>
+              <td className="p-3 text-right tabular-nums">{formatCurrency(bs.totalLiabilities + bs.totalEquity)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CashFlowReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { data: cf, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/reports/cash-flow", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/cash-flow?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (!cf) return null;
+
+  return (
+    <Card data-testid="card-cash-flow">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <DollarSign className="h-5 w-5" /> Cash Flow Statement
+          <span className="text-xs text-muted-foreground font-normal ml-2">{startDate} to {endDate}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {cf.cashAccounts.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <DollarSign className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p>No cash movements in this period</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-muted-foreground">
+                <th className="text-left p-2">Account</th>
+                <th className="text-right p-2">Inflow (Debit)</th>
+                <th className="text-right p-2">Outflow (Credit)</th>
+                <th className="text-right p-2">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cf.cashAccounts.map((a: any) => (
+                <tr key={a.accountId} className="border-b">
+                  <td className="p-2 font-medium">{a.accountName}</td>
+                  <td className="p-2 text-right tabular-nums text-green-600">{formatCurrency(a.totalDebit)}</td>
+                  <td className="p-2 text-right tabular-nums text-red-600">{formatCurrency(a.totalCredit)}</td>
+                  <td className={`p-2 text-right tabular-nums font-semibold ${a.netFlow >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(a.netFlow)}</td>
+                </tr>
+              ))}
+              <tr className="font-bold border-t-2">
+                <td className="p-3">Net Cash Flow</td>
+                <td className="p-3 text-right tabular-nums text-green-600">{formatCurrency(cf.totalInflow)}</td>
+                <td className="p-3 text-right tabular-nums text-red-600">{formatCurrency(cf.totalOutflow)}</td>
+                <td className={`p-3 text-right tabular-nums ${cf.netCashFlow >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(cf.netCashFlow)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrialBalanceReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const { data: tb = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/firm/reports/trial-balance", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/trial-balance?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+
+  const totalDebits = tb.reduce((s, r) => s + r.totalDebit, 0);
+  const totalCredits = tb.reduce((s, r) => s + r.totalCredit, 0);
+  const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+
+  return (
+    <Card data-testid="card-trial-balance">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileText className="h-5 w-5" /> Trial Balance
+          <span className="text-xs text-muted-foreground font-normal ml-2">{startDate} to {endDate}</span>
+          {isBalanced ? (
+            <Badge className="text-xs bg-green-600 ml-auto"><Check className="h-3 w-3 mr-1" /> Balanced</Badge>
+          ) : (
+            <Badge variant="destructive" className="text-xs ml-auto"><AlertTriangle className="h-3 w-3 mr-1" /> Off by {formatCurrency(Math.abs(totalDebits - totalCredits))}</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {tb.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p>No entries in this period</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-muted-foreground">
+                <th className="text-left p-2 w-20">Code</th>
+                <th className="text-left p-2">Account</th>
+                <th className="text-left p-2 hidden sm:table-cell">Type</th>
+                <th className="text-right p-2">Debit</th>
+                <th className="text-right p-2">Credit</th>
+                <th className="text-right p-2">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tb.map((r: any) => (
+                <tr key={r.accountId} className="border-b hover:bg-muted/30">
+                  <td className="p-2 font-mono text-xs">{r.accountCode}</td>
+                  <td className="p-2 font-medium">{r.accountName}</td>
+                  <td className="p-2 hidden sm:table-cell">
+                    <Badge variant="outline" className="text-xs">{r.accountType}</Badge>
+                  </td>
+                  <td className="p-2 text-right tabular-nums">{r.totalDebit > 0 ? formatCurrency(r.totalDebit) : ""}</td>
+                  <td className="p-2 text-right tabular-nums">{r.totalCredit > 0 ? formatCurrency(r.totalCredit) : ""}</td>
+                  <td className={`p-2 text-right tabular-nums font-semibold ${r.balance >= 0 ? "" : "text-red-600"}`}>{formatCurrency(r.balance)}</td>
+                </tr>
+              ))}
+              <tr className="font-bold border-t-2">
+                <td className="p-3" colSpan={3}>Total</td>
+                <td className="p-3 text-right tabular-nums">{formatCurrency(totalDebits)}</td>
+                <td className="p-3 text-right tabular-nums">{formatCurrency(totalCredits)}</td>
+                <td className="p-3 text-right tabular-nums">{formatCurrency(totalDebits - totalCredits)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
