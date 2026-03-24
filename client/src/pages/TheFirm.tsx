@@ -4782,6 +4782,17 @@ function AssetsTab() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const seedLegacyMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/assets/seed-legacy", {}),
+    onSuccess: async (res: any) => {
+      const data = await res.json();
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      toast({ title: "2024 Tax DNA Upload Complete", description: `${data.seeded} assets imported, ${data.skipped} already existed` });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const handleCreate = () => {
     const price = parseFloat(purchasePrice);
     if (!name || !price || price <= 0) {
@@ -4801,17 +4812,6 @@ function AssetsTab() {
   };
 
   if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>;
-
-  const seedLegacyMut = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/firm/assets/seed-legacy", {}),
-    onSuccess: async (res: any) => {
-      const data = await res.json();
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
-      toast({ title: "2024 Tax DNA Upload Complete", description: `${data.seeded} assets imported, ${data.skipped} already existed` });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
 
   const pendingAssets = assets?.filter(a => a.status === "pending") || [];
   const capitalizedAssets = assets?.filter(a => a.status === "capitalized") || [];
