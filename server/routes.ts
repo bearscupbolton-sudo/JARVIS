@@ -11262,7 +11262,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
