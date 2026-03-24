@@ -229,6 +229,7 @@ export default function TheFirm() {
             <TabsTrigger value="cash" className="whitespace-nowrap px-3" data-testid="tab-cash">Cash</TabsTrigger>
             <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
             <TabsTrigger value="compliance" className="whitespace-nowrap px-3" data-testid="tab-compliance">Compliance</TabsTrigger>
+            <TabsTrigger value="donations" className="whitespace-nowrap px-3" data-testid="tab-donations">Donations</TabsTrigger>
           </TabsList>
         </div>
 
@@ -270,6 +271,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="compliance">
           <ComplianceTab />
+        </TabsContent>
+        <TabsContent value="donations">
+          <DonationsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -2064,6 +2068,9 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
   const [phAmount, setPhAmount] = useState("");
   const [phDate, setPhDate] = useState("");
   const [phCoa, setPhCoa] = useState("5010");
+  const [lightningSuggestion, setLightningSuggestion] = useState<any>(null);
+  const [lightningTxnId, setLightningTxnId] = useState<number | null>(null);
+  const [lightningLoading, setLightningLoading] = useState<number | null>(null);
 
   const { data: recon, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/firm/reconciliation", startDate, endDate],
@@ -2113,6 +2120,25 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
       toast({ title: "Placeholder voided" });
     },
   });
+
+  const fetchLightningSuggestion = async (txnId: number, description: string, amount: number) => {
+    setLightningLoading(txnId);
+    try {
+      const res = await fetch("/api/firm/reconcile/suggest", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description, amount }),
+      });
+      const data = await res.json();
+      if (data.type !== "none") {
+        setLightningSuggestion(data);
+        setLightningTxnId(txnId);
+      } else {
+        toast({ title: "No template match", description: "No vendor pattern found for this transaction" });
+      }
+    } catch { toast({ title: "Error fetching suggestion", variant: "destructive" }); }
+    setLightningLoading(null);
+  };
 
   const markBankReconciled = (bankTxnId: number) => {
     reconcileMut.mutate({ bankTxnId });
@@ -2282,9 +2308,14 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
                         <div className="text-right shrink-0">
                           <p className={`text-sm font-medium tabular-nums ${txn.amount < 0 ? "text-red-600" : "text-green-600"}`}>{formatCurrency(txn.amount)}</p>
                           {!matchingInternal && (
-                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs mt-0.5" onClick={(e) => { e.stopPropagation(); markBankReconciled(txn.id); }} data-testid={`button-reconcile-bank-${txn.id}`}>
-                              <Check className="w-3 h-3 mr-1" /> Clear
-                            </Button>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); fetchLightningSuggestion(txn.id, txn.description, txn.amount); }} data-testid={`button-lightning-${txn.id}`}>
+                                {lightningLoading === txn.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3 text-yellow-500" />}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); markBankReconciled(txn.id); }} data-testid={`button-reconcile-bank-${txn.id}`}>
+                                <Check className="w-3 h-3 mr-1" /> Clear
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -2294,6 +2325,45 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
               )}
             </CardContent>
           </Card>
+
+          {lightningSuggestion && lightningTxnId && !matchingInternal && (
+            <Card className="md:col-span-2 border-yellow-300/50 bg-gradient-to-r from-yellow-50/50 to-transparent dark:from-yellow-900/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-yellow-500" /> Lightning-Offset Suggestion
+                  <Badge variant="outline" className="text-[10px] ml-auto">{Math.round(lightningSuggestion.confidence * 100)}% confidence</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-muted/30 rounded p-2.5">
+                    <p className="text-xs text-muted-foreground">Suggested Debit</p>
+                    <p className="text-sm font-medium">{lightningSuggestion.debitCode} — {lightningSuggestion.debitName}</p>
+                  </div>
+                  <div className="bg-muted/30 rounded p-2.5">
+                    <p className="text-xs text-muted-foreground">Suggested Credit</p>
+                    <p className="text-sm font-medium">{lightningSuggestion.creditCode} — {lightningSuggestion.creditName}</p>
+                  </div>
+                </div>
+                {lightningSuggestion.type === "accrual_offset" && (
+                  <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded p-2.5 text-xs text-blue-700 dark:text-blue-400">
+                    <strong>Accrual Match Found:</strong> This transaction matches an open placeholder for "{lightningSuggestion.placeholder?.placeholder?.vendorName}" ({formatCurrency(lightningSuggestion.placeholder?.placeholder?.amount || 0)}). Debiting Accrued Liabilities to prevent double-counting.
+                  </div>
+                )}
+                {lightningSuggestion.type === "vendor_template" && (
+                  <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded p-2.5 text-xs text-green-700 dark:text-green-400">
+                    <strong>Vendor Template:</strong> Recognized vendor pattern → auto-classifying as {lightningSuggestion.vendor?.category} (COA {lightningSuggestion.debitCode}).
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => { markBankReconciled(lightningTxnId); setLightningSuggestion(null); setLightningTxnId(null); }} data-testid="button-accept-lightning">
+                    <Check className="w-3.5 h-3.5 mr-1" /> Accept & Reconcile
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setLightningSuggestion(null); setLightningTxnId(null); }}>Dismiss</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {matchingInternal && selectedBankId && (
             <Card className="md:col-span-2 border-primary/30">
@@ -3870,6 +3940,240 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DonationsTab() {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientType, setRecipientType] = useState("other");
+  const [is501c3, setIs501c3] = useState(false);
+  const [ein, setEin] = useState("");
+  const [itemDesc, setItemDesc] = useState("");
+  const [qty, setQty] = useState("1");
+  const [unitCogs, setUnitCogs] = useState("");
+  const [retailValue, setRetailValue] = useState("");
+  const [donDate, setDonDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [donNotes, setDonNotes] = useState("");
+
+  const { data: donationsList, isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/firm/donations"],
+    queryFn: () => fetch("/api/firm/donations", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: summary } = useQuery<any>({
+    queryKey: ["/api/firm/donations/summary"],
+    queryFn: () => fetch("/api/firm/donations/summary", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/firm/donations", data),
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/donations/summary"] });
+      setShowForm(false);
+      setRecipientName(""); setRecipientType("other"); setIs501c3(false); setEin("");
+      setItemDesc(""); setQty("1"); setUnitCogs(""); setRetailValue(""); setDonNotes("");
+      toast({ title: "Donation recorded" });
+    },
+  });
+
+  const approveMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/firm/donations/${id}/approve`, {}),
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/donations/summary"] });
+      toast({ title: "Donation approved — ledger entries posted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/firm/donations/${id}`, undefined),
+    onSuccess: () => { refetch(); toast({ title: "Donation removed" }); },
+  });
+
+  const formatCurrency = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">Total Donations (YTD)</p>
+              <p className="text-2xl font-bold" data-testid="text-total-donations">{summary.totalDonations}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">COGS Written Off</p>
+              <p className="text-2xl font-bold tabular-nums" data-testid="text-cogs-written">{formatCurrency(summary.totalCogsWrittenOff)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">501(c)(3) Charitable</p>
+              <p className="text-2xl font-bold text-green-600" data-testid="text-charitable">{summary.charitableDonations?.count || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{formatCurrency(summary.charitableDonations?.totalCogs || 0)} deducted</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">Promotional (Non-501c3)</p>
+              <p className="text-2xl font-bold text-orange-600" data-testid="text-promotional">{summary.promotionalDonations?.count || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{formatCurrency(summary.promotionalDonations?.totalCogs || 0)} as marketing</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Donation Tracker</h3>
+          <p className="text-xs text-muted-foreground">Track product donations with automatic COGS-based ledger entries. 501(c)(3) entities → Charitable Deduction (7700). Others → Marketing Expense (7040).</p>
+        </div>
+        <Button size="sm" onClick={() => setShowForm(!showForm)} data-testid="button-new-donation">
+          <Plus className="w-3.5 h-3.5 mr-1" /> New Donation
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card className="border-primary/20">
+          <CardContent className="pt-4 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <Label className="text-xs">Recipient Name</Label>
+                <Input value={recipientName} onChange={e => setRecipientName(e.target.value)} placeholder="Local Food Pantry" data-testid="input-don-recipient" />
+              </div>
+              <div>
+                <Label className="text-xs">Type</Label>
+                <Select value={recipientType} onValueChange={v => { setRecipientType(v); setIs501c3(v === "501c3"); }}>
+                  <SelectTrigger data-testid="select-don-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="501c3">501(c)(3) Charity</SelectItem>
+                    <SelectItem value="school">School / Education</SelectItem>
+                    <SelectItem value="community">Community Organization</SelectItem>
+                    <SelectItem value="event">Event / Sponsorship</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">EIN (if 501c3)</Label>
+                <Input value={ein} onChange={e => setEin(e.target.value)} placeholder="XX-XXXXXXX" disabled={!is501c3} data-testid="input-don-ein" />
+              </div>
+              <div>
+                <Label className="text-xs">Donation Date</Label>
+                <Input type="date" value={donDate} onChange={e => setDonDate(e.target.value)} data-testid="input-don-date" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <Label className="text-xs">Item Description</Label>
+                <Input value={itemDesc} onChange={e => setItemDesc(e.target.value)} placeholder="Assorted pastries" data-testid="input-don-item" />
+              </div>
+              <div>
+                <Label className="text-xs">Quantity</Label>
+                <Input type="number" value={qty} onChange={e => setQty(e.target.value)} data-testid="input-don-qty" />
+              </div>
+              <div>
+                <Label className="text-xs">Unit COGS ($)</Label>
+                <Input type="number" step="0.01" value={unitCogs} onChange={e => setUnitCogs(e.target.value)} placeholder="3.50" data-testid="input-don-cogs" />
+              </div>
+              <div>
+                <Label className="text-xs">Retail Value ($)</Label>
+                <Input type="number" step="0.01" value={retailValue} onChange={e => setRetailValue(e.target.value)} placeholder="12.00" data-testid="input-don-retail" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Notes</Label>
+              <Input value={donNotes} onChange={e => setDonNotes(e.target.value)} placeholder="Marketing reciprocity clause applies..." data-testid="input-don-notes" />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => {
+                if (!recipientName || !itemDesc) return toast({ title: "Fill required fields", variant: "destructive" });
+                createMut.mutate({
+                  recipientName, recipientType, is501c3, ein: ein || undefined,
+                  itemDescription: itemDesc, quantity: parseFloat(qty) || 1,
+                  unitCogs: parseFloat(unitCogs) || undefined,
+                  retailValue: parseFloat(retailValue) || undefined,
+                  donationDate: donDate, notes: donNotes || undefined,
+                });
+              }} disabled={createMut.isPending} data-testid="button-save-donation">
+                {createMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+                Record Donation
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+            {!is501c3 && recipientType !== "501c3" && (
+              <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded p-2.5 text-xs text-orange-700 dark:text-orange-400">
+                <strong>Marketing Reciprocity Clause:</strong> This donation to a non-501(c)(3) entity will be classified as a Marketing Expense (COA 7040) to maintain tax deductibility under IRS "Business Promotion" rules.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent className="p-0">
+          {!donationsList || donationsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No donations recorded. Use donations to track product giveaways with proper COGS accounting.</p>
+          ) : (
+            <table className="w-full text-sm" data-testid="table-donations">
+              <thead><tr className="border-b bg-muted/30">
+                <th className="text-left p-3 font-medium">Status</th>
+                <th className="text-left p-3 font-medium">Date</th>
+                <th className="text-left p-3 font-medium">Recipient</th>
+                <th className="text-left p-3 font-medium">Item</th>
+                <th className="text-left p-3 font-medium">Type</th>
+                <th className="text-right p-3 font-medium">COGS</th>
+                <th className="text-right p-3 font-medium">Retail</th>
+                <th className="text-right p-3 font-medium">Actions</th>
+              </tr></thead>
+              <tbody className="divide-y">
+                {donationsList.map((d: any) => (
+                  <tr key={d.id} className="hover:bg-muted/20" data-testid={`donation-row-${d.id}`}>
+                    <td className="p-3">
+                      {d.status === "pending" ? <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-[10px]">Pending</Badge> :
+                       d.status === "approved" ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px]"><CheckCircle2 className="h-3 w-3 mr-0.5" />Approved</Badge> :
+                       <Badge variant="outline" className="text-[10px]">{d.status}</Badge>}
+                    </td>
+                    <td className="p-3 text-muted-foreground">{d.donationDate}</td>
+                    <td className="p-3 font-medium">{d.recipientName}</td>
+                    <td className="p-3 text-muted-foreground">{d.itemDescription} × {d.quantity}</td>
+                    <td className="p-3">
+                      {d.is501c3 ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px]">501(c)(3)</Badge> :
+                       <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[10px]">Promotional</Badge>}
+                    </td>
+                    <td className="p-3 text-right tabular-nums font-medium">{d.totalCogs ? formatCurrency(d.totalCogs) : "—"}</td>
+                    <td className="p-3 text-right tabular-nums text-muted-foreground">{d.retailValue ? formatCurrency(d.retailValue) : "—"}</td>
+                    <td className="p-3 text-right space-x-1">
+                      {d.status === "pending" && (
+                        <>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => approveMut.mutate(d.id)} disabled={approveMut.isPending} data-testid={`button-approve-don-${d.id}`}>
+                            <Check className="w-3 h-3 mr-1" /> Approve
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-destructive" onClick={() => deleteMut.mutate(d.id)} data-testid={`button-delete-don-${d.id}`}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </>
+                      )}
+                      {d.status === "approved" && d.ledgerEntryId && (
+                        <span className="text-[10px] text-muted-foreground">JE #{d.ledgerEntryId}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

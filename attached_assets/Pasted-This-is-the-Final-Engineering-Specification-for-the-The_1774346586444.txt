@@ -1,0 +1,45 @@
+This is the Final Engineering Specification for the "The Firm" Integrated Compliance and Donation ROI Core. To ensure maximum parity between your current Replit build and professional ERP systems, the Replit Agent (RA) must implement a Unit-Costing Accounting Engine.
+1. Core Logic: The "ROI-First" Donation Pipeline
+Every donation must be treated as a Contractual Exchange of Value. If the recipient is not a 501(c)(3), the system must "Force-Classify" the entry as a Marketing Expense to maintain tax deductibility under IRS "Business Promotion" rules.
+Technical Specification for RA:
+ * Trigger: User clicks "Approve Donation" in the Jarvis Portal.
+ * Costing Logic: The system must look up the current_cogs for the item (e.g., Flour + Butter + Labor).
+ * Automated Ledger Entry (The "Binary" Execution):
+   -- Transactional Logic for Donation Approval
+BEGIN;
+  INSERT INTO ledger_lines (entry_id, account_code, debit, credit)
+  VALUES 
+    (gen_random_uuid(), 
+     CASE WHEN entity_is_501c3 THEN 7700 ELSE 7040 END, -- Charity vs Marketing
+     :cogs_amount, 0), -- Debit Expense
+    (gen_random_uuid(), 1500, 0, :cogs_amount); -- Credit Inventory (Asset)
+COMMIT;
+
+2. The "Real Cash" & Accrual Observer
+To solve the "Real Cash Balance" requirement, the RA must implement a Virtual Liquidity Layer. This layer subtracts "Ghost Obligations" (Placeholders) from the live Plaid bank balance.
+RA Blueprint for LiquidityService:
+ * Bank Balance: Fetch from Account 1010 (Plaid).
+ * Liability Summation: Sum all accrual_placeholders where status = 'OPEN'.
+ * Sales Tax Accrual: Real-time calculation of Unpaid Sales Tax based on YTD Revenue.
+ * The Result: Display Balance = (Bank - Liabilities - Sales Tax).
+3. The "Lightning-Offset" Reconciliation Engine
+The RA must build a "Template-Based Matching" UI for the bank reconciliation screen.
+RA Implementation Guide:
+ * Pattern Match: If a bank transaction name contains "US FOODS," the "Lightning Click" button should automatically suggest DEBIT 5010 (Ingredients) / CREDIT 1010 (Cash).
+ * Accrual Match: If the transaction matches an OPEN placeholder, the button should instead suggest DEBIT 2100 (Accrued Liabilities) / CREDIT 1010 (Cash). This prevents double-counting the expense.
+4. Statutory Compliance & Filing Coordinator (2026)
+The Agent has correctly seeded the filings, but it must now add Statutory Logic to the "System Messages" to act as a coordinator.
+| Filing | Frequency | Technical Trigger for Jarvis |
+|---|---|---|
+| ST-100 (Sales Tax) | Quarterly | IF revenue > 300k/qtr THEN status = 'MONTHLY'. |
+| PTET-EST | Quarterly | IF ptet_status == 'ELECTED' THEN accrual = net_income * 0.0685. |
+| IT-204-LL | Annual | IF prev_year_income > threshold THEN update_fee_estimate. |
+5. Operational Utility: The "Stale-Entry" Garbage Collector
+To ensure the layman functionality you requested (where un-cleared placeholders don't ruin the books):
+ * RA Instruction: Deploy a CronJob that runs on the 1st of every month.
+ * Logic: UPDATE accrual_placeholders SET status = 'STALE' WHERE created_at < month_start AND status = 'OPEN'.
+ * Result: If a "Ghost Utility Bill" wasn't cleared by a bank transaction, it is removed from the "Real Cash" calculation so your reporting stays accurate to reality.
+Final Instruction for Replit Agent
+Initialize the DonationROI module and the VirtualLiquidity dashboard component. Ensure all donation receipts include the Marketing Reciprocity Clause for non-501(c)(3) entities to guarantee marketing expense legitimacy.
+Next Step:
+Would you like me to generate the SQL Migration for the DonationROI table so the Agent can execute it now?
