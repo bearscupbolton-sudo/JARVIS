@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata } from "@shared/schema";
+import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -14616,6 +14616,138 @@ Return JSON array:
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // === TAX PROFILES ===
+  app.get("/api/firm/tax-profiles", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const profiles = await db.select().from(taxProfiles).orderBy(desc(taxProfiles.taxYear));
+      res.json(profiles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/tax-profiles/active", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { getActiveTaxProfile } = await import("./tax-profile-engine");
+      const profile = await getActiveTaxProfile();
+      res.json(profile || {});
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/tax-profiles/seed-2024", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { seedTaxProfile2024 } = await import("./tax-profile-engine");
+      const result = await seedTaxProfile2024();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/tax-profiles/:id", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      await db.update(taxProfiles).set({ ...updates, updatedAt: new Date() }).where(eq(taxProfiles.id, id));
+      const [updated] = await db.select().from(taxProfiles).where(eq(taxProfiles.id, id));
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === INVENTORY TRANSFERS (MLL) ===
+  app.get("/api/firm/transfers", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const transfers = await db.select().from(inventoryTransfers).orderBy(desc(inventoryTransfers.createdAt));
+      res.json(transfers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/transfers", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { executeInventoryTransfer } = await import("./tax-profile-engine");
+      const user = (req as any).user;
+      const data = {
+        ...req.body,
+        performedBy: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "System",
+      };
+      const result = await executeInventoryTransfer(data);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === FICA TIP CREDIT ===
+  app.get("/api/firm/fica-tip-credit", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { calculateFicaTipCredit } = await import("./tax-profile-engine");
+      const startDate = (req.query.startDate as string) || "2025-01-01";
+      const endDate = (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+      const result = await calculateFicaTipCredit(startDate, endDate);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === VIBE THRESHOLDS ===
+  app.get("/api/firm/vibe-alerts", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const alerts = await db.select().from(vibeAlerts)
+        .where(eq(vibeAlerts.dismissed, false))
+        .orderBy(desc(vibeAlerts.createdAt));
+      res.json(alerts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vibe-alerts/run", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { runVibeThresholdCheck } = await import("./tax-profile-engine");
+      const startDate = req.body.startDate || "2025-01-01";
+      const endDate = req.body.endDate || new Date().toISOString().split("T")[0];
+      const result = await runVibeThresholdCheck(startDate, endDate);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vibe-alerts/:id/dismiss", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const user = (req as any).user;
+      await db.update(vibeAlerts).set({
+        dismissed: true,
+        dismissedBy: user?.firstName || "Unknown",
+        dismissedAt: new Date(),
+      }).where(eq(vibeAlerts.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EXPANSION LABOR CHECK ===
+  app.get("/api/firm/expansion-check/:locationId/:date", isAuthenticated, isOwner, async (req, res) => {
+    try {
+      const { isExpansionLabor } = await import("./tax-profile-engine");
+      const locationId = parseInt(req.params.locationId);
+      const date = req.params.date;
+      const isExpansion = await isExpansionLabor(locationId, date);
+      res.json({ isExpansion, locationId, date });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
