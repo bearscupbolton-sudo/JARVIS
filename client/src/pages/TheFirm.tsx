@@ -72,6 +72,8 @@ const CATEGORIES = [
   { value: "equipment", label: "Equipment" },
   { value: "taxes", label: "Taxes" },
   { value: "other_income", label: "Other Income" },
+  { value: "travel_lodging", label: "Travel & Lodging" },
+  { value: "repairs", label: "Repairs & Maintenance" },
   { value: "misc", label: "Misc" },
 ];
 
@@ -79,7 +81,8 @@ const CATEGORY_TO_COA: Record<string, string> = {
   revenue: "4010", cogs: "5010", labor: "6010", supplies: "6090",
   utilities: "6050", rent: "6020", insurance: "6030", marketing: "6100",
   debt_payment: "2200", loan_interest: "6110", equipment: "6070",
-  taxes: "6060", other_income: "4020", misc: "6090",
+  taxes: "6060", other_income: "4020", travel_lodging: "6140",
+  repairs: "6070", misc: "6090",
 };
 
 const ACCOUNT_TYPES = [
@@ -2238,6 +2241,8 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     taxes: "Taxes",
     misc: "Miscellaneous",
     other_income: "Other Income",
+    travel_lodging: "Travel & Lodging",
+    repairs: "Repairs & Maintenance",
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
@@ -2414,12 +2419,81 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
                     <strong>Vendor Template:</strong> Recognized vendor pattern → auto-classifying as {lightningSuggestion.vendor?.category} (COA {lightningSuggestion.debitCode}).
                   </div>
                 )}
+                {lightningSuggestion.type === "project_tag_required" && (
+                  <div className="space-y-3">
+                    <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded p-3 text-sm text-amber-700 dark:text-amber-400">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+                        <div>
+                          <strong>Jarvis detected a lodging charge.</strong>
+                          <p className="mt-1">{lightningSuggestion.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">What was this stay for?</p>
+                      {lightningSuggestion.defaultOptions?.map((opt: any, i: number) => (
+                        <Button
+                          key={i}
+                          size="sm"
+                          variant={opt.type === "personal" ? "destructive" : "outline"}
+                          className="mr-2 mb-1"
+                          data-testid={`button-project-opt-${i}`}
+                          onClick={() => {
+                            if (opt.type === "personal") {
+                              setLightningSuggestion(null);
+                              setLightningTxnId(null);
+                              toast({ title: "Marked as personal — not booked to the business" });
+                            } else {
+                              if (lightningTxnId) {
+                                apiRequest("PATCH", `/api/firm/transactions/${lightningTxnId}`, { category: opt.category || "misc" });
+                                markBankReconciled(lightningTxnId);
+                              }
+                              setLightningSuggestion(null);
+                              setLightningTxnId(null);
+                              toast({ title: `Booked as ${opt.label}`, description: `COA ${opt.coaCode}` });
+                            }
+                          }}
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                      {lightningSuggestion.projects?.length > 0 && (
+                        <>
+                          <p className="text-xs font-medium text-muted-foreground mt-2">Or tag to a project:</p>
+                          {lightningSuggestion.projects.map((p: any) => (
+                            <Button
+                              key={p.id}
+                              size="sm"
+                              variant="outline"
+                              className="mr-2 mb-1 border-primary/40"
+                              data-testid={`button-project-tag-${p.id}`}
+                              onClick={() => {
+                                if (lightningTxnId) {
+                                  apiRequest("POST", `/api/firm/transactions/${lightningTxnId}/tag-project`, { projectId: p.id });
+                                  markBankReconciled(lightningTxnId);
+                                }
+                                setLightningSuggestion(null);
+                                setLightningTxnId(null);
+                                toast({ title: `Tagged to project: ${p.name}`, description: `${p.type.toUpperCase()} — COA ${p.coaCode}` });
+                              }}
+                            >
+                              <Target className="w-3 h-3 mr-1" /> {p.name} ({p.type.toUpperCase()})
+                            </Button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {lightningSuggestion.type !== "project_tag_required" && (
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => { markBankReconciled(lightningTxnId); setLightningSuggestion(null); setLightningTxnId(null); }} data-testid="button-accept-lightning">
                     <Check className="w-3.5 h-3.5 mr-1" /> Accept & Reconcile
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => { setLightningSuggestion(null); setLightningTxnId(null); }}>Dismiss</Button>
                 </div>
+                )}
               </CardContent>
             </Card>
           )}

@@ -33,6 +33,12 @@ const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = 
   "gusto": { coaCode: "6010", category: "labor" },
 };
 
+const LODGING_KEYWORDS = [
+  "hotel", "motel", "inn", "lodge", "resort", "suites", "marriott", "hilton",
+  "hyatt", "holiday inn", "hampton", "comfort inn", "best western", "airbnb",
+  "vrbo", "adelphi", "sagamore", "courtyard", "fairfield",
+];
+
 export interface MatchResult {
   placeholderId: number;
   vendorName: string;
@@ -50,6 +56,11 @@ export function findVendorTemplate(description: string): { coaCode: string; cate
     if (lower.includes(vendor)) return template;
   }
   return null;
+}
+
+export function isLodgingCharge(description: string): boolean {
+  const lower = description.toLowerCase();
+  return LODGING_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 export async function findLearnedVendorRule(description: string): Promise<{ coaCode: string; category: string; confidence: number; source: string } | null> {

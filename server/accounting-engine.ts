@@ -46,6 +46,7 @@ export const DEFAULT_COA = [
   { code: "6110", name: "Merchant Processing Fees", type: "Expense", category: "Operating" },
   { code: "6120", name: "Delivery & Freight", type: "Expense", category: "Operating" },
   { code: "6130", name: "Depreciation Expense", type: "Expense", category: "Operating" },
+  { code: "6140", name: "Travel & Lodging", type: "Expense", category: "Operating" },
   { code: "7040", name: "Promotional Donations (Non-501c3)", type: "Expense", category: "Operating" },
   { code: "7700", name: "Charitable Donations (501c3)", type: "Expense", category: "Operating" },
 ];
