@@ -570,6 +570,8 @@ export const locations = pgTable("locations", {
   address: text("address"),
   squareLocationId: text("square_location_id"),
   isDefault: boolean("is_default").default(false).notNull(),
+  isExpansionActive: boolean("is_expansion_active").default(false),
+  expansionOpenDate: text("expansion_open_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2345,4 +2347,85 @@ export const projectMetadata = pgTable("project_metadata", {
 export const insertProjectMetadataSchema = createInsertSchema(projectMetadata).omit({ id: true, createdAt: true, totalSpent: true });
 export type ProjectMetadata = typeof projectMetadata.$inferSelect;
 export type InsertProjectMetadata = z.infer<typeof insertProjectMetadataSchema>;
+
+// === TAX PROFILES (2024 Tax DNA) ===
+export const taxProfiles = pgTable("tax_profiles", {
+  id: serial("id").primaryKey(),
+  taxYear: integer("tax_year").notNull(),
+  entityName: text("entity_name").notNull(),
+  ein: text("ein"),
+  entityType: text("entity_type").notNull().default("s_corp"),
+  deMinimisLimit: doublePrecision("de_minimis_limit").notNull().default(2500),
+  qbiCarryforward: doublePrecision("qbi_carryforward").default(0),
+  ficaTipCreditBenchmark: doublePrecision("fica_tip_credit_benchmark").default(0),
+  reasonableSalaryFloor: doublePrecision("reasonable_salary_floor").default(0),
+  officerCompTotal: doublePrecision("officer_comp_total").default(0),
+  ordinaryIncome: doublePrecision("ordinary_income").default(0),
+  rentalIncome: doublePrecision("rental_income").default(0),
+  totalBusinessIncome: doublePrecision("total_business_income").default(0),
+  nysStateTaxLiability: doublePrecision("nys_state_tax_liability").default(0),
+  bankChargesBenchmark: doublePrecision("bank_charges_benchmark").default(0),
+  officeSuppliesBenchmark: doublePrecision("office_supplies_benchmark").default(0),
+  cogsTargetPct: doublePrecision("cogs_target_pct").default(20),
+  payrollAlertThreshold: doublePrecision("payroll_alert_threshold").default(0),
+  ptetQuarterlyEstimate: doublePrecision("ptet_quarterly_estimate").default(0),
+  section179Limit: doublePrecision("section_179_limit").default(2560000),
+  deMinimisElected: boolean("de_minimis_elected").default(true),
+  cpaName: text("cpa_name"),
+  cpaEmail: text("cpa_email"),
+  cpaPhone: text("cpa_phone"),
+  cpaFirm: text("cpa_firm"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTaxProfileSchema = createInsertSchema(taxProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type TaxProfile = typeof taxProfiles.$inferSelect;
+export type InsertTaxProfile = z.infer<typeof insertTaxProfileSchema>;
+
+// === INVENTORY TRANSFERS (MLL - Multi-Location Logistics) ===
+export const inventoryTransfers = pgTable("inventory_transfers", {
+  id: serial("id").primaryKey(),
+  fromLocationId: integer("from_location_id").notNull(),
+  toLocationId: integer("to_location_id").notNull(),
+  inventoryItemId: integer("inventory_item_id"),
+  itemName: text("item_name").notNull(),
+  quantity: doublePrecision("quantity").notNull(),
+  unitCost: doublePrecision("unit_cost").notNull(),
+  totalCost: doublePrecision("total_cost").notNull(),
+  journalEntryId: integer("journal_entry_id"),
+  notes: text("notes"),
+  transferDate: text("transfer_date").notNull(),
+  performedBy: text("performed_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInventoryTransferSchema = createInsertSchema(inventoryTransfers).omit({ id: true, createdAt: true, journalEntryId: true });
+export type InventoryTransfer = typeof inventoryTransfers.$inferSelect;
+export type InsertInventoryTransfer = z.infer<typeof insertInventoryTransferSchema>;
+
+// === VIBE THRESHOLD ALERTS ===
+export const vibeAlerts = pgTable("vibe_alerts", {
+  id: serial("id").primaryKey(),
+  alertType: text("alert_type").notNull(),
+  severity: text("severity").notNull().default("warning"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  metricValue: doublePrecision("metric_value"),
+  thresholdValue: doublePrecision("threshold_value"),
+  locationId: integer("location_id"),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  dismissed: boolean("dismissed").default(false).notNull(),
+  dismissedBy: text("dismissed_by"),
+  dismissedAt: timestamp("dismissed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertVibeAlertSchema = createInsertSchema(vibeAlerts).omit({ id: true, createdAt: true, dismissedAt: true });
+export type VibeAlert = typeof vibeAlerts.$inferSelect;
+export type InsertVibeAlert = z.infer<typeof insertVibeAlertSchema>;
 

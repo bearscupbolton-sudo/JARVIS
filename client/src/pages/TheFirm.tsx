@@ -23,7 +23,8 @@ import {
   Users, Timer, Coffee, Loader2, Settings, BookOpen, BarChart3, Scale,
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
-  FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera
+  FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera,
+  ArrowLeftRight, Dna, BellRing
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -261,6 +262,8 @@ export default function TheFirm() {
             <TabsTrigger value="donations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-donations">Donations</TabsTrigger>
             <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
             <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
+            <TabsTrigger value="tax-dna" className="whitespace-nowrap px-3 text-xs" data-testid="tab-tax-dna">Tax DNA</TabsTrigger>
+            <TabsTrigger value="transfers" className="whitespace-nowrap px-3 text-xs" data-testid="tab-transfers">Transfers</TabsTrigger>
           </TabsList>
         </div>
 
@@ -311,6 +314,12 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="reimbursements">
           <ReimbursementsTab />
+        </TabsContent>
+        <TabsContent value="tax-dna">
+          <TaxDnaTab />
+        </TabsContent>
+        <TabsContent value="transfers">
+          <TransfersTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -5406,6 +5415,372 @@ function ReimbursementsTab() {
             </Card>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function TaxDnaTab() {
+  const { toast } = useToast();
+  const [ficaStart, setFicaStart] = useState("2025-01-01");
+  const [ficaEnd, setFicaEnd] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  const { data: profile, isLoading: loadingProfile } = useQuery<any>({ queryKey: ["/api/firm/tax-profiles/active"] });
+  const { data: vibeAlertsData, isLoading: loadingAlerts } = useQuery<any[]>({ queryKey: ["/api/firm/vibe-alerts"] });
+  const { data: ficaData, isLoading: loadingFica } = useQuery<any>({
+    queryKey: ["/api/firm/fica-tip-credit", ficaStart, ficaEnd],
+    queryFn: () => fetch(`/api/firm/fica-tip-credit?startDate=${ficaStart}&endDate=${ficaEnd}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const seedMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/tax-profiles/seed-2024"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/tax-profiles/active"] });
+      toast({ title: "Tax Profile Seeded", description: "2024 Tax DNA loaded successfully." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const vibeRunMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/vibe-alerts/run", { startDate: "2025-01-01", endDate: format(new Date(), "yyyy-MM-dd") }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/vibe-alerts"] });
+      toast({ title: "Vibe Check Complete", description: "Threshold analysis finished." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const dismissMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/firm/vibe-alerts/${id}/dismiss`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/firm/vibe-alerts"] }),
+  });
+
+  const hasProfile = profile && profile.id;
+
+  return (
+    <div className="space-y-6" data-testid="tax-dna-tab">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Dna className="h-5 w-5 text-purple-600" />
+          <h3 className="text-lg font-semibold">Tax DNA & Vibe Thresholds</h3>
+        </div>
+        <div className="flex gap-2">
+          {!hasProfile && (
+            <Button size="sm" onClick={() => seedMut.mutate()} disabled={seedMut.isPending} data-testid="btn-seed-tax-profile">
+              {seedMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+              Seed 2024 Tax DNA
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => vibeRunMut.mutate()} disabled={vibeRunMut.isPending} data-testid="btn-run-vibe-check">
+            {vibeRunMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <BellRing className="h-4 w-4 mr-1" />}
+            Run Vibe Check
+          </Button>
+        </div>
+      </div>
+
+      {loadingProfile ? (
+        <div className="space-y-2"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>
+      ) : hasProfile ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Building2 className="h-4 w-4" />Entity Info</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Entity</span><span className="font-medium" data-testid="text-entity-name">{profile.entityName}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">EIN</span><span className="font-mono" data-testid="text-ein">{profile.ein}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Type</span><Badge variant="outline">{profile.entityType?.toUpperCase()}</Badge></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tax Year</span><span className="font-medium">{profile.taxYear}</span></div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><DollarSign className="h-4 w-4" />Income Benchmarks</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Ordinary Income</span><span className="font-medium text-green-600" data-testid="text-ordinary-income">${Number(profile.ordinaryIncome || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Rental Income</span><span className="font-medium">${Number(profile.rentalIncome || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total Business Income</span><span className="font-medium">${Number(profile.totalBusinessIncome || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">QBI Carryforward</span><span className="font-medium text-blue-600">${Number(profile.qbiCarryforward || 0).toLocaleString()}</span></div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Users className="h-4 w-4" />Officer Compensation</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Officer Comp Total</span><span className="font-medium" data-testid="text-officer-comp">${Number(profile.officerCompTotal || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Salary Floor (ea.)</span><span className="font-medium text-amber-600">${Number(profile.reasonableSalaryFloor || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">FICA Tip Credit Bench</span><span className="font-medium">${Number(profile.ficaTipCreditBenchmark || 0).toLocaleString()}</span></div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Shield className="h-4 w-4" />Tax Thresholds</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">De Minimis Limit</span><span className="font-medium">${Number(profile.deMinimisLimit || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">§179 Limit</span><span className="font-medium">${Number(profile.section179Limit || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">COGS Target</span><span className="font-medium">{profile.cogsTargetPct}%</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">PTET Quarterly</span><span className="font-medium">${Number(profile.ptetQuarterlyEstimate || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">NYS Tax Liability</span><span className="font-medium text-red-600">${Number(profile.nysStateTaxLiability || 0).toLocaleString()}</span></div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4" />CPA Contact</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span className="font-medium" data-testid="text-cpa-name">{profile.cpaName}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Firm</span><span className="font-medium text-xs">{profile.cpaFirm}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span className="font-mono text-xs">{profile.cpaEmail}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span className="font-mono text-xs">{profile.cpaPhone}</span></div>
+            </CardContent>
+          </Card>
+
+          {profile.notes && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Info className="h-4 w-4" />Notes</CardTitle></CardHeader>
+              <CardContent className="text-sm text-muted-foreground">{profile.notes}</CardContent>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Dna className="h-12 w-12 mx-auto mb-3 opacity-40" />
+            <p className="font-medium">No Tax Profile Found</p>
+            <p className="text-sm mt-1">Click "Seed 2024 Tax DNA" to load Bear's Cup's 2024 tax profile benchmarks.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <BellRing className="h-5 w-5 text-amber-500" />
+          <h4 className="font-semibold">Vibe Threshold Alerts</h4>
+          {vibeAlertsData && vibeAlertsData.length > 0 && (
+            <Badge variant="destructive" className="ml-2" data-testid="badge-alert-count">{vibeAlertsData.length}</Badge>
+          )}
+        </div>
+        {loadingAlerts ? (
+          <Skeleton className="h-24 w-full" />
+        ) : vibeAlertsData && vibeAlertsData.length > 0 ? (
+          <div className="space-y-3">
+            {vibeAlertsData.map((alert: any) => (
+              <Card key={alert.id} className={`border-l-4 ${alert.severity === "critical" ? "border-l-red-500" : alert.severity === "warning" ? "border-l-amber-500" : "border-l-blue-500"}`}>
+                <CardContent className="py-3 flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      {alert.severity === "critical" ? <AlertOctagon className="h-4 w-4 text-red-500" /> : alert.severity === "warning" ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : <Info className="h-4 w-4 text-blue-500" />}
+                      <span className="font-medium text-sm" data-testid={`text-alert-title-${alert.id}`}>{alert.title}</span>
+                      <Badge variant="outline" className="text-xs">{alert.alertType}</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{alert.message}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => dismissMut.mutate(alert.id)} data-testid={`btn-dismiss-alert-${alert.id}`}>
+                    <XCircle className="h-4 w-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="py-6 text-center text-muted-foreground text-sm">
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500 opacity-60" />
+              No active alerts. Run a vibe check to scan for threshold violations.
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <HandCoins className="h-5 w-5 text-green-600" />
+          <h4 className="font-semibold">FICA Tip Credit (Form 8846)</h4>
+        </div>
+        <div className="flex gap-2 items-end">
+          <div>
+            <Label className="text-xs">Start Date</Label>
+            <Input type="date" value={ficaStart} onChange={(e) => setFicaStart(e.target.value)} className="w-40" data-testid="input-fica-start" />
+          </div>
+          <div>
+            <Label className="text-xs">End Date</Label>
+            <Input type="date" value={ficaEnd} onChange={(e) => setFicaEnd(e.target.value)} className="w-40" data-testid="input-fica-end" />
+          </div>
+        </div>
+        {loadingFica ? (
+          <Skeleton className="h-24 w-full" />
+        ) : ficaData ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="py-3 text-center">
+                <p className="text-xs text-muted-foreground">Total Tips</p>
+                <p className="text-lg font-bold text-green-600" data-testid="text-fica-total-tips">${Number(ficaData.totalTips || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 text-center">
+                <p className="text-xs text-muted-foreground">Total Hours</p>
+                <p className="text-lg font-bold">{Number(ficaData.totalHours || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 text-center">
+                <p className="text-xs text-muted-foreground">Tips Above Min Wage</p>
+                <p className="text-lg font-bold text-blue-600">${Number(ficaData.tipsAboveMinWage || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 text-center">
+                <p className="text-xs text-muted-foreground">Estimated Credit</p>
+                <p className="text-lg font-bold text-purple-600" data-testid="text-fica-credit">${Number(ficaData.estimatedCredit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TransfersTab() {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [itemName, setItemName] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unitCost, setUnitCost] = useState("");
+  const [fromLocationId, setFromLocationId] = useState("1");
+  const [toLocationId, setToLocationId] = useState("2");
+  const [transferDate, setTransferDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [notes, setNotes] = useState("");
+
+  const { data: transfers, isLoading } = useQuery<any[]>({ queryKey: ["/api/firm/transfers"] });
+  const { data: locs } = useQuery<any[]>({ queryKey: ["/api/locations"] });
+
+  const createMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/firm/transfers", {
+      fromLocationId: parseInt(fromLocationId),
+      toLocationId: parseInt(toLocationId),
+      itemName,
+      quantity: parseFloat(quantity),
+      unitCost: parseFloat(unitCost),
+      transferDate,
+      notes,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transfers"] });
+      toast({ title: "Transfer Recorded", description: `${itemName} transferred with double-entry journal.` });
+      setShowForm(false);
+      setItemName("");
+      setQuantity("");
+      setUnitCost("");
+      setNotes("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-6" data-testid="transfers-tab">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ArrowLeftRight className="h-5 w-5 text-blue-600" />
+          <h3 className="text-lg font-semibold">Multi-Location Inventory Transfers</h3>
+        </div>
+        <Button size="sm" onClick={() => setShowForm(!showForm)} data-testid="btn-new-transfer">
+          <Plus className="h-4 w-4 mr-1" />New Transfer
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardContent className="py-4 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs">From Location</Label>
+                <Select value={fromLocationId} onValueChange={setFromLocationId}>
+                  <SelectTrigger data-testid="select-from-location"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(locs || []).map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">To Location</Label>
+                <Select value={toLocationId} onValueChange={setToLocationId}>
+                  <SelectTrigger data-testid="select-to-location"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(locs || []).map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Transfer Date</Label>
+                <Input type="date" value={transferDate} onChange={(e) => setTransferDate(e.target.value)} data-testid="input-transfer-date" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs">Item Name</Label>
+                <Input value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g., Croissant Dough" data-testid="input-item-name" />
+              </div>
+              <div>
+                <Label className="text-xs">Quantity</Label>
+                <Input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="10" data-testid="input-quantity" />
+              </div>
+              <div>
+                <Label className="text-xs">Unit Cost ($)</Label>
+                <Input type="number" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="3.50" data-testid="input-unit-cost" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Notes</Label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." className="h-16" data-testid="input-transfer-notes" />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => createMut.mutate()} disabled={createMut.isPending || !itemName || !quantity || !unitCost} data-testid="btn-submit-transfer">
+                {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowLeftRight className="h-4 w-4 mr-1" />}
+                Record Transfer
+              </Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>
+      ) : transfers && transfers.length > 0 ? (
+        <div className="space-y-3">
+          {transfers.map((t: any) => (
+            <Card key={t.id}>
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <ArrowLeftRight className="h-4 w-4 text-blue-500" />
+                    <div>
+                      <p className="font-medium text-sm" data-testid={`text-transfer-item-${t.id}`}>{t.itemName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t.quantity} units @ ${Number(t.unitCost).toFixed(2)} &middot; {t.transferDate}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-sm" data-testid={`text-transfer-total-${t.id}`}>${Number(t.totalCost).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Location {t.fromLocationId} → {t.toLocationId}
+                    </p>
+                    {t.journalEntryId && <Badge variant="outline" className="text-xs mt-1">JE #{t.journalEntryId}</Badge>}
+                  </div>
+                </div>
+                {t.notes && <p className="text-xs text-muted-foreground mt-2 italic">{t.notes}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <ArrowLeftRight className="h-12 w-12 mx-auto mb-3 opacity-40" />
+            <p className="font-medium">No Transfers Yet</p>
+            <p className="text-sm mt-1">Record multi-location inventory movements with automatic double-entry journals.</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
