@@ -403,11 +403,24 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
   const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal", "rent_split"];
-  const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => !NON_PL_CATEGORIES.includes(cat)).reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
+  const INCOME_CATEGORIES = ["revenue", "other_income"];
+  const expenseCategories = s.manualTransactionsByCategory
+    ? Object.entries(s.manualTransactionsByCategory as Record<string, number>)
+        .filter(([cat]) => !NON_PL_CATEGORIES.includes(cat) && !INCOME_CATEGORIES.includes(cat))
+    : [];
+  const manualTxnTotal = expenseCategories
+    .filter(([, v]) => v < 0)
+    .reduce((a: number, [, v]) => a + Math.abs(v), 0);
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
   const laborCostForPL = compiledLaborCost > 0 ? compiledLaborCost : (s.laborCost || 0);
-  const expenses = (s.invoiceExpenseTotal || 0) + laborCostForPL + manualTxnTotal + (s.payrollTotal || 0);
+  const bankFeedHasLabor = s.manualTransactionsByCategory && (
+    (s.manualTransactionsByCategory as Record<string, number>)["labor"] !== undefined ||
+    (s.manualTransactionsByCategory as Record<string, number>)["contract_labor"] !== undefined
+  );
+  const laborForPL = bankFeedHasLabor ? 0 : laborCostForPL;
+  const payrollForPL = bankFeedHasLabor ? 0 : (s.payrollTotal || 0);
+  const expenses = (s.invoiceExpenseTotal || 0) + laborForPL + manualTxnTotal + payrollForPL;
   const netPL = revenue - expenses;
   const cashPosition = accounts.reduce((sum, a) => {
     if (["checking", "savings", "cash", "petty_cash"].includes(a.type)) return sum + a.currentBalance;
@@ -437,7 +450,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
               <TrendingDown className="w-4 h-4 text-red-600" />
             </div>
             <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(expenses)}</div>
-            <div className="text-[10px] text-muted-foreground mt-1">Across all categories</div>
+            <div className="text-[10px] text-muted-foreground mt-1">Operating expenses (excl. draws, CapEx, tax)</div>
           </CardContent>
         </Card>
         <Card data-testid="card-net-pl">
@@ -571,7 +584,10 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
             <CardTitle className="text-sm">Expense Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
+            {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>)
+              .filter(([cat, total]) => !INCOME_CATEGORIES.includes(cat) && total < 0)
+              .sort(([, a], [, b]) => a - b)
+              .map(([cat, total]) => (
               <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : cat === "rent_split" ? "text-orange-700 dark:text-orange-400 font-medium" : ""}`}>
                 <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat === "rent_split" ? "Rent — Home Office Split" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
