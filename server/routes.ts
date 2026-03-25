@@ -12754,8 +12754,8 @@ IMPORTANT GUIDELINES:
       const transactionId = Number(req.params.transactionId);
       if (!transactionId) return res.status(400).json({ message: "Valid transactionId required" });
       const { auditTrailAssessor } = await import("./audit-trail-engine");
-      const results = await auditTrailAssessor.performLookup(transactionId);
-      res.json({ transactionId, resultCount: results.length, results });
+      const result = await auditTrailAssessor.performJarvisLookup(transactionId);
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

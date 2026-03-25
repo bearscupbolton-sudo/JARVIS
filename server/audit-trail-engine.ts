@@ -2,7 +2,7 @@ import { db } from "./db";
 import { firmTransactions } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "./storage";
-import { listEmails, getEmailWithAttachmentInfo, downloadAttachment, type EmailMessage, type AttachmentInfo } from "./gmail";
+import { listEmails, getEmailWithAttachmentInfo, getProfile, type EmailMessage, type AttachmentInfo } from "./gmail";
 
 export interface AuditSearchResult {
   messageId: string;
@@ -14,44 +14,19 @@ export interface AuditSearchResult {
   hasAttachment: boolean;
   attachments: AttachmentInfo[];
   relevanceScore: number;
+  searchedAccount: string;
 }
 
 export class AuditTrailAssessor {
-  private formatDateOffset(dateStr: string, offsetDays: number): string {
-    const d = new Date(dateStr);
-    d.setDate(d.getDate() + offsetDays);
-    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-  }
+  private ACCOUNTS = [
+    "Singingdanielle@gmail.com",
+    "Loudesantis24@gmail.com",
+    "Bearscupbolton@gmail.com",
+    "Bearscupsaratoga@gmail.com",
+  ];
 
-  private buildSearchQuery(tx: { amount: number; description: string; date: string }): string {
-    const absAmount = Math.abs(tx.amount).toFixed(2);
-    const vendor = tx.description
-      .replace(/[*#]/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .split(" ")
-      .slice(0, 3)
-      .join(" ");
-
-    const after = this.formatDateOffset(tx.date, -5);
-    const before = this.formatDateOffset(tx.date, 5);
-
-    return `{${absAmount} "${vendor}"} after:${after} before:${before}`;
-  }
-
-  private buildBroadSearchQuery(tx: { amount: number; description: string; date: string }): string {
-    const vendor = tx.description
-      .replace(/[*#]/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .split(" ")
-      .slice(0, 2)
-      .join(" ");
-
-    const after = this.formatDateOffset(tx.date, -7);
-    const before = this.formatDateOffset(tx.date, 7);
-
-    return `"${vendor}" after:${after} before:${before}`;
+  private formatDate(date: Date): string {
+    return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
   }
 
   private scoreResult(tx: { amount: number; description: string }, msg: EmailMessage & { attachments: AttachmentInfo[] }): number {
@@ -73,15 +48,44 @@ export class AuditTrailAssessor {
     return Math.min(score, 100);
   }
 
-  async performLookup(transactionId: number): Promise<AuditSearchResult[]> {
+  async getConnectedAccount(): Promise<string> {
+    try {
+      const profile = await getProfile();
+      return profile.email;
+    } catch {
+      return "unknown";
+    }
+  }
+
+  async performJarvisLookup(transactionId: number): Promise<{
+    transactionId: number;
+    searchedAccounts: string[];
+    connectedAccount: string;
+    pendingAccounts: string[];
+    results: AuditSearchResult[];
+  }> {
     const tx = await storage.getFirmTransaction(transactionId);
     if (!tx) throw new Error(`Transaction #${transactionId} not found`);
 
-    const narrowQuery = this.buildSearchQuery(tx);
-    let results: AuditSearchResult[] = [];
+    const connectedAccount = await this.getConnectedAccount();
+
+    const startDate = new Date(tx.date);
+    startDate.setDate(startDate.getDate() - 3);
+    const endDate = new Date(tx.date);
+    endDate.setDate(endDate.getDate() + 4);
+
+    const amountStr = Math.abs(Number(tx.amount)).toFixed(2);
+    const vendorClean = tx.description
+      .replace(/[*#]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const query = `(${amountStr} OR "${vendorClean}") after:${this.formatDate(startDate)} before:${this.formatDate(endDate)}`;
+
+    const results: AuditSearchResult[] = [];
 
     try {
-      const { messages } = await listEmails(narrowQuery, 10);
+      const { messages } = await listEmails(query, 15);
       for (const msg of messages) {
         try {
           const full = await getEmailWithAttachmentInfo(msg.id);
@@ -96,16 +100,23 @@ export class AuditTrailAssessor {
             hasAttachment: full.attachments.length > 0,
             attachments: full.attachments,
             relevanceScore: score,
+            searchedAccount: connectedAccount,
           });
         } catch {}
       }
     } catch (e) {
-      console.warn(`[AuditTrail] Narrow search failed for TX #${transactionId}:`, e);
+      console.warn(`[AuditTrail] Search failed for TX #${transactionId} on ${connectedAccount}:`, e);
     }
 
     if (results.length === 0) {
+      const broadVendor = vendorClean.split(" ").slice(0, 2).join(" ");
+      const broadStart = new Date(tx.date);
+      broadStart.setDate(broadStart.getDate() - 7);
+      const broadEnd = new Date(tx.date);
+      broadEnd.setDate(broadEnd.getDate() + 7);
+      const broadQuery = `"${broadVendor}" after:${this.formatDate(broadStart)} before:${this.formatDate(broadEnd)}`;
+
       try {
-        const broadQuery = this.buildBroadSearchQuery(tx);
         const { messages } = await listEmails(broadQuery, 10);
         for (const msg of messages) {
           try {
@@ -121,6 +132,7 @@ export class AuditTrailAssessor {
               hasAttachment: full.attachments.length > 0,
               attachments: full.attachments,
               relevanceScore: score,
+              searchedAccount: connectedAccount,
             });
           } catch {}
         }
@@ -130,7 +142,18 @@ export class AuditTrailAssessor {
     }
 
     results.sort((a, b) => b.relevanceScore - a.relevanceScore);
-    return results;
+
+    const pendingAccounts = this.ACCOUNTS.filter(
+      a => a.toLowerCase() !== connectedAccount.toLowerCase()
+    );
+
+    return {
+      transactionId,
+      searchedAccounts: [connectedAccount],
+      connectedAccount,
+      pendingAccounts,
+      results,
+    };
   }
 
   async linkEvidence(transactionId: number, messageId: string): Promise<{ success: boolean; auditTrailLink: string }> {
@@ -167,6 +190,8 @@ export class AuditTrailAssessor {
     verified: number;
     unverified: number;
     verifiedPercent: number;
+    connectedAccount: string;
+    allAccounts: string[];
   }> {
     const all = await db.select({
       id: firmTransactions.id,
@@ -175,12 +200,15 @@ export class AuditTrailAssessor {
 
     const total = all.length;
     const verified = all.filter(t => t.isAuditVerified).length;
+    const connectedAccount = await this.getConnectedAccount();
 
     return {
       total,
       verified,
       unverified: total - verified,
       verifiedPercent: total > 0 ? Math.round((verified / total) * 100) : 0,
+      connectedAccount,
+      allAccounts: this.ACCOUNTS,
     };
   }
 }
