@@ -10,8 +10,8 @@
  */
 
 import { db } from "./db";
-import { fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, firmTransactions, chartOfAccounts } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, firmTransactions, chartOfAccounts, journalEntries } from "@shared/schema";
+import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { createJournalEntry, postJournalEntry } from "./accounting-engine";
 import { storage } from "./storage";
 
@@ -641,6 +641,111 @@ export async function seedLegacyAssets(createdBy: string) {
 
   return { seeded, skipped, total: LEGACY_ASSETS_2024.length };
 }
+
+/**
+ * INTERCOMPANY RENT & S-CORP BASIS ENGINE
+ *
+ * Strategy: Bear's Cup LLC (S-Corp) occupies property owned by Kolby (via LODA Restaurant LLC).
+ * Monthly self-rental creates a non-cash rent expense on Bear's Cup books (deductible),
+ * and an equity contribution that increases Kolby's S-Corp basis.
+ *
+ * Target: $50,000 annual basis contribution ($4,166.67/month)
+ *
+ * COA Map:
+ *   6030 = Rent (Expense - deductible on S-Corp return)
+ *   3000 = Owner's Equity (basis increase)
+ *
+ * These entries are flagged isNonCash=true so they are invisible to bank reconciliation
+ * but visible on the P&L, Balance Sheet, and K-1 basis computation.
+ */
+export class BasisAssessor {
+  private MONTHLY_RENT_TARGET = 4166.67;
+  private RENT_EXPENSE_COA = "6030";
+  private EQUITY_CONTRIB_COA = "3000";
+  private LOCATIONS = [1, 2];
+
+  async runMonthlyRentAccrual(periodDate: string, locationId: number, createdBy: string = "BasisAssessor") {
+    if (!this.LOCATIONS.includes(locationId)) {
+      console.log(`[BasisAssessor] Location ${locationId} not eligible for rent accrual`);
+      return null;
+    }
+
+    const period = periodDate.slice(0, 7);
+    const existing = await db.select().from(journalEntries)
+      .where(
+        and(
+          eq(journalEntries.referenceType, "basis_rent_accrual"),
+          eq(journalEntries.referenceId, `rent-${period}-loc${locationId}`),
+        )
+      );
+
+    if (existing.length > 0) {
+      console.log(`[BasisAssessor] Rent accrual already posted for ${period} at location ${locationId}`);
+      return null;
+    }
+
+    const locationName = locationId === 1 ? "Saratoga" : "Bolton Landing";
+    const entry = await createJournalEntry({
+      date: periodDate,
+      memo: `Monthly Self-Rental Basis Contribution – ${locationName} (${period})`,
+      lines: [
+        { accountCode: this.RENT_EXPENSE_COA, debit: this.MONTHLY_RENT_TARGET, credit: 0 },
+        { accountCode: this.EQUITY_CONTRIB_COA, debit: 0, credit: this.MONTHLY_RENT_TARGET },
+      ],
+      referenceId: `rent-${period}-loc${locationId}`,
+      referenceType: "basis_rent_accrual",
+      locationId,
+      isNonCash: true,
+      createdBy,
+    });
+
+    console.log(`[BasisAssessor] Basis increased by $${this.MONTHLY_RENT_TARGET.toFixed(2)} for ${locationName} (${period})`);
+    return entry;
+  }
+
+  async getAnnualBasisSummary(year: number) {
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+
+    const entries = await db.select().from(journalEntries)
+      .where(
+        and(
+          eq(journalEntries.referenceType, "basis_rent_accrual"),
+          gte(journalEntries.transactionDate, startDate),
+          lte(journalEntries.transactionDate, endDate),
+        )
+      );
+
+    const totalContributed = entries.length * this.MONTHLY_RENT_TARGET;
+    const annualTarget = this.MONTHLY_RENT_TARGET * 12;
+
+    return {
+      year,
+      monthsPosted: entries.length,
+      totalContributed: Math.round(totalContributed * 100) / 100,
+      annualTarget: Math.round(annualTarget * 100) / 100,
+      remaining: Math.round((annualTarget - totalContributed) * 100) / 100,
+      onTrack: entries.length >= new Date().getMonth() + 1 || year < new Date().getFullYear(),
+      entries: entries.map(e => ({
+        id: e.id,
+        date: e.transactionDate,
+        locationId: e.locationId,
+        referenceId: e.referenceId,
+      })),
+    };
+  }
+
+  async runAllLocations(periodDate: string, createdBy: string = "BasisAssessor") {
+    const results = [];
+    for (const locId of this.LOCATIONS) {
+      const result = await this.runMonthlyRentAccrual(periodDate, locId, createdBy);
+      if (result) results.push(result);
+    }
+    return results;
+  }
+}
+
+export const basisAssessor = new BasisAssessor();
 
 /**
  * Backward compatibility exports

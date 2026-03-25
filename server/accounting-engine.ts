@@ -105,6 +105,7 @@ export async function postJournalEntry(
     referenceType?: string;
     status?: string;
     locationId?: number;
+    isNonCash?: boolean;
     createdBy?: string;
   },
   lines: Array<{
@@ -141,6 +142,7 @@ export async function postJournalEntry(
     referenceType: entry.referenceType || null,
     status: entry.status || "reconciled",
     locationId: entry.locationId || null,
+    isNonCash: entry.isNonCash || false,
     createdBy: entry.createdBy || null,
   }).returning();
 
@@ -167,6 +169,7 @@ export async function createJournalEntry(params: {
   referenceId?: string;
   referenceType?: string;
   locationId?: number;
+  isNonCash?: boolean;
 }) {
   const allAccounts = await db.select().from(chartOfAccounts);
   const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
@@ -185,6 +188,7 @@ export async function createJournalEntry(params: {
       referenceType: params.referenceType || "donation",
       status: "posted",
       locationId: params.locationId,
+      isNonCash: params.isNonCash,
       createdBy: params.createdBy,
     },
     resolvedLines

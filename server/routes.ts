@@ -12748,6 +12748,37 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  // === BASIS ASSESSOR (S-Corp Self-Rental) ===
+  app.post("/api/firm/basis/rent-accrual", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { periodDate, locationId } = req.body;
+      if (!periodDate) return res.status(400).json({ message: "periodDate required (YYYY-MM-DD)" });
+      const user = await getUserFromReq(req);
+      const { basisAssessor } = await import("./asset-engine");
+      if (locationId) {
+        const result = await basisAssessor.runMonthlyRentAccrual(periodDate, locationId, user?.username || "Owner");
+        res.json({ posted: result ? 1 : 0, entries: result ? [result] : [] });
+      } else {
+        const results = await basisAssessor.runAllLocations(periodDate, user?.username || "Owner");
+        res.json({ posted: results.length, entries: results });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/basis/summary/:year", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const year = parseInt(req.params.year);
+      if (!year || year < 2020) return res.status(400).json({ message: "Valid year required" });
+      const { basisAssessor } = await import("./asset-engine");
+      const summary = await basisAssessor.getAnnualBasisSummary(year);
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === EMPLOYEE REIMBURSEMENTS ===
   app.get("/api/firm/reimbursements", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
