@@ -12748,6 +12748,64 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  // === RENT — HOME OFFICE SPLIT ===
+  app.post("/api/firm/rent-split", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionId, businessPercent, memo } = req.body;
+      if (!transactionId || businessPercent == null) {
+        return res.status(400).json({ message: "transactionId and businessPercent required" });
+      }
+      if (businessPercent <= 0 || businessPercent >= 100) {
+        return res.status(400).json({ message: "businessPercent must be between 0 and 100 exclusive" });
+      }
+
+      const txn = await storage.getFirmTransaction(transactionId);
+      if (!txn) return res.status(404).json({ message: "Transaction not found" });
+
+      const totalAmount = Math.abs(Number(txn.amount));
+      const businessAmount = Math.round(totalAmount * businessPercent) / 100;
+      const personalAmount = +(totalAmount - businessAmount).toFixed(2);
+
+      const rentAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6030")).limit(1);
+      const drawAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3010")).limit(1);
+      const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+
+      if (!rentAccount.length || !drawAccount.length || !cashAccount.length) {
+        return res.status(500).json({ message: "Required chart of accounts entries missing (6030, 3010, 1010)" });
+      }
+
+      const { postJournalEntry } = await import("./accounting-engine");
+      const entry = await postJournalEntry(
+        {
+          transactionDate: txn.date,
+          description: memo || `Rent — Home Office Split (${businessPercent}% business)`,
+          referenceType: "rent_split",
+          referenceId: String(transactionId),
+          createdBy: req.user?.id || null,
+        },
+        [
+          { accountId: rentAccount[0].id, debit: businessAmount, credit: 0, memo: `Business rent (${businessPercent}%)` },
+          { accountId: drawAccount[0].id, debit: personalAmount, credit: 0, memo: `Personal rent (${(100 - businessPercent).toFixed(2)}%) — Owner's Draw` },
+          { accountId: cashAccount[0].id, debit: 0, credit: totalAmount, memo: `Rent payment — ${memo || txn.description}` },
+        ]
+      );
+
+      await storage.updateFirmTransaction(transactionId, { category: "rent_split" });
+
+      console.log(`[Rent Split] TX #${transactionId}: $${businessAmount.toFixed(2)} business (${businessPercent}%) / $${personalAmount.toFixed(2)} personal → JE #${entry?.id}`);
+      res.json({
+        success: true,
+        journalEntryId: entry?.id || null,
+        businessAmount,
+        personalAmount,
+        totalAmount,
+      });
+    } catch (err: any) {
+      console.error("[Rent Split] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === GMAIL MULTI-ACCOUNT OAUTH ===
   app.get("/api/firm/gmail/accounts", isAuthenticated, isOwner, async (_req: any, res) => {
     try {

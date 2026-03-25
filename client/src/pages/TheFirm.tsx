@@ -65,7 +65,8 @@ const CATEGORIES = [
   { value: "labor", label: "Labor" },
   { value: "supplies", label: "Supplies" },
   { value: "utilities", label: "Utilities" },
-  { value: "rent", label: "Rent" },
+  { value: "rent", label: "Rent (100% Business)" },
+  { value: "rent_split", label: "Rent — Home Office Split" },
   { value: "insurance", label: "Insurance" },
   { value: "marketing", label: "Marketing" },
   { value: "debt_payment", label: "Debt Payment (Full — unsplit)" },
@@ -99,7 +100,7 @@ const CATEGORIES = [
 
 const CATEGORY_TO_COA: Record<string, string> = {
   revenue: "4010", cogs: "5010", labor: "6010", supplies: "6090",
-  utilities: "6050", rent: "6020", insurance: "6030", marketing: "6100",
+  utilities: "6040", rent: "6030", rent_split: "6030", insurance: "6030", marketing: "6100",
   debt_payment: "2200", loan_principal: "2500", loan_interest: "6260", equipment: "6070",
   taxes: "6060", other_income: "4020", travel_lodging: "6140",
   repairs: "6070", advertising: "6060", car_mileage: "6150",
@@ -401,7 +402,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
-  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal"];
+  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal", "rent_split"];
   const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => !NON_PL_CATEGORIES.includes(cat)).reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
@@ -571,8 +572,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardHeader>
           <CardContent className="space-y-2">
             {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
-              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : ""}`}>
-                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : cat === "rent_split" ? "text-orange-700 dark:text-orange-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat === "rent_split" ? "Rent — Home Office Split" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1002,6 +1003,42 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [editingDescriptionText, setEditingDescriptionText] = useState("");
   const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
   const [equipmentComponents, setEquipmentComponents] = useState<Array<{ description: string; cost: string; usefulLife: number; locationId: number }>>([]);
+  const [rentSplitTxn, setRentSplitTxn] = useState<any | null>(null);
+  const [rentBusinessPct, setRentBusinessPct] = useState(33.33);
+  const [rentMemo, setRentMemo] = useState("Monthly Apartment Lease - Home Office Split");
+
+  const handleRentSplitCategory = (txn: any) => {
+    setEditingCategoryId(null);
+    setRentSplitTxn(txn);
+    setRentBusinessPct(33.33);
+    setRentMemo("Monthly Apartment Lease - Home Office Split");
+  };
+
+  const rentSplitMut = useMutation({
+    mutationFn: async (data: { transactionId: number; businessPercent: number; memo: string }) => {
+      const res = await apiRequest("POST", "/api/firm/rent-split", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      toast({ title: "Rent split booked", description: "Business portion → Rent (6030), personal portion → Owner's Draw (3010)." });
+      setRentSplitTxn(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Rent split failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const submitRentSplit = () => {
+    if (!rentSplitTxn) return;
+    if (rentBusinessPct <= 0 || rentBusinessPct >= 100) {
+      toast({ title: "Invalid split", description: "Business percentage must be between 0% and 100%.", variant: "destructive" });
+      return;
+    }
+    rentSplitMut.mutate({ transactionId: rentSplitTxn.id, businessPercent: rentBusinessPct, memo: rentMemo });
+  };
+
   const [jarvisLookupTxn, setJarvisLookupTxn] = useState<any | null>(null);
   const [jarvisResults, setJarvisResults] = useState<any | null>(null);
   const [jarvisSearchingId, setJarvisSearchingId] = useState<number | null>(null);
@@ -1338,6 +1375,8 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                             if (val !== txn.category) {
                               if (val === "equipment") {
                                 handleEquipmentCategory(txn);
+                              } else if (val === "rent_split") {
+                                handleRentSplitCategory(txn);
                               } else {
                                 reclassifyMut.mutate({ id: txn.id, category: val, description: txn.description });
                               }
@@ -1352,10 +1391,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-semibold" : txn.category === "rent_split" ? "text-orange-700 dark:text-orange-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category === "loan_principal" ? "Loan Principal" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category === "loan_principal" ? "Loan Principal" : txn.category === "rent_split" ? "Rent — Home Office" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>
@@ -1504,6 +1543,92 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rentSplitTxn} onOpenChange={(open) => { if (!open) setRentSplitTxn(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-orange-500" />
+              Rent — Home Office Split
+            </DialogTitle>
+          </DialogHeader>
+          {rentSplitTxn && (() => {
+            const totalAmount = Math.abs(rentSplitTxn.amount);
+            const businessAmount = Math.round(totalAmount * rentBusinessPct) / 100;
+            const personalAmount = totalAmount - businessAmount;
+            return (
+              <div className="space-y-4">
+                <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">{rentSplitTxn.description}</span>
+                    <span className="font-bold tabular-nums text-red-700 dark:text-red-400">{formatCurrency(-totalAmount)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{rentSplitTxn.date}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Memo</Label>
+                  <Input
+                    value={rentMemo}
+                    onChange={(e) => setRentMemo(e.target.value)}
+                    placeholder="Monthly Apartment Lease - Home Office Split"
+                    className="text-sm"
+                    data-testid="input-rent-memo"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-xs font-medium">Business Use Percentage</Label>
+                    <span className="text-sm font-bold tabular-nums">{rentBusinessPct.toFixed(2)}%</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="99"
+                    step="0.01"
+                    value={rentBusinessPct}
+                    onChange={(e) => setRentBusinessPct(parseFloat(e.target.value) || 0)}
+                    className="text-sm"
+                    data-testid="input-rent-business-pct"
+                  />
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 space-y-2 text-sm">
+                  <p className="font-semibold text-blue-800 dark:text-blue-300 text-xs uppercase tracking-wide">Journal Entry Preview</p>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">DR 6030 Rent (Business {rentBusinessPct.toFixed(2)}%)</span>
+                      <span className="font-medium tabular-nums text-green-700 dark:text-green-400">{formatCurrency(businessAmount)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">DR 3010 Owner's Draw (Personal {(100 - rentBusinessPct).toFixed(2)}%)</span>
+                      <span className="font-medium tabular-nums text-purple-700 dark:text-purple-400">{formatCurrency(personalAmount)}</span>
+                    </div>
+                    <div className="border-t pt-1.5 flex justify-between items-center">
+                      <span className="text-xs">CR 1010 Operating Cash</span>
+                      <span className="font-medium tabular-nums text-red-700 dark:text-red-400">{formatCurrency(totalAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setRentSplitTxn(null)} data-testid="button-cancel-rent-split">Cancel</Button>
+                  <Button
+                    onClick={submitRentSplit}
+                    disabled={rentSplitMut.isPending}
+                    className="bg-orange-600 hover:bg-orange-700"
+                    data-testid="button-submit-rent-split"
+                  >
+                    {rentSplitMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Building2 className="w-4 h-4 mr-1" />}
+                    Book Rent Split
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
