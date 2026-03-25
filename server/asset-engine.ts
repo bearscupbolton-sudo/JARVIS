@@ -34,6 +34,19 @@ export interface AssetComponent {
   locationId: number;
 }
 
+export interface ExpenseAdjustment {
+  type: string;
+  description: string;
+  cost: number;
+}
+
+const ADJUSTMENT_TYPE_COA: Record<string, string> = {
+  delivery: "6120",
+  sales_tax: "2030",
+  cc_surcharge: "6110",
+  other_expense: "6090",
+};
+
 export class AssetAssessor {
   private ASSET_ACCOUNT = "1500";
   private CASH_ACCOUNT = "1010";
@@ -44,16 +57,18 @@ export class AssetAssessor {
    * Transforms a single bank debit into multiple discrete capital assets.
    * Validated for S-Corp basis continuity.
    */
-  async componentizeTransaction(transactionId: number, components: AssetComponent[]) {
+  async componentizeTransaction(transactionId: number, components: AssetComponent[], adjustments?: ExpenseAdjustment[]) {
     const originalTx = await storage.getFirmTransaction(transactionId);
     if (!originalTx) throw new Error("Transaction not found");
 
     const totalBasis = Math.round(components.reduce((sum, c) => sum + Number(c.cost), 0) * 100) / 100;
+    const adjTotal = Math.round((adjustments || []).reduce((sum, a) => sum + Number(a.cost), 0) * 100) / 100;
     const txAmount = Math.round(Math.abs(Number(originalTx.amount)) * 100) / 100;
+    const grandTotal = Math.round((totalBasis + adjTotal) * 100) / 100;
 
-    if (Math.abs(totalBasis - txAmount) > 0.01) {
+    if (Math.abs(grandTotal - txAmount) > 0.01) {
       throw new Error(
-        `Audit Failure: Component total ($${totalBasis.toFixed(2)}) does not match bank debit ($${txAmount.toFixed(2)}). Variance: $${Math.abs(totalBasis - txAmount).toFixed(2)}`
+        `Audit Failure: Assets ($${totalBasis.toFixed(2)}) + Adjustments ($${adjTotal.toFixed(2)}) = $${grandTotal.toFixed(2)} does not match bank debit ($${txAmount.toFixed(2)}). Variance: $${Math.abs(grandTotal - txAmount).toFixed(2)}`
       );
     }
 
@@ -106,18 +121,33 @@ export class AssetAssessor {
 
     if (assetAccount.length > 0 && cashAccount.length > 0) {
       const componentNames = createdAssets.map((a: any) => a.name).join(", ");
+      const jeLines: Array<{ accountId: number; debit: number; credit: number; memo: string }> = [];
+
+      jeLines.push({ accountId: assetAccount[0].id, debit: totalBasis, credit: 0, memo: `Capitalize: ${componentNames}` });
+
+      if (adjustments && adjustments.length > 0) {
+        for (const adj of adjustments) {
+          const expCode = ADJUSTMENT_TYPE_COA[adj.type] || "6200";
+          const expAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, expCode)).limit(1);
+          if (expAccount.length > 0) {
+            jeLines.push({ accountId: expAccount[0].id, debit: Number(adj.cost), credit: 0, memo: `${adj.description} (non-CapEx portion of equipment purchase)` });
+          } else {
+            jeLines.push({ accountId: assetAccount[0].id, debit: Number(adj.cost), credit: 0, memo: `${adj.description} — expense COA ${expCode} not found, parked to assets` });
+          }
+        }
+      }
+
+      jeLines.push({ accountId: cashAccount[0].id, debit: 0, credit: txAmount, memo: `Equipment purchase: ${originalTx.description}` });
+
       await postJournalEntry(
         {
           transactionDate: originalTx.date,
-          description: `Capitalized Equipment Split: TX #${transactionId} — ${originalTx.description}`,
+          description: `Capitalized Equipment${adjustments && adjustments.length > 0 ? " (with expense adjustments)" : ""}: TX #${transactionId} — ${originalTx.description}`,
           referenceType: "capex",
           referenceId: String(transactionId),
           createdBy: null,
         },
-        [
-          { accountId: assetAccount[0].id, debit: txAmount, credit: 0, memo: `Capitalize: ${componentNames}` },
-          { accountId: cashAccount[0].id, debit: 0, credit: txAmount, memo: `Capitalize: ${componentNames}` },
-        ]
+        jeLines
       );
     }
 
@@ -128,14 +158,19 @@ export class AssetAssessor {
       })
       .where(eq(firmTransactions.id, transactionId));
 
+    const adjSummary = adjustments && adjustments.length > 0
+      ? ` + ${adjustments.length} expense adj ($${adjTotal})`
+      : "";
     console.log(
-      `[AssetAssessor] Componentized TX #${transactionId} ($${txAmount}) → ${createdAssets.length} assets: ${createdAssets.map(a => `${a.name} ($${a.purchasePrice})`).join(", ")}`
+      `[AssetAssessor] Componentized TX #${transactionId} ($${txAmount}) → ${createdAssets.length} assets ($${totalBasis}): ${createdAssets.map(a => `${a.name} ($${a.purchasePrice})`).join(", ")}${adjSummary}`
     );
 
     return {
       success: true,
       parentTransactionId: transactionId,
       totalCost: txAmount,
+      capitalizedAmount: totalBasis,
+      expenseAdjustments: adjTotal,
       assetCount: createdAssets.length,
       componentsCreated: createdAssets.length,
       assets: createdAssets,
@@ -752,6 +787,7 @@ export const componentizeTransaction = (
   vendor?: string,
   purchaseDate?: string,
   createdBy?: string,
+  adjustments?: Array<{ type: string; description: string; cost: number }>,
 ) => {
   const normalizedComps: AssetComponent[] = comps.map(c => ({
     description: c.description || c.name || "Equipment",
@@ -759,7 +795,7 @@ export const componentizeTransaction = (
     usefulLife: c.usefulLife || (c.usefulLifeMonths ? c.usefulLifeMonths / 12 : 7),
     locationId: c.locationId,
   }));
-  return assetAssessor.componentizeTransaction(id, normalizedComps);
+  return assetAssessor.componentizeTransaction(id, normalizedComps, adjustments);
 };
 
 export const postMonthlyDepreciation = (periodDate: string, createdBy: string) =>

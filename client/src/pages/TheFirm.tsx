@@ -1019,6 +1019,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [editingDescriptionText, setEditingDescriptionText] = useState("");
   const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
   const [equipmentComponents, setEquipmentComponents] = useState<Array<{ description: string; cost: string; usefulLife: number; locationId: number }>>([]);
+  const [equipmentAdjustments, setEquipmentAdjustments] = useState<Array<{ type: string; description: string; cost: string }>>([]);
   const [rentSplitTxn, setRentSplitTxn] = useState<any | null>(null);
   const [rentBusinessPct, setRentBusinessPct] = useState(33.33);
   const [rentMemo, setRentMemo] = useState("Monthly Apartment Lease - Home Office Split");
@@ -1090,14 +1091,15 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   });
 
   const componentizeMut = useMutation({
-    mutationFn: (data: { transactionId: number; components: any[]; vendor: string; purchaseDate: string }) =>
+    mutationFn: (data: { transactionId: number; components: any[]; adjustments?: any[]; vendor: string; purchaseDate: string }) =>
       apiRequest("POST", "/api/firm/assets/componentize", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
       setEquipmentSplitTxn(null);
       setEquipmentComponents([]);
-      toast({ title: "Equipment componentized", description: "Fixed assets created for each component." });
+      setEquipmentAdjustments([]);
+      toast({ title: "Equipment componentized", description: "Fixed assets created and expense adjustments posted." });
     },
   });
 
@@ -1105,6 +1107,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     setEditingCategoryId(null);
     setEquipmentSplitTxn(txn);
     setEquipmentComponents([{ description: txn.description || "", cost: String(Math.abs(txn.amount)), usefulLife: 7, locationId: txn.locationId || 1 }]);
+    setEquipmentAdjustments([]);
   };
 
   const addComponent = () => {
@@ -1128,9 +1131,16 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
       usefulLife: c.usefulLife,
       locationId: c.locationId,
     }));
+    const adjustments = equipmentAdjustments.map(a => ({
+      type: a.type,
+      description: a.description || a.type,
+      cost: parseFloat(a.cost) || 0,
+    })).filter(a => a.cost > 0);
     const componentTotal = components.reduce((s, c) => s + c.cost, 0);
-    if (Math.abs(componentTotal - totalAmount) > 0.02) {
-      toast({ title: "Component total doesn't match", description: `Components sum to ${formatCurrency(componentTotal)} but transaction is ${formatCurrency(totalAmount)}. They must match.`, variant: "destructive" });
+    const adjustmentTotal = adjustments.reduce((s, a) => s + a.cost, 0);
+    const grandTotal = componentTotal + adjustmentTotal;
+    if (Math.abs(grandTotal - totalAmount) > 0.02) {
+      toast({ title: "Total doesn't match bank debit", description: `Assets (${formatCurrency(componentTotal)}) + Adjustments (${formatCurrency(adjustmentTotal)}) = ${formatCurrency(grandTotal)}, but bank debit is ${formatCurrency(totalAmount)}.`, variant: "destructive" });
       return;
     }
     if (components.some(c => !c.description.trim())) {
@@ -1140,6 +1150,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     componentizeMut.mutate({
       transactionId: equipmentSplitTxn.id,
       components,
+      adjustments: adjustments.length > 0 ? adjustments : undefined,
       vendor: equipmentSplitTxn.vendor || equipmentSplitTxn.description || "Unknown",
       purchaseDate: equipmentSplitTxn.date,
     });
@@ -1447,7 +1458,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
         </CardContent>
       </Card>
 
-      <Dialog open={!!equipmentSplitTxn} onOpenChange={(open) => { if (!open) { setEquipmentSplitTxn(null); setEquipmentComponents([]); } }}>
+      <Dialog open={!!equipmentSplitTxn} onOpenChange={(open) => { if (!open) { setEquipmentSplitTxn(null); setEquipmentComponents([]); setEquipmentAdjustments([]); } }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1530,22 +1541,112 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                 <Plus className="w-3 h-3 mr-1" /> Add Another Item
               </Button>
 
-              {equipmentComponents.length > 1 && (
-                <div className="flex justify-between items-center bg-muted/50 rounded-lg p-3">
-                  <span className="text-sm font-medium">Component Total</span>
-                  <span className={`font-bold tabular-nums ${Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)) < 0.02 ? "text-green-600" : "text-red-600"}`}>
-                    {formatCurrency(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0))}
-                    {Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)) >= 0.02 && (
-                      <span className="text-xs ml-2 text-red-500">
-                        (off by {formatCurrency(Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)))})
-                      </span>
-                    )}
-                  </span>
+              <div className="border-t pt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Expense Adjustments</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                    onClick={() => setEquipmentAdjustments(prev => [...prev, { type: "delivery", description: "", cost: "" }])}
+                    data-testid="button-add-adjustment"
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Add Delivery / Tax / Surcharge
+                  </Button>
                 </div>
-              )}
+                <p className="text-xs text-muted-foreground">
+                  Carve out non-CapEx charges that are included in the bank total. These post as operating expenses, not assets.
+                </p>
+                {equipmentAdjustments.map((adj, idx) => (
+                  <div key={idx} className="border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-2 bg-amber-50/50 dark:bg-amber-950/20 relative">
+                    <button
+                      onClick={() => setEquipmentAdjustments(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute top-2 right-2 text-destructive hover:text-destructive/80"
+                      data-testid={`button-remove-adjustment-${idx}`}
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs">Type</Label>
+                        <Select value={adj.type} onValueChange={(v) => setEquipmentAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, type: v, description: v === "delivery" ? "Delivery / Freight" : v === "sales_tax" ? "Sales Tax" : v === "cc_surcharge" ? "CC Processing Surcharge" : "" } : a))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-adjustment-type-${idx}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="delivery">Delivery / Freight</SelectItem>
+                            <SelectItem value="sales_tax">Sales Tax</SelectItem>
+                            <SelectItem value="cc_surcharge">CC Processing Surcharge</SelectItem>
+                            <SelectItem value="other_expense">Other Expense</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-28">
+                        <Label className="text-xs">Amount</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={adj.cost}
+                          onChange={(e) => setEquipmentAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, cost: e.target.value } : a))}
+                          placeholder="0.00"
+                          className="h-8 text-sm"
+                          data-testid={`input-adjustment-cost-${idx}`}
+                        />
+                      </div>
+                    </div>
+                    {adj.type === "other_expense" && (
+                      <div>
+                        <Label className="text-xs">Description</Label>
+                        <Input
+                          value={adj.description}
+                          onChange={(e) => setEquipmentAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, description: e.target.value } : a))}
+                          placeholder="Describe the expense..."
+                          className="h-8 text-sm"
+                          data-testid={`input-adjustment-desc-${idx}`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {(() => {
+                const compTotal = equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0);
+                const adjTotal = equipmentAdjustments.reduce((s, a) => s + (parseFloat(a.cost) || 0), 0);
+                const grandTotal = compTotal + adjTotal;
+                const txTotal = Math.abs(equipmentSplitTxn.amount);
+                const balanced = Math.abs(grandTotal - txTotal) < 0.02;
+                return (
+                  <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">CapEx (assets)</span>
+                      <span className="font-medium tabular-nums">{formatCurrency(compTotal)}</span>
+                    </div>
+                    {adjTotal > 0 && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-amber-700 dark:text-amber-400">Expense adjustments</span>
+                        <span className="font-medium tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(adjTotal)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center border-t pt-1">
+                      <span className="text-sm font-medium">Total</span>
+                      <span className={`font-bold tabular-nums ${balanced ? "text-green-600" : "text-red-600"}`}>
+                        {formatCurrency(grandTotal)}
+                        {!balanced && (
+                          <span className="text-xs ml-2 text-red-500">
+                            (off by {formatCurrency(Math.abs(grandTotal - txTotal))})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Bank debit</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{formatCurrency(txTotal)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setEquipmentSplitTxn(null); setEquipmentComponents([]); }} data-testid="button-cancel-split">Cancel</Button>
+                <Button variant="outline" onClick={() => { setEquipmentSplitTxn(null); setEquipmentComponents([]); setEquipmentAdjustments([]); }} data-testid="button-cancel-split">Cancel</Button>
                 <Button onClick={submitComponentize} disabled={componentizeMut.isPending} className="bg-emerald-600 hover:bg-emerald-700" data-testid="button-submit-split">
                   {componentizeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Package className="w-4 h-4 mr-1" />}
                   {equipmentComponents.length === 1 ? "Create Single Asset" : `Create ${equipmentComponents.length} Assets`}

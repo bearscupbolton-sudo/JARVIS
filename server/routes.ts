@@ -12713,7 +12713,7 @@ IMPORTANT GUIDELINES:
   app.post("/api/firm/assets/componentize", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
-      const { transactionId, components, vendor, purchaseDate } = req.body;
+      const { transactionId, components, adjustments, vendor, purchaseDate } = req.body;
       if (!transactionId || !components || !Array.isArray(components) || components.length === 0) {
         return res.status(400).json({ message: "transactionId and components[] required" });
       }
@@ -12723,7 +12723,8 @@ IMPORTANT GUIDELINES:
         components,
         vendor || "Unknown",
         purchaseDate || new Date().toISOString().split("T")[0],
-        user?.username || user?.firstName || "System"
+        user?.username || user?.firstName || "System",
+        adjustments,
       );
 
       res.json(result);
