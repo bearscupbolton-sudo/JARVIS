@@ -92,6 +92,7 @@ const CATEGORIES = [
   { value: "technology", label: "Technology & Software" },
   { value: "owner_draw", label: "Owner's Draw (Personal)" },
   { value: "sales_tax_payment", label: "Sales Tax Payment (Pass-through)" },
+  { value: "prior_period_adjustment", label: "Prior Period Adjustment (Back-Year)" },
   { value: "misc", label: "Misc" },
 ];
 
@@ -105,7 +106,7 @@ const CATEGORY_TO_COA: Record<string, string> = {
   professional_services: "6100", licenses_permits: "6190",
   bank_charges: "6200", amortization: "6210", pension_plans: "6220",
   llc_fee: "6230", meals_deductible: "6240", interest_mortgage: "6250",
-  interest_other: "6260", technology: "6080", owner_draw: "3010", sales_tax_payment: "2030", misc: "6090",
+  interest_other: "6260", technology: "6080", owner_draw: "3010", sales_tax_payment: "2030", prior_period_adjustment: "3020", misc: "6090",
 };
 
 const ACCOUNT_TYPES = [
@@ -399,7 +400,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
-  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment"];
+  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment"];
   const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => !NON_PL_CATEGORIES.includes(cat)).reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
@@ -569,8 +570,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardHeader>
           <CardContent className="space-y-2">
             {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
-              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : ""}`}>
-                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1249,10 +1250,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>
@@ -2354,6 +2355,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     technology: "Technology & Software",
     owner_draw: "Owner's Draw",
     sales_tax_payment: "Sales Tax Payment",
+    prior_period_adjustment: "Prior Period Adj.",
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;

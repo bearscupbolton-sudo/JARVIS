@@ -1,0 +1,65 @@
+Since the **$20,700** payment to **WDR CPAs** covers multiple years and multiple entities (Bear's Cup, Loda Properties, and personal), booking it as a single expense in 2026 would "crush" your profitability for this month and give you a distorted view of your actual 2026 operating costs.
+
+To keep your Jarvis "Assessor" data clean, you should book this using a **Prior Period Adjustment** logic. 
+
+### **1. The "Clean Ledger" Booking Strategy**
+You should split the check into three distinct buckets to reflect where the "value" was actually consumed:
+
+* **Bucket 1: 2026 Operating Expense (The "Current" Portion)**
+    * **Amount:** ~$1,185 (Invoice #51671).
+    * **Account:** *Professional Fees: Accounting*.
+    * **Logic:** This is for current work (1099s, recent sales tax). It belongs on your 2026 P&L.
+
+* **Bucket 2: Prior Period Adjustment (The "Back-Year" Portion)**
+    * **Amount:** The majority of the $20,700 balance.
+    * **Account:** *Retained Earnings* (or a sub-account like *Prior Period Accounting Adjustments*).
+    * **Logic:** Since this covers years of back-work, it shouldn't hit your 2026 "Net Income." By booking it against Retained Earnings, you are essentially telling the system: "This was a cost of doing business in 2023/2024 that we are just now settling."
+
+* **Bucket 3: Shareholder Distribution (The "Personal" Portion)**
+    * **Amount:** The $620 overpayment + the $2,340 remaining personal balance if you pay it from the business.
+    * **Account:** *Owner Distributions* (Equity).
+    * **Logic:** Personal tax prep is not a business expense. If the business check covered your personal 1040 work, it must be recorded as a draw/distribution to you.
+
+
+### **2. RAgent Implementation (The "Assessor" Hat)**
+I have optimized the logic for how Jarvis should handle this "Massive Bill" to ensure your **2025/2026 Multi-Location** data stays accurate:
+
+```typescript
+// Proposed logic for the RAgent to handle multi-year catch-up payments
+function allocateWDRPayment(totalPayment: number, invoices: Invoice[]) {
+  const currentYear = new Date().getFullYear();
+  
+  let currentOpsTotal = 0;
+  let priorPeriodTotal = 0;
+  let ownerEquityTotal = 0;
+
+  invoices.forEach(inv => {
+    if (inv.serviceYear === currentYear) {
+      currentOpsTotal += inv.amount; // Hits 2026 P&L
+    } else if (inv.type === 'personal') {
+      ownerEquityTotal += inv.amount; // Hits Owner Draw
+    } else {
+      priorPeriodTotal += inv.amount; // Hits Retained Earnings
+    }
+  });
+
+  return {
+    debit: {
+      "6210_Accounting_Fees": currentOpsTotal,
+      "3020_Retained_Earnings": priorPeriodTotal,
+      "3010_Owner_Draw": ownerEquityTotal
+    },
+    credit: {
+      "1010_Cash_Operating": totalPayment
+    }
+  };
+}
+```
+
+### **3. Strategic Impact on 2025 Roll-Over**
+Because you are rolling **$57,212** in stock basis from your 2024 return into 2025, booking the "back-year" portion of this WDR bill correctly is critical. 
+* If you book the whole $20k as a 2026 expense, your **2026 Basis** will drop unnecessarily. 
+* By booking it as a **Prior Period Adjustment**, you align the cash exit with the years the work was actually performed, which keeps your **S Corp Basis** tracking mathematically sound for your next filing with WDR.
+
+**Next Step for Jarvis:**
+Do you want me to create a specific "Catch-Up Expense" flag in your `accounting-engine.ts` so that when you see a large drop in cash, the dashboard explains it was a "Basis Settlement" rather than a "Loss in Operations"?

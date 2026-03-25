@@ -11283,7 +11283,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment", "prior_period_adjustment"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -11351,6 +11351,50 @@ IMPORTANT GUIDELINES:
           });
         } catch (logErr: any) {
           console.error("[Owner Draw] Audit log failed:", logErr.message);
+        }
+      }
+
+      if (updates.category === "prior_period_adjustment") {
+        const ppaTxn = await storage.getFirmTransaction(txnId);
+        if (ppaTxn) {
+          const retainedEarningsAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3020")).limit(1);
+          const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+
+          if (retainedEarningsAccount.length > 0 && cashAccount.length > 0) {
+            const absAmount = Math.abs(ppaTxn.amount);
+            try {
+              const { postJournalEntry } = await import("./accounting-engine");
+              await postJournalEntry(
+                {
+                  transactionDate: ppaTxn.date,
+                  description: `Prior Period Adjustment — ${ppaTxn.description}`,
+                  referenceType: "prior_period",
+                  referenceId: String(txnId),
+                  createdBy: req.user?.id || null,
+                },
+                [
+                  { accountId: retainedEarningsAccount[0].id, debit: absAmount, credit: 0, memo: `Back-year settlement: ${ppaTxn.description}` },
+                  { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Back-year settlement: ${ppaTxn.description}` },
+                ]
+              );
+            } catch (jeErr: any) {
+              console.error("[Prior Period] Journal entry failed:", jeErr.message);
+            }
+          }
+
+          try {
+            await storage.createCategorizationLog({
+              transactionId: txnId,
+              suggestedCategory: "prior_period_adjustment",
+              suggestedCoaCode: "3020",
+              confidence: 1.0,
+              logicSummary: `Prior period adjustment — back-year expense booked against Retained Earnings (COA 3020). Excluded from current P&L.`,
+              anomalyFlag: false,
+              accepted: true,
+            });
+          } catch (logErr: any) {
+            console.error("[Prior Period] Audit log failed:", logErr.message);
+          }
         }
       }
 
