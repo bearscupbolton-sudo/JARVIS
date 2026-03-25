@@ -68,8 +68,9 @@ const CATEGORIES = [
   { value: "rent", label: "Rent" },
   { value: "insurance", label: "Insurance" },
   { value: "marketing", label: "Marketing" },
-  { value: "debt_payment", label: "Debt Payment" },
-  { value: "loan_interest", label: "Loan Interest" },
+  { value: "debt_payment", label: "Debt Payment (Full — unsplit)" },
+  { value: "loan_principal", label: "Loan Principal (Balance Sheet)" },
+  { value: "loan_interest", label: "Loan Interest (P&L Expense)" },
   { value: "equipment", label: "Equipment (CapEx — Balance Sheet)" },
   { value: "taxes", label: "Taxes" },
   { value: "other_income", label: "Other Income" },
@@ -99,7 +100,7 @@ const CATEGORIES = [
 const CATEGORY_TO_COA: Record<string, string> = {
   revenue: "4010", cogs: "5010", labor: "6010", supplies: "6090",
   utilities: "6050", rent: "6020", insurance: "6030", marketing: "6100",
-  debt_payment: "2200", loan_interest: "6110", equipment: "6070",
+  debt_payment: "2200", loan_principal: "2500", loan_interest: "6260", equipment: "6070",
   taxes: "6060", other_income: "4020", travel_lodging: "6140",
   repairs: "6070", advertising: "6060", car_mileage: "6150",
   commissions: "6160", contract_labor: "6170", employee_benefits: "6180",
@@ -400,7 +401,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
-  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment"];
+  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal"];
   const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => !NON_PL_CATEGORIES.includes(cat)).reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
@@ -570,8 +571,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardHeader>
           <CardContent className="space-y-2">
             {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
-              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : ""}`}>
-                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1250,10 +1251,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category === "loan_principal" ? "Loan Principal" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>
@@ -2331,6 +2332,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     supplies: "Supplies",
     marketing: "Marketing",
     debt_payment: "Debt Payment",
+    loan_principal: "Loan Principal",
     loan_interest: "Interest",
     equipment: "Equipment",
     taxes: "Taxes",
@@ -4453,7 +4455,7 @@ function RealCashWidget() {
           <div>
             <p className="text-xs text-muted-foreground">Already Obligated</p>
             <p className="text-xl font-bold tabular-nums text-orange-600" data-testid="text-obligated">-{formatCurrency(obligated)}</p>
-            <p className="text-[10px] text-muted-foreground">Tax + placeholders + filings</p>
+            <p className="text-[10px] text-muted-foreground">Tax + labor + placeholders + filings</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Spendable ("Burnable")</p>
@@ -4482,6 +4484,12 @@ function RealCashWidget() {
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> Upcoming Filings (30d)</span>
                 <span className="tabular-nums font-medium">{formatCurrency(breakdown.upcomingFilings)}</span>
+              </div>
+            )}
+            {breakdown.laborAccrual > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1"><Users className="h-3 w-3" /> Labor Accrual (Gross + Burden)</span>
+                <span className="tabular-nums font-medium">{formatCurrency(breakdown.laborAccrual)}</span>
               </div>
             )}
           </div>

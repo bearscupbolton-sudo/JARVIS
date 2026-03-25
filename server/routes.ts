@@ -11283,7 +11283,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment", "prior_period_adjustment"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_principal", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment", "prior_period_adjustment"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -11394,6 +11394,36 @@ IMPORTANT GUIDELINES:
             });
           } catch (logErr: any) {
             console.error("[Prior Period] Audit log failed:", logErr.message);
+          }
+        }
+      }
+
+      if (updates.category === "loan_principal") {
+        const loanTxn = await storage.getFirmTransaction(txnId);
+        if (loanTxn) {
+          const loansPayableAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
+          const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+
+          if (loansPayableAccount.length > 0 && cashAccount.length > 0) {
+            const absAmount = Math.abs(loanTxn.amount);
+            try {
+              const { postJournalEntry } = await import("./accounting-engine");
+              await postJournalEntry(
+                {
+                  transactionDate: loanTxn.date,
+                  description: `Loan Principal Payment — ${loanTxn.description}`,
+                  referenceType: "loan_principal",
+                  referenceId: String(txnId),
+                  createdBy: req.user?.id || null,
+                },
+                [
+                  { accountId: loansPayableAccount[0].id, debit: absAmount, credit: 0, memo: `Principal reduction: ${loanTxn.description}` },
+                  { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Principal reduction: ${loanTxn.description}` },
+                ]
+              );
+            } catch (jeErr: any) {
+              console.error("[Loan Principal] Journal entry failed:", jeErr.message);
+            }
           }
         }
       }
