@@ -12748,6 +12748,52 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  // === AUDIT TRAIL ASSESSOR (Gmail Receipt Matching) ===
+  app.post("/api/firm/audit-trail/lookup/:transactionId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const transactionId = Number(req.params.transactionId);
+      if (!transactionId) return res.status(400).json({ message: "Valid transactionId required" });
+      const { auditTrailAssessor } = await import("./audit-trail-engine");
+      const results = await auditTrailAssessor.performLookup(transactionId);
+      res.json({ transactionId, resultCount: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/audit-trail/link", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionId, messageId } = req.body;
+      if (!transactionId || !messageId) return res.status(400).json({ message: "transactionId and messageId required" });
+      const { auditTrailAssessor } = await import("./audit-trail-engine");
+      const result = await auditTrailAssessor.linkEvidence(transactionId, messageId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/audit-trail/unlink/:transactionId", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const transactionId = Number(req.params.transactionId);
+      const { auditTrailAssessor } = await import("./audit-trail-engine");
+      await auditTrailAssessor.unlinkEvidence(transactionId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/audit-trail/stats", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { auditTrailAssessor } = await import("./audit-trail-engine");
+      const stats = await auditTrailAssessor.getVerificationStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === BASIS ASSESSOR (S-Corp Self-Rental) ===
   app.post("/api/firm/basis/rent-accrual", isAuthenticated, isOwner, async (req: any, res) => {
     try {

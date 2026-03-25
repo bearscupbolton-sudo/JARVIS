@@ -1669,6 +1669,9 @@ export const firmTransactions = pgTable("firm_transactions", {
   department: text("department"),
   departmentAllocations: jsonb("department_allocations").$type<Array<{ department: string; amount: number; percent: number }>>(),
   projectId: integer("project_id"),
+  auditTrailLink: text("audit_trail_link"),
+  auditTrailGmailId: text("audit_trail_gmail_id"),
+  isAuditVerified: boolean("is_audit_verified").default(false).notNull(),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
