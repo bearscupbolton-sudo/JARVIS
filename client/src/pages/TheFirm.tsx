@@ -1137,18 +1137,12 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
       toast({ title: "Missing description", description: "Every component needs a description.", variant: "destructive" });
       return;
     }
-    if (components.length === 1) {
-      reclassifyMut.mutate({ id: equipmentSplitTxn.id, category: "equipment", description: equipmentSplitTxn.description });
-      setEquipmentSplitTxn(null);
-      setEquipmentComponents([]);
-    } else {
-      componentizeMut.mutate({
-        transactionId: equipmentSplitTxn.id,
-        components,
-        vendor: equipmentSplitTxn.vendor || equipmentSplitTxn.description || "Unknown",
-        purchaseDate: equipmentSplitTxn.date,
-      });
-    }
+    componentizeMut.mutate({
+      transactionId: equipmentSplitTxn.id,
+      components,
+      vendor: equipmentSplitTxn.vendor || equipmentSplitTxn.description || "Unknown",
+      purchaseDate: equipmentSplitTxn.date,
+    });
   };
   const updateDescriptionMut = useMutation({
     mutationFn: ({ id, description }: { id: number; description: string }) =>
