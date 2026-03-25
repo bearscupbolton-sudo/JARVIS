@@ -1680,6 +1680,41 @@ export const insertFirmTransactionSchema = createInsertSchema(firmTransactions).
 export type FirmTransaction = typeof firmTransactions.$inferSelect;
 export type InsertFirmTransaction = z.infer<typeof insertFirmTransactionSchema>;
 
+export const gmailCredentials = pgTable("gmail_credentials", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  scope: text("scope"),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGmailCredentialsSchema = createInsertSchema(gmailCredentials).omit({ id: true, createdAt: true });
+export type GmailCredential = typeof gmailCredentials.$inferSelect;
+export type InsertGmailCredential = z.infer<typeof insertGmailCredentialsSchema>;
+
+export const emailAuditIndex = pgTable("email_audit_index", {
+  id: serial("id").primaryKey(),
+  messageId: text("message_id").notNull().unique(),
+  accountOwner: text("account_owner"),
+  subject: text("subject"),
+  sender: text("sender"),
+  snippet: text("snippet"),
+  detectedAmount: doublePrecision("detected_amount"),
+  dateReceived: text("date_received"),
+  hasAttachments: boolean("has_attachments").default(false).notNull(),
+  attachmentNames: text("attachment_names").array(),
+  transactionId: integer("transaction_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEmailAuditIndexSchema = createInsertSchema(emailAuditIndex).omit({ id: true, createdAt: true });
+export type EmailAuditIndex = typeof emailAuditIndex.$inferSelect;
+export type InsertEmailAuditIndex = z.infer<typeof insertEmailAuditIndexSchema>;
+
 export const firmRecurringObligations = pgTable("firm_recurring_obligations", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
