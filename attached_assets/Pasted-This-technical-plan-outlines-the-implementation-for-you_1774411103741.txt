@@ -1,0 +1,42 @@
+This technical plan outlines the implementation for your RAGENT to automate the classification of personal expenses as **Owner’s Draw** (Equity 3000-series). This architecture is designed for "assassin-level" precision, ensuring these charges never touch your P&L or deductible expense lines, maintaining a bulletproof audit trail.
+
+### 1. Database & Schema Alignment
+The existing **Chart of Accounts (COA)** already includes the necessary targets:
+* **Target Account:** `3010 - Owner's Draw` (Type: Equity).
+* **Source Accounts:** Typically `2020 - Credit Card - Business` or `1010 - Operating Cash - Checking`.
+
+To support this, the RAGENT will utilize the `journal_entries` and `ledger_lines` tables for double-entry integrity.
+
+### 2. The "Reclassification Assassin" Workflow
+The RAGENT will execute a three-stage "Capture-Validate-Execute" protocol to handle personal charges hitting business accounts.
+
+#### Stage A: Rapid Identification (The Trigger)
+A new endpoint `/api/accounting/reclassify-draw` will be exposed. When you identify a personal charge (e.g., a personal Amazon order on the business AMEX), the RAGENT will:
+1.  **Locate** the original transaction in the `firm_transactions` or `plaid_transactions` queue.
+2.  **Intercept** the default "Expense" classification before it posts to the general ledger.
+
+#### Stage B: Double-Entry Execution
+The RAGENT will call the existing `postJournalEntry` function in `server/accounting-engine.ts` to ensure the ledger remains balanced:
+* **Debit:** `3010 - Owner's Draw` (Increases Draw / Decreases Equity).
+* **Credit:** `2020 - Credit Card - Business` (Increases Liability).
+
+#### Stage C: Audit Redundancy (IRS Proofing)
+To satisfy "auditor-level" scrutiny, every Owner's Draw classification will trigger a record in the `ai_inference_logs` table with:
+* **`logic_summary`**: "Manual reclassification of personal expense to Owner's Draw".
+* **`anomaly_flag`**: Set to `false` (explicitly marking it as a known, non-business item).
+* **`raw_input`**: Captured metadata from the original receipt/transaction.
+
+### 3. Technical Implementation Details
+
+| Component | Responsibility | Relevant Files |
+| :--- | :--- | :--- |
+| **Logic Layer** | `server/accounting-engine.ts` | Uses `postJournalEntry` to bypass the P&L and hit the Balance Sheet. |
+| **Persistence** | `shared/schema.ts` | Updates `ledger_lines` with account code `3010`. |
+| **AI Integration** | `server/ghost-accountant.ts` | Training the AI to auto-suggest "Draw" for recurring personal vendors. |
+
+### 4. Implementation Steps for RAGENT
+1.  **Seed Update:** Ensure `3010 - Owner's Draw` is active in the COA using the `seedChartOfAccounts` function.
+2.  **UI Modification:** Add a "Personal/Draw" quick-toggle on the `InvoiceCapture.tsx` and `AdpLaborSync.tsx` pages.
+3.  **Validation Rule:** Add a strict check in `accounting-engine.ts` that prevents any line tagged as `3010` from having an associated tax-deductible category.
+
+This plan ensures that every personal dollar spent through **Bear's Cup Bakehouse** is instantly sequestered into Equity, leaving your business expenses clean and your tax liability accurately represented.

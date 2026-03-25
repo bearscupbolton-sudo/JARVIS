@@ -11283,7 +11283,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -11305,7 +11305,56 @@ IMPORTANT GUIDELINES:
 
   app.patch("/api/firm/transactions/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const transaction = await storage.updateFirmTransaction(Number(req.params.id), req.body);
+      const txnId = Number(req.params.id);
+      const updates = req.body;
+
+      if (updates.category === "owner_draw") {
+        const existing = await storage.getFirmTransaction(txnId);
+        if (!existing) return res.status(404).json({ message: "Transaction not found" });
+
+        const drawAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3010")).limit(1);
+        const creditAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2020")).limit(1);
+
+        if (drawAccount.length > 0 && creditAccount.length > 0) {
+          const absAmount = Math.abs(existing.amount);
+          try {
+            const { postJournalEntry } = await import("./accounting-engine");
+            await postJournalEntry(
+              {
+                transactionDate: existing.date,
+                description: `Owner's Draw — ${existing.description}`,
+                referenceType: "owner_draw",
+                referenceId: String(txnId),
+                createdBy: req.user?.id || null,
+              },
+              [
+                { accountId: drawAccount[0].id, debit: absAmount, credit: 0, memo: `Personal: ${existing.description}` },
+                { accountId: creditAccount[0].id, debit: 0, credit: absAmount, memo: `Personal: ${existing.description}` },
+              ]
+            );
+          } catch (jeErr: any) {
+            console.error("[Owner Draw] Journal entry failed:", jeErr.message);
+          }
+        }
+
+        try {
+          await db.insert(aiInferenceLogs).values({
+            transactionId: txnId,
+            inputAmount: existing.amount,
+            rawInput: JSON.stringify({ description: existing.description, date: existing.date, amount: existing.amount }),
+            suggestedCategory: "owner_draw",
+            suggestedCoaCode: "3010",
+            confidence: 1.0,
+            logicSummary: "Manual reclassification of personal expense to Owner's Draw (COA 3010). Not tax-deductible.",
+            anomalyFlag: false,
+            accepted: true,
+          });
+        } catch (logErr: any) {
+          console.error("[Owner Draw] Audit log failed:", logErr.message);
+        }
+      }
+
+      const transaction = await storage.updateFirmTransaction(txnId, updates);
       if (!transaction) return res.status(404).json({ message: "Transaction not found" });
       res.json(transaction);
     } catch (err: any) {

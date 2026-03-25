@@ -90,6 +90,7 @@ const CATEGORIES = [
   { value: "interest_mortgage", label: "Mortgage Interest" },
   { value: "interest_other", label: "Other Interest" },
   { value: "technology", label: "Technology & Software" },
+  { value: "owner_draw", label: "Owner's Draw (Personal)" },
   { value: "misc", label: "Misc" },
 ];
 
@@ -103,7 +104,7 @@ const CATEGORY_TO_COA: Record<string, string> = {
   professional_services: "6100", licenses_permits: "6190",
   bank_charges: "6200", amortization: "6210", pension_plans: "6220",
   llc_fee: "6230", meals_deductible: "6240", interest_mortgage: "6250",
-  interest_other: "6260", technology: "6080", misc: "6090",
+  interest_other: "6260", technology: "6080", owner_draw: "3010", misc: "6090",
 };
 
 const ACCOUNT_TYPES = [
@@ -397,7 +398,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
-  const manualTxnTotal = s.manualTransactionsByCategory ? Object.values(s.manualTransactionsByCategory as Record<string, number>).reduce((a: number, v: number) => a + Math.abs(v), 0) : 0;
+  const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => cat !== "owner_draw").reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
+  const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
   const laborCostForPL = compiledLaborCost > 0 ? compiledLaborCost : (s.laborCost || 0);
   const expenses = (s.invoiceExpenseTotal || 0) + laborCostForPL + manualTxnTotal + (s.payrollTotal || 0);
@@ -453,6 +455,17 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
             <div className="text-[10px] text-muted-foreground mt-1">{accounts.filter(a => a.isActive).length} active accounts</div>
           </CardContent>
         </Card>
+        {ownerDrawTotal > 0 && (
+          <Card className="col-span-2 md:col-span-4 border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20" data-testid="card-owner-draw">
+            <CardContent className="p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span className="text-xs font-medium text-purple-700 dark:text-purple-300">Owner's Draw (Personal — Not on P&L)</span>
+              </div>
+              <span className="text-sm font-bold text-purple-700 dark:text-purple-300">{formatCurrency(ownerDrawTotal)}</span>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card data-testid="card-account-positions">
@@ -554,8 +567,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardHeader>
           <CardContent className="space-y-2">
             {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
-              <div key={cat} className="flex items-center justify-between text-sm">
-                <span className="capitalize">{cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1234,10 +1247,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>
@@ -2337,6 +2350,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     interest_mortgage: "Mortgage Interest",
     interest_other: "Other Interest",
     technology: "Technology & Software",
+    owner_draw: "Owner's Draw",
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
