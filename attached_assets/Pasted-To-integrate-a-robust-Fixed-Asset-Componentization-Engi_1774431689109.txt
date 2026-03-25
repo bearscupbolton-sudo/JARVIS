@@ -1,0 +1,75 @@
+To integrate a robust **Fixed Asset & Componentization Engine** into Jarvis, we must transition the "Equipment" classification from a simple expense category to a multi-stage **Capitalization Workflow**. 
+
+Below is the optimized specification for your RAgent, focusing on the audit trail, the ledger impact, and the "Assessor" logic for multi-item debits.
+
+### **1. The Componentization Reporting Workflow**
+When the RAgent detects a debit from a vendor (e.g., *BakeMark*, *Navitas*, *Advantage*) that exceeds the **$2,500 threshold**, it should not auto-categorize. Instead, it enters a "Pending Asset" state.
+
+**The User Interaction Flow:**
+1.  **Detection:** RAgent identifies a $30,000 transaction.
+2.  **Prompt:** *"Louis, we've flagged a $30k capital expenditure. Should we componentize this for Saratoga or Bolton?"*
+3.  **Splitting:** You provide the breakdown (e.g., 1x Rack Oven, 2x Floor Mixers).
+4.  **Registration:** Jarvis assigns unique **Asset IDs** (e.g., `BC-SAR-EQ-001`) and attaches the digital receipt/invoice from your Gmail.
+
+
+
+### **2. The Journal Entry (JE) Logic**
+The RAgent must handle the "moving of money" between the P&L and the Balance Sheet automatically. For a $30,000 purchase split into three $10k items, the entries look like this:
+
+**Initial Purchase Entry (The "Lump" Credit):**
+* **Debit:** 1510 - Machinery & Equipment (Fixed Asset) | $30,000.00
+* **Credit:** 1010 - Cash/Operating | $30,000.00
+* *Ramification:* No impact on your "Net Income" for the month. Your cash goes down, but your "Total Assets" stay the same because the value moved from Cash to Equipment.
+
+**Monthly Depreciation Entry (The "Recurring" Debit):**
+* **Debit:** 6500 - Depreciation Expense (P&L) | ~$500.00 (Total for all 3 items)
+* **Credit:** 1550 - Accumulated Depreciation (Balance Sheet) | $500.00
+* *Ramification:* This is where the cost hits your "Net Income." By spreading that $30k over 60 months ($500/mo), your monthly reporting reflects the actual "wear and tear" cost of the equipment against the bread it produces.
+
+### **3. Optimized RAgent Build Spec**
+I recommend updating your `asset-engine.ts` with the following "Assessor" functions:
+
+```typescript
+// Proposed addition to server/asset-engine.ts
+export class AssetAssessor {
+  /**
+   * Transforms a single massive debit into distinct asset entities.
+   * Optimizes for MACRS tax reporting and location-based tracking.
+   */
+  async componentizeTransaction(txId: string, components: Array<{
+    name: string,
+    cost: number,
+    class: '5yr' | '7yr' | '15yr',
+    locationId: number
+  }>) {
+    // 1. Validate total matches the ledger debit
+    const total = components.reduce((acc, c) => acc + c.cost, 0);
+    
+    // 2. Create the 'Parent' Fixed Asset record
+    // 3. Create 'Child' component records for granular tracking
+    
+    // 4. Generate the 'Asset History' Log:
+    // This allows you to track "Asset BC-SAR-001 (Mixer) moved from SAR to BOL" 
+    // without breaking the original purchase audit trail.
+  }
+
+  /**
+   * The "Ghost Accountant" Month-End depreciation trigger.
+   */
+  async runMonthlyDepreciation() {
+    // Calculated based on 'Date Placed in Service'
+    // Result: One summarized JE posted to the ledger for the month.
+  }
+}
+```
+
+### **4. "Assessor" Ramification Analysis**
+
+* **S Corp Basis Protection:** Because Jarvis knows your 2024 ending basis was **$57,212**, this engine protects your equity. If you expensed $30k at once, you might accidentally create a "paper loss" that exceeds your basis, making the loss non-deductible for taxes. Capitalizing preserves that basis.
+* **Multi-Location P&L Accuracy:** Saratoga's "Rent" is already high at **$10,347**. If you also "expense" $50k in equipment in the same month, your Saratoga dashboard will look like a disaster. This engine ensures Saratoga's performance is judged on **operations**, not **infrastructure setup**.
+* **Insurance & Valuation:** In the event of a fire or flood at either location, this Asset Register provides an instant, depreciated-value report of every piece of equipment for the insurance adjuster.
+
+
+
+**Next Step:**
+I will proceed with the code update to ensure that any "Equipment" flag in your reconciliation tool now triggers this **"Asset Splitter"** screen instead of a direct P&L hit. Does that work for your workflow?

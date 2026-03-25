@@ -12671,6 +12671,30 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/assets/componentize", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { transactionId, components, vendor, purchaseDate } = req.body;
+      if (!transactionId || !components || !Array.isArray(components) || components.length === 0) {
+        return res.status(400).json({ message: "transactionId and components[] required" });
+      }
+      const { componentizeTransaction } = await import("./asset-engine");
+      const result = await componentizeTransaction(
+        transactionId,
+        components,
+        vendor || "Unknown",
+        purchaseDate || new Date().toISOString().split("T")[0],
+        user?.username || user?.firstName || "System"
+      );
+
+      await storage.updateFirmTransaction(transactionId, { category: "equipment" });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.delete("/api/firm/assets/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const id = Number(req.params.id);
