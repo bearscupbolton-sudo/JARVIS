@@ -11428,6 +11428,61 @@ IMPORTANT GUIDELINES:
         }
       }
 
+      if (updates.category === "equipment") {
+        const equipTxn = await storage.getFirmTransaction(txnId);
+        if (equipTxn) {
+          const existingAsset = await db.select().from(fixedAssets).where(eq(fixedAssets.purchaseTransactionId, txnId)).limit(1);
+          if (existingAsset.length === 0) {
+            const absAmount = Math.abs(equipTxn.amount);
+            try {
+              const [newAsset] = await db.insert(fixedAssets).values({
+                name: equipTxn.description || "Equipment Purchase",
+                description: `Auto-created from transaction #${txnId}`,
+                vendor: equipTxn.vendor || "Unknown",
+                purchasePrice: absAmount,
+                placedInServiceDate: equipTxn.date,
+                usefulLifeMonths: 84,
+                salvageValue: 0,
+                locationId: equipTxn.locationId || 1,
+                locationTag: equipTxn.locationId === 2 ? "BC-BOL" : "BC-SAR",
+                status: "pending",
+                section179Eligible: true,
+                section179Elected: false,
+                bookDepreciationMethod: "straight_line",
+                taxDepreciationMethod: "straight_line",
+                purchaseTransactionId: txnId,
+                createdBy: req.user?.username || req.user?.firstName || "System",
+              }).returning();
+
+              const { logAssetAudit, capitalizeAsset } = await import("./asset-engine");
+              await logAssetAudit(newAsset.id, "AUTO_CREATED", `Auto-created from equipment reclassification. Transaction: ${equipTxn.description}, Amount: $${absAmount.toLocaleString()}`, req.user?.username || "System");
+
+              const fixedAssetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
+              const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+              if (fixedAssetAccount.length > 0 && cashAccount.length > 0) {
+                const { postJournalEntry } = await import("./accounting-engine");
+                await postJournalEntry(
+                  {
+                    transactionDate: equipTxn.date,
+                    description: `CapEx — ${equipTxn.description}`,
+                    referenceType: "capex",
+                    referenceId: String(txnId),
+                    createdBy: req.user?.id || null,
+                  },
+                  [
+                    { accountId: fixedAssetAccount[0].id, debit: absAmount, credit: 0, memo: `Capitalize: ${equipTxn.description}` },
+                    { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Capitalize: ${equipTxn.description}` },
+                  ]
+                );
+              }
+              console.log(`[CapEx] Auto-created asset #${newAsset.id} from txn #${txnId}: $${absAmount}`);
+            } catch (assetErr: any) {
+              console.error("[CapEx] Auto-asset creation failed:", assetErr.message);
+            }
+          }
+        }
+      }
+
       if (updates.category === "sales_tax_payment") {
         const taxTxn = await storage.getFirmTransaction(txnId);
         if (taxTxn) {
