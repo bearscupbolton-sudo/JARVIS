@@ -171,24 +171,28 @@ export async function searchAcrossAccounts(query: string, maxPerAccount: number 
   const allCreds = await db.select().from(gmailCredentials)
     .where(eq(gmailCredentials.isActive, true));
 
-  const results: MultiAccountSearchResult[] = [];
   const searchedAccounts: string[] = [];
   const failedAccounts: string[] = [];
 
-  for (const cred of allCreds) {
+  const searchTasks = allCreds.map(async (cred) => {
     try {
       const accountResults = await searchAccount(cred.email, query, maxPerAccount);
-      results.push(...accountResults);
       searchedAccounts.push(cred.email);
 
       await db.update(gmailCredentials)
         .set({ lastSyncedAt: new Date() })
         .where(eq(gmailCredentials.id, cred.id));
+
+      return accountResults;
     } catch (e: any) {
       console.warn(`[GmailMulti] Failed to search ${cred.email}:`, e.message);
       failedAccounts.push(cred.email);
+      return [];
     }
-  }
+  });
+
+  const allResults = await Promise.all(searchTasks);
+  const results = allResults.flat();
 
   return { results, searchedAccounts, failedAccounts };
 }
