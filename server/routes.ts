@@ -12717,8 +12717,8 @@ IMPORTANT GUIDELINES:
       if (!transactionId || !components || !Array.isArray(components) || components.length === 0) {
         return res.status(400).json({ message: "transactionId and components[] required" });
       }
-      const { assetAssessor } = await import("./asset-engine");
-      const result = await assetAssessor.splitCapitalExpenditure(
+      const { componentizeTransaction } = await import("./asset-engine");
+      const result = await componentizeTransaction(
         transactionId,
         components,
         vendor || "Unknown",
