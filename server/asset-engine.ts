@@ -645,11 +645,12 @@ export async function seedLegacyAssets(createdBy: string) {
 /**
  * INTERCOMPANY RENT & S-CORP BASIS ENGINE
  *
- * Strategy: Bear's Cup LLC (S-Corp) occupies property owned by Kolby (via LODA Restaurant LLC).
- * Monthly self-rental creates a non-cash rent expense on Bear's Cup books (deductible),
- * and an equity contribution that increases Kolby's S-Corp basis.
+ * Strategy: Kolby owns the Bolton Landing property via LODA Restaurant LLC (EIN 87-4427857).
+ * Bear's Cup LLC (S-Corp, EIN 83-3429330) pays rent to LODA for the Bolton location.
+ * This creates a deductible rent expense on Bear's Cup books and increases Kolby's S-Corp basis.
+ * Saratoga is a third-party lease — no self-rental basis play there.
  *
- * Target: $50,000 annual basis contribution ($4,166.67/month)
+ * Target: $50,000 annual basis contribution ($4,166.67/month) — Bolton Landing only
  *
  * COA Map:
  *   6030 = Rent (Expense - deductible on S-Corp return)
@@ -662,11 +663,11 @@ export class BasisAssessor {
   private MONTHLY_RENT_TARGET = 4166.67;
   private RENT_EXPENSE_COA = "6030";
   private EQUITY_CONTRIB_COA = "3000";
-  private LOCATIONS = [1, 2];
+  private BOLTON_LOCATION_ID = 2;
 
   async runMonthlyRentAccrual(periodDate: string, locationId: number, createdBy: string = "BasisAssessor") {
-    if (!this.LOCATIONS.includes(locationId)) {
-      console.log(`[BasisAssessor] Location ${locationId} not eligible for rent accrual`);
+    if (locationId !== this.BOLTON_LOCATION_ID) {
+      console.log(`[BasisAssessor] Location ${locationId} not eligible — self-rental only applies to Bolton Landing (LODA property)`);
       return null;
     }
 
@@ -735,13 +736,8 @@ export class BasisAssessor {
     };
   }
 
-  async runAllLocations(periodDate: string, createdBy: string = "BasisAssessor") {
-    const results = [];
-    for (const locId of this.LOCATIONS) {
-      const result = await this.runMonthlyRentAccrual(periodDate, locId, createdBy);
-      if (result) results.push(result);
-    }
-    return results;
+  async runForBolton(periodDate: string, createdBy: string = "BasisAssessor") {
+    return this.runMonthlyRentAccrual(periodDate, this.BOLTON_LOCATION_ID, createdBy);
   }
 }
 
