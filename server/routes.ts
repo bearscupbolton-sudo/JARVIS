@@ -12755,13 +12755,8 @@ IMPORTANT GUIDELINES:
       if (!periodDate) return res.status(400).json({ message: "periodDate required (YYYY-MM-DD)" });
       const user = await getUserFromReq(req);
       const { basisAssessor } = await import("./asset-engine");
-      if (locationId) {
-        const result = await basisAssessor.runMonthlyRentAccrual(periodDate, locationId, user?.username || "Owner");
-        res.json({ posted: result ? 1 : 0, entries: result ? [result] : [] });
-      } else {
-        const results = await basisAssessor.runAllLocations(periodDate, user?.username || "Owner");
-        res.json({ posted: results.length, entries: results });
-      }
+      const result = await basisAssessor.runForBolton(periodDate, user?.username || "Owner");
+      res.json({ posted: result ? 1 : 0, entries: result ? [result] : [] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
