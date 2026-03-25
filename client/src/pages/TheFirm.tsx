@@ -1002,6 +1002,39 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [editingDescriptionText, setEditingDescriptionText] = useState("");
   const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
   const [equipmentComponents, setEquipmentComponents] = useState<Array<{ description: string; cost: string; usefulLife: number; locationId: number }>>([]);
+  const [jarvisLookupTxn, setJarvisLookupTxn] = useState<any | null>(null);
+  const [jarvisResults, setJarvisResults] = useState<any | null>(null);
+  const [jarvisSearchingId, setJarvisSearchingId] = useState<number | null>(null);
+
+  const jarvisLookupMut = useMutation({
+    mutationFn: async (txId: number) => {
+      const res = await apiRequest("POST", `/api/firm/audit-trail/lookup/${txId}`);
+      return res.json();
+    },
+    onSuccess: (data, txId) => {
+      setJarvisResults(data);
+      const txn = filteredTransactions?.find((t: any) => t.id === txId);
+      setJarvisLookupTxn(txn || null);
+      setJarvisSearchingId(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Jarvis Lookup failed", description: err.message, variant: "destructive" });
+      setJarvisSearchingId(null);
+    },
+  });
+
+  const jarvisLinkMut = useMutation({
+    mutationFn: async ({ transactionId, messageId }: { transactionId: number; messageId: string }) => {
+      const res = await apiRequest("POST", "/api/firm/audit-trail/link", { transactionId, messageId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      toast({ title: "Evidence linked", description: "Transaction marked as audit-verified." });
+      setJarvisLookupTxn(null);
+      setJarvisResults(null);
+    },
+  });
 
   const componentizeMut = useMutation({
     mutationFn: (data: { transactionId: number; components: any[]; vendor: string; purchaseDate: string }) =>
@@ -1343,7 +1376,19 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       </button>
                     </td>
                     <td className="p-3">
-                      {txn.referenceType === "manual" && <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(txn.id)} data-testid={`button-delete-txn-${txn.id}`}><Trash2 className="w-3 h-3" /></Button>}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={`h-6 px-1.5 text-xs ${txn.isAuditVerified ? "text-green-600 dark:text-green-400" : "text-blue-500 hover:text-blue-700 dark:text-blue-400"}`}
+                          onClick={() => { setJarvisSearchingId(txn.id); jarvisLookupMut.mutate(txn.id); }}
+                          disabled={jarvisSearchingId === txn.id}
+                          data-testid={`button-jarvis-lookup-${txn.id}`}
+                        >
+                          {jarvisSearchingId === txn.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : txn.isAuditVerified ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
+                        </Button>
+                        {txn.referenceType === "manual" && <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(txn.id)} data-testid={`button-delete-txn-${txn.id}`}><Trash2 className="w-3 h-3" /></Button>}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1457,6 +1502,105 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                   {equipmentComponents.length === 1 ? "Create Single Asset" : `Create ${equipmentComponents.length} Assets`}
                 </Button>
               </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!jarvisLookupTxn} onOpenChange={(open) => { if (!open) { setJarvisLookupTxn(null); setJarvisResults(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-blue-500" />
+              Jarvis Audit Lookup
+            </DialogTitle>
+          </DialogHeader>
+          {jarvisLookupTxn && jarvisResults && (
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">{jarvisLookupTxn.description}</span>
+                  <span className={`font-bold tabular-nums ${jarvisLookupTxn.amount >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    {formatCurrency(jarvisLookupTxn.amount)}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground">{jarvisLookupTxn.date} &middot; {jarvisLookupTxn.category?.replace(/_/g, " ")}</div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                {jarvisResults.searchedAccounts?.map((acc: string) => (
+                  <Badge key={acc} variant="secondary" className="text-[10px]" data-testid={`badge-searched-${acc}`}>
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-green-500" /> {acc}
+                  </Badge>
+                ))}
+                {jarvisResults.pendingAccounts?.map((acc: string) => (
+                  <Badge key={acc} variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-pending-${acc}`}>
+                    <Clock className="w-3 h-3 mr-1" /> {acc}
+                  </Badge>
+                ))}
+                {jarvisResults.failedAccounts?.map((acc: string) => (
+                  <Badge key={acc} variant="destructive" className="text-[10px]" data-testid={`badge-failed-${acc}`}>
+                    <AlertTriangle className="w-3 h-3 mr-1" /> {acc}
+                  </Badge>
+                ))}
+              </div>
+
+              {jarvisResults.results?.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Search className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No matching emails found across connected accounts.</p>
+                  {jarvisResults.pendingAccounts?.length > 0 && (
+                    <p className="text-xs mt-1">Connect {jarvisResults.pendingAccounts.length} more account(s) to expand the search.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2" data-testid="jarvis-results-list">
+                  <p className="text-xs text-muted-foreground">{jarvisResults.results.length} result(s) found</p>
+                  {jarvisResults.results.map((result: any, idx: number) => (
+                    <div
+                      key={result.messageId}
+                      className="border rounded-lg p-3 space-y-2 hover:bg-muted/30 transition-colors"
+                      data-testid={`jarvis-result-${idx}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm truncate">{result.subject || "(no subject)"}</div>
+                          <div className="text-xs text-muted-foreground truncate">{result.from}</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className={`text-xs font-mono px-1.5 py-0.5 rounded ${result.relevanceScore >= 60 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : result.relevanceScore >= 30 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                            {result.relevanceScore}%
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{result.snippet}</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{result.date}</span>
+                          {result.hasAttachment && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0">
+                              <FileCheck className="w-2.5 h-2.5 mr-0.5" />
+                              {result.attachmentNames?.join(", ") || "attachment"}
+                            </Badge>
+                          )}
+                          <Badge variant="secondary" className="text-[9px] px-1 py-0">{result.accountOwner}</Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="h-6 text-xs"
+                          onClick={() => jarvisLinkMut.mutate({ transactionId: jarvisLookupTxn.id, messageId: result.messageId })}
+                          disabled={jarvisLinkMut.isPending}
+                          data-testid={`button-link-evidence-${idx}`}
+                        >
+                          {jarvisLinkMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Link2 className="w-3 h-3 mr-1" />}
+                          Link
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
