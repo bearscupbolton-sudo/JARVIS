@@ -12774,6 +12774,32 @@ IMPORTANT GUIDELINES:
 
       await storage.updateFirmTransaction(transactionId, { category: "equipment" });
 
+      try {
+        const fixedAssetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
+        const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+        if (fixedAssetAccount.length > 0 && cashAccount.length > 0) {
+          const { postJournalEntry } = await import("./accounting-engine");
+          const txn = await storage.getFirmTransaction(transactionId);
+          const totalCost = result.totalCost;
+          const componentNames = result.assets.map((a: any) => a.name).join(", ");
+          await postJournalEntry(
+            {
+              transactionDate: purchaseDate || txn?.date || new Date().toISOString().split("T")[0],
+              description: `CapEx — ${componentNames} (${result.componentsCreated} items)`,
+              referenceType: "capex",
+              referenceId: String(transactionId),
+              createdBy: user?.id || null,
+            },
+            [
+              { accountId: fixedAssetAccount[0].id, debit: totalCost, credit: 0, memo: `Capitalize: ${componentNames}` },
+              { accountId: cashAccount[0].id, debit: 0, credit: totalCost, memo: `Capitalize: ${componentNames}` },
+            ]
+          );
+        }
+      } catch (jeErr: any) {
+        console.error("[CapEx Componentize] Journal entry failed:", jeErr.message);
+      }
+
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

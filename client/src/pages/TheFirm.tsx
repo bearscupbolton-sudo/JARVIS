@@ -1000,6 +1000,70 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const [editingDescriptionText, setEditingDescriptionText] = useState("");
+  const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
+  const [equipmentComponents, setEquipmentComponents] = useState<Array<{ name: string; cost: string; usefulLifeMonths: number; locationId: number }>>([]);
+
+  const componentizeMut = useMutation({
+    mutationFn: (data: { transactionId: number; components: any[]; vendor: string; purchaseDate: string }) =>
+      apiRequest("POST", "/api/firm/assets/componentize", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      setEquipmentSplitTxn(null);
+      setEquipmentComponents([]);
+      toast({ title: "Equipment componentized", description: "Fixed assets created for each component." });
+    },
+  });
+
+  const handleEquipmentCategory = (txn: any) => {
+    setEditingCategoryId(null);
+    setEquipmentSplitTxn(txn);
+    setEquipmentComponents([{ name: txn.description || "", cost: String(Math.abs(txn.amount)), usefulLifeMonths: 84, locationId: txn.locationId || 1 }]);
+  };
+
+  const addComponent = () => {
+    setEquipmentComponents(prev => [...prev, { name: "", cost: "", usefulLifeMonths: 84, locationId: 1 }]);
+  };
+
+  const removeComponent = (idx: number) => {
+    setEquipmentComponents(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateComponent = (idx: number, field: string, value: any) => {
+    setEquipmentComponents(prev => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  };
+
+  const submitComponentize = () => {
+    if (!equipmentSplitTxn) return;
+    const totalAmount = Math.abs(equipmentSplitTxn.amount);
+    const components = equipmentComponents.map(c => ({
+      name: c.name,
+      cost: parseFloat(c.cost) || 0,
+      usefulLifeMonths: c.usefulLifeMonths,
+      locationId: c.locationId,
+    }));
+    const componentTotal = components.reduce((s, c) => s + c.cost, 0);
+    if (Math.abs(componentTotal - totalAmount) > 0.02) {
+      toast({ title: "Component total doesn't match", description: `Components sum to ${formatCurrency(componentTotal)} but transaction is ${formatCurrency(totalAmount)}. They must match.`, variant: "destructive" });
+      return;
+    }
+    if (components.some(c => !c.name.trim())) {
+      toast({ title: "Missing name", description: "Every component needs a name.", variant: "destructive" });
+      return;
+    }
+    if (components.length === 1) {
+      reclassifyMut.mutate({ id: equipmentSplitTxn.id, category: "equipment", description: equipmentSplitTxn.description });
+      setEquipmentSplitTxn(null);
+      setEquipmentComponents([]);
+    } else {
+      componentizeMut.mutate({
+        transactionId: equipmentSplitTxn.id,
+        components,
+        vendor: equipmentSplitTxn.vendor || equipmentSplitTxn.description || "Unknown",
+        purchaseDate: equipmentSplitTxn.date,
+      });
+    }
+  };
   const updateDescriptionMut = useMutation({
     mutationFn: ({ id, description }: { id: number; description: string }) =>
       apiRequest("PATCH", `/api/firm/transactions/${id}`, { description }),
@@ -1239,7 +1303,11 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                           onValueChange={(val) => {
                             setEditingCategoryId(null);
                             if (val !== txn.category) {
-                              reclassifyMut.mutate({ id: txn.id, category: val, description: txn.description });
+                              if (val === "equipment") {
+                                handleEquipmentCategory(txn);
+                              } else {
+                                reclassifyMut.mutate({ id: txn.id, category: val, description: txn.description });
+                              }
                             }
                           }}
                         >
@@ -1284,6 +1352,115 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!equipmentSplitTxn} onOpenChange={(open) => { if (!open) { setEquipmentSplitTxn(null); setEquipmentComponents([]); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-emerald-600" /> Equipment — Asset Split
+            </DialogTitle>
+          </DialogHeader>
+          {equipmentSplitTxn && (
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                <p className="text-sm font-medium">{equipmentSplitTxn.description}</p>
+                <p className="text-xs text-muted-foreground">{equipmentSplitTxn.date}</p>
+                <p className="text-lg font-bold tabular-nums">{formatCurrency(Math.abs(equipmentSplitTxn.amount))}</p>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Is this one asset or multiple items on one receipt? Add a row for each piece of equipment. Totals must match.
+              </p>
+
+              <div className="space-y-3">
+                {equipmentComponents.map((comp, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 space-y-2 relative">
+                    {equipmentComponents.length > 1 && (
+                      <button onClick={() => removeComponent(idx)} className="absolute top-2 right-2 text-destructive hover:text-destructive/80" data-testid={`button-remove-component-${idx}`}>
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    )}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs">Asset Name</Label>
+                        <Input
+                          value={comp.name}
+                          onChange={(e) => updateComponent(idx, "name", e.target.value)}
+                          placeholder="e.g. Spiral Mixer"
+                          className="h-8 text-sm"
+                          data-testid={`input-component-name-${idx}`}
+                        />
+                      </div>
+                      <div className="w-28">
+                        <Label className="text-xs">Cost</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={comp.cost}
+                          onChange={(e) => updateComponent(idx, "cost", e.target.value)}
+                          className="h-8 text-sm"
+                          data-testid={`input-component-cost-${idx}`}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs">Useful Life</Label>
+                        <Select value={String(comp.usefulLifeMonths)} onValueChange={(v) => updateComponent(idx, "usefulLifeMonths", parseInt(v))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-life-${idx}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="36">3 years</SelectItem>
+                            <SelectItem value="60">5 years</SelectItem>
+                            <SelectItem value="84">7 years (default)</SelectItem>
+                            <SelectItem value="120">10 years</SelectItem>
+                            <SelectItem value="180">15 years</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-xs">Location</Label>
+                        <Select value={String(comp.locationId)} onValueChange={(v) => updateComponent(idx, "locationId", parseInt(v))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-location-${idx}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Saratoga (BC-SAR)</SelectItem>
+                            <SelectItem value="2">Bolton Landing (BC-BOL)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button variant="outline" size="sm" onClick={addComponent} className="w-full" data-testid="button-add-component">
+                <Plus className="w-3 h-3 mr-1" /> Add Another Item
+              </Button>
+
+              {equipmentComponents.length > 1 && (
+                <div className="flex justify-between items-center bg-muted/50 rounded-lg p-3">
+                  <span className="text-sm font-medium">Component Total</span>
+                  <span className={`font-bold tabular-nums ${Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)) < 0.02 ? "text-green-600" : "text-red-600"}`}>
+                    {formatCurrency(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0))}
+                    {Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)) >= 0.02 && (
+                      <span className="text-xs ml-2 text-red-500">
+                        (off by {formatCurrency(Math.abs(equipmentComponents.reduce((s, c) => s + (parseFloat(c.cost) || 0), 0) - Math.abs(equipmentSplitTxn.amount)))})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setEquipmentSplitTxn(null); setEquipmentComponents([]); }} data-testid="button-cancel-split">Cancel</Button>
+                <Button onClick={submitComponentize} disabled={componentizeMut.isPending} className="bg-emerald-600 hover:bg-emerald-700" data-testid="button-submit-split">
+                  {componentizeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Package className="w-4 h-4 mr-1" />}
+                  {equipmentComponents.length === 1 ? "Create Single Asset" : `Create ${equipmentComponents.length} Assets`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
