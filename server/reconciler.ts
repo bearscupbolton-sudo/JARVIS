@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules } from "@shared/schema";
+import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules, appSettings } from "@shared/schema";
 import { eq, and, gte, lte, sql, lt, inArray, or, desc, ilike } from "drizzle-orm";
 
 const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = {
@@ -225,6 +225,7 @@ export async function getAdjustedCashPosition(): Promise<{
     salesTaxAccrued: number;
     openPlaceholders: number;
     upcomingFilings: number;
+    laborAccrual: number;
   };
 }> {
   const bankAccounts = await db.select()
@@ -269,7 +270,35 @@ export async function getAdjustedCashPosition(): Promise<{
     ));
   const upcomingFilings = Number(upcomingFilingsResult[0]?.total || 0);
 
-  const obligated = salesTaxAccrued + openPlaceholders + upcomingFilings;
+  let laborAccrual = 0;
+  try {
+    const { compilePayrollPreview } = await import("./payroll-compiler");
+    const today = new Date();
+    const dow = today.getDay();
+    const wednesdayOffset = (dow >= 3) ? dow - 3 : dow + 4;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - wednesdayOffset);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const preview = await compilePayrollPreview(
+      weekStart.toISOString().split("T")[0],
+      weekEnd.toISOString().split("T")[0]
+    );
+    const grossLabor = preview.totals.grossEstimate || 0;
+
+    let burdenRate = 0.1245;
+    try {
+      const rateRow = await db.select().from(appSettings).where(eq(appSettings.key, "payroll_tax_rates")).limit(1);
+      if (rateRow.length > 0) {
+        const rates = JSON.parse(rateRow[0].value);
+        burdenRate = ((rates.socialSecurity || 6.2) + (rates.medicare || 1.45) + (rates.federalUnemployment || 0.6) + (rates.stateUnemployment || 2.7) + (rates.workersComp || 1.5)) / 100;
+      }
+    } catch {}
+
+    laborAccrual = Math.round(grossLabor * (1 + burdenRate) * 100) / 100;
+  } catch {}
+
+  const obligated = salesTaxAccrued + openPlaceholders + upcomingFilings + laborAccrual;
   const spendable = bankBalance - obligated;
 
   return {
@@ -281,6 +310,7 @@ export async function getAdjustedCashPosition(): Promise<{
       salesTaxAccrued,
       openPlaceholders,
       upcomingFilings,
+      laborAccrual,
     },
   };
 }
