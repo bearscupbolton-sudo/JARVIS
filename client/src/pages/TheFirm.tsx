@@ -70,7 +70,7 @@ const CATEGORIES = [
   { value: "marketing", label: "Marketing" },
   { value: "debt_payment", label: "Debt Payment" },
   { value: "loan_interest", label: "Loan Interest" },
-  { value: "equipment", label: "Equipment" },
+  { value: "equipment", label: "Equipment (CapEx — Balance Sheet)" },
   { value: "taxes", label: "Taxes" },
   { value: "other_income", label: "Other Income" },
   { value: "travel_lodging", label: "Travel & Lodging" },
@@ -400,7 +400,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
-  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment"];
+  const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment"];
   const manualTxnTotal = s.manualTransactionsByCategory ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).filter(([cat]) => !NON_PL_CATEGORIES.includes(cat)).reduce((a: number, [, v]) => a + Math.abs(v), 0) : 0;
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
@@ -570,8 +570,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           </CardHeader>
           <CardContent className="space-y-2">
             {s.manualTransactionsByCategory && Object.keys(s.manualTransactionsByCategory).length > 0 ? Object.entries(s.manualTransactionsByCategory as Record<string, number>).map(([cat, total]) => (
-              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
-                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1250,10 +1250,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>

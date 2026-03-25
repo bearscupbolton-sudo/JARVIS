@@ -435,6 +435,55 @@ export async function seedLegacyAssets(createdBy: string) {
   return { seeded, skipped, total: LEGACY_ASSETS_2024.length };
 }
 
+export async function componentizeTransaction(
+  transactionId: number,
+  components: Array<{
+    name: string;
+    cost: number;
+    usefulLifeMonths: number;
+    locationId: number;
+    description?: string;
+  }>,
+  vendor: string,
+  purchaseDate: string,
+  createdBy: string
+) {
+  const totalCost = components.reduce((s, c) => s + c.cost, 0);
+  const createdAssets: any[] = [];
+
+  for (const comp of components) {
+    const locationTag = getLocationTag(comp.locationId);
+    const [asset] = await db.insert(fixedAssets).values({
+      name: comp.name,
+      description: comp.description || null,
+      vendor,
+      purchasePrice: comp.cost,
+      placedInServiceDate: purchaseDate,
+      usefulLifeMonths: comp.usefulLifeMonths,
+      salvageValue: 0,
+      locationId: comp.locationId,
+      locationTag: locationTag,
+      status: "pending",
+      section179Eligible: true,
+      section179Elected: false,
+      bookDepreciationMethod: "straight_line",
+      taxDepreciationMethod: "straight_line",
+      purchaseTransactionId: transactionId,
+      createdBy,
+    }).returning();
+
+    await logAssetAudit(asset.id, "COMPONENTIZED", `Split from transaction #${transactionId}. Component: ${comp.name} at $${comp.cost.toLocaleString()}. Total parent: $${totalCost.toLocaleString()}.`, createdBy);
+    createdAssets.push(asset);
+  }
+
+  return {
+    parentTransactionId: transactionId,
+    totalCost,
+    componentsCreated: createdAssets.length,
+    assets: createdAssets,
+  };
+}
+
 export async function logAssetAudit(assetId: number, action: string, details: string, performedBy: string, previousValues?: any, newValues?: any, reason?: string) {
   await db.insert(assetAuditLog).values({
     assetId,
