@@ -1,3 +1,14 @@
+/**
+ * JARVIS FIXED ASSET & COMPONENTIZATION ENGINE
+ * Optimized for S-Corp Basis Tracking and Multi-Location Isolation.
+ *
+ * COA Map (Bear's Cup LLC):
+ *   1500 = Fixed Assets – Equipment
+ *   1510 = Accumulated Depreciation
+ *   1010 = Operating Cash
+ *   6130 = Depreciation Expense
+ */
+
 import { db } from "./db";
 import { fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, firmTransactions, chartOfAccounts } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -17,30 +28,32 @@ const EQUIPMENT_VENDORS = [
 ];
 
 export interface AssetComponent {
-  name: string;
+  description: string;
   cost: number;
-  usefulLifeMonths: number;
+  usefulLife: number;
   locationId: number;
-  description?: string;
 }
 
 export class AssetAssessor {
-  async splitCapitalExpenditure(
-    transactionId: number,
-    components: AssetComponent[],
-    vendor: string,
-    purchaseDate: string,
-    createdBy: string
-  ) {
+  private ASSET_ACCOUNT = "1500";
+  private CASH_ACCOUNT = "1010";
+  private ACCUM_DEPREC_ACCOUNT = "1510";
+  private DEPREC_EXPENSE_ACCOUNT = "6130";
+
+  /**
+   * Transforms a single bank debit into multiple discrete capital assets.
+   * Validated for S-Corp basis continuity.
+   */
+  async componentizeTransaction(transactionId: number, components: AssetComponent[]) {
     const originalTx = await storage.getFirmTransaction(transactionId);
-    if (!originalTx) throw new Error(`Transaction #${transactionId} not found`);
+    if (!originalTx) throw new Error("Transaction not found");
 
-    const totalInput = Math.round(components.reduce((sum, c) => sum + Number(c.cost), 0) * 100) / 100;
-    const txnAmount = Math.round(Math.abs(Number(originalTx.amount)) * 100) / 100;
+    const totalBasis = Math.round(components.reduce((sum, c) => sum + Number(c.cost), 0) * 100) / 100;
+    const txAmount = Math.round(Math.abs(Number(originalTx.amount)) * 100) / 100;
 
-    if (Math.abs(totalInput - txnAmount) > 0.02) {
+    if (Math.abs(totalBasis - txAmount) > 0.01) {
       throw new Error(
-        `Assessor Audit Failure: Total split ($${totalInput.toFixed(2)}) must match transaction amount ($${txnAmount.toFixed(2)}). Variance: $${Math.abs(totalInput - txnAmount).toFixed(2)}`
+        `Audit Failure: Component total ($${totalBasis.toFixed(2)}) does not match bank debit ($${txAmount.toFixed(2)}). Variance: $${Math.abs(totalBasis - txAmount).toFixed(2)}`
       );
     }
 
@@ -48,77 +61,91 @@ export class AssetAssessor {
       .where(eq(fixedAssets.purchaseTransactionId, transactionId));
     if (existingAssets.length > 0) {
       throw new Error(
-        `Transaction #${transactionId} already has ${existingAssets.length} asset(s) linked. Delete existing assets first or use a different transaction.`
+        `Transaction #${transactionId} already has ${existingAssets.length} asset(s) linked. Delete existing assets first.`
       );
     }
 
     const createdAssets: any[] = [];
 
     for (const item of components) {
+      const usefulLifeMonths = item.usefulLife * 12;
       const locationTag = getLocationTag(item.locationId);
+
       const [asset] = await db.insert(fixedAssets).values({
-        name: item.name,
-        description: item.description || `Split from TX #${transactionId}`,
-        vendor,
+        name: item.description,
+        description: `Split from TX #${transactionId}`,
+        vendor: (originalTx as any).vendor || originalTx.description || "Unknown",
         purchasePrice: item.cost,
-        placedInServiceDate: purchaseDate,
-        usefulLifeMonths: item.usefulLifeMonths,
+        placedInServiceDate: originalTx.date,
+        usefulLifeMonths,
         salvageValue: 0,
         locationId: item.locationId,
         locationTag,
-        status: "pending",
+        status: "placed_in_service",
         section179Eligible: true,
         section179Elected: false,
         bookDepreciationMethod: "straight_line",
         taxDepreciationMethod: "straight_line",
         purchaseTransactionId: transactionId,
-        createdBy,
+        createdBy: "AssetAssessor",
       }).returning();
 
       await logAssetAudit(
         asset.id,
         "COMPONENTIZED",
-        `Split from transaction #${transactionId}. Component: ${item.name} at $${item.cost.toLocaleString()}. ` +
-        `Total parent: $${txnAmount.toLocaleString()}. ${components.length} sibling(s) in split.`,
-        createdBy
+        `Split from TX #${transactionId}. Component: ${item.description} at $${item.cost.toLocaleString()}. ` +
+        `Total parent: $${txAmount.toLocaleString()}. ${components.length} sibling(s) in split. ` +
+        `Useful life: ${item.usefulLife}yr. Location: ${locationTag}.`,
+        "AssetAssessor"
       );
       createdAssets.push(asset);
     }
 
-    await storage.updateFirmTransaction(transactionId, { category: "equipment" });
+    const assetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.ASSET_ACCOUNT)).limit(1);
+    const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.CASH_ACCOUNT)).limit(1);
 
-    const fixedAssetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
-    const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
-
-    if (fixedAssetAccount.length > 0 && cashAccount.length > 0) {
+    if (assetAccount.length > 0 && cashAccount.length > 0) {
       const componentNames = createdAssets.map((a: any) => a.name).join(", ");
       await postJournalEntry(
         {
-          transactionDate: purchaseDate,
-          description: `CapEx — ${componentNames} (${createdAssets.length} items from TX #${transactionId})`,
+          transactionDate: originalTx.date,
+          description: `Capitalized Equipment Split: TX #${transactionId} — ${originalTx.description}`,
           referenceType: "capex",
           referenceId: String(transactionId),
           createdBy: null,
         },
         [
-          { accountId: fixedAssetAccount[0].id, debit: txnAmount, credit: 0, memo: `Capitalize: ${componentNames}` },
-          { accountId: cashAccount[0].id, debit: 0, credit: txnAmount, memo: `Capitalize: ${componentNames}` },
+          { accountId: assetAccount[0].id, debit: txAmount, credit: 0, memo: `Capitalize: ${componentNames}` },
+          { accountId: cashAccount[0].id, debit: 0, credit: txAmount, memo: `Capitalize: ${componentNames}` },
         ]
       );
     }
 
+    await db.update(firmTransactions)
+      .set({
+        category: "equipment",
+        reconciled: true,
+      })
+      .where(eq(firmTransactions.id, transactionId));
+
     console.log(
-      `[AssetAssessor] Split TX #${transactionId} ($${txnAmount}) into ${createdAssets.length} assets: ${createdAssets.map(a => `${a.name} ($${a.purchasePrice})`).join(", ")}`
+      `[AssetAssessor] Componentized TX #${transactionId} ($${txAmount}) → ${createdAssets.length} assets: ${createdAssets.map(a => `${a.name} ($${a.purchasePrice})`).join(", ")}`
     );
 
     return {
+      success: true,
       parentTransactionId: transactionId,
-      totalCost: txnAmount,
+      totalCost: txAmount,
+      assetCount: createdAssets.length,
       componentsCreated: createdAssets.length,
       assets: createdAssets,
     };
   }
 
+  /**
+   * Single-asset shortcut: one transaction = one piece of equipment.
+   * Idempotent — returns existing asset if already linked.
+   */
   async capitalizeSingleAsset(transactionId: number, createdBy: string) {
     const tx = await storage.getFirmTransaction(transactionId);
     if (!tx) throw new Error(`Transaction #${transactionId} not found`);
@@ -140,7 +167,7 @@ export class AssetAssessor {
       salvageValue: 0,
       locationId: tx.locationId || 1,
       locationTag,
-      status: "pending",
+      status: "placed_in_service",
       section179Eligible: true,
       section179Elected: false,
       bookDepreciationMethod: "straight_line",
@@ -156,9 +183,9 @@ export class AssetAssessor {
       createdBy
     );
 
-    const fixedAssetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
-    const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
-    if (fixedAssetAccount.length > 0 && cashAccount.length > 0) {
+    const assetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.ASSET_ACCOUNT)).limit(1);
+    const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.CASH_ACCOUNT)).limit(1);
+    if (assetAccount.length > 0 && cashAccount.length > 0) {
       await postJournalEntry(
         {
           transactionDate: tx.date,
@@ -168,7 +195,7 @@ export class AssetAssessor {
           createdBy: null,
         },
         [
-          { accountId: fixedAssetAccount[0].id, debit: absAmount, credit: 0, memo: `Capitalize: ${tx.description}` },
+          { accountId: assetAccount[0].id, debit: absAmount, credit: 0, memo: `Capitalize: ${tx.description}` },
           { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Capitalize: ${tx.description}` },
         ]
       );
@@ -177,14 +204,75 @@ export class AssetAssessor {
     console.log(`[AssetAssessor] Auto-created asset #${newAsset.id} from TX #${transactionId}: $${absAmount}`);
     return newAsset;
   }
+
+  /**
+   * Ghost Accountant: Auto-generates monthly depreciation for all active assets.
+   * Optionally filters by locationId for multi-location isolation.
+   */
+  async runMonthlyDepreciation(periodDate: string, createdBy: string, locationId?: number) {
+    const unpaidEntries = await db.select().from(depreciationEntries)
+      .innerJoin(depreciationSchedules, eq(depreciationEntries.scheduleId, depreciationSchedules.id))
+      .where(
+        and(
+          eq(depreciationEntries.periodDate, periodDate),
+          eq(depreciationEntries.posted, false),
+          eq(depreciationSchedules.ledgerType, "book"),
+        )
+      );
+
+    let posted = 0;
+    let totalMonthlyDeprec = 0;
+
+    for (const row of unpaidEntries) {
+      const entry = row.depreciation_entries;
+
+      const [asset] = await db.select().from(fixedAssets).where(eq(fixedAssets.id, entry.assetId));
+      if (!asset) continue;
+      if (asset.status !== "capitalized" && asset.status !== "placed_in_service") continue;
+      if (locationId && asset.locationId !== locationId) continue;
+
+      const je = await createJournalEntry({
+        date: periodDate,
+        memo: `Monthly depreciation: ${asset.name} (${periodDate})`,
+        lines: [
+          { accountCode: this.DEPREC_EXPENSE_ACCOUNT, debit: entry.amount, credit: 0 },
+          { accountCode: this.ACCUM_DEPREC_ACCOUNT, debit: 0, credit: entry.amount },
+        ],
+        createdBy,
+        referenceType: "depreciation",
+        referenceId: String(entry.id),
+        locationId: asset.locationId || undefined,
+      });
+
+      await db.update(depreciationEntries).set({
+        posted: true,
+        journalEntryId: je?.id || null,
+      }).where(eq(depreciationEntries.id, entry.id));
+
+      await logAssetAudit(
+        entry.assetId,
+        "DEPRECIATION_POSTED",
+        `Book depreciation $${entry.amount} posted for period ${periodDate}. Accumulated: $${entry.accumulatedDepreciation}. NBV: $${entry.netBookValue}. JE #${je?.id}`,
+        createdBy,
+        { posted: false, journalEntryId: null },
+        { posted: true, journalEntryId: je?.id },
+        "Monthly depreciation posting"
+      );
+
+      totalMonthlyDeprec += entry.amount;
+      posted++;
+    }
+
+    return { posted, periodDate, totalMonthlyDeprec: Math.round(totalMonthlyDeprec * 100) / 100 };
+  }
 }
 
 export const assetAssessor = new AssetAssessor();
 
+
 export function isCapExCandidate(description: string, amount: number): boolean {
   const absAmount = Math.abs(amount);
   if (absAmount < CAPEX_THRESHOLD) return false;
-
   const lower = description.toLowerCase();
   return EQUIPMENT_VENDORS.some(v => lower.includes(v));
 }
@@ -351,69 +439,17 @@ export async function capitalizeAsset(assetId: number, createdBy: string) {
   return db.select().from(fixedAssets).where(eq(fixedAssets.id, assetId)).then(r => r[0]);
 }
 
-export async function postMonthlyDepreciation(periodDate: string, createdBy: string) {
-  const unpaidEntries = await db.select().from(depreciationEntries)
-    .innerJoin(depreciationSchedules, eq(depreciationEntries.scheduleId, depreciationSchedules.id))
-    .where(
-      and(
-        eq(depreciationEntries.periodDate, periodDate),
-        eq(depreciationEntries.posted, false),
-        eq(depreciationSchedules.ledgerType, "book"),
-      )
-    );
-
-  let posted = 0;
-  for (const row of unpaidEntries) {
-    const entry = row.depreciation_entries;
-    const schedule = row.depreciation_schedules;
-
-    const [asset] = await db.select().from(fixedAssets).where(eq(fixedAssets.id, entry.assetId));
-    if (!asset || asset.status !== "capitalized") continue;
-
-    const je = await createJournalEntry({
-      date: periodDate,
-      memo: `Monthly depreciation: ${asset.name} (${periodDate})`,
-      lines: [
-        { accountCode: "6130", debit: entry.amount, credit: 0 },
-        { accountCode: "1510", debit: 0, credit: entry.amount },
-      ],
-      createdBy,
-      referenceType: "depreciation",
-      referenceId: String(entry.id),
-      locationId: asset.locationId || undefined,
-    });
-
-    await db.update(depreciationEntries).set({
-      posted: true,
-      journalEntryId: je?.id || null,
-    }).where(eq(depreciationEntries.id, entry.id));
-
-    await logAssetAudit(
-      entry.assetId,
-      "DEPRECIATION_POSTED",
-      `Book depreciation $${entry.amount} posted for period ${periodDate}. Accumulated: $${entry.accumulatedDepreciation}. NBV: $${entry.netBookValue}. JE #${je?.id}`,
-      createdBy,
-      { posted: false, journalEntryId: null },
-      { posted: true, journalEntryId: je?.id },
-      "Monthly depreciation posting"
-    );
-
-    posted++;
-  }
-
-  return { posted, periodDate };
-}
-
 export async function getAssetSummary() {
-  const assets = await db.select().from(fixedAssets).where(eq(fixedAssets.status, "capitalized"));
+  const assets = await db.select().from(fixedAssets);
   const schedules = await db.select().from(depreciationSchedules);
   const entries = await db.select().from(depreciationEntries);
 
-  const totalCost = assets.reduce((s, a) => s + a.purchasePrice, 0);
+  const activeAssets = assets.filter(a => ["capitalized", "placed_in_service"].includes(a.status));
+  const totalCost = activeAssets.reduce((s, a) => s + a.purchasePrice, 0);
 
   let totalBookDepreciation = 0;
   let totalTaxDeduction = 0;
-  for (const asset of assets) {
+  for (const asset of activeAssets) {
     const bookEntries = entries.filter(e => {
       const sched = schedules.find(s => s.id === e.scheduleId);
       return sched && sched.assetId === asset.id && sched.ledgerType === "book" && e.posted;
@@ -426,6 +462,7 @@ export async function getAssetSummary() {
 
   return {
     totalAssets: assets.length,
+    activeAssets: activeAssets.length,
     totalCost: Math.round(totalCost * 100) / 100,
     totalBookDepreciation: Math.round(totalBookDepreciation * 100) / 100,
     netBookValue: Math.round((totalCost - totalBookDepreciation) * 100) / 100,
@@ -437,11 +474,16 @@ export async function getAssetSummary() {
       return {
         id: a.id,
         name: a.name,
+        description: a.description,
         purchasePrice: a.purchasePrice,
+        status: a.status,
+        usefulLifeMonths: a.usefulLifeMonths,
         monthlyDepreciation: bookScheds[0]?.monthlyAmount || 0,
         accumulatedDepreciation: Math.round(accum * 100) / 100,
         netBookValue: Math.round((a.purchasePrice - accum) * 100) / 100,
+        locationId: a.locationId,
         locationTag: a.locationTag,
+        purchaseTransactionId: a.purchaseTransactionId,
       };
     }),
   };
@@ -449,7 +491,6 @@ export async function getAssetSummary() {
 
 export async function getCapExRecommendation(purchasePrice: number, ytdNetIncome: number) {
   const section179Limit2026 = 2_560_000;
-  const phaseOutStart2026 = 4_090_000;
 
   const recommendation: {
     strategy: "section_179" | "straight_line" | "hybrid";
@@ -601,21 +642,30 @@ export async function seedLegacyAssets(createdBy: string) {
   return { seeded, skipped, total: LEGACY_ASSETS_2024.length };
 }
 
-export async function componentizeTransaction(
-  transactionId: number,
-  components: Array<{
-    name: string;
-    cost: number;
-    usefulLifeMonths: number;
-    locationId: number;
-    description?: string;
-  }>,
-  vendor: string,
-  purchaseDate: string,
-  createdBy: string
-) {
-  return assetAssessor.splitCapitalExpenditure(transactionId, components, vendor, purchaseDate, createdBy);
-}
+/**
+ * Backward compatibility exports
+ */
+export const componentizeTransaction = (
+  id: number,
+  comps: Array<{ name?: string; description?: string; cost: number; usefulLifeMonths?: number; usefulLife?: number; locationId: number }>,
+  vendor?: string,
+  purchaseDate?: string,
+  createdBy?: string,
+) => {
+  const normalizedComps: AssetComponent[] = comps.map(c => ({
+    description: c.description || c.name || "Equipment",
+    cost: c.cost,
+    usefulLife: c.usefulLife || (c.usefulLifeMonths ? c.usefulLifeMonths / 12 : 7),
+    locationId: c.locationId,
+  }));
+  return assetAssessor.componentizeTransaction(id, normalizedComps);
+};
+
+export const postMonthlyDepreciation = (periodDate: string, createdBy: string) =>
+  assetAssessor.runMonthlyDepreciation(periodDate, createdBy);
+
+export const calculateDepreciation = (locationId?: number) =>
+  assetAssessor.runMonthlyDepreciation(new Date().toISOString().split("T")[0], "Ghost Accountant", locationId);
 
 export async function logAssetAudit(assetId: number, action: string, details: string, performedBy: string, previousValues?: any, newValues?: any, reason?: string) {
   await db.insert(assetAuditLog).values({
