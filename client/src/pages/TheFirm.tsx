@@ -1001,7 +1001,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const [editingDescriptionText, setEditingDescriptionText] = useState("");
   const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
-  const [equipmentComponents, setEquipmentComponents] = useState<Array<{ name: string; cost: string; usefulLifeMonths: number; locationId: number }>>([]);
+  const [equipmentComponents, setEquipmentComponents] = useState<Array<{ description: string; cost: string; usefulLife: number; locationId: number }>>([]);
 
   const componentizeMut = useMutation({
     mutationFn: (data: { transactionId: number; components: any[]; vendor: string; purchaseDate: string }) =>
@@ -1018,11 +1018,11 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const handleEquipmentCategory = (txn: any) => {
     setEditingCategoryId(null);
     setEquipmentSplitTxn(txn);
-    setEquipmentComponents([{ name: txn.description || "", cost: String(Math.abs(txn.amount)), usefulLifeMonths: 84, locationId: txn.locationId || 1 }]);
+    setEquipmentComponents([{ description: txn.description || "", cost: String(Math.abs(txn.amount)), usefulLife: 7, locationId: txn.locationId || 1 }]);
   };
 
   const addComponent = () => {
-    setEquipmentComponents(prev => [...prev, { name: "", cost: "", usefulLifeMonths: 84, locationId: 1 }]);
+    setEquipmentComponents(prev => [...prev, { description: "", cost: "", usefulLife: 7, locationId: 1 }]);
   };
 
   const removeComponent = (idx: number) => {
@@ -1037,9 +1037,9 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
     if (!equipmentSplitTxn) return;
     const totalAmount = Math.abs(equipmentSplitTxn.amount);
     const components = equipmentComponents.map(c => ({
-      name: c.name,
+      description: c.description,
       cost: parseFloat(c.cost) || 0,
-      usefulLifeMonths: c.usefulLifeMonths,
+      usefulLife: c.usefulLife,
       locationId: c.locationId,
     }));
     const componentTotal = components.reduce((s, c) => s + c.cost, 0);
@@ -1047,8 +1047,8 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
       toast({ title: "Component total doesn't match", description: `Components sum to ${formatCurrency(componentTotal)} but transaction is ${formatCurrency(totalAmount)}. They must match.`, variant: "destructive" });
       return;
     }
-    if (components.some(c => !c.name.trim())) {
-      toast({ title: "Missing name", description: "Every component needs a name.", variant: "destructive" });
+    if (components.some(c => !c.description.trim())) {
+      toast({ title: "Missing description", description: "Every component needs a description.", variant: "destructive" });
       return;
     }
     if (components.length === 1) {
@@ -1382,13 +1382,13 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                     )}
                     <div className="flex gap-2">
                       <div className="flex-1">
-                        <Label className="text-xs">Asset Name</Label>
+                        <Label className="text-xs">Description</Label>
                         <Input
-                          value={comp.name}
-                          onChange={(e) => updateComponent(idx, "name", e.target.value)}
+                          value={comp.description}
+                          onChange={(e) => updateComponent(idx, "description", e.target.value)}
                           placeholder="e.g. Spiral Mixer"
                           className="h-8 text-sm"
-                          data-testid={`input-component-name-${idx}`}
+                          data-testid={`input-component-description-${idx}`}
                         />
                       </div>
                       <div className="w-28">
@@ -1406,14 +1406,14 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <Label className="text-xs">Useful Life</Label>
-                        <Select value={String(comp.usefulLifeMonths)} onValueChange={(v) => updateComponent(idx, "usefulLifeMonths", parseInt(v))}>
+                        <Select value={String(comp.usefulLife)} onValueChange={(v) => updateComponent(idx, "usefulLife", parseInt(v))}>
                           <SelectTrigger className="h-8 text-xs" data-testid={`select-life-${idx}`}><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="36">3 years</SelectItem>
-                            <SelectItem value="60">5 years</SelectItem>
-                            <SelectItem value="84">7 years (default)</SelectItem>
-                            <SelectItem value="120">10 years</SelectItem>
-                            <SelectItem value="180">15 years</SelectItem>
+                            <SelectItem value="3">3 years</SelectItem>
+                            <SelectItem value="5">5 years</SelectItem>
+                            <SelectItem value="7">7 years (default)</SelectItem>
+                            <SelectItem value="10">10 years</SelectItem>
+                            <SelectItem value="15">15 years</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
