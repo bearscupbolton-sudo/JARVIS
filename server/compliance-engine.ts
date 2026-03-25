@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts } from "@shared/schema";
-import { eq, and, gte, lte, sql, desc, asc, inArray } from "drizzle-orm";
+import { complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, squareDailySummary, firmTransactions } from "@shared/schema";
+import { eq, and, gte, lte, sql, desc, asc, inArray, isNotNull } from "drizzle-orm";
 
 const IT204LL_TIERS = [
   { min: 0, max: 100000, fee: 0 },
@@ -142,39 +142,44 @@ export async function getRevenueYTD(): Promise<{ total: number; byLocation: { lo
 
 export async function calculateSalesTaxLiability(periodStart: string, periodEnd: string): Promise<{
   total: number;
+  collected: number;
+  netOwed: number;
   byLocation: { locationId: number; jurisdictionCode: string; jurisdictionName: string; combinedRate: number; taxableRevenue: number; taxDue: number }[];
+  dailyAccrual: { date: string; locationId: number | null; grossRevenue: number; taxAccrued: number }[];
 }> {
   const jurisdictions = await db.select().from(salesTaxJurisdictions);
-  const revenueAccounts = await db.select({ id: chartOfAccounts.id })
-    .from(chartOfAccounts)
-    .where(eq(chartOfAccounts.type, "REVENUE"));
-
-  if (revenueAccounts.length === 0 || jurisdictions.length === 0) {
-    return { total: 0, byLocation: [] };
+  if (jurisdictions.length === 0) {
+    return { total: 0, collected: 0, netOwed: 0, byLocation: [], dailyAccrual: [] };
   }
 
-  const accountIds = revenueAccounts.map(a => a.id);
+  const dailySummaries = await db.select()
+    .from(squareDailySummary)
+    .where(and(
+      gte(squareDailySummary.date, periodStart),
+      lte(squareDailySummary.date, periodEnd),
+    ));
+
   const byLocation: any[] = [];
+  const dailyAccrual: { date: string; locationId: number | null; grossRevenue: number; taxAccrued: number }[] = [];
   let total = 0;
 
   for (const j of jurisdictions) {
-    const result = await db.select({
-      revenue: sql<number>`COALESCE(SUM(${ledgerLines.credit}) - SUM(${ledgerLines.debit}), 0)`,
-    })
-      .from(ledgerLines)
-      .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
-      .where(
-        and(
-          inArray(ledgerLines.accountId, accountIds),
-          eq(journalEntries.locationId, j.locationId),
-          gte(journalEntries.transactionDate, periodStart),
-          lte(journalEntries.transactionDate, periodEnd),
-        )
-      );
-
-    const taxableRevenue = Number(result[0]?.revenue || 0);
-    const taxDue = taxableRevenue * j.combinedRate;
+    const locationSummaries = dailySummaries.filter(s => s.locationId === j.locationId || (!s.locationId && j.locationId === 1));
+    const grossRevenue = locationSummaries.reduce((sum, s) => sum + (s.totalRevenue || 0), 0);
+    const taxableRevenue = grossRevenue / (1 + j.combinedRate);
+    const taxDue = grossRevenue - taxableRevenue;
     total += taxDue;
+
+    for (const s of locationSummaries) {
+      const dayGross = s.totalRevenue || 0;
+      const dayTaxable = dayGross / (1 + j.combinedRate);
+      dailyAccrual.push({
+        date: s.date,
+        locationId: s.locationId,
+        grossRevenue: dayGross,
+        taxAccrued: dayGross - dayTaxable,
+      });
+    }
 
     byLocation.push({
       locationId: j.locationId,
@@ -186,7 +191,23 @@ export async function calculateSalesTaxLiability(periodStart: string, periodEnd:
     });
   }
 
-  return { total, byLocation };
+  let collected = 0;
+  try {
+    const taxPayments = await db.select()
+      .from(firmTransactions)
+      .where(and(
+        gte(firmTransactions.date, periodStart),
+        lte(firmTransactions.date, periodEnd),
+        eq(firmTransactions.category, "sales_tax_payment"),
+      ));
+    collected = Math.abs(taxPayments.reduce((sum, t) => sum + t.amount, 0));
+  } catch {}
+
+  const netOwed = Math.max(0, total - collected);
+
+  dailyAccrual.sort((a, b) => a.date.localeCompare(b.date));
+
+  return { total, collected, netOwed, byLocation, dailyAccrual };
 }
 
 export async function getOperatingCashBalance(): Promise<number> {

@@ -245,7 +245,7 @@ export async function getAdjustedCashPosition(): Promise<{
   try {
     const { calculateSalesTaxLiability } = await import("./compliance-engine");
     const liability = await calculateSalesTaxLiability(qStartStr, qEndStr);
-    salesTaxAccrued = liability.total;
+    salesTaxAccrued = liability.netOwed;
   } catch { }
 
   const openPHs = await db.select({ total: sql<number>`COALESCE(SUM(${accrualPlaceholders.amount}), 0)` })

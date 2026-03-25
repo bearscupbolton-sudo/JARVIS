@@ -11283,7 +11283,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -11351,6 +11351,36 @@ IMPORTANT GUIDELINES:
           });
         } catch (logErr: any) {
           console.error("[Owner Draw] Audit log failed:", logErr.message);
+        }
+      }
+
+      if (updates.category === "sales_tax_payment") {
+        const taxTxn = await storage.getFirmTransaction(txnId);
+        if (taxTxn) {
+          const taxLiabilityAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2030")).limit(1);
+          const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+
+          if (taxLiabilityAccount.length > 0 && cashAccount.length > 0) {
+            const absAmount = Math.abs(taxTxn.amount);
+            try {
+              const { postJournalEntry } = await import("./accounting-engine");
+              await postJournalEntry(
+                {
+                  transactionDate: taxTxn.date,
+                  description: `Sales Tax Settlement — ${taxTxn.description}`,
+                  referenceType: "sales_tax",
+                  referenceId: String(txnId),
+                  createdBy: req.user?.id || null,
+                },
+                [
+                  { accountId: taxLiabilityAccount[0].id, debit: absAmount, credit: 0, memo: `Tax settlement: ${taxTxn.description}` },
+                  { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Tax settlement: ${taxTxn.description}` },
+                ]
+              );
+            } catch (jeErr: any) {
+              console.error("[Sales Tax] Journal entry failed:", jeErr.message);
+            }
+          }
         }
       }
 
@@ -12032,6 +12062,21 @@ IMPORTANT GUIDELINES:
   });
 
   // === COMPLIANCE & STATUTORY REPORTING ===
+
+  app.get("/api/firm/sales-tax/accrual", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { calculateSalesTaxLiability } = await import("./compliance-engine");
+      const today = new Date();
+      const qStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+      const qEnd = new Date(qStart.getFullYear(), qStart.getMonth() + 3, 0);
+      const periodStart = (req.query.startDate as string) || qStart.toISOString().split("T")[0];
+      const periodEnd = (req.query.endDate as string) || qEnd.toISOString().split("T")[0];
+      const liability = await calculateSalesTaxLiability(periodStart, periodEnd);
+      res.json(liability);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   app.get("/api/firm/compliance/dashboard", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
