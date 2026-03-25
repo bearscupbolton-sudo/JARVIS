@@ -12748,6 +12748,56 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  // === GMAIL MULTI-ACCOUNT OAUTH ===
+  app.get("/api/firm/gmail/accounts", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getConnectedAccounts } = await import("./gmail-multi");
+      const accounts = await getConnectedAccounts();
+      res.json(accounts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/gmail/authorize", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { getAuthUrl } = await import("./gmail-multi");
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/firm/gmail/callback`;
+      const url = getAuthUrl(redirectUri);
+      res.json({ url });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/gmail/callback", async (req: any, res) => {
+    try {
+      const { code } = req.query;
+      if (!code) return res.status(400).send("Missing authorization code");
+      const { exchangeCode } = await import("./gmail-multi");
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/firm/gmail/callback`;
+      const { email } = await exchangeCode(code as string, redirectUri);
+      res.redirect(`/the-firm?gmailConnected=${encodeURIComponent(email)}`);
+    } catch (err: any) {
+      console.error("[GmailOAuth] Callback error:", err.message);
+      res.redirect(`/the-firm?gmailError=${encodeURIComponent(err.message)}`);
+    }
+  });
+
+  app.delete("/api/firm/gmail/accounts/:email", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { removeAccount } = await import("./gmail-multi");
+      await removeAccount(decodeURIComponent(req.params.email));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === AUDIT TRAIL ASSESSOR (Gmail Receipt Matching) ===
   app.post("/api/firm/audit-trail/lookup/:transactionId", isAuthenticated, isOwner, async (req: any, res) => {
     try {

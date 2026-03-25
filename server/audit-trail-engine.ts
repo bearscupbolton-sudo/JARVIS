@@ -1,20 +1,11 @@
 import { db } from "./db";
-import { firmTransactions } from "@shared/schema";
+import { firmTransactions, emailAuditIndex } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "./storage";
-import { listEmails, getEmailWithAttachmentInfo, getProfile, type EmailMessage, type AttachmentInfo } from "./gmail";
+import { searchAcrossAccounts, getConnectedAccounts, type MultiAccountSearchResult } from "./gmail-multi";
 
-export interface AuditSearchResult {
-  messageId: string;
-  threadId: string;
-  subject: string;
-  from: string;
-  date: string;
-  snippet: string;
-  hasAttachment: boolean;
-  attachments: AttachmentInfo[];
-  relevanceScore: number;
-  searchedAccount: string;
+export interface AuditSearchResult extends MultiAccountSearchResult {
+  cached?: boolean;
 }
 
 export class AuditTrailAssessor {
@@ -29,10 +20,10 @@ export class AuditTrailAssessor {
     return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
   }
 
-  private scoreResult(tx: { amount: number; description: string }, msg: EmailMessage & { attachments: AttachmentInfo[] }): number {
+  private scoreResult(tx: { amount: number; description: string }, result: MultiAccountSearchResult): number {
     let score = 0;
     const absAmount = Math.abs(tx.amount).toFixed(2);
-    const content = `${msg.subject} ${msg.snippet}`.toLowerCase();
+    const content = `${result.subject} ${result.snippet}`.toLowerCase();
     const descWords = tx.description.toLowerCase().replace(/[*#]/g, "").split(/\s+/);
 
     if (content.includes(absAmount)) score += 40;
@@ -41,33 +32,22 @@ export class AuditTrailAssessor {
     const matchedWords = descWords.filter(w => w.length > 2 && content.includes(w));
     score += Math.min(matchedWords.length * 10, 30);
 
-    if (msg.attachments.length > 0) score += 15;
-    const hasPdf = msg.attachments.some(a => a.mimeType === "application/pdf" || a.filename.endsWith(".pdf"));
+    if (result.hasAttachment) score += 15;
+    const hasPdf = result.attachmentNames.some(n => n.toLowerCase().endsWith(".pdf"));
     if (hasPdf) score += 5;
 
     return Math.min(score, 100);
   }
 
-  async getConnectedAccount(): Promise<string> {
-    try {
-      const profile = await getProfile();
-      return profile.email;
-    } catch {
-      return "unknown";
-    }
-  }
-
   async performJarvisLookup(transactionId: number): Promise<{
     transactionId: number;
     searchedAccounts: string[];
-    connectedAccount: string;
+    failedAccounts: string[];
     pendingAccounts: string[];
     results: AuditSearchResult[];
   }> {
     const tx = await storage.getFirmTransaction(transactionId);
     if (!tx) throw new Error(`Transaction #${transactionId} not found`);
-
-    const connectedAccount = await this.getConnectedAccount();
 
     const startDate = new Date(tx.date);
     startDate.setDate(startDate.getDate() - 3);
@@ -82,31 +62,12 @@ export class AuditTrailAssessor {
 
     const query = `(${amountStr} OR "${vendorClean}") after:${this.formatDate(startDate)} before:${this.formatDate(endDate)}`;
 
-    const results: AuditSearchResult[] = [];
+    const { results: rawResults, searchedAccounts, failedAccounts } = await searchAcrossAccounts(query, 15);
 
-    try {
-      const { messages } = await listEmails(query, 15);
-      for (const msg of messages) {
-        try {
-          const full = await getEmailWithAttachmentInfo(msg.id);
-          const score = this.scoreResult(tx, full);
-          results.push({
-            messageId: full.id,
-            threadId: full.threadId,
-            subject: full.subject,
-            from: full.from,
-            date: full.date,
-            snippet: full.snippet,
-            hasAttachment: full.attachments.length > 0,
-            attachments: full.attachments,
-            relevanceScore: score,
-            searchedAccount: connectedAccount,
-          });
-        } catch {}
-      }
-    } catch (e) {
-      console.warn(`[AuditTrail] Search failed for TX #${transactionId} on ${connectedAccount}:`, e);
-    }
+    let results: AuditSearchResult[] = rawResults.map(r => ({
+      ...r,
+      relevanceScore: this.scoreResult(tx, r),
+    }));
 
     if (results.length === 0) {
       const broadVendor = vendorClean.split(" ").slice(0, 2).join(" ");
@@ -116,41 +77,46 @@ export class AuditTrailAssessor {
       broadEnd.setDate(broadEnd.getDate() + 7);
       const broadQuery = `"${broadVendor}" after:${this.formatDate(broadStart)} before:${this.formatDate(broadEnd)}`;
 
-      try {
-        const { messages } = await listEmails(broadQuery, 10);
-        for (const msg of messages) {
-          try {
-            const full = await getEmailWithAttachmentInfo(msg.id);
-            const score = this.scoreResult(tx, full);
-            results.push({
-              messageId: full.id,
-              threadId: full.threadId,
-              subject: full.subject,
-              from: full.from,
-              date: full.date,
-              snippet: full.snippet,
-              hasAttachment: full.attachments.length > 0,
-              attachments: full.attachments,
-              relevanceScore: score,
-              searchedAccount: connectedAccount,
-            });
-          } catch {}
-        }
-      } catch (e) {
-        console.warn(`[AuditTrail] Broad search also failed for TX #${transactionId}:`, e);
-      }
+      const { results: broadRaw } = await searchAcrossAccounts(broadQuery, 10);
+      results = broadRaw.map(r => ({
+        ...r,
+        relevanceScore: this.scoreResult(tx, r),
+      }));
     }
 
     results.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
+    for (const r of results) {
+      try {
+        const existing = await db.select().from(emailAuditIndex)
+          .where(eq(emailAuditIndex.messageId, r.messageId));
+        if (existing.length === 0) {
+          await db.insert(emailAuditIndex).values({
+            messageId: r.messageId,
+            accountOwner: r.accountOwner,
+            subject: r.subject,
+            sender: r.from,
+            snippet: r.snippet,
+            detectedAmount: parseFloat(amountStr) || null,
+            dateReceived: r.date,
+            hasAttachments: r.hasAttachment,
+            attachmentNames: r.attachmentNames.length > 0 ? r.attachmentNames : null,
+            transactionId: null,
+          });
+        }
+      } catch {}
+    }
+
+    const connectedAccounts = await getConnectedAccounts();
+    const connectedEmails = connectedAccounts.map(a => a.email.toLowerCase());
     const pendingAccounts = this.ACCOUNTS.filter(
-      a => a.toLowerCase() !== connectedAccount.toLowerCase()
+      a => !connectedEmails.includes(a.toLowerCase())
     );
 
     return {
       transactionId,
-      searchedAccounts: [connectedAccount],
-      connectedAccount,
+      searchedAccounts,
+      failedAccounts,
       pendingAccounts,
       results,
     };
@@ -170,11 +136,22 @@ export class AuditTrailAssessor {
       })
       .where(eq(firmTransactions.id, transactionId));
 
+    await db.update(emailAuditIndex)
+      .set({ transactionId })
+      .where(eq(emailAuditIndex.messageId, messageId));
+
     console.log(`[AuditTrail] Evidence linked for TX #${transactionId} → Gmail ${messageId}`);
     return { success: true, auditTrailLink: gmailLink };
   }
 
   async unlinkEvidence(transactionId: number): Promise<void> {
+    const tx = await storage.getFirmTransaction(transactionId);
+    if (tx?.auditTrailGmailId) {
+      await db.update(emailAuditIndex)
+        .set({ transactionId: null })
+        .where(eq(emailAuditIndex.messageId, tx.auditTrailGmailId));
+    }
+
     await db.update(firmTransactions)
       .set({
         auditTrailLink: null,
@@ -190,8 +167,9 @@ export class AuditTrailAssessor {
     verified: number;
     unverified: number;
     verifiedPercent: number;
-    connectedAccount: string;
-    allAccounts: string[];
+    connectedAccounts: { email: string; isActive: boolean; lastSyncedAt: Date | null }[];
+    pendingAccounts: string[];
+    indexedEmails: number;
   }> {
     const all = await db.select({
       id: firmTransactions.id,
@@ -200,15 +178,23 @@ export class AuditTrailAssessor {
 
     const total = all.length;
     const verified = all.filter(t => t.isAuditVerified).length;
-    const connectedAccount = await this.getConnectedAccount();
+
+    const connectedAccounts = await getConnectedAccounts();
+    const connectedEmails = connectedAccounts.map(a => a.email.toLowerCase());
+    const pendingAccounts = this.ACCOUNTS.filter(
+      a => !connectedEmails.includes(a.toLowerCase())
+    );
+
+    const indexed = await db.select({ id: emailAuditIndex.id }).from(emailAuditIndex);
 
     return {
       total,
       verified,
       unverified: total - verified,
       verifiedPercent: total > 0 ? Math.round((verified / total) * 100) : 0,
-      connectedAccount,
-      allAccounts: this.ACCOUNTS,
+      connectedAccounts,
+      pendingAccounts,
+      indexedEmails: indexed.length,
     };
   }
 }
