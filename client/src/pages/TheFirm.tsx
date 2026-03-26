@@ -629,6 +629,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
 
       <RealCashWidget />
 
+      <LiquidityWidget startDate={startDate} endDate={endDate} />
+
       <div className="grid md:grid-cols-2 gap-4">
         <Card data-testid="card-expense-breakdown">
           <CardHeader className="pb-2">
@@ -5283,6 +5285,150 @@ function RealCashWidget() {
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground flex items-center gap-1"><Users className="h-3 w-3" /> Labor Accrual (Gross + Burden)</span>
                 <span className="tabular-nums font-medium">{formatCurrency(breakdown.laborAccrual)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LiquidityWidget({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: liquidity, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/liquidity", startDate, endDate],
+    queryFn: () => fetch(`/api/firm/liquidity?startDate=${startDate}&endDate=${endDate}`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: debtTracker, isLoading: loadingDebt } = useQuery<any>({
+    queryKey: ["/api/firm/debt-tracker"],
+    queryFn: () => fetch("/api/firm/debt-tracker", { credentials: "include" }).then(r => r.json()),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const fmt = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (isLoading || !liquidity) return (
+    <Card className="border-amber-300/50 dark:border-amber-700/50">
+      <CardContent className="p-4 flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+        <span className="text-sm text-muted-foreground">Loading Square Capital data...</span>
+      </CardContent>
+    </Card>
+  );
+
+  if (liquidity.message) return null;
+
+  const debtPct = debtTracker ? Math.min(100, (debtTracker.totalWithheld / debtTracker.anchor) * 100) : 0;
+
+  return (
+    <Card className="border-amber-300 dark:border-amber-700 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-950/20" data-testid="card-liquidity">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Landmark className="w-4 h-4 text-amber-600" /> Liquidity Controller
+          <Badge variant="outline" className="text-[10px] ml-auto bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 border-amber-300">
+            {liquidity.status}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Bolton Gross</p>
+            <p className="text-lg font-bold tabular-nums text-green-700 dark:text-green-400" data-testid="text-bolton-gross">{fmt(liquidity.boltonGrossSales)}</p>
+            <p className="text-[10px] text-muted-foreground">BC Bolton sales</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Saratoga Gross</p>
+            <p className="text-lg font-bold tabular-nums text-green-700 dark:text-green-400" data-testid="text-toga-gross">{fmt(liquidity.saratogaGrossSales)}</p>
+            <p className="text-[10px] text-muted-foreground">Clean cash — no loan</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Loan Withheld</p>
+            <p className="text-lg font-bold tabular-nums text-red-700 dark:text-red-400" data-testid="text-loan-withheld">-{fmt(liquidity.boltonLoanWithholdings)}</p>
+            <p className="text-[10px] text-muted-foreground">{liquidity.loanWithholdingRate}% of Bolton gross</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Net Deposited</p>
+            <p className="text-lg font-bold tabular-nums" data-testid="text-net-deposited">{fmt(liquidity.totalNetDeposited)}</p>
+            <p className="text-[10px] text-muted-foreground">Both locations combined</p>
+          </div>
+        </div>
+
+        {liquidity.boltonProcessingFees > 0 && (
+          <div className="grid grid-cols-3 gap-3 bg-muted/40 rounded-lg p-3">
+            <div>
+              <p className="text-[10px] text-muted-foreground">Processing Fees</p>
+              <p className="text-sm font-medium tabular-nums text-orange-600" data-testid="text-proc-fees">-{fmt(liquidity.boltonProcessingFees + liquidity.saratogaProcessingFees)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground">Other Deductions</p>
+              <p className="text-sm font-medium tabular-nums text-orange-600" data-testid="text-other-ded">-{fmt(liquidity.boltonOtherDeductions)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground">True Spendable</p>
+              <p className={`text-sm font-bold tabular-nums ${liquidity.trueSpendable >= 0 ? "text-green-600" : "text-red-600"}`} data-testid="text-true-spendable">{fmt(liquidity.trueSpendable)}</p>
+            </div>
+          </div>
+        )}
+
+        {debtTracker && !loadingDebt && (
+          <div className="border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-2" data-testid="debt-tracker-section">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold flex items-center gap-1">
+                <Target className="w-3.5 h-3.5 text-amber-600" /> Square Capital Debt Tracker
+              </p>
+              <span className="text-[10px] text-muted-foreground">Anchor: {fmt(debtTracker.anchor)}</span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-amber-500 to-green-500 h-3 rounded-full transition-all duration-500"
+                style={{ width: `${debtPct}%` }}
+                data-testid="debt-progress-bar"
+              />
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-green-600 font-medium">Paid: {fmt(debtTracker.totalWithheld)} ({debtPct.toFixed(1)}%)</span>
+              <span className="text-red-600 font-medium">Remaining: {fmt(debtTracker.remaining)}</span>
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>Withholding rate: {debtTracker.withholdingRate}% of Bolton gross</span>
+              <span>{debtTracker.dailyBreakdown?.length || 0} payout days tracked</span>
+            </div>
+          </div>
+        )}
+
+        {liquidity.payoutDetails?.length > 0 && (
+          <div>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1"
+              data-testid="button-toggle-payouts"
+            >
+              {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {expanded ? "Hide" : "Show"} Payout Details ({liquidity.payoutDetails.length})
+            </button>
+            {expanded && (
+              <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                <div className="grid grid-cols-6 gap-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2">
+                  <span>Date</span>
+                  <span>Location</span>
+                  <span className="text-right">Gross</span>
+                  <span className="text-right">Fees</span>
+                  <span className="text-right">Loan</span>
+                  <span className="text-right">Net</span>
+                </div>
+                {liquidity.payoutDetails.map((p: any) => (
+                  <div key={p.payoutId} className="grid grid-cols-6 gap-1 text-xs px-2 py-1 hover:bg-muted/50 rounded" data-testid={`payout-row-${p.payoutId}`}>
+                    <span className="tabular-nums">{p.arrivalDate}</span>
+                    <span className={p.locationId === "XFS6DD0Z4HHKJ" ? "text-amber-600" : "text-blue-600"}>{p.locationName.replace("BC ", "")}</span>
+                    <span className="text-right tabular-nums text-green-600">{fmt(p.grossSales)}</span>
+                    <span className="text-right tabular-nums text-orange-600">-{fmt(p.fees)}</span>
+                    <span className="text-right tabular-nums text-red-600">{p.loanWithholdings > 0 ? `-${fmt(p.loanWithholdings)}` : "—"}</span>
+                    <span className="text-right tabular-nums font-medium">{fmt(p.netDeposited)}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

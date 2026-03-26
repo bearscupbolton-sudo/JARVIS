@@ -12842,6 +12842,42 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.get("/api/firm/liquidity", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate, debtAnchor } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const accounts = await storage.getFirmAccounts();
+      const bankBalance = accounts
+        .filter((a: any) => a.isActive && ["checking", "savings", "cash", "petty_cash"].includes(a.type))
+        .reduce((s: number, a: any) => s + Number(a.currentBalance), 0);
+
+      const { getLiquiditySnapshot } = await import("./liquidity-engine");
+      const snapshot = await getLiquiditySnapshot(
+        startDate as string,
+        endDate as string,
+        bankBalance,
+        debtAnchor ? Number(debtAnchor) : undefined
+      );
+      res.json(snapshot);
+    } catch (err: any) {
+      console.error("[Liquidity] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/debt-tracker", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { debtAnchor } = req.query;
+      const { getDebtTracker } = await import("./liquidity-engine");
+      const tracker = await getDebtTracker(debtAnchor ? Number(debtAnchor) : undefined);
+      res.json(tracker);
+    } catch (err: any) {
+      console.error("[DebtTracker] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/firm/assets/depreciation/post", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
