@@ -622,7 +622,7 @@ export default function Schedule() {
       shiftDate: date ? format(date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       startTime: "6:00 AM",
       endTime: "2:00 PM",
-      department: dept || "kitchen",
+      department: dept || (deptFilter !== "all" ? deptFilter : ""),
       position: "",
       notes: "",
       isOpenShift: false,
@@ -678,7 +678,13 @@ export default function Schedule() {
       return;
     }
     const emp = members.find(m => m.id === userId);
-    const dept = deptFilter !== "all" ? deptFilter : (emp?.department || "kitchen");
+    const dept = emp?.department || (deptFilter !== "all" ? deptFilter : undefined);
+    if (!dept) {
+      toast({ title: "Cannot create shift", description: "Employee has no department assigned. Please set their department first.", variant: "destructive" });
+      setInlineEditCell(null);
+      setInlineEditValue("");
+      return;
+    }
     createShiftMutation.mutate({
       userId,
       shiftDate: dateStr,
@@ -700,7 +706,11 @@ export default function Schedule() {
 
   function handlePresetClick(userId: string, dateStr: string, preset: ShiftPreset) {
     const emp = members.find(m => m.id === userId);
-    const dept = deptFilter !== "all" ? deptFilter : (emp?.department || "kitchen");
+    const dept = emp?.department || (deptFilter !== "all" ? deptFilter : undefined);
+    if (!dept) {
+      toast({ title: "Cannot create shift", description: "Employee has no department assigned. Please set their department first.", variant: "destructive" });
+      return;
+    }
     createShiftMutation.mutate({
       userId,
       shiftDate: dateStr,
@@ -1256,10 +1266,9 @@ export default function Schedule() {
           ) : (() => {
             const filteredShifts = (shiftsData || []).filter(s => {
               if (deptFilter !== "all") {
-                const shiftDept = s.department || "kitchen";
-                const emp = members.find(m => m.id === s.userId);
-                const empDept = emp?.department;
-                if (shiftDept !== deptFilter && empDept !== deptFilter) return false;
+                const emp = s.userId ? members.find(m => m.id === s.userId) : null;
+                const effectiveDept = (emp?.department) || s.department || "kitchen";
+                return effectiveDept === deptFilter;
               }
               return true;
             });
@@ -1283,8 +1292,9 @@ export default function Schedule() {
                   if (m.department && m.department !== deptFilter) return false;
                   if (!m.department) return false;
                 }
-                return shiftsByUser.has(m.id);
+                return true;
               })
+              .filter(m => shiftsByUser.has(m.id) || deptFilter !== "all")
               .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
 
             const hasOpenShifts = openShiftsList.length > 0;
@@ -2401,7 +2411,13 @@ export default function Schedule() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Team Member</FormLabel>
-                      <Select value={field.value || ""} onValueChange={field.onChange}>
+                      <Select value={field.value || ""} onValueChange={(val) => {
+                        field.onChange(val);
+                        const emp = members.find(m => m.id === val);
+                        if (emp?.department) {
+                          shiftForm.setValue("department", emp.department);
+                        }
+                      }}>
                         <FormControl>
                           <SelectTrigger data-testid="select-shift-user">
                             <SelectValue placeholder="Select team member" />

@@ -4738,20 +4738,23 @@ If this is from US Foods (or similar distributors like Sysco, Performance Food G
   app.post(api.shifts.create.path, isAuthenticated, isManager, async (req: any, res) => {
     try {
       const input = api.shifts.create.input.parse(req.body);
-      const existingShifts = await storage.getShifts(input.shiftDate, input.shiftDate);
-      const deptCount = existingShifts.filter(s => s.department === (input.department || "kitchen")).length;
-      if (deptCount >= 10) {
-        return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${input.department || "kitchen"}` });
-      }
       const isOpenShift = !input.userId;
       let department = input.department;
       if (input.userId && !department) {
         const emp = await storage.getUser(input.userId);
         if (emp?.department) department = emp.department;
       }
+      if (!department) {
+        return res.status(400).json({ message: "Department is required. Please specify a department for this shift." });
+      }
+      const existingShifts = await storage.getShifts(input.shiftDate, input.shiftDate);
+      const deptCount = existingShifts.filter(s => s.department === department).length;
+      if (deptCount >= 10) {
+        return res.status(400).json({ message: `Maximum 10 staff per department per day reached for ${department}` });
+      }
       const shiftData = {
         ...input,
-        department: department || input.department,
+        department,
         status: isOpenShift ? "open" : "assigned",
         createdBy: (req.appUser as any).id,
       };
@@ -5522,7 +5525,7 @@ Return ONLY the JSON array.`,
       }
 
       const allUsers = await storage.getUsers();
-      const userDeptMap = new Map(allUsers.map((u: any) => [u.id, u.department || "kitchen"]));
+      const userDeptMap = new Map(allUsers.map((u: any) => [u.id, u.department]));
 
       const created = [];
       let skipped = 0;
@@ -5548,13 +5551,19 @@ Return ONLY the JSON array.`,
             continue;
           }
         }
+        const resolvedDept = s.department || (s.userId ? userDeptMap.get(s.userId) : undefined);
+        if (!resolvedDept) {
+          console.log("[Bulk Shifts] Skipping shift — no department resolved:", JSON.stringify(s));
+          skipped++;
+          continue;
+        }
         try {
           const shift = await storage.createShift({
             userId: s.userId || null,
             shiftDate: s.shiftDate,
             startTime: s.startTime,
             endTime: s.endTime,
-            department: s.department || (s.userId ? userDeptMap.get(s.userId) : null) || "kitchen",
+            department: resolvedDept,
             position: s.position || null,
             notes: s.notes || null,
             locationId: s.locationId || null,
