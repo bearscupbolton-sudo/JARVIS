@@ -11475,6 +11475,104 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/transactions/:id/split", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const parentId = Number(req.params.id);
+      const { splits } = req.body;
+      if (!splits || !Array.isArray(splits) || splits.length < 2) {
+        return res.status(400).json({ message: "At least 2 splits required" });
+      }
+
+      for (const sp of splits) {
+        const amt = Number(sp.amount);
+        if (!sp.description || !String(sp.description).trim()) return res.status(400).json({ message: "Every split needs a description" });
+        if (!sp.category || !String(sp.category).trim()) return res.status(400).json({ message: "Every split needs a category" });
+        if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ message: `Invalid split amount: ${sp.amount}` });
+      }
+
+      const parent = await storage.getFirmTransaction(parentId);
+      if (!parent) return res.status(404).json({ message: "Transaction not found" });
+
+      const parentAmount = Math.round(Math.abs(Number(parent.amount)) * 100) / 100;
+      const splitTotal = Math.round(splits.reduce((s: number, sp: any) => s + Math.abs(Number(sp.amount)), 0) * 100) / 100;
+
+      if (Math.abs(splitTotal - parentAmount) > 0.02) {
+        return res.status(400).json({
+          message: `Split total ($${splitTotal.toFixed(2)}) doesn't match parent ($${parentAmount.toFixed(2)}). Variance: $${Math.abs(splitTotal - parentAmount).toFixed(2)}`
+        });
+      }
+
+      const isDebit = Number(parent.amount) < 0;
+      if (!isDebit) {
+        const specialCats = splits.filter((sp: any) => ["prior_period_adjustment", "owner_draw", "loan_principal"].includes(sp.category));
+        if (specialCats.length > 0) {
+          return res.status(400).json({ message: "Cannot split a credit/inflow transaction into prior_period_adjustment, owner_draw, or loan_principal categories (those require outflows)" });
+        }
+      }
+
+      const createdTxns: any[] = [];
+
+      for (const sp of splits) {
+        const amount = isDebit ? -Math.abs(Number(sp.amount)) : Math.abs(Number(sp.amount));
+        const newTxn = await storage.createFirmTransaction({
+          accountId: parent.accountId,
+          date: parent.date,
+          description: String(sp.description).trim(),
+          amount,
+          category: String(sp.category).trim(),
+          referenceType: parent.referenceType,
+          referenceId: parent.referenceId ? `${parent.referenceId}_split` : null,
+          reconciled: false,
+          notes: `Split from TX #${parentId} (${parent.description})`,
+          createdBy: req.appUser?.id || null,
+          locationId: parent.locationId,
+        });
+        createdTxns.push(newTxn);
+      }
+
+      await storage.deleteFirmTransaction(parentId);
+
+      const { postJournalEntry } = await import("./accounting-engine");
+
+      for (const txn of createdTxns) {
+        if (txn.category === "prior_period_adjustment") {
+          const retainedEarningsAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3020")).limit(1);
+          const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+          if (retainedEarningsAccount.length > 0 && cashAccount.length > 0) {
+            const absAmount = Math.abs(txn.amount);
+            await postJournalEntry(
+              { transactionDate: txn.date, description: `Prior Period Adjustment — ${txn.description}`, referenceType: "prior_period", referenceId: String(txn.id), createdBy: req.user?.id || null },
+              [
+                { accountId: retainedEarningsAccount[0].id, debit: absAmount, credit: 0, memo: `Back-year settlement: ${txn.description}` },
+                { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Back-year settlement: ${txn.description}` },
+              ]
+            );
+          }
+        }
+
+        if (txn.category === "owner_draw") {
+          const drawAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3010")).limit(1);
+          const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+          if (drawAccount.length > 0 && cashAccount.length > 0) {
+            const absAmount = Math.abs(txn.amount);
+            await postJournalEntry(
+              { transactionDate: txn.date, description: `Owner's Draw — ${txn.description}`, referenceType: "owner_draw", referenceId: String(txn.id), createdBy: req.user?.id || null },
+              [
+                { accountId: drawAccount[0].id, debit: absAmount, credit: 0, memo: `Personal distribution: ${txn.description}` },
+                { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Personal distribution: ${txn.description}` },
+              ]
+            );
+          }
+        }
+      }
+
+      console.log(`[Split] TX #${parentId} ($${parentAmount}) → ${createdTxns.length} children: ${createdTxns.map(t => `${t.category} $${Math.abs(t.amount)}`).join(", ")}`);
+      res.json({ success: true, parentDeleted: parentId, children: createdTxns });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.delete("/api/firm/transactions/:id", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       await storage.deleteFirmTransaction(Number(req.params.id));
