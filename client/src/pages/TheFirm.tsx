@@ -1122,6 +1122,8 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
   const [equipmentSplitTxn, setEquipmentSplitTxn] = useState<any | null>(null);
   const [equipmentComponents, setEquipmentComponents] = useState<Array<{ description: string; cost: string; usefulLife: number; locationId: number }>>([]);
   const [equipmentAdjustments, setEquipmentAdjustments] = useState<Array<{ type: string; description: string; cost: string }>>([]);
+  const [splitTxn, setSplitTxn] = useState<any | null>(null);
+  const [splitRows, setSplitRows] = useState<Array<{ description: string; amount: string; category: string }>>([]);
   const [rentSplitTxn, setRentSplitTxn] = useState<any | null>(null);
   const [rentBusinessPct, setRentBusinessPct] = useState(33.33);
   const [rentMemo, setRentMemo] = useState("Monthly Apartment Lease - Home Office Split");
@@ -1190,6 +1192,19 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
       setJarvisLookupTxn(null);
       setJarvisResults(null);
     },
+  });
+
+  const splitTxnMut = useMutation({
+    mutationFn: (data: { transactionId: number; splits: Array<{ description: string; amount: number; category: string }> }) =>
+      apiRequest("POST", `/api/firm/transactions/${data.transactionId}/split`, { splits: data.splits }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      setSplitTxn(null);
+      setSplitRows([]);
+      toast({ title: "Transaction split", description: "Original replaced with split children. Journal entries posted where applicable." });
+    },
+    onError: (err: any) => toast({ title: "Split failed", description: err.message, variant: "destructive" }),
   });
 
   const componentizeMut = useMutation({
@@ -1549,6 +1564,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                         >
                           {jarvisSearchingId === txn.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : txn.isAuditVerified ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
                         </Button>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => { setSplitTxn(txn); setSplitRows([{ description: txn.description || "", amount: String(Math.abs(txn.amount)), category: txn.category || "misc" }, { description: "", amount: "", category: "misc" }]); }} data-testid={`button-split-txn-${txn.id}`} title="Split Transaction"><ArrowLeftRight className="w-3 h-3" /></Button>
                         {txn.referenceType === "manual" && <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(txn.id)} data-testid={`button-delete-txn-${txn.id}`}><Trash2 className="w-3 h-3" /></Button>}
                       </div>
                     </td>
@@ -1752,6 +1768,124 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { tr
                 <Button onClick={submitComponentize} disabled={componentizeMut.isPending} className="bg-emerald-600 hover:bg-emerald-700" data-testid="button-submit-split">
                   {componentizeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Package className="w-4 h-4 mr-1" />}
                   {equipmentComponents.length === 1 ? "Create Single Asset" : `Create ${equipmentComponents.length} Assets`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!splitTxn} onOpenChange={(open) => { if (!open) { setSplitTxn(null); setSplitRows([]); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="w-5 h-5 text-blue-600" /> Split Transaction
+            </DialogTitle>
+          </DialogHeader>
+          {splitTxn && (
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                <p className="text-sm font-medium">{splitTxn.description}</p>
+                <p className="text-xs text-muted-foreground">{splitTxn.date}</p>
+                <p className="text-lg font-bold tabular-nums">{formatCurrency(Math.abs(splitTxn.amount))}</p>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Break this transaction into multiple line items with different categories. Totals must match.
+              </p>
+
+              <div className="space-y-3">
+                {splitRows.map((row, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 space-y-2 relative">
+                    {splitRows.length > 2 && (
+                      <button onClick={() => setSplitRows(prev => prev.filter((_, i) => i !== idx))} className="absolute top-2 right-2 text-destructive hover:text-destructive/80" data-testid={`button-remove-split-${idx}`}>
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    )}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs">Description</Label>
+                        <Input
+                          value={row.description}
+                          onChange={(e) => setSplitRows(prev => prev.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                          placeholder="e.g. 2025 Tax Prep"
+                          className="h-8 text-sm"
+                          data-testid={`input-split-desc-${idx}`}
+                        />
+                      </div>
+                      <div className="w-28">
+                        <Label className="text-xs">Amount</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={row.amount}
+                          onChange={(e) => setSplitRows(prev => prev.map((r, i) => i === idx ? { ...r, amount: e.target.value } : r))}
+                          className="h-8 text-sm"
+                          data-testid={`input-split-amount-${idx}`}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Category</Label>
+                      <Select value={row.category} onValueChange={(v) => setSplitRows(prev => prev.map((r, i) => i === idx ? { ...r, category: v } : r))}>
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-split-cat-${idx}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {CATEGORIES.map(c => (
+                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button variant="outline" size="sm" onClick={() => setSplitRows(prev => [...prev, { description: "", amount: "", category: "misc" }])} className="w-full" data-testid="button-add-split-row">
+                <Plus className="w-3 h-3 mr-1" /> Add Another Split
+              </Button>
+
+              {(() => {
+                const splitTotal = splitRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+                const txTotal = Math.abs(splitTxn.amount);
+                const balanced = Math.abs(splitTotal - txTotal) < 0.02;
+                return (
+                  <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">Split Total</span>
+                      <span className={`font-bold tabular-nums ${balanced ? "text-green-600" : "text-red-600"}`}>
+                        {formatCurrency(splitTotal)}
+                        {!balanced && (
+                          <span className="text-xs ml-2 text-red-500">
+                            (off by {formatCurrency(Math.abs(splitTotal - txTotal))})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Original</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{formatCurrency(txTotal)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setSplitTxn(null); setSplitRows([]); }} data-testid="button-cancel-split-txn">Cancel</Button>
+                <Button
+                  onClick={() => {
+                    const splits = splitRows.map(r => ({ description: r.description, amount: parseFloat(r.amount) || 0, category: r.category })).filter(s => s.amount > 0);
+                    if (splits.length < 2) { toast({ title: "Need at least 2 splits", variant: "destructive" }); return; }
+                    if (splits.some(s => !s.description.trim())) { toast({ title: "Every split needs a description", variant: "destructive" }); return; }
+                    const total = splits.reduce((s, sp) => s + sp.amount, 0);
+                    if (Math.abs(total - Math.abs(splitTxn.amount)) > 0.02) { toast({ title: "Split total doesn't match", description: `Splits = ${formatCurrency(total)}, Original = ${formatCurrency(Math.abs(splitTxn.amount))}`, variant: "destructive" }); return; }
+                    splitTxnMut.mutate({ transactionId: splitTxn.id, splits });
+                  }}
+                  disabled={splitTxnMut.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-submit-split-txn"
+                >
+                  {splitTxnMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <ArrowLeftRight className="w-4 h-4 mr-1" />}
+                  Split into {splitRows.filter(r => parseFloat(r.amount) > 0).length} Transactions
                 </Button>
               </DialogFooter>
             </div>
