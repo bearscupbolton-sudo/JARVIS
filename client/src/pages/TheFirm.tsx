@@ -24,7 +24,7 @@ import {
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
   FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera,
-  ArrowLeftRight, Dna, BellRing
+  ArrowLeftRight, Dna, BellRing, Download
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -35,9 +35,9 @@ import type {
   FirmCashCount, InsertFirmCashCount,
 } from "@shared/schema";
 
-type PeriodKey = "this_week" | "this_month" | "last_month" | "custom";
+type PeriodKey = "this_week" | "this_month" | "last_month" | "ytd" | "last_year" | "all_time" | "month" | "custom";
 
-function getPeriodDates(period: PeriodKey, customStart?: string, customEnd?: string) {
+function getPeriodDates(period: PeriodKey, customStart?: string, customEnd?: string, selectedMonthStr?: string) {
   const today = new Date();
   switch (period) {
     case "this_week": {
@@ -54,9 +54,42 @@ function getPeriodDates(period: PeriodKey, customStart?: string, customEnd?: str
       const lm = subMonths(today, 1);
       return { startDate: format(startOfMonth(lm), "yyyy-MM-dd"), endDate: format(endOfMonth(lm), "yyyy-MM-dd") };
     }
+    case "ytd": {
+      return { startDate: format(new Date(today.getFullYear(), 0, 1), "yyyy-MM-dd"), endDate: format(today, "yyyy-MM-dd") };
+    }
+    case "last_year": {
+      const ly = today.getFullYear() - 1;
+      return { startDate: `${ly}-01-01`, endDate: `${ly}-12-31` };
+    }
+    case "all_time": {
+      return { startDate: "2024-01-01", endDate: format(today, "yyyy-MM-dd") };
+    }
+    case "month": {
+      if (selectedMonthStr) {
+        const [y, m] = selectedMonthStr.split("-").map(Number);
+        const d = new Date(y, m - 1, 1);
+        return { startDate: format(startOfMonth(d), "yyyy-MM-dd"), endDate: format(endOfMonth(d), "yyyy-MM-dd") };
+      }
+      return { startDate: format(startOfMonth(today), "yyyy-MM-dd"), endDate: format(endOfMonth(today), "yyyy-MM-dd") };
+    }
     case "custom":
       return { startDate: customStart || format(today, "yyyy-MM-dd"), endDate: customEnd || format(today, "yyyy-MM-dd") };
   }
+}
+
+function buildMonthOptions(): Array<{ value: string; label: string }> {
+  const today = new Date();
+  const months: Array<{ value: string; label: string }> = [];
+  const start = new Date(2024, 0, 1);
+  let d = new Date(today.getFullYear(), today.getMonth(), 1);
+  while (d >= start) {
+    months.push({
+      value: format(d, "yyyy-MM"),
+      label: format(d, "MMMM yyyy"),
+    });
+    d = subMonths(d, 1);
+  }
+  return months;
 }
 
 const CATEGORIES = [
@@ -195,8 +228,10 @@ export default function TheFirm() {
   const [period, setPeriod] = useState<PeriodKey>("this_month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const monthOptions = buildMonthOptions();
 
-  const { startDate, endDate } = getPeriodDates(period, customStart, customEnd);
+  const { startDate, endDate } = getPeriodDates(period, customStart, customEnd, selectedMonth);
 
   const { data: accounts, isLoading: loadingAccounts } = useQuery<FirmAccount[]>({ queryKey: ["/api/firm/accounts"] });
   const { data: transactions, isLoading: loadingTxns } = useQuery<FirmTransaction[]>({
@@ -236,9 +271,25 @@ export default function TheFirm() {
               <SelectItem value="this_week">This Week</SelectItem>
               <SelectItem value="this_month">This Month</SelectItem>
               <SelectItem value="last_month">Last Month</SelectItem>
+              <SelectItem value="month">Pick Month</SelectItem>
+              <SelectItem value="ytd">Year to Date</SelectItem>
+              <SelectItem value="last_year">Last Year (2025)</SelectItem>
+              <SelectItem value="all_time">All Time</SelectItem>
               <SelectItem value="custom">Custom Range</SelectItem>
             </SelectContent>
           </Select>
+          {period === "month" && (
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger className="w-[170px]" data-testid="select-month">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map(m => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {period === "custom" && (
             <div className="flex items-center gap-1">
               <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-[140px]" data-testid="input-custom-start" />
@@ -797,6 +848,22 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
     onError: () => toast({ title: "Transaction sync failed", variant: "destructive" }),
   });
 
+  const [historicalRange, setHistoricalRange] = useState({ start: "2025-01-01", end: "2025-12-31" });
+  const [showHistorical, setShowHistorical] = useState(false);
+
+  const historicalPullMut = useMutation({
+    mutationFn: (data: { startDate: string; endDate: string }) =>
+      apiRequest("POST", "/api/plaid/pull-historical", data),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      setShowHistorical(false);
+      toast({ title: `Historical pull complete`, description: `${data.added} transactions imported, ${data.skipped} duplicates skipped (${data.period})` });
+    },
+    onError: () => toast({ title: "Historical pull failed", variant: "destructive" }),
+  });
+
   const unlinkMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/plaid/items/${id}`),
     onSuccess: () => {
@@ -863,8 +930,43 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
               <Button size="sm" variant="outline" onClick={() => syncTxnsMut.mutate()} disabled={syncTxnsMut.isPending} data-testid="button-sync-txns">
                 <RefreshCw className={`w-4 h-4 mr-1 ${syncTxnsMut.isPending ? "animate-spin" : ""}`} /> Import Transactions
               </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowHistorical(true)} data-testid="button-pull-historical" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                <Download className="w-4 h-4 mr-1" /> Pull Historical
+              </Button>
             </>
           )}
+          <Dialog open={showHistorical} onOpenChange={setShowHistorical}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Pull Historical Transactions</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Pull older transactions from your linked bank accounts using Plaid. Duplicates are automatically skipped.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Start Date</Label>
+                  <Input type="date" value={historicalRange.start} onChange={e => setHistoricalRange(r => ({ ...r, start: e.target.value }))} data-testid="input-hist-start" />
+                </div>
+                <div>
+                  <Label className="text-xs">End Date</Label>
+                  <Input type="date" value={historicalRange.end} onChange={e => setHistoricalRange(r => ({ ...r, end: e.target.value }))} data-testid="input-hist-end" />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowHistorical(false)}>Cancel</Button>
+                <Button
+                  onClick={() => historicalPullMut.mutate({ startDate: historicalRange.start, endDate: historicalRange.end })}
+                  disabled={historicalPullMut.isPending}
+                  className="bg-amber-600 hover:bg-amber-700"
+                  data-testid="button-submit-historical"
+                >
+                  {historicalPullMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Download className="w-4 h-4 mr-1" />}
+                  Pull Transactions
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
         <Dialog open={showForm} onOpenChange={(o) => { setShowForm(o); if (!o) { setEditing(null); resetForm(); } }}>
           <DialogTrigger asChild><Button size="sm" data-testid="button-add-account"><Plus className="w-4 h-4 mr-1" /> Add Account</Button></DialogTrigger>
