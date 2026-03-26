@@ -454,6 +454,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
   const revenue = s.squareRevenue || 0;
+  const processingFees = s.squareProcessingFees || 0;
   const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal", "rent_split"];
   const INCOME_CATEGORIES = ["revenue", "other_income"];
   const expenseCategories = s.manualTransactionsByCategory
@@ -472,7 +473,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   );
   const laborForPL = bankFeedHasLabor ? 0 : laborCostForPL;
   const payrollForPL = bankFeedHasLabor ? 0 : (s.payrollTotal || 0);
-  const expenses = (s.invoiceExpenseTotal || 0) + laborForPL + manualTxnTotal + payrollForPL;
+  const expenses = (s.invoiceExpenseTotal || 0) + laborForPL + manualTxnTotal + payrollForPL + processingFees;
   const netPL = revenue - expenses;
   const cashPosition = accounts.reduce((sum, a) => {
     if (["checking", "savings", "cash", "petty_cash"].includes(a.type)) return sum + a.currentBalance;
@@ -488,11 +489,13 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
         <Card data-testid="card-revenue">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground font-medium">Revenue<LearnTooltip term="Revenue" explanation="Total money coming into your business from sales. This is your top line — before any expenses are subtracted." /></span>
+              <span className="text-xs text-muted-foreground font-medium">Revenue (Square Gross)<LearnTooltip term="Revenue" explanation="Total gross sales from Square POS — what customers paid. This is your top line before expenses, processing fees, or loan withholdings." /></span>
               <TrendingUp className="w-4 h-4 text-green-600" />
             </div>
             <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(revenue)}</div>
-            <div className="text-[10px] text-muted-foreground mt-1">{s.squareOrderCount || 0} orders via Square</div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              {s.squareOrderCount || 0} orders{processingFees > 0 ? ` · ${formatCurrency(processingFees)} fees` : ""}
+            </div>
           </CardContent>
         </Card>
         <Card data-testid="card-expenses">
@@ -631,6 +634,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
       <RealCashWidget />
 
       <LiquidityWidget startDate={startDate} endDate={endDate} />
+
+      <UndepositedCashWidget startDate={startDate} endDate={endDate} />
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card data-testid="card-expense-breakdown">
@@ -5289,6 +5294,166 @@ function RealCashWidget() {
                 <span className="tabular-nums font-medium">{formatCurrency(breakdown.laborAccrual)}</span>
               </div>
             )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UndepositedCashWidget({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/undeposited-cash", startDate, endDate],
+    queryFn: () => fetch(`/api/firm/undeposited-cash?startDate=${startDate}&endDate=${endDate}`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const fmt = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const handleBackfill = async () => {
+    if (backfillRunning) return;
+    setBackfillRunning(true);
+    try {
+      const res = await fetch("/api/square/backfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ startDate: "2025-01-01", endDate: new Date().toISOString().slice(0, 10) }),
+      });
+      const result = await res.json();
+      alert(`Backfill started: ${result.daysQueued} days queued. This runs in the background — check back in a few minutes.`);
+    } catch (err: any) {
+      alert(`Backfill failed: ${err.message}`);
+    } finally {
+      setBackfillRunning(false);
+    }
+  };
+
+  if (isLoading || !data) return (
+    <Card className="border-emerald-300/50 dark:border-emerald-700/50">
+      <CardContent className="p-4 flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+        <span className="text-sm text-muted-foreground">Loading cash data...</span>
+      </CardContent>
+    </Card>
+  );
+
+  if (data.daysCovered === 0) return (
+    <Card className="border-emerald-300 dark:border-emerald-700 bg-gradient-to-r from-emerald-50/50 to-transparent dark:from-emerald-950/20" data-testid="card-undeposited-cash">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Banknote className="w-4 h-4 text-emerald-600" />
+          <span className="text-sm font-semibold">Square Revenue & Undeposited Cash</span>
+        </div>
+        <p className="text-xs text-muted-foreground">No Square daily summaries found for this period. Run a backfill to sync historical Square data.</p>
+        <Button size="sm" variant="outline" onClick={handleBackfill} disabled={backfillRunning} data-testid="button-backfill">
+          {backfillRunning ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Running...</> : "Backfill Square Data (Jan 2025 → Today)"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const undepositedPct = data.totalSquareCashTender > 0 ? ((data.undepositedCash / data.totalSquareCashTender) * 100) : 0;
+
+  return (
+    <Card className="border-emerald-300 dark:border-emerald-700 bg-gradient-to-r from-emerald-50/50 to-transparent dark:from-emerald-950/20" data-testid="card-undeposited-cash">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+          <Banknote className="w-4 h-4 text-emerald-600" /> Square Revenue & Cash Tracker
+          <Badge variant="outline" className="text-[10px] ml-auto bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300">
+            {data.daysCovered} days synced
+          </Badge>
+          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Square Gross Revenue</p>
+            <p className="text-lg font-bold tabular-nums text-green-700 dark:text-green-400" data-testid="text-square-gross">{fmt(data.squareGrossRevenue)}</p>
+            <p className="text-[10px] text-muted-foreground">Both locations</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Processing Fees</p>
+            <p className="text-lg font-bold tabular-nums text-orange-600" data-testid="text-total-fees">-{fmt(data.totalProcessingFees)}</p>
+            <p className="text-[10px] text-muted-foreground">Card processing</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Cash Tender (POS)</p>
+            <p className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400" data-testid="text-cash-tender">{fmt(data.totalSquareCashTender)}</p>
+            <p className="text-[10px] text-muted-foreground">Customer paid cash</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Undeposited Cash</p>
+            <p className={`text-lg font-bold tabular-nums ${data.undepositedCash > 100 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}`} data-testid="text-undeposited-cash">
+              {fmt(data.undepositedCash)}
+            </p>
+            <p className="text-[10px] text-muted-foreground">Not yet deposited</p>
+          </div>
+        </div>
+
+        {data.undepositedCash > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Cash deposit progress</span>
+              <span className="font-medium">{(100 - undepositedPct).toFixed(1)}% deposited</span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-emerald-500 to-green-500 h-2.5 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, 100 - undepositedPct)}%` }}
+                data-testid="cash-deposit-progress"
+              />
+            </div>
+          </div>
+        )}
+
+        {expanded && (
+          <div className="space-y-3 border-t border-emerald-200 dark:border-emerald-800 pt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-[10px] text-muted-foreground">Bolton Gross</p>
+                <p className="font-medium tabular-nums" data-testid="text-bolton-rev">{fmt(data.boltonGrossRevenue)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground">Saratoga Gross</p>
+                <p className="font-medium tabular-nums" data-testid="text-toga-rev">{fmt(data.saratogaGrossRevenue)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground">Card Tender</p>
+                <p className="font-medium tabular-nums">{fmt(data.squareGrossRevenue - data.totalSquareCashTender)}</p>
+              </div>
+            </div>
+
+            <div className="bg-muted/40 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold">Cash Reconciliation</p>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Square cash tender (POS)</span>
+                  <span className="font-medium tabular-nums">{fmt(data.totalSquareCashTender)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Less: cash deposited</span>
+                  <span className="font-medium tabular-nums text-green-600">-{fmt(data.cashDeposited)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Less: reimbursements</span>
+                  <span className="font-medium tabular-nums text-green-600">-{fmt(data.reimbursements)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border/50 pt-1 font-semibold">
+                  <span>= Undeposited cash</span>
+                  <span className={data.undepositedCash > 100 ? "text-red-600" : "text-green-600"} data-testid="text-undeposited-final">{fmt(data.undepositedCash)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" onClick={handleBackfill} disabled={backfillRunning} data-testid="button-backfill-expanded">
+                {backfillRunning ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Running...</> : "Re-sync Square Data"}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

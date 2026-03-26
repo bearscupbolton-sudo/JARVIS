@@ -99,16 +99,20 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
     const endAt = `${date}T23:59:59Z`;
 
     let squareLocIds: string[] = [];
+    const allLocs = await db.select().from(locations);
+    const squareIdToJarvisId = new Map<string, number>();
+    for (const loc of allLocs) {
+      if (loc.squareLocationId) squareIdToJarvisId.set(loc.squareLocationId, loc.id);
+    }
 
     if (jarvisLocationId) {
-      const [loc] = await db.select().from(locations).where(eq(locations.id, jarvisLocationId));
+      const loc = allLocs.find(l => l.id === jarvisLocationId);
       if (loc?.squareLocationId) {
         squareLocIds = [loc.squareLocationId];
       } else {
         throw new Error("Selected location has no Square Location ID linked. Go to Schedule > Locations and add the Square Location ID.");
       }
     } else {
-      const allLocs = await db.select().from(locations);
       const linked = allLocs.filter(l => l.squareLocationId);
       if (linked.length > 0) {
         squareLocIds = linked.map(l => l.squareLocationId!);
@@ -133,29 +137,37 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       }
     }
 
+    type LocAgg = {
+      ordersProcessed: number;
+      totalRevenue: number;
+      cashTender: number;
+      cardTender: number;
+      otherTender: number;
+      tipAmount: number;
+      refundAmount: number;
+      hourlyBuckets: Map<number, { orderCount: number; revenue: number; itemsSold: number }>;
+    };
+    const perLocationAgg = new Map<string, LocAgg>();
+    for (const sqLocId of squareLocIds) {
+      perLocationAgg.set(sqLocId, {
+        ordersProcessed: 0, totalRevenue: 0, cashTender: 0, cardTender: 0,
+        otherTender: 0, tipAmount: 0, refundAmount: 0,
+        hourlyBuckets: new Map(),
+      });
+    }
+
     const salesAgg = new Map<string, { qty: number; revenue: number; pastryItemId: number | null }>();
-    let ordersProcessed = 0;
-    let totalRevenue = 0;
-    const hourlyBuckets = new Map<number, { orderCount: number; revenue: number; itemsSold: number }>();
     let cursor: string | undefined;
 
     const body: any = {
       query: {
         filter: {
           dateTimeFilter: {
-            createdAt: {
-              startAt,
-              endAt,
-            },
+            createdAt: { startAt, endAt },
           },
-          stateFilter: {
-            states: ["COMPLETED"],
-          },
+          stateFilter: { states: ["COMPLETED"] },
         },
-        sort: {
-          sortField: "CREATED_AT",
-          sortOrder: "ASC",
-        },
+        sort: { sortField: "CREATED_AT", sortOrder: "ASC" },
       },
       locationIds: squareLocIds.length > 0 ? squareLocIds : undefined,
     };
@@ -166,10 +178,44 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       const orders = response.orders || [];
 
       for (const order of orders) {
-        ordersProcessed++;
+        const orderLocId = (order as any).locationId || squareLocIds[0] || "unknown";
+        let locAgg = perLocationAgg.get(orderLocId);
+        if (!locAgg) {
+          locAgg = {
+            ordersProcessed: 0, totalRevenue: 0, cashTender: 0, cardTender: 0,
+            otherTender: 0, tipAmount: 0, refundAmount: 0,
+            hourlyBuckets: new Map(),
+          };
+          perLocationAgg.set(orderLocId, locAgg);
+        }
 
+        locAgg.ordersProcessed++;
         const orderTotalCents = (order as any).totalMoney?.amount ? Number((order as any).totalMoney.amount) : 0;
-        totalRevenue += orderTotalCents / 100;
+        locAgg.totalRevenue += orderTotalCents / 100;
+
+        const tipCents = (order as any).totalTipMoney?.amount ? Number((order as any).totalTipMoney.amount) : 0;
+        locAgg.tipAmount += tipCents / 100;
+
+        const tenders = (order as any).tenders || [];
+        for (const tender of tenders) {
+          const tenderAmountCents = tender.amountMoney?.amount ? Number(tender.amountMoney.amount) : 0;
+          const tenderTipCents = tender.tipMoney?.amount ? Number(tender.tipMoney.amount) : 0;
+          const tenderTotal = (tenderAmountCents + tenderTipCents) / 100;
+          const tenderType = (tender.type || "").toUpperCase();
+          if (tenderType === "CASH") {
+            locAgg.cashTender += tenderTotal;
+          } else if (tenderType === "CARD" || tenderType === "SQUARE_GIFT_CARD") {
+            locAgg.cardTender += tenderTotal;
+          } else {
+            locAgg.otherTender += tenderTotal;
+          }
+        }
+
+        const refunds = (order as any).refunds || [];
+        for (const refund of refunds) {
+          const refundCents = refund.amountMoney?.amount ? Number(refund.amountMoney.amount) : 0;
+          locAgg.refundAmount += refundCents / 100;
+        }
 
         const createdAt = (order as any).createdAt;
         let orderHour = 0;
@@ -177,33 +223,55 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
           const orderDate = new Date(createdAt);
           orderHour = orderDate.getHours();
         }
-        const bucket = hourlyBuckets.get(orderHour) || { orderCount: 0, revenue: 0, itemsSold: 0 };
+        const bucket = locAgg.hourlyBuckets.get(orderHour) || { orderCount: 0, revenue: 0, itemsSold: 0 };
         bucket.orderCount++;
         bucket.revenue += orderTotalCents / 100;
 
         for (const lineItem of (order as any).lineItems || []) {
           const catalogId = lineItem.catalogObjectId;
-
           let mappingInfo: { name: string; pastryItemId: number | null } | undefined;
           if (catalogId) {
             mappingInfo = variationToItem.get(catalogId) || itemIdToMapping.get(catalogId);
           }
           if (!mappingInfo) continue;
-
           const qty = parseInt(lineItem.quantity || "1", 10);
           const revCents = lineItem.totalMoney?.amount ? Number(lineItem.totalMoney.amount) : 0;
           const existing = salesAgg.get(mappingInfo.name) || { qty: 0, revenue: 0, pastryItemId: mappingInfo.pastryItemId };
           existing.qty += qty;
           existing.revenue += revCents / 100;
           salesAgg.set(mappingInfo.name, existing);
-
           bucket.itemsSold += qty;
         }
-        hourlyBuckets.set(orderHour, bucket);
+        locAgg.hourlyBuckets.set(orderHour, bucket);
       }
 
       cursor = (response as any).cursor || undefined;
     } while (cursor);
+
+    let processingFeesByLoc = new Map<string, number>();
+    try {
+      for (const sqLocId of squareLocIds) {
+        let paymentCursor: string | undefined;
+        let totalFees = 0;
+        do {
+          const paymentResponse = await client.payments.list({
+            beginTime: startAt,
+            endTime: endAt,
+            locationId: sqLocId,
+            cursor: paymentCursor,
+          });
+          const payments = paymentResponse.payments || [];
+          for (const pmt of payments) {
+            const feeCents = (pmt as any).processingFee?.reduce((s: number, f: any) => s + (Number(f.amountMoney?.amount) || 0), 0) || 0;
+            totalFees += feeCents / 100;
+          }
+          paymentCursor = (paymentResponse as any).cursor || undefined;
+        } while (paymentCursor);
+        processingFeesByLoc.set(sqLocId, totalFees);
+      }
+    } catch (feeErr: any) {
+      console.warn("[Square Sync] Could not fetch processing fees:", feeErr.message);
+    }
 
     await db.delete(squareSales).where(eq(squareSales.date, date));
     await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
@@ -221,20 +289,50 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       });
     }
 
-    const hourlyBreakdown = Array.from(hourlyBuckets.entries())
-      .map(([hour, data]) => ({ hour, orderCount: data.orderCount, revenue: data.revenue, itemsSold: data.itemsSold }))
-      .sort((a, b) => a.hour - b.hour);
+    let totalOrdersProcessed = 0;
+    for (const [sqLocId, agg] of perLocationAgg.entries()) {
+      if (agg.ordersProcessed === 0) continue;
+      totalOrdersProcessed += agg.ordersProcessed;
 
-    await db.insert(squareDailySummary).values({
-      date,
-      locationId: jarvisLocationId || null,
-      orderCount: ordersProcessed,
-      totalRevenue,
-      hourlyBreakdown,
-      lastSyncedAt: new Date(),
-    });
+      const hourlyBreakdown = Array.from(agg.hourlyBuckets.entries())
+        .map(([hour, data]) => ({ hour, orderCount: data.orderCount, revenue: data.revenue, itemsSold: data.itemsSold }))
+        .sort((a, b) => a.hour - b.hour);
 
-    return { itemsSynced: salesAgg.size, ordersProcessed };
+      const jLocId = squareIdToJarvisId.get(sqLocId) || null;
+      const fees = processingFeesByLoc.get(sqLocId) || 0;
+
+      await db.insert(squareDailySummary).values({
+        date,
+        locationId: jLocId,
+        squareLocationId: sqLocId,
+        orderCount: agg.ordersProcessed,
+        totalRevenue: agg.totalRevenue,
+        cashTender: agg.cashTender,
+        cardTender: agg.cardTender,
+        otherTender: agg.otherTender,
+        tipAmount: agg.tipAmount,
+        processingFees: fees,
+        refundAmount: agg.refundAmount,
+        hourlyBreakdown,
+        lastSyncedAt: new Date(),
+      });
+    }
+
+    if (totalOrdersProcessed === 0 && squareLocIds.length > 0) {
+      await db.insert(squareDailySummary).values({
+        date,
+        locationId: jarvisLocationId || null,
+        squareLocationId: squareLocIds[0],
+        orderCount: 0,
+        totalRevenue: 0,
+        cashTender: 0, cardTender: 0, otherTender: 0,
+        tipAmount: 0, processingFees: 0, refundAmount: 0,
+        hourlyBreakdown: [],
+        lastSyncedAt: new Date(),
+      });
+    }
+
+    return { itemsSynced: salesAgg.size, ordersProcessed: totalOrdersProcessed };
   } catch (error: any) {
     console.error("Error syncing Square sales:", error);
     throw new Error(`Failed to sync sales: ${error.message}`);
