@@ -102,8 +102,9 @@ import {
   type OnboardingInvite, type InsertOnboardingInvite,
   type OnboardingSubmission, type InsertOnboardingSubmission,
   type OnboardingDocument, type InsertOnboardingDocument,
-  coffeeInventory, coffeeDrinkRecipes, coffeeDrinkIngredients, coffeeUsageLogs,
+  coffeeInventory, coffeeComponents, coffeeDrinkRecipes, coffeeDrinkIngredients, coffeeUsageLogs,
   type CoffeeInventoryItem, type InsertCoffeeInventoryItem,
+  type CoffeeComponent, type InsertCoffeeComponent,
   type CoffeeDrinkRecipe, type InsertCoffeeDrinkRecipe,
   type CoffeeDrinkIngredient, type InsertCoffeeDrinkIngredient,
   type CoffeeUsageLog, type InsertCoffeeUsageLog,
@@ -663,6 +664,10 @@ export interface IStorage {
   createCoffeeInventoryItem(item: InsertCoffeeInventoryItem): Promise<CoffeeInventoryItem>;
   updateCoffeeInventoryItem(id: number, updates: Partial<InsertCoffeeInventoryItem>): Promise<CoffeeInventoryItem>;
   deleteCoffeeInventoryItem(id: number): Promise<void>;
+  getCoffeeComponents(): Promise<CoffeeComponent[]>;
+  createCoffeeComponent(component: InsertCoffeeComponent): Promise<CoffeeComponent>;
+  updateCoffeeComponent(id: number, updates: Partial<InsertCoffeeComponent>): Promise<CoffeeComponent>;
+  deleteCoffeeComponent(id: number): Promise<void>;
   getCoffeeDrinkRecipes(): Promise<CoffeeDrinkRecipe[]>;
   createCoffeeDrinkRecipe(recipe: InsertCoffeeDrinkRecipe): Promise<CoffeeDrinkRecipe>;
   updateCoffeeDrinkRecipe(id: number, updates: Partial<InsertCoffeeDrinkRecipe>): Promise<CoffeeDrinkRecipe>;
@@ -4249,6 +4254,24 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCoffeeInventoryItem(id: number): Promise<void> {
     await db.delete(coffeeInventory).where(eq(coffeeInventory.id, id));
+  }
+
+  async getCoffeeComponents(): Promise<CoffeeComponent[]> {
+    return await db.select().from(coffeeComponents).orderBy(coffeeComponents.category, coffeeComponents.name);
+  }
+
+  async createCoffeeComponent(component: InsertCoffeeComponent): Promise<CoffeeComponent> {
+    const [result] = await db.insert(coffeeComponents).values(component).returning();
+    return result;
+  }
+
+  async updateCoffeeComponent(id: number, updates: Partial<InsertCoffeeComponent>): Promise<CoffeeComponent> {
+    const [result] = await db.update(coffeeComponents).set(updates).where(eq(coffeeComponents.id, id)).returning();
+    return result;
+  }
+
+  async deleteCoffeeComponent(id: number): Promise<void> {
+    await db.delete(coffeeComponents).where(eq(coffeeComponents.id, id));
   }
 
   async getCoffeeDrinkRecipes(): Promise<CoffeeDrinkRecipe[]> {

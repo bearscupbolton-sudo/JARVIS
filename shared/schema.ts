@@ -1581,9 +1581,25 @@ export const insertCoffeeInventorySchema = createInsertSchema(coffeeInventory).o
 export type CoffeeInventoryItem = typeof coffeeInventory.$inferSelect;
 export type InsertCoffeeInventoryItem = z.infer<typeof insertCoffeeInventorySchema>;
 
+export const coffeeComponents = pgTable("coffee_components", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  coffeeInventoryId: integer("coffee_inventory_id"),
+  defaultQuantity: doublePrecision("default_quantity"),
+  defaultUnit: text("default_unit"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCoffeeComponentSchema = createInsertSchema(coffeeComponents).omit({ id: true, createdAt: true });
+export type CoffeeComponent = typeof coffeeComponents.$inferSelect;
+export type InsertCoffeeComponent = z.infer<typeof insertCoffeeComponentSchema>;
+
 export const coffeeDrinkRecipes = pgTable("coffee_drink_recipes", {
   id: serial("id").primaryKey(),
   drinkName: text("drink_name").notNull(),
+  description: text("description"),
+  parentDrinkId: integer("parent_drink_id"),
   squareItemName: text("square_item_name"),
   squareItemId: text("square_item_id"),
   squareVariationId: text("square_variation_id"),
@@ -1598,9 +1614,11 @@ export type InsertCoffeeDrinkRecipe = z.infer<typeof insertCoffeeDrinkRecipeSche
 export const coffeeDrinkIngredients = pgTable("coffee_drink_ingredients", {
   id: serial("id").primaryKey(),
   drinkRecipeId: integer("drink_recipe_id").notNull(),
-  coffeeInventoryId: integer("coffee_inventory_id").notNull(),
+  coffeeInventoryId: integer("coffee_inventory_id"),
+  coffeeComponentId: integer("coffee_component_id"),
   quantityUsed: doublePrecision("quantity_used").notNull(),
   unit: text("unit").notNull(),
+  isOverride: boolean("is_override").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
