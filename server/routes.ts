@@ -12192,6 +12192,24 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.get("/api/firm/export-yearend", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const year = parseInt(req.query.year as string);
+      if (!year || year < 2020 || year > 2099) return res.status(400).json({ message: "Valid year parameter required (2020-2099)" });
+
+      const { generateYearEndExport } = await import("./yearend-export-engine");
+      const exportData = await generateYearEndExport(year);
+
+      const filename = `bears-cup-yearend-${year}.json`;
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(exportData, null, 2));
+    } catch (err: any) {
+      console.error("[Year-End Export] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Firm Obligations
   app.get("/api/firm/obligations", isAuthenticated, isOwner, async (_req, res) => {
     try {

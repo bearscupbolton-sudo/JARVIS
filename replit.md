@@ -28,6 +28,7 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **Communication & Collaboration:** Messaging system, global acknowledgment system, task manager, and notes system.
     *   **Customer & Wholesale:** La Carte customer portal, BC Wholesale portal, and JMT (Jarvis Menu Theater) for dynamic menu display.
     *   **Tax Intelligence (RAgent):** Tax Profile Engine, Vibe Threshold Monitor, and FICA Tip Credit Calculator.
+    *   **Year-End Financial Export:** Comprehensive JSON export engine (`server/yearend-export-engine.ts`) generating `bears-cup-yearend-YYYY.json` with all financial statements, GL detail, S-Corp tax workpapers, fixed asset schedules, payroll, donations, compliance data, and operational support data for CPA/AI Form 1120-S preparation. Owner-only "Export Year-End Package" button on The Firm page (Reconcile tab) with year selector.
 
 ## External Dependencies
 

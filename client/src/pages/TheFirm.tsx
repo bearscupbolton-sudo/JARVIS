@@ -3137,6 +3137,7 @@ function CashTab({ cashCounts, startDate, endDate }: { cashCounts: FirmCashCount
 
 function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate: string }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [view, setView] = useState<"unreconciled" | "reconciled" | "placeholders">("unreconciled");
   const [matchingInternal, setMatchingInternal] = useState<any>(null);
   const [matchCategory, setMatchCategory] = useState("cogs");
@@ -3239,6 +3240,36 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
     window.open(`/api/firm/export-qb?startDate=${startDate}&endDate=${endDate}`, "_blank");
   };
 
+  const [yearEndYear, setYearEndYear] = useState(String(new Date().getFullYear() - 1));
+  const [yearEndExporting, setYearEndExporting] = useState(false);
+  const [showYearEndDialog, setShowYearEndDialog] = useState(false);
+
+  const handleYearEndExport = async () => {
+    setYearEndExporting(true);
+    try {
+      const response = await fetch(`/api/firm/export-yearend?year=${yearEndYear}`);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bears-cup-yearend-${yearEndYear}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Year-end export downloaded", description: `${yearEndYear} financial package exported successfully.` });
+      setShowYearEndDialog(false);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setYearEndExporting(false);
+    }
+  };
+
   const formatCurrency = (amt: number) => {
     const abs = Math.abs(amt);
     return `${amt < 0 ? "-" : ""}$${abs.toFixed(2)}`;
@@ -3316,6 +3347,45 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
             <Button size="sm" variant="outline" onClick={handleQBExport} className="w-full" data-testid="button-qb-export">
               <FileText className="w-4 h-4 mr-1.5" /> QuickBooks Export
             </Button>
+            {user?.role === "owner" && (
+              <Dialog open={showYearEndDialog} onOpenChange={setShowYearEndDialog}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline" className="w-full mt-1" data-testid="button-yearend-export-open">
+                    <Download className="w-4 h-4 mr-1.5" /> Year-End Package
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Export Year-End Financial Package</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      Generate a comprehensive JSON export with all financial statements, tax workpapers, GL detail, asset schedules, and supporting data for CPA/AI consumption.
+                    </p>
+                    <div className="space-y-2">
+                      <Label>Tax Year</Label>
+                      <Select value={yearEndYear} onValueChange={setYearEndYear}>
+                        <SelectTrigger data-testid="select-yearend-year">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 5 }, (_, i) => {
+                            const y = new Date().getFullYear() - i;
+                            return <SelectItem key={y} value={String(y)}>{y}</SelectItem>;
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowYearEndDialog(false)} data-testid="button-yearend-cancel">Cancel</Button>
+                    <Button onClick={handleYearEndExport} disabled={yearEndExporting} data-testid="button-yearend-download">
+                      {yearEndExporting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</> : <><Download className="w-4 h-4 mr-2" /> Export Package</>}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
             <Button size="sm" variant="ghost" onClick={() => refetch()} className="w-full mt-1" data-testid="button-refresh-recon">
               <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
             </Button>
