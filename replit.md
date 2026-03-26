@@ -59,3 +59,12 @@ Revenue is sourced from **Square POS gross sales** (not bank deposits). The `squ
 **Backfill route**: `POST /api/square/backfill` with `{startDate, endDate}` queues background sync for each day.
 
 **P&L waterfall**: Square Gross Revenue → minus Processing Fees (6110) → minus Loan Withholding (2500) → minus Cash Tender → = Bank Deposit (what Plaid sees).
+
+## Coffee Command Center - Components & Drink Builder
+
+The Coffee Command Center includes:
+- **Components Library** (`coffee_components` table): Coffee ingredients organized by category (Espresso, Milks, Syrups, Teas/Bases, Toppings, Cold Foam). Each component links to a `coffee_inventory` item for cost tracking.
+- **Jarvis Drink Builder**: AI-powered drink recipe creation via natural language or photo upload. Endpoint at `POST /api/coffee/jarvis-parse-drinks` parses descriptions into structured recipes, matching components from the library. Parsed results are editable before saving (name, description, ingredients, quantities, units). Unmatched ingredients can be resolved by creating new components or linking to existing ones inline.
+- **Base Drink Templates with Variations**: Drinks can have a `parentDrinkId` to create variation hierarchies (e.g., Iced Latte as a variation of Latte). Variations inherit base drink ingredients; override-only ingredients are stored on the variation. The API returns both `ingredients` (own) and `effectiveIngredients` (own + inherited from parent, with overrides applied by `coffeeInventoryId`).
+- **End-to-End Cost Rollup**: Drink cost = sum of effective ingredient quantity × inventory cost per unit. Costs flow from inventory items → coffee inventory → drink ingredients → per-drink COGS. Expanded drink cards show per-ingredient cost with inherited/override indicators.
+- Tables: `coffee_components`, `coffee_drink_recipes` (with `description`, `parent_drink_id`), `coffee_drink_ingredients` (with `coffee_component_id`, `is_override`), `coffee_inventory`.

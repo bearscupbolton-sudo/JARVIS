@@ -10575,21 +10575,237 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
     }
   });
 
+  app.get("/api/coffee/components", isAuthenticated, async (_req, res) => {
+    try {
+      const components = await storage.getCoffeeComponents();
+      const inventory = await storage.getCoffeeInventory();
+      const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+      const enriched = components.map(c => ({
+        ...c,
+        inventoryItemName: c.coffeeInventoryId ? inventoryMap.get(c.coffeeInventoryId)?.name || null : null,
+        costPerUnit: c.coffeeInventoryId ? inventoryMap.get(c.coffeeInventoryId)?.costPerUnit || null : null,
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/components", isAuthenticated, async (req, res) => {
+    try {
+      const { name, category, coffeeInventoryId, defaultQuantity, defaultUnit } = req.body;
+      if (!name || !category) return res.status(400).json({ message: "Name and category required" });
+      const component = await storage.createCoffeeComponent({
+        name, category,
+        coffeeInventoryId: coffeeInventoryId || null,
+        defaultQuantity: defaultQuantity || null,
+        defaultUnit: defaultUnit || null,
+      });
+      res.json(component);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/coffee/components/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const result = await storage.updateCoffeeComponent(id, req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/coffee/components/:id", isAuthenticated, async (req, res) => {
+    try {
+      const compId = parseInt(req.params.id);
+      const allIngredients = await storage.getAllCoffeeDrinkIngredients();
+      const dependents = allIngredients.filter(i => i.coffeeComponentId === compId);
+      if (dependents.length > 0) {
+        return res.status(409).json({ message: `Cannot delete: component is used in ${dependents.length} drink ingredient(s). Remove those references first.` });
+      }
+      await storage.deleteCoffeeComponent(compId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/coffee/jarvis-parse-drinks", isAuthenticated, async (req, res) => {
+    try {
+      const { text: inputText, imageBase64 } = req.body;
+      if (!inputText && !imageBase64) return res.status(400).json({ message: "Provide text or image" });
+      if (imageBase64 && typeof imageBase64 === "string" && imageBase64.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image too large (max 5MB)" });
+      }
+      if (inputText && typeof inputText === "string" && inputText.length > 5000) {
+        return res.status(400).json({ message: "Text too long (max 5000 chars)" });
+      }
+
+      const components = await storage.getCoffeeComponents();
+      const inventory = await storage.getCoffeeInventory();
+      const inventoryMap = new Map(inventory.map(i => [i.id, i]));
+
+      const componentsList = components.map(c => ({
+        id: c.id,
+        name: c.name,
+        category: c.category,
+        coffeeInventoryId: c.coffeeInventoryId,
+        defaultQuantity: c.defaultQuantity,
+        defaultUnit: c.defaultUnit,
+        costPerUnit: c.coffeeInventoryId ? inventoryMap.get(c.coffeeInventoryId)?.costPerUnit || null : null,
+      }));
+
+      const existingRecipes = await storage.getCoffeeDrinkRecipes();
+      const baseRecipes = existingRecipes.filter(r => !r.parentDrinkId);
+
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse coffee program. Parse drink descriptions into structured recipes.
+
+Available components library:
+${JSON.stringify(componentsList, null, 2)}
+
+Existing base drink recipes (can be used as parent templates):
+${baseRecipes.map(r => `- id:${r.id} "${r.drinkName}"`).join("\n")}
+
+RULES:
+1. Match ingredients to components by name (fuzzy match). Use the component's id, defaultQuantity, and defaultUnit when matched.
+2. For unmatched ingredients, set componentId to null and suggest a category.
+3. Standard drink sizes: small=8oz, medium=12oz, large=16oz.
+4. Common defaults: espresso shot=1oz, milk=varies by size, syrup pump=0.5oz, cold foam=2oz.
+5. If a drink is a variation of an existing base (e.g., "Iced Latte" from "Latte"), set parentDrinkId.
+6. Parse multiple drinks if the input describes more than one.
+
+Return JSON: {
+  "drinks": [{
+    "drinkName": "string",
+    "description": "string",
+    "parentDrinkId": number | null,
+    "ingredients": [{
+      "componentId": number | null,
+      "componentName": "string",
+      "coffeeInventoryId": number | null,
+      "quantityUsed": number,
+      "unit": "string",
+      "matched": boolean,
+      "suggestedCategory": "string" | null
+    }],
+    "notes": "string" | null
+  }],
+  "questions": ["string"] | null
+}`;
+
+      const messages: any[] = [
+        { role: "system", content: systemPrompt },
+      ];
+
+      if (imageBase64) {
+        messages.push({
+          role: "user",
+          content: [
+            { type: "text", text: inputText || "Parse the drinks from this image into recipes." },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+          ],
+        });
+      } else {
+        messages.push({ role: "user", content: inputText });
+      }
+
+      const response = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages,
+        response_format: { type: "json_object" },
+        max_tokens: 4096,
+      }), "jarvis-drink-parser");
+
+      const content = response.choices[0]?.message?.content || "{}";
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        const match = content.match(/\{[\s\S]*\}/);
+        parsed = match ? JSON.parse(match[0]) : { drinks: [], questions: ["Failed to parse response"] };
+      }
+
+      const drinks = parsed.drinks || [];
+      for (const drink of drinks) {
+        let totalCost = 0;
+        for (const ing of drink.ingredients || []) {
+          if (ing.coffeeInventoryId) {
+            const invItem = inventoryMap.get(ing.coffeeInventoryId);
+            if (invItem?.costPerUnit) {
+              ing.estimatedCost = ing.quantityUsed * invItem.costPerUnit;
+              totalCost += ing.estimatedCost;
+            }
+          }
+        }
+        drink.estimatedTotalCost = totalCost > 0 ? totalCost : null;
+      }
+
+      res.json(parsed);
+    } catch (err: any) {
+      console.error("Jarvis drink parser error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/coffee/drinks", isAuthenticated, async (_req, res) => {
     try {
       const recipes = await storage.getCoffeeDrinkRecipes();
       const allIngredients = await storage.getAllCoffeeDrinkIngredients();
       const inventory = await storage.getCoffeeInventory();
+      const components = await storage.getCoffeeComponents();
       const inventoryMap = new Map(inventory.map(i => [i.id, i]));
-      const drinksWithIngredients = recipes.map(r => ({
-        ...r,
-        ingredients: allIngredients
-          .filter(ing => ing.drinkRecipeId === r.id)
-          .map(ing => ({
-            ...ing,
-            inventoryItemName: inventoryMap.get(ing.coffeeInventoryId)?.name || "Unknown",
-          })),
-      }));
+      const componentMap = new Map(components.map(c => [c.id, c]));
+
+      const enrichIngredient = (ing: any) => ({
+        ...ing,
+        inventoryItemName: ing.coffeeInventoryId ? (inventoryMap.get(ing.coffeeInventoryId)?.name || "Unknown") : (ing.coffeeComponentId ? componentMap.get(ing.coffeeComponentId)?.name || "Unmapped" : "Unmapped"),
+        costPerUnit: ing.coffeeInventoryId ? (inventoryMap.get(ing.coffeeInventoryId)?.costPerUnit || null) : null,
+        componentName: ing.coffeeComponentId ? componentMap.get(ing.coffeeComponentId)?.name || null : null,
+      });
+
+      const recipeIngMap = new Map<number, any[]>();
+      for (const ing of allIngredients) {
+        if (!recipeIngMap.has(ing.drinkRecipeId)) recipeIngMap.set(ing.drinkRecipeId, []);
+        recipeIngMap.get(ing.drinkRecipeId)!.push(ing);
+      }
+
+      const drinksWithIngredients = recipes.map(r => {
+        let ownIngredients = (recipeIngMap.get(r.id) || []).map(enrichIngredient);
+        let effectiveIngredients = ownIngredients;
+
+        if (r.parentDrinkId) {
+          const parentIngs = (recipeIngMap.get(r.parentDrinkId) || []).map(enrichIngredient);
+          const overrideKeys = new Set<string>();
+          for (const oi of ownIngredients) {
+            if (oi.isOverride) {
+              overrideKeys.add(String(oi.coffeeInventoryId));
+              if (oi.coffeeComponentId) overrideKeys.add(`c:${oi.coffeeComponentId}`);
+            } else {
+              overrideKeys.add(String(oi.coffeeInventoryId));
+            }
+          }
+          const inherited = parentIngs.filter((pi: any) => {
+            if (overrideKeys.has(String(pi.coffeeInventoryId))) return false;
+            if (pi.coffeeComponentId && overrideKeys.has(`c:${pi.coffeeComponentId}`)) return false;
+            return true;
+          }).map((pi: any) => ({ ...pi, inherited: true }));
+          effectiveIngredients = [...ownIngredients.map((i: any) => ({ ...i, inherited: false })), ...inherited];
+        }
+
+        return {
+          ...r,
+          ingredients: ownIngredients,
+          effectiveIngredients,
+        };
+      });
       res.json(drinksWithIngredients);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -10598,12 +10814,20 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
 
   app.post("/api/coffee/drinks", isAuthenticated, async (req, res) => {
     try {
-      const { drinkName, squareItemName, squareItemId, squareVariationId, ingredients } = req.body;
-      if (!drinkName) {
+      const { drinkName, description, parentDrinkId, squareItemName, squareItemId, squareVariationId, ingredients } = req.body;
+      if (!drinkName || typeof drinkName !== "string" || !drinkName.trim()) {
         return res.status(400).json({ message: "Drink name is required" });
       }
+      let validParentId = null;
+      if (parentDrinkId) {
+        const allRecipes = await storage.getCoffeeDrinkRecipes();
+        const parent = allRecipes.find(r => r.id === parentDrinkId);
+        if (parent && !parent.parentDrinkId) validParentId = parentDrinkId;
+      }
       const recipe = await storage.createCoffeeDrinkRecipe({
-        drinkName,
+        drinkName: drinkName.trim(),
+        description: description || null,
+        parentDrinkId: validParentId,
         squareItemName: squareItemName || null,
         squareItemId: squareItemId || null,
         squareVariationId: squareVariationId || null,
@@ -10611,7 +10835,26 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
       });
       let savedIngredients: any[] = [];
       if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
-        savedIngredients = await storage.setCoffeeDrinkIngredients(recipe.id, ingredients);
+        const components = await storage.getCoffeeComponents();
+        const componentMap = new Map(components.map(c => [c.id, c]));
+        const resolvedIngredients = ingredients
+          .filter((ing: any) => typeof ing.quantityUsed === "number" && ing.quantityUsed > 0 && typeof ing.unit === "string" && ing.unit.trim())
+          .map((ing: any) => {
+            let invId = ing.coffeeInventoryId ? Number(ing.coffeeInventoryId) : null;
+            const compId = ing.coffeeComponentId ? Number(ing.coffeeComponentId) : null;
+            if (!invId && compId) {
+              const comp = componentMap.get(compId);
+              if (comp?.coffeeInventoryId) invId = comp.coffeeInventoryId;
+            }
+            return {
+              coffeeInventoryId: invId && invId > 0 ? invId : null,
+              coffeeComponentId: compId && compId > 0 ? compId : null,
+              quantityUsed: Number(ing.quantityUsed),
+              unit: String(ing.unit).trim(),
+              isOverride: Boolean(ing.isOverride),
+            };
+          }).filter((i: any) => i.coffeeInventoryId || i.coffeeComponentId);
+        savedIngredients = await storage.setCoffeeDrinkIngredients(recipe.id, resolvedIngredients);
       }
       res.json({ ...recipe, ingredients: savedIngredients });
     } catch (err: any) {
@@ -10622,16 +10865,45 @@ Provide 3-5 practical, specific recommendations. Focus on real bakery knowledge.
   app.patch("/api/coffee/drinks/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { drinkName, squareItemName, squareItemId, squareVariationId, isActive, ingredients } = req.body;
+      const { drinkName, description, parentDrinkId, squareItemName, squareItemId, squareVariationId, isActive, ingredients } = req.body;
       const updates: any = {};
       if (drinkName !== undefined) updates.drinkName = drinkName;
+      if (description !== undefined) updates.description = description;
+      if (parentDrinkId !== undefined) {
+        if (parentDrinkId) {
+          const allRecipes = await storage.getCoffeeDrinkRecipes();
+          const parent = allRecipes.find(r => r.id === parentDrinkId);
+          updates.parentDrinkId = (parent && !parent.parentDrinkId && parentDrinkId !== id) ? parentDrinkId : null;
+        } else {
+          updates.parentDrinkId = null;
+        }
+      }
       if (squareItemName !== undefined) updates.squareItemName = squareItemName;
       if (squareItemId !== undefined) updates.squareItemId = squareItemId;
       if (squareVariationId !== undefined) updates.squareVariationId = squareVariationId;
       if (isActive !== undefined) updates.isActive = isActive;
       const recipe = await storage.updateCoffeeDrinkRecipe(id, updates);
       if (ingredients && Array.isArray(ingredients)) {
-        await storage.setCoffeeDrinkIngredients(id, ingredients);
+        const components = await storage.getCoffeeComponents();
+        const componentMap = new Map(components.map(c => [c.id, c]));
+        const resolvedIngredients = ingredients
+          .filter((ing: any) => typeof ing.quantityUsed === "number" && ing.quantityUsed > 0 && typeof ing.unit === "string" && ing.unit.trim())
+          .map((ing: any) => {
+            let invId = ing.coffeeInventoryId ? Number(ing.coffeeInventoryId) : null;
+            const compId = ing.coffeeComponentId ? Number(ing.coffeeComponentId) : null;
+            if (!invId && compId) {
+              const comp = componentMap.get(compId);
+              if (comp?.coffeeInventoryId) invId = comp.coffeeInventoryId;
+            }
+            return {
+              coffeeInventoryId: invId && invId > 0 ? invId : null,
+              coffeeComponentId: compId && compId > 0 ? compId : null,
+              quantityUsed: Number(ing.quantityUsed),
+              unit: String(ing.unit).trim(),
+              isOverride: Boolean(ing.isOverride),
+            };
+          }).filter((i: any) => i.coffeeInventoryId || i.coffeeComponentId);
+        await storage.setCoffeeDrinkIngredients(id, resolvedIngredients);
       }
       const updatedIngredients = await storage.getCoffeeDrinkIngredients(id);
       res.json({ ...recipe, ingredients: updatedIngredients });
