@@ -226,6 +226,7 @@ export default function TheFirm() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
+  const [ledgerFilterAccountId, setLedgerFilterAccountId] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodKey>("this_month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -332,10 +333,10 @@ export default function TheFirm() {
           <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="accounts">
-          <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setActiveTab("ledger"); }} />
+          <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setLedgerFilterAccountId(String(id)); setActiveTab("ledger"); }} onNavigate={(tab, accountId) => { if (accountId) setLedgerFilterAccountId(String(accountId)); setActiveTab(tab); }} />
         </TabsContent>
         <TabsContent value="ledger">
-          <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} />
+          <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} initialFilterAccountId={ledgerFilterAccountId} onFilterApplied={() => setLedgerFilterAccountId(null)} />
         </TabsContent>
         <TabsContent value="reconcile">
           <ReconciliationTab startDate={startDate} endDate={endDate} />
@@ -827,7 +828,119 @@ function PlaidLinkButton() {
   );
 }
 
-function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAccount[]; loading: boolean; onSwitchToLedger: (id: number) => void }) {
+function NetCashHero({ onNavigate }: { onNavigate: (tab: string, accountId?: number) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: cashData, isLoading, isError } = useQuery<any>({
+    queryKey: ["/api/firm/adjusted-cash"],
+    queryFn: () => fetch("/api/firm/adjusted-cash", { credentials: "include" }).then(r => {
+      if (!r.ok) throw new Error("Failed to fetch cash position");
+      return r.json();
+    }),
+  });
+
+  if (isLoading) return <Skeleton className="h-24" />;
+  if (isError || !cashData) return null;
+
+  const fmt = (n: number) => {
+    const sign = n < 0 ? "-" : "";
+    return `${sign}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const { spendable, breakdown, sources } = cashData;
+
+  const creditCardLines: { icon: JSX.Element; label: string; amount: number; positive: boolean; tab: string; accountId?: number; testId: string }[] =
+    (breakdown.creditCards && breakdown.creditCards.length > 0)
+      ? breakdown.creditCards.map((cc: { accountId: number; name: string; balance: number }) => ({
+          icon: <CreditCard className="w-4 h-4 text-purple-600" />,
+          label: cc.name,
+          amount: -cc.balance,
+          positive: false,
+          tab: "ledger",
+          accountId: cc.accountId,
+          testId: `ledger-credit-card-${cc.accountId}`,
+        }))
+      : breakdown.creditCardBalance > 0
+        ? [{ icon: <CreditCard className="w-4 h-4 text-purple-600" />, label: "Credit Card Debt", amount: -breakdown.creditCardBalance, positive: false, tab: "ledger", testId: "ledger-credit-card" }]
+        : [{ icon: <CreditCard className="w-4 h-4 text-purple-600" />, label: "Credit Card Debt (Plaid)", amount: 0, positive: false, tab: "ledger", testId: "ledger-credit-card" }];
+
+  const ledgerLines: { icon: JSX.Element; label: string; amount: number; positive: boolean; tab: string; accountId?: number; testId: string }[] = [
+    { icon: <Building2 className="w-4 h-4 text-blue-600" />, label: "Bank & Cash Balances", amount: breakdown.bankBalance, positive: true, tab: "accounts", testId: "ledger-bank-balance" },
+    ...creditCardLines,
+    { icon: <Calendar className="w-4 h-4 text-amber-600" />, label: "Upcoming Obligations (Month-End)", amount: -breakdown.upcomingFilings, positive: false, tab: "compliance", testId: "ledger-upcoming-filings" },
+    { icon: <Users className="w-4 h-4 text-indigo-600" />, label: "Accrued W-2 Labor (Gross + Burden)", amount: -breakdown.laborAccrual, positive: false, tab: "payroll", testId: "ledger-labor-accrual" },
+    { icon: <Receipt className="w-4 h-4 text-rose-600" />, label: "Accrued Sales Tax (Net of Payments)", amount: -breakdown.salesTaxAccrued, positive: false, tab: "sales-tax", testId: "ledger-sales-tax" },
+  ];
+
+  if (breakdown.openPlaceholders > 0) {
+    const obligationsIdx = ledgerLines.findIndex(l => l.testId === "ledger-upcoming-filings");
+    ledgerLines.splice(obligationsIdx >= 0 ? obligationsIdx : ledgerLines.length, 0, {
+      icon: <FileText className="w-4 h-4 text-orange-600" />,
+      label: "Open Accrual Placeholders",
+      amount: -breakdown.openPlaceholders,
+      positive: false,
+      tab: "reconcile",
+      testId: "ledger-open-placeholders",
+    });
+  }
+
+  return (
+    <Card className="border-primary/30 bg-gradient-to-r from-primary/5 via-primary/[0.02] to-transparent shadow-sm" data-testid="card-net-cash-hero">
+      <CardContent className="p-5">
+        <div
+          className="flex items-center justify-between cursor-pointer select-none"
+          onClick={() => setExpanded(!expanded)}
+          data-testid="button-toggle-net-cash"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Wallet className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Net Cash Position</p>
+              <p className={`text-3xl font-bold tabular-nums tracking-tight ${spendable >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`} data-testid="text-net-cash-amount">
+                {fmt(spendable)}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-[10px]">Live</Badge>
+            {expanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="mt-4 pt-4 border-t border-border/50 space-y-1" data-testid="net-cash-ledger">
+            {ledgerLines.map((line) => (
+              <div
+                key={line.testId}
+                className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors group"
+                onClick={(e) => { e.stopPropagation(); onNavigate(line.tab, line.accountId); }}
+                data-testid={line.testId}
+              >
+                <div className="flex items-center gap-2">
+                  {line.icon}
+                  <span className="text-sm text-foreground group-hover:text-primary transition-colors">{line.label}</span>
+                  <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <span className={`text-sm font-semibold tabular-nums ${line.amount >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                  {fmt(line.amount)}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between py-2 px-2 mt-1 border-t border-border/50">
+              <span className="text-sm font-bold text-foreground">Net Cash</span>
+              <span className={`text-sm font-bold tabular-nums ${spendable >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                {fmt(spendable)}
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { accounts: FirmAccount[]; loading: boolean; onSwitchToLedger: (id: number) => void; onNavigate: (tab: string, accountId?: number) => void }) {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<FirmAccount | null>(null);
@@ -922,6 +1035,7 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
 
   return (
     <div className="space-y-4" data-testid="accounts-content">
+      <NetCashHero onNavigate={onNavigate} />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="text-sm"><span className="text-muted-foreground">Assets:</span> <span className="font-semibold text-green-700 dark:text-green-400">{formatCurrency(totalAssets)}</span></div>
@@ -1087,10 +1201,17 @@ function AccountsTab({ accounts, loading, onSwitchToLedger }: { accounts: FirmAc
   );
 }
 
-function LedgerTab({ transactions, accounts, loading, startDate, endDate }: { transactions: FirmTransaction[]; accounts: FirmAccount[]; loading: boolean; startDate: string; endDate: string }) {
+function LedgerTab({ transactions, accounts, loading, startDate, endDate, initialFilterAccountId, onFilterApplied }: { transactions: FirmTransaction[]; accounts: FirmAccount[]; loading: boolean; startDate: string; endDate: string; initialFilterAccountId?: string | null; onFilterApplied?: () => void }) {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [filterAccount, setFilterAccount] = useState("all");
+
+  useEffect(() => {
+    if (initialFilterAccountId) {
+      setFilterAccount(initialFilterAccountId);
+      onFilterApplied?.();
+    }
+  }, [initialFilterAccountId]);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterSource, setFilterSource] = useState("all");
   const [filterReconciled, setFilterReconciled] = useState("no");
@@ -5284,7 +5405,7 @@ function RealCashWidget() {
             )}
             {breakdown.upcomingFilings > 0 && (
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> Upcoming Filings (30d)</span>
+                <span className="text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> Upcoming Filings (Month-End)</span>
                 <span className="tabular-nums font-medium">{formatCurrency(breakdown.upcomingFilings)}</span>
               </div>
             )}

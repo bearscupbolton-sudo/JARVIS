@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules, appSettings } from "@shared/schema";
+import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules, appSettings, plaidAccounts } from "@shared/schema";
 import { eq, and, gte, lte, sql, lt, inArray, or, desc, ilike } from "drizzle-orm";
 
 const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = {
@@ -219,13 +219,21 @@ export async function markStalePlaceholders(): Promise<{ staleCount: number; sta
 export async function getAdjustedCashPosition(): Promise<{
   liquid: number;
   obligated: number;
+  creditCardDebt: number;
   spendable: number;
   breakdown: {
     bankBalance: number;
+    creditCardBalance: number;
+    creditCards: { accountId: number; name: string; balance: number }[];
     salesTaxAccrued: number;
     openPlaceholders: number;
     upcomingFilings: number;
     laborAccrual: number;
+  };
+  sources: {
+    bankAccountIds: number[];
+    creditCardAccountIds: number[];
+    upcomingFilingIds: number[];
   };
 }> {
   const bankAccounts = await db.select()
@@ -235,6 +243,26 @@ export async function getAdjustedCashPosition(): Promise<{
       inArray(firmAccounts.type, ["checking", "savings", "cash", "petty_cash"])
     ));
   const bankBalance = bankAccounts.reduce((s, a) => s + a.currentBalance, 0);
+  const bankAccountIds = bankAccounts.map(a => a.id);
+
+  const plaidLinkedAccounts = await db.select({ firmAccountId: plaidAccounts.firmAccountId })
+    .from(plaidAccounts);
+  const plaidLinkedIds = new Set(plaidLinkedAccounts.map(p => p.firmAccountId).filter(Boolean));
+
+  const allCreditAccounts = await db.select()
+    .from(firmAccounts)
+    .where(and(
+      eq(firmAccounts.isActive, true),
+      inArray(firmAccounts.type, ["credit_card", "line_of_credit"])
+    ));
+  const creditCardAccounts = allCreditAccounts.filter(a => plaidLinkedIds.has(a.id));
+  const creditCardBalance = creditCardAccounts.reduce((s, a) => s + Math.abs(a.currentBalance), 0);
+  const creditCardAccountIds = creditCardAccounts.map(a => a.id);
+  const creditCards = creditCardAccounts.map(a => ({
+    accountId: a.id,
+    name: a.name,
+    balance: Math.abs(a.currentBalance),
+  }));
 
   const today = new Date();
   const qStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
@@ -255,20 +283,21 @@ export async function getAdjustedCashPosition(): Promise<{
   const openPlaceholders = Math.abs(Number(openPHs[0]?.total || 0));
 
   const todayStr = today.toISOString().split("T")[0];
-  const thirtyDays = new Date(today);
-  thirtyDays.setDate(thirtyDays.getDate() + 30);
-  const thirtyStr = thirtyDays.toISOString().split("T")[0];
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const monthEndStr = monthEnd.toISOString().split("T")[0];
 
-  const upcomingFilingsResult = await db.select({
-    total: sql<number>`COALESCE(SUM(COALESCE(${complianceCalendar.calculatedAmount}, ${complianceCalendar.estimatedAmount}, 0)), 0)`,
+  const upcomingFilingsRows = await db.select({
+    id: complianceCalendar.id,
+    amount: sql<number>`COALESCE(${complianceCalendar.calculatedAmount}, ${complianceCalendar.estimatedAmount}, 0)`,
   })
     .from(complianceCalendar)
     .where(and(
       eq(complianceCalendar.status, "OPEN"),
       gte(complianceCalendar.dueDate, todayStr),
-      lte(complianceCalendar.dueDate, thirtyStr),
+      lte(complianceCalendar.dueDate, monthEndStr),
     ));
-  const upcomingFilings = Number(upcomingFilingsResult[0]?.total || 0);
+  const upcomingFilings = upcomingFilingsRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const upcomingFilingIds = upcomingFilingsRows.map(r => r.id);
 
   let laborAccrual = 0;
   try {
@@ -299,18 +328,26 @@ export async function getAdjustedCashPosition(): Promise<{
   } catch {}
 
   const obligated = salesTaxAccrued + openPlaceholders + upcomingFilings + laborAccrual;
-  const spendable = bankBalance - obligated;
+  const spendable = bankBalance - creditCardBalance - obligated;
 
   return {
     liquid: bankBalance,
     obligated,
+    creditCardDebt: creditCardBalance,
     spendable,
     breakdown: {
       bankBalance,
+      creditCardBalance,
+      creditCards,
       salesTaxAccrued,
       openPlaceholders,
       upcomingFilings,
       laborAccrual,
+    },
+    sources: {
+      bankAccountIds,
+      creditCardAccountIds,
+      upcomingFilingIds,
     },
   };
 }
