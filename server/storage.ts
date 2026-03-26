@@ -759,6 +759,10 @@ export interface IStorage {
   getFirmSummary(startDate: string, endDate: string): Promise<{
     squareRevenue: number;
     squareOrderCount: number;
+    squareCashTender: number;
+    squareCardTender: number;
+    squareProcessingFees: number;
+    squareTipAmount: number;
     invoiceExpenseTotal: number;
     laborCost: number;
     manualTransactionsByCategory: Record<string, number>;
@@ -4624,6 +4628,10 @@ export class DatabaseStorage implements IStorage {
   async getFirmSummary(startDate: string, endDate: string): Promise<{
     squareRevenue: number;
     squareOrderCount: number;
+    squareCashTender: number;
+    squareCardTender: number;
+    squareProcessingFees: number;
+    squareTipAmount: number;
     invoiceExpenseTotal: number;
     laborCost: number;
     manualTransactionsByCategory: Record<string, number>;
@@ -4645,6 +4653,10 @@ export class DatabaseStorage implements IStorage {
 
     const squareRevenue = summaryRows.reduce((sum, r) => sum + (r.totalRevenue || 0), 0);
     const squareOrderCount = summaryRows.reduce((sum, r) => sum + (r.orderCount || 0), 0);
+    const squareCashTender = summaryRows.reduce((sum, r) => sum + (r.cashTender || 0), 0);
+    const squareCardTender = summaryRows.reduce((sum, r) => sum + (r.cardTender || 0), 0);
+    const squareProcessingFees = summaryRows.reduce((sum, r) => sum + (r.processingFees || 0), 0);
+    const squareTipAmount = summaryRows.reduce((sum, r) => sum + (r.tipAmount || 0), 0);
 
     let invoiceExpenseTotal = 0;
     const invoiceIdsWithNullTotal: number[] = [];
@@ -4717,6 +4729,10 @@ export class DatabaseStorage implements IStorage {
     return {
       squareRevenue,
       squareOrderCount,
+      squareCashTender,
+      squareCardTender,
+      squareProcessingFees,
+      squareTipAmount,
       invoiceExpenseTotal,
       laborCost: Math.round(laborCost * 100) / 100,
       manualTransactionsByCategory,

@@ -39,3 +39,23 @@ The application is structured as a monorepo, featuring a React 18 frontend built
 *   **Twilio (Optional)**: SMS notifications.
 *   **ADP RUN API (Optional)**: Payroll and worker management.
 *   **Plaid**: Bank and credit card integration for transaction import and balance syncing.
+
+## Square Revenue & Undeposited Cash Architecture
+
+Revenue is sourced from **Square POS gross sales** (not bank deposits). The `square_daily_summary` table stores per-location, per-day data including:
+- `totalRevenue` — gross sales (what customers paid)
+- `cashTender` / `cardTender` / `otherTender` — tender type breakdown
+- `processingFees` — card processing fees (from Square Payments API)
+- `tipAmount` — tips collected
+- `refundAmount` — refunds issued
+- `squareLocationId` — Square location ID for per-location tracking
+
+**Locations linked:**
+- Bolton Landing: Square ID `XFS6DD0Z4HHKJ` (Jarvis location_id=1)
+- Saratoga Springs: Square ID `L8JQJBM6C66AK` (Jarvis location_id=3)
+
+**Undeposited Cash** = Square cash tender − cash deposits − reimbursements. Widget shows progress bar and reconciliation breakdown.
+
+**Backfill route**: `POST /api/square/backfill` with `{startDate, endDate}` queues background sync for each day.
+
+**P&L waterfall**: Square Gross Revenue → minus Processing Fees (6110) → minus Loan Withholding (2500) → minus Cash Tender → = Bank Deposit (what Plaid sees).

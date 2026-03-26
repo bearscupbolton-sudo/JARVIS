@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts } from "@shared/schema";
+import { squareCatalogMap, squareSales, squareDailySummary, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -2991,6 +2991,146 @@ Rules:
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
     const sales = await getSquareSalesForDate(date, locationId);
     res.json(sales);
+  });
+
+  app.post("/api/square/backfill", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return res.status(400).json({ message: "Invalid dates" });
+
+      const dates: string[] = [];
+      const current = new Date(start);
+      while (current <= end) {
+        dates.push(current.toISOString().slice(0, 10));
+        current.setDate(current.getDate() + 1);
+      }
+
+      console.log(`[Square Backfill] Starting backfill for ${dates.length} days (${startDate} → ${endDate})`);
+      res.json({ message: `Backfill started for ${dates.length} days`, daysQueued: dates.length });
+
+      (async () => {
+        let synced = 0;
+        let errors = 0;
+        for (const date of dates) {
+          try {
+            await syncSquareSales(date);
+            synced++;
+            if (synced % 7 === 0) {
+              console.log(`[Square Backfill] Progress: ${synced}/${dates.length} days synced`);
+            }
+          } catch (err: any) {
+            errors++;
+            console.error(`[Square Backfill] Error on ${date}: ${err.message}`);
+          }
+          await new Promise(r => setTimeout(r, 200));
+        }
+        console.log(`[Square Backfill] Complete: ${synced} synced, ${errors} errors out of ${dates.length} days`);
+      })();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/firm/undeposited-cash", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const startDate = (req.query.startDate as string) || "2025-01-01";
+      const endDate = (req.query.endDate as string) || new Date().toISOString().slice(0, 10);
+
+      const summaryRows = await db.select().from(squareDailySummary).where(
+        and(gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate))
+      );
+
+      const boltonLocId = "XFS6DD0Z4HHKJ";
+      const saratogaLocId = "L8JQJBM6C66AK";
+
+      let boltonCashTender = 0, saratogaCashTender = 0;
+      let boltonTotalRevenue = 0, saratogaTotalRevenue = 0;
+      let boltonProcessingFees = 0, saratogaProcessingFees = 0;
+
+      for (const row of summaryRows) {
+        if (row.squareLocationId === boltonLocId) {
+          boltonCashTender += row.cashTender || 0;
+          boltonTotalRevenue += row.totalRevenue || 0;
+          boltonProcessingFees += row.processingFees || 0;
+        } else if (row.squareLocationId === saratogaLocId) {
+          saratogaCashTender += row.cashTender || 0;
+          saratogaTotalRevenue += row.totalRevenue || 0;
+          saratogaProcessingFees += row.processingFees || 0;
+        } else {
+          boltonCashTender += row.cashTender || 0;
+          boltonTotalRevenue += row.totalRevenue || 0;
+          boltonProcessingFees += row.processingFees || 0;
+        }
+      }
+
+      const totalSquareCashTender = boltonCashTender + saratogaCashTender;
+
+      const cashDeposits = await db.select().from(firmTransactions).where(
+        and(
+          gte(firmTransactions.date, startDate),
+          lte(firmTransactions.date, endDate),
+          or(
+            eq(firmTransactions.category, "revenue"),
+          )
+        )
+      );
+
+      let cashDeposited = 0;
+      let reimbursements = 0;
+      for (const txn of cashDeposits) {
+        const desc = (txn.description || "").toLowerCase();
+        const tags = txn.tags || [];
+        const isCashDeposit = desc.includes("cash deposit") || desc.includes("cash drop") ||
+          desc.includes("atm deposit") || tags.includes("cash_deposit");
+        const isReimbursement = desc.includes("reimbursement") || desc.includes("reimburse") ||
+          tags.includes("reimbursement") || txn.category === "other_income";
+
+        if (isCashDeposit && txn.amount > 0) {
+          cashDeposited += txn.amount;
+        }
+        if (isReimbursement && txn.amount > 0) {
+          reimbursements += txn.amount;
+        }
+      }
+
+      const reimbursementTxns = await db.select().from(firmTransactions).where(
+        and(
+          gte(firmTransactions.date, startDate),
+          lte(firmTransactions.date, endDate),
+          eq(firmTransactions.category, "other_income"),
+        )
+      );
+      for (const txn of reimbursementTxns) {
+        const desc = (txn.description || "").toLowerCase();
+        if (desc.includes("reimburse") && txn.amount > 0) {
+          reimbursements += txn.amount;
+        }
+      }
+
+      const undepositedCash = Math.max(0, totalSquareCashTender - cashDeposited - reimbursements);
+
+      res.json({
+        totalSquareCashTender,
+        boltonCashTender,
+        saratogaCashTender,
+        cashDeposited,
+        reimbursements,
+        undepositedCash,
+        squareGrossRevenue: boltonTotalRevenue + saratogaTotalRevenue,
+        boltonGrossRevenue: boltonTotalRevenue,
+        saratogaGrossRevenue: saratogaTotalRevenue,
+        totalProcessingFees: boltonProcessingFees + saratogaProcessingFees,
+        period: { startDate, endDate },
+        daysCovered: summaryRows.length,
+      });
+    } catch (error: any) {
+      console.error("[Undeposited Cash] Error:", error.message);
+      res.status(500).json({ message: error.message });
+    }
   });
 
   app.get("/api/square/team-members", isAuthenticated, isOwner, async (req, res) => {
