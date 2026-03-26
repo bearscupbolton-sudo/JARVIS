@@ -12089,6 +12089,84 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/plaid/pull-historical", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidClient } = await import("./plaid");
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required (YYYY-MM-DD)" });
+
+      const items = await storage.getPlaidItems();
+      let added = 0;
+      let skipped = 0;
+
+      for (const item of items) {
+        if (item.status !== "active") continue;
+        try {
+          let offset = 0;
+          let totalTxns = 1;
+
+          while (offset < totalTxns) {
+            const response = await plaidClient.transactionsGet({
+              access_token: item.accessToken,
+              start_date: startDate,
+              end_date: endDate,
+              options: { count: 500, offset },
+            });
+
+            totalTxns = response.data.total_transactions;
+
+            for (const txn of response.data.transactions) {
+              const plaidAcct = await storage.getPlaidAccountByAccountId(txn.account_id);
+              const firmAccountId = plaidAcct?.firmAccountId || null;
+
+              const existing = await storage.getFirmTransactions({ startDate: txn.date, endDate: txn.date });
+              const isDupe = existing.some(e =>
+                e.referenceType === "plaid" &&
+                e.referenceId === txn.transaction_id
+              );
+              if (isDupe) { skipped++; continue; }
+
+              let category = "misc";
+              if (txn.personal_finance_category?.primary) {
+                const pc = txn.personal_finance_category.primary.toLowerCase();
+                if (pc.includes("food") || pc.includes("groceries")) category = "cogs";
+                else if (pc.includes("rent")) category = "rent";
+                else if (pc.includes("utilities")) category = "utilities";
+                else if (pc.includes("insurance")) category = "insurance";
+                else if (pc.includes("transfer")) category = "misc";
+                else if (pc.includes("income") || pc.includes("deposit")) category = "revenue";
+                else if (pc.includes("loan") || pc.includes("debt")) category = "debt_payment";
+              }
+
+              await storage.createFirmTransaction({
+                accountId: firmAccountId,
+                date: txn.date,
+                description: txn.name || txn.merchant_name || "Plaid Transaction",
+                amount: -(txn.amount || 0),
+                category,
+                referenceType: "plaid",
+                referenceId: txn.transaction_id,
+                reconciled: false,
+                notes: txn.merchant_name ? `Merchant: ${txn.merchant_name}` : null,
+                createdBy: req.appUser.id,
+              });
+              added++;
+            }
+
+            offset += response.data.transactions.length;
+          }
+        } catch (itemErr: any) {
+          console.error(`[Plaid] Historical pull error for item ${item.id}:`, itemErr.response?.data || itemErr.message);
+        }
+      }
+
+      console.log(`[Plaid] Historical pull ${startDate} to ${endDate}: ${added} added, ${skipped} duplicates skipped`);
+      res.json({ added, skipped, itemCount: items.length, period: `${startDate} to ${endDate}` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/plaid/items", isAuthenticated, isOwner, async (_req, res) => {
     try {
       const items = await storage.getPlaidItems();
