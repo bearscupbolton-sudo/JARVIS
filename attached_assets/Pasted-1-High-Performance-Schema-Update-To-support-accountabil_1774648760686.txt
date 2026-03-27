@@ -1,0 +1,36 @@
+1. High-Performance Schema Update
+To support accountability and AI reconstruction, we will split the storage of notes into "Raw Input" and "Engine Enhanced" versions.
+
+rawContent: Stores the manager's original bullet points or voice-to-text dump.
+
+content: The final, humanized, high-velocity output shown to the team.
+
+focus: An enum (foh, boh, all) that dictates the "torque" of the AI—prioritizing hospitality for FOH or production precision for BOH.
+
+2. The 4-Phase "Ferrari" Pipeline
+The system will run a server-side sequence to transform a raw note into a mission-aligned directive:
+
+Phase	Action	Intel Gathered
+GATHER	Live Data Pull	Pulls today's weather (to predict rushes), the shift roster (for name recognition), and 5-star "Loop Wins".
+DRAFT	Narrative Weaving	Fuses the manager's note with the gathered intel into a professional, high-energy briefing.
+REVIEW	Friction Removal	Strips out robotic phrasing, "corporate speak," and excessive questions to keep the note fast and direct.
+HUMANIZE	Brand Alignment	Adds a Bear's Cup mission closing and specifically shouts out team members mentioned in recent feedback.
+3. Integrated "Flight Deck" UI Updates
+The Add Pre-Shift Note dialog in client/src/pages/Home.tsx will be upgraded from a basic form to a "Generation Station":
+
+Focus Selector: A high-tactile toggle for FOH / BOH / ALL to set the tone immediately.
+
+Generate Engine: A "Generate with AI" button (styled with a primary glow) that triggers the pipeline and provides a loading state while Jarvis "thinks".
+
+Editable Preview: Before posting, the manager sees the enhanced version. They can "Tune it" (edit) or "Ship it" (post).
+
+4. Implementation Strategy (Relevant Files)
+We will leverage your existing infrastructure to build this quickly:
+
+shared/schema.ts: Update the preShiftNotes table definition to include the new columns.
+
+server/routes.ts: Create the POST /api/pre-shift-notes/generate endpoint. This will reuse your fetchWeather utility and the openai integration already used for the Jarvis Assistant.
+
+client/src/pages/Home.tsx: Update the dialog logic (lines 761-810) to handle the new focus state and AI preview.
+
+Status: Ready to implement the schema migration and the Gather/Draft server logic. Should we start by updating the database schema in shared/schema.ts?

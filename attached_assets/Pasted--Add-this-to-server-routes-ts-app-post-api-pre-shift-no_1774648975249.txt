@@ -1,0 +1,62 @@
+// Add this to server/routes.ts
+
+app.post("/api/pre-shift-notes/generate", isAuthenticated, isManager, async (req: any, res) => {
+  try {
+    const { rawContent, date, focus, locationId } = req.body;
+    const user = req.appUser;
+
+    // PHASE 1: GATHER
+    const [weather, shiftsToday, recentWins] = await Promise.all([
+      fetchWeather("Saratoga Springs, NY"), // Reuse existing utility
+      storage.getShifts(date, date, locationId),
+      db.select().from(customerFeedback).where(and(gte(customerFeedback.rating, 4))).limit(3)
+    ]);
+
+    const teamNames = shiftsToday.map(s => s.userName).filter(Boolean).join(", ");
+    const feedbackSnippets = recentWins.map(w => `"${w.comment}" - ${w.name}`).join(" | ");
+
+    // PHASE 2, 3, & 4: DRAFT, REVIEW, HUMANIZE
+    const OpenAI = (await import("openai")).default;
+    const aiClient = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+
+    const systemPrompt = `You are Jarvis, the high-performance operations engine for Bear's Cup Bakehouse. 
+Focus: ${focus.toUpperCase()}. 
+Your mission: Transform raw manager notes into a warm, declarative, and mission-aligned pre-shift briefing.
+
+RULES:
+- Start with a mission-aligned opening.
+- Weave in the weather: ${weather?.temp}°F, ${weather?.description}.
+- Mention the team on deck: ${teamNames}.
+- Include these "Wins" from The Loop: ${feedbackSnippets}.
+- DO NOT ask questions. DO NOT use robotic corporate phrasing.
+- Ensure the tone is human and supportive. 
+- FOH focus should emphasize the "Vibe" and Guest Experience. BOH should emphasize Production and Precision.`;
+
+    const response = await aiClient.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Raw Manager Note: ${rawContent}` }
+      ],
+      temperature: 0.7,
+      max_tokens: 400
+    });
+
+    const enhancedContent = response.choices[0]?.message?.content || rawContent;
+
+    res.json({
+      enhancedContent,
+      contextUsed: {
+        hasWeather: !!weather,
+        teamCount: shiftsToday.length,
+        winCount: recentWins.length
+      }
+    });
+  } catch (err: any) {
+    console.error("[Pre-Shift AI] Error:", err);
+    res.status(500).json({ message: "Jarvis couldn't tune the note right now." });
+  }
+});
