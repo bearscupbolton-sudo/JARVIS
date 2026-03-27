@@ -1,0 +1,52 @@
+1. The Architectural Strategy
+Instead of a static COA_EXPLAINER map, we will use your Chart of Accounts (COA) table as the source of truth for "layman definitions". This ensures that as your business grows, the explanations stay synced with your specific COA codes (e.g., 5010 for Food COGS vs. 6010 for Labor).
+
+The Three-Layer Breakdown:
+
+The Quantitative Layer: Sums every debit and credit in the ledger_lines table for a specific period.
+
+The Contextual Layer: Pulls the high-level business meaning from a new layman_definition column in your chart_of_accounts table.
+
+The AI Narrative Layer: Uses your existing OpenAI integration to look at the names of the vendors (e.g., Chefs' Warehouse, US Foods) and the timing of the expenses to explain the trend (e.g., "You had three flour deliveries this month instead of two, which is pulling your P&L down").
+
+2. Engineering the "Lineage" Backend
+We will implement server/audit-lineage-engine.ts using Drizzle ORM to recursively trace any aggregate number (like "Net P&L") back to the raw journal_entries.
+
+TypeScript
+// server/audit-lineage-engine.ts
+// This engine deconstructs any P&L line into its constituent raw data points
+
+export async function getLineageExplanation(coaCode: string, startDate: string, endDate: string) {
+  const result = await db.select({
+    amount: sql`(${ledgerLines.debit} - ${ledgerLines.credit})`,
+    description: journalEntries.description,
+    date: journalEntries.transactionDate,
+    coaName: chartOfAccounts.name,
+    laymanDefinition: chartOfAccounts.description // We'll use the existing description field for layman terms
+  })
+  .from(ledgerLines)
+  .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+  .innerJoin(chartOfAccounts, eq(ledgerLines.accountId, chartOfAccounts.id))
+  .where(and(
+    eq(chartOfAccounts.code, coaCode),
+    gte(journalEntries.transactionDate, startDate),
+    lte(journalEntries.transactionDate, endDate)
+  ));
+  
+  return result;
+}
+3. "Ferrari" UI: The Drill-Down Interface
+In client/src/pages/TheFirm.tsx, we will wrap your high-level cards (Revenue, Expenses, Net P&L) in a Lineage Trigger. When you click "Operating at a loss," a side panel will slide out with the following "Ferrari" features:
+
+The "Double-Counting" Auditor: Scans for transactions with similar amounts and dates across different categories to ensure you aren't accidentally booking the same expense twice (e.g., a manual entry and a Plaid sync).
+
+Accrual Impact Visualizer: Explicitly calls out accrual_placeholders ("Ghost Entries") that are lowering your net income even if the cash hasn't left your bank yet.
+
+Layman Translation: Replaces "CR 1010 / DR 5010" with "Money moved from Checking to buy Ingredients".
+
+Next Steps for Implementation:
+Database Migration: Add a layman_description column to chart_of_accounts or repurpose the existing description column to store user-friendly definitions.
+
+API Route: Build /api/firm/audit/lineage to serve the deep-trace data.
+
+UI Overlay: Create a FinancialLineagePanel.tsx component that uses a "Dark/Carbon Fiber" theme to distinguish it as a high-level diagnostic tool.
