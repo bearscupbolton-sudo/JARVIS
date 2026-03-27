@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules, appSettings, plaidAccounts } from "@shared/schema";
+import { accrualPlaceholders, firmTransactions, complianceCalendar, salesTaxJurisdictions, ledgerLines, chartOfAccounts, journalEntries, firmAccounts, aiLearningRules, aiInferenceLogs, appSettings, plaidAccounts } from "@shared/schema";
 import { eq, and, gte, lte, sql, lt, inArray, or, desc, ilike } from "drizzle-orm";
 
 const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = {
@@ -88,21 +88,71 @@ export async function learnVendorRule(vendorString: string, coaCode: string, coa
       matchedCoaCode: coaCode,
       matchedCoaName: coaName,
       category,
-      confidenceScore: Math.min((existing[0].confidenceScore || 0.8) + 0.05, 1.0),
+      confidenceScore: 0.99,
       updatedAt: new Date(),
     }).where(eq(aiLearningRules.id, existing[0].id));
-    return existing[0];
+    return { ...existing[0], matchedCoaCode: coaCode, matchedCoaName: coaName, category, confidenceScore: 0.99 };
   }
   const [rule] = await db.insert(aiLearningRules).values({
     vendorString: vendorString.toLowerCase(),
     matchedCoaCode: coaCode,
     matchedCoaName: coaName,
     category,
-    confidenceScore: 0.9,
+    confidenceScore: 0.99,
     source,
     createdBy,
   }).returning();
   return rule;
+}
+
+export async function autoSweepUnreconciled(vendorString: string, coaCode: string, category: string, ruleId: number, coaName: string = ""): Promise<number> {
+  const lower = vendorString.toLowerCase();
+  const allUnreconciled = await db.select().from(firmTransactions)
+    .where(and(
+      eq(firmTransactions.reconciled, false),
+      sql`LOWER(${firmTransactions.description}) LIKE ${'%' + lower + '%'}`
+    ));
+
+  let swept = 0;
+  for (const txn of allUnreconciled) {
+    if (!txn.suggestedCoaCode) {
+      await db.update(firmTransactions).set({
+        suggestedCoaCode: coaCode,
+        suggestedCategory: category,
+        suggestedConfidence: 0.99,
+        suggestedRuleId: ruleId,
+      }).where(eq(firmTransactions.id, txn.id));
+
+      await db.insert(aiInferenceLogs).values({
+        firmTransactionId: txn.id,
+        rawInput: `${txn.description} | $${txn.amount} | ${txn.date}`,
+        promptVersion: "auto-sweep-v1",
+        logicSummary: `Matched Global Rule #${ruleId}: ${vendorString} → ${coaCode} ${coaName}`,
+        confidenceScore: 0.99,
+        anomalyFlag: false,
+        anomalyScore: 0,
+        suggestedCoaCode: coaCode,
+        appliedCoaCode: coaCode,
+      });
+
+      swept++;
+    }
+  }
+  if (swept > 0) {
+    console.log(`[Reconciler] Auto-swept ${swept} unreconciled transactions matching "${vendorString}" → COA ${coaCode}`);
+  }
+  return swept;
+}
+
+export function extractVendorToken(description: string): string {
+  const normalized = description.toLowerCase().replace(/[._]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+  const stopWords = new Set(["the", "inc", "llc", "ltd", "com", "www", "http", "https", "pos", "debit", "credit", "card", "payment", "purchase", "online", "ach", "wire", "net", "org", "co"]);
+  const words = normalized.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+  if (words.length === 0) {
+    const fallback = normalized.split(/\s+/).find(w => w.length > 1);
+    return fallback || normalized.split(/\s+/)[0] || "";
+  }
+  return words[0];
 }
 
 export async function findPlaceholderMatch(
