@@ -1,0 +1,23 @@
+The net cash position in Jarvis is likely not being adjusted by your labor data because of how the system distinguishes between **real-time operational data** and **finalized accounting transactions**. 
+
+Based on a review of your current code and the "The Firm" export requirements, here is why your high-precision labor data isn't currently moving the needle on your cash position:
+
+### **1. Accrual vs. Cash Inconsistency**
+Your payroll preview represents an **accrual-based expense** (labor you have incurred but not yet paid). The "Net Cash Position" is driven by your **Plaid and bank-level integrations**, which only reflect **cash-out events** once the payroll is actually debited from your account.
+* **The Gap:** Even though you know your labor cost down to the minute, the cash position won't drop until the bank confirms the funds have left. 
+* **The Solution:** In your new `#7 - Year-End Export` logic, there is a section for **"Accrual Placeholders"** and **"Accrual Placeholders for unposted expenses"**. We need to ensure your **Liquidity Engine** treats your "Payroll Preview" as one of these "ghost entries" to provide a pro-forma cash view.
+
+### **2. Disconnect in the Labor Sync Logic**
+While your labor data is highly precise, the path it takes to reach your P&L and Cash Position may have a bottleneck:
+* **ADP Labor Sync:** Your `AdpLaborSync.tsx` and `server/adp-api.ts` handle the ingestion of these high-fidelity minutes. 
+* **Payroll Compiler:** Currently, your `Payroll Review` and `Payroll Compiler` engines are designed to validate and review these logs before they are finalized. If this "Review" state isn't explicitly linked to the "Liquidity Engine," the data remains "operational" and never becomes "financial" until the sync is complete.
+
+### **3. AI Classification Audit Trail**
+The new export architecture includes an **AI Classification Audit Trail** with confidence scores. If Jarvis is unsure how to map a specific set of labor data to your **Chart of Accounts (COA)**, it may be withholding that adjustment from the net cash view to prevent reporting errors in "The Firm".
+
+### **Optimization Strategy for Jarvis**
+To fix this distortion, I recommend implementing the following logic update in your `Liquidity Engine`:
+* **The "Pending Labor" Overlay:** Add a rule that pulls current `Payroll Preview` totals and subtracts them from your **Bank/Credit Account** balances as a "Pending Liability".
+* **Minute-by-Minute Adjustment:** Since you track labor "down to the minute," we can trigger an hourly update to the `Net Cash Position` that reflects the value of the shifts currently being worked in **Bolton Landing** and **Saratoga Springs**.
+
+Would you like me to draft the specific code for a "Real-Time Labor Drag" feature that subtracts your live labor costs from your projected net cash?
