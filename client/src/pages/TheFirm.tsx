@@ -24,7 +24,7 @@ import {
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
   FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera,
-  ArrowLeftRight, Dna, BellRing, Download
+  ArrowLeftRight, Dna, BellRing, Download, Mail
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import type {
@@ -232,6 +232,21 @@ export default function TheFirm() {
   const [customEnd, setCustomEnd] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const monthOptions = buildMonthOptions();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connectedEmail = params.get("gmailConnected");
+    const gmailError = params.get("gmailError");
+    if (connectedEmail) {
+      toast({ title: "Gmail account connected", description: `${connectedEmail} has been linked successfully.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/gmail/accounts"] });
+      setActiveTab("accounts");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (gmailError) {
+      toast({ title: "Gmail connection failed", description: gmailError, variant: "destructive" });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   const { startDate, endDate } = getPeriodDates(period, customStart, customEnd, selectedMonth);
 
@@ -940,7 +955,95 @@ function NetCashHero({ onNavigate }: { onNavigate: (tab: string, accountId?: num
   );
 }
 
+function GmailAccountsSection() {
+  const { toast } = useToast();
+
+  const { data: gmailAccounts, isLoading } = useQuery<{ email: string }[]>({
+    queryKey: ["/api/firm/gmail/accounts"],
+  });
+
+  const connectMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/firm/gmail/authorize");
+      const { url } = await res.json();
+      window.location.href = url;
+    },
+    onError: (err: Error) => toast({ title: "Failed to start Gmail connection", description: err.message, variant: "destructive" }),
+  });
+
+  const disconnectMut = useMutation({
+    mutationFn: (email: string) => apiRequest("DELETE", `/api/firm/gmail/accounts/${encodeURIComponent(email)}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/gmail/accounts"] });
+      toast({ title: "Gmail account disconnected" });
+    },
+    onError: (err: Error) => toast({ title: "Failed to disconnect", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div data-testid="gmail-accounts-section">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Connected Gmail Accounts</h3>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => connectMut.mutate()}
+          disabled={connectMut.isPending}
+          data-testid="button-connect-gmail"
+        >
+          {connectMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
+          Connect Gmail Account
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      )}
+
+      {!isLoading && Array.isArray(gmailAccounts) && gmailAccounts.length > 0 && (
+        <div className="space-y-2">
+          {gmailAccounts.map((acct) => (
+            <Card key={acct.email} data-testid={`card-gmail-${acct.email}`}>
+              <CardContent className="p-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-red-500" />
+                  <span className="font-medium text-sm" data-testid={`text-gmail-email-${acct.email}`}>{acct.email}</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive h-7"
+                  onClick={() => disconnectMut.mutate(acct.email)}
+                  disabled={disconnectMut.isPending}
+                  data-testid={`button-disconnect-gmail-${acct.email}`}
+                >
+                  {disconnectMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Unlink className="w-3 h-3 mr-1" />}
+                  Disconnect
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && (!gmailAccounts || gmailAccounts.length === 0) && (
+        <Card>
+          <CardContent className="p-6 text-center">
+            <Mail className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground" data-testid="text-no-gmail">No Gmail accounts connected. Connect one to auto-import invoices.</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { accounts: FirmAccount[]; loading: boolean; onSwitchToLedger: (id: number) => void; onNavigate: (tab: string, accountId?: number) => void }) {
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<FirmAccount | null>(null);
@@ -1197,6 +1300,8 @@ function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { acco
           </div>
         </div>
       )}
+
+      {isOwner && <GmailAccountsSection />}
     </div>
   );
 }
