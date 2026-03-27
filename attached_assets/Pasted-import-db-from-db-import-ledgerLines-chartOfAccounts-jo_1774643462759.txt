@@ -1,0 +1,54 @@
+import { db } from "./db";
+import { ledgerLines, chartOfAccounts, journalEntries } from "@shared/schema";
+import { getActiveTaxProfile, calculateFicaTipCredit } from "./tax-profile-engine";
+import { eq, sql, and, gte, lte } from "drizzle-orm";
+
+export async function runComplianceCheck() {
+  const profile = await getActiveTaxProfile();
+  if (!profile) return;
+
+  const alerts = [];
+  const today = new Date().toISOString().split('T')[0];
+  const quarterStart = getStartOfQuarter(today);
+
+  // 1. FICA Tip Credit Real-Time Monitor (IRS Form 8846 Logic)
+  const tipCredit = await calculateFicaTipCredit(quarterStart, today);
+  if (tipCredit.estimatedCredit > 500) {
+    alerts.push({
+      type: "TAX_CREDIT",
+      title: "Real-Time FICA Credit",
+      message: `You've generated $${tipCredit.estimatedCredit} in FICA tip credits this quarter.`,
+      severity: "info"
+    });
+  }
+
+  // 2. S-Corp Reasonable Salary Floor vs. Distributions
+  const distributionTotal = await getAccountTotal("3010", quarterStart, today); // Owner's Draw
+  const salaryTotal = await getAccountTotal("6010", quarterStart, today); // Wages
+
+  if (distributionTotal > 0 && salaryTotal < (profile.reasonableSalaryFloor / 4)) {
+    alerts.push({
+      type: "IRS_RISK",
+      title: "Reasonable Comp Warning",
+      message: `Distributions ($${distributionTotal}) exceed pro-rated salary floor ($${(profile.reasonableSalaryFloor/4).toFixed(0)}).`,
+      severity: "critical"
+    });
+  }
+
+  // 3. Sales Tax Reserve (ST-100) - Saratoga (7%) vs Bolton (8%)
+  // Logic maps revenue by locationId to specific NYS Jurisdiction codes
+  const saratogaSales = await getLocationRevenue(1, quarterStart, today);
+  const boltonSales = await getLocationRevenue(2, quarterStart, today);
+  const totalLiability = (saratogaSales * 0.07) + (boltonSales * 0.08);
+
+  return { alerts, totalLiability, tipCredit };
+}
+
+async function getAccountTotal(code: string, start: string, end: string) {
+  const result = await db.select({ total: sql`SUM(debit - credit)` })
+    .from(ledgerLines)
+    .innerJoin(chartOfAccounts, eq(ledgerLines.accountId, chartOfAccounts.id))
+    .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+    .where(and(eq(chartOfAccounts.code, code), gte(journalEntries.transactionDate, start)));
+  return Number(result[0]?.total || 0);
+}
