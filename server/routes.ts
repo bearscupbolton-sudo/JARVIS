@@ -8383,12 +8383,251 @@ ${sopsHtml}
     }
   });
 
+  interface GreetingResponse {
+    greeting: string | null;
+    enabled: boolean;
+    weather: { temp: number; feelsLike: number; description: string; humidity: number; windSpeed: number; icon: string; location: string } | null;
+    traffic: { duration: string; durationInTraffic: string; distance: string; summary: string } | null;
+    error?: string;
+  }
+  const greetingCache = new Map<string, { data: GreetingResponse; fetchedAt: number }>();
+  const GREETING_CACHE_TTL = 20 * 60 * 1000;
+
   app.post("/api/user/dismiss-jarvis-intro", isAuthenticated, async (req: any, res) => {
     try {
       await db.update(users).set({ seenJarvisIntro: true }).where(eq(users.id, req.appUser.id));
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/user/interests-collected", isAuthenticated, async (req: any, res) => {
+    try {
+      const { interests, personalizedGreetingsEnabled, skipped } = req.body;
+      const updates: Partial<typeof users.$inferInsert> = {
+        interestsCollected: true,
+      };
+      if (skipped) {
+        updates.interests = [];
+        updates.personalizedGreetingsEnabled = false;
+      } else if (Array.isArray(interests)) {
+        updates.interests = interests
+          .filter((i: unknown) => typeof i === "string")
+          .map((i: string) => i.trim())
+          .filter((i: string) => i.length > 0 && i.length <= 100)
+          .slice(0, 50);
+        updates.personalizedGreetingsEnabled = !!personalizedGreetingsEnabled;
+      }
+      await db.update(users).set(updates).where(eq(users.id, req.appUser.id));
+      greetingCache.delete(req.appUser.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  const weatherCache = new Map<string, { data: any; fetchedAt: number }>();
+  const WEATHER_CACHE_TTL = 15 * 60 * 1000;
+
+  async function fetchWeather(location: string): Promise<any> {
+    const cached = weatherCache.get(location);
+    if (cached && Date.now() - cached.fetchedAt < WEATHER_CACHE_TTL) {
+      return cached.data;
+    }
+    try {
+      const apiKey = process.env.OPENWEATHERMAP_API_KEY;
+      if (!apiKey) return null;
+      const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(location)}&units=imperial&appid=${apiKey}`;
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const result = {
+        temp: Math.round(data.main?.temp || 0),
+        feelsLike: Math.round(data.main?.feels_like || 0),
+        description: data.weather?.[0]?.description || "unknown",
+        icon: data.weather?.[0]?.icon || "01d",
+        humidity: data.main?.humidity || 0,
+        windSpeed: Math.round(data.wind?.speed || 0),
+        location: location,
+      };
+      weatherCache.set(location, { data: result, fetchedAt: Date.now() });
+      return result;
+    } catch (e) {
+      console.error("[Weather] Error fetching weather:", e);
+      return null;
+    }
+  }
+
+  const trafficCache = new Map<string, { data: any; fetchedAt: number }>();
+  const TRAFFIC_CACHE_TTL = 10 * 60 * 1000;
+
+  async function fetchTraffic(origin: string, destination: string): Promise<any> {
+    const cacheKey = `${origin}|${destination}`;
+    const cached = trafficCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < TRAFFIC_CACHE_TTL) {
+      return cached.data;
+    }
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) return null;
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&departure_time=now&traffic_model=best_guess&key=${apiKey}`;
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!data.routes || data.routes.length === 0) return null;
+      const leg = data.routes[0].legs[0];
+      const result = {
+        duration: leg.duration?.text || "unknown",
+        durationInTraffic: leg.duration_in_traffic?.text || leg.duration?.text || "unknown",
+        distance: leg.distance?.text || "unknown",
+        summary: data.routes[0].summary || "",
+      };
+      trafficCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
+      return result;
+    } catch (e) {
+      console.error("[Traffic] Error fetching traffic:", e);
+      return null;
+    }
+  }
+
+  app.delete("/api/user/greeting-cache", isAuthenticated, async (req: any, res) => {
+    greetingCache.delete(req.appUser.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/user/greeting", isAuthenticated, async (req: any, res) => {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, req.appUser.id));
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (!user.personalizedGreetingsEnabled) {
+        return res.json({ greeting: null, enabled: false });
+      }
+
+      const cachedGreeting = greetingCache.get(user.id);
+      if (cachedGreeting && Date.now() - cachedGreeting.fetchedAt < GREETING_CACHE_TTL) {
+        return res.json(cachedGreeting.data);
+      }
+
+      const interests: string[] = (user.interests as string[]) || [];
+
+      const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      const todaySchedule = await db.select({
+        startTime: shifts.startTime,
+        endTime: shifts.endTime,
+        department: shifts.department,
+        position: shifts.position,
+        locationId: shifts.locationId,
+      }).from(shifts).where(and(eq(shifts.userId, user.id), eq(shifts.shiftDate, todayStr)));
+
+      let workLocation = "Saratoga Springs, NY";
+      let workLocationName = "Saratoga Springs";
+      if (todaySchedule.length > 0) {
+        try {
+          const shiftLocationId = todaySchedule[0].locationId;
+          if (shiftLocationId) {
+            const [shiftLocation] = await db.select().from(locations).where(eq(locations.id, shiftLocationId));
+            if (shiftLocation) {
+              workLocationName = shiftLocation.name;
+              if (shiftLocation.address) {
+                workLocation = shiftLocation.address;
+              } else {
+                workLocation = shiftLocation.name;
+              }
+            }
+          } else {
+            const allLocations = await storage.getLocations();
+            const defaultLoc = allLocations.find(l => l.isDefault) || allLocations[0];
+            if (defaultLoc) {
+              workLocationName = defaultLoc.name;
+              if (defaultLoc.address) {
+                workLocation = defaultLoc.address;
+              } else {
+                workLocation = defaultLoc.name;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const weather = await fetchWeather(workLocation);
+      const traffic = await fetchTraffic("Saratoga Springs, NY", workLocation);
+
+      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const hour = etNow.getHours();
+      let timeOfDay = "morning";
+      if (hour >= 12 && hour < 17) timeOfDay = "afternoon";
+      else if (hour >= 17) timeOfDay = "evening";
+
+      const contextLines: string[] = [];
+      contextLines.push(`Time of day: Good ${timeOfDay}`);
+
+      if (weather) {
+        contextLines.push(`Weather at ${weather.location}: ${weather.temp}°F (feels like ${weather.feelsLike}°F), ${weather.description}, humidity ${weather.humidity}%, wind ${weather.windSpeed} mph`);
+      }
+
+      if (traffic && traffic.durationInTraffic !== "unknown") {
+        contextLines.push(`Commute to work: ${traffic.durationInTraffic} (${traffic.distance}) via ${traffic.summary}`);
+      }
+
+      if (todaySchedule.length > 0) {
+        contextLines.push("Today's shifts: " + todaySchedule.map(s =>
+          `${s.startTime}-${s.endTime} (${s.department}${s.position ? `, ${s.position}` : ""})`
+        ).join("; "));
+      } else {
+        contextLines.push("No shift scheduled today");
+      }
+
+      if (interests.length > 0) {
+        contextLines.push(`Personal interests: ${interests.join(", ")}`);
+      }
+
+      const OpenAI = (await import("openai")).default;
+      const greetingAI = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief personalized greeting (2-3 sentences) for a team member.
+
+RULES:
+- Be warm, friendly, and genuinely personal
+- If weather data is provided, naturally weave in a weather note (e.g. "Bundle up" or "Beautiful day out there")
+- If traffic data is provided, briefly mention commute conditions if relevant
+- If the person has interests listed, include a quick relevant tidbit or reference related to one of their interests — something timely, fun, or encouraging. Don't force it.
+- Keep it natural and conversational — like a friend checking in
+- NEVER invent data not provided
+- Keep it concise — this is a greeting, not a briefing`;
+
+      const userPrompt = `Team member: ${user.firstName || "Team Member"}
+${contextLines.join("\n")}
+
+Generate a warm, personalized greeting.`;
+
+      const completion = await withRetry(() => greetingAI.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 200,
+        temperature: 0.8,
+      }), "personalized-greeting");
+
+      const greeting = completion.choices[0]?.message?.content || null;
+
+      const responseData = {
+        greeting,
+        enabled: true,
+        weather: weather || null,
+        traffic: traffic || null,
+      };
+      greetingCache.set(user.id, { data: responseData, fetchedAt: Date.now() });
+      res.json(responseData);
+    } catch (err: any) {
+      console.error("Personalized greeting error:", err);
+      res.json({ greeting: null, enabled: true, error: "Failed to generate greeting" });
     }
   });
 

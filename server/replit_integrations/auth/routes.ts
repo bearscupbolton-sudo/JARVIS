@@ -487,6 +487,18 @@ export function registerAuthRoutes(app: Express): void {
         updates.language = req.body.language;
       }
       if (req.body.demoMode !== undefined) updates.demoMode = !!req.body.demoMode;
+      if (req.body.interests !== undefined) {
+        if (Array.isArray(req.body.interests)) {
+          updates.interests = req.body.interests
+            .filter((i: unknown) => typeof i === "string")
+            .map((i: string) => i.trim())
+            .filter((i: string) => i.length > 0 && i.length <= 100)
+            .slice(0, 50);
+        }
+      }
+      if (req.body.personalizedGreetingsEnabled !== undefined) {
+        updates.personalizedGreetingsEnabled = !!req.body.personalizedGreetingsEnabled;
+      }
 
       const user = await authStorage.updateUserProfile(currentUser.id, updates);
       const { pinHash, ...safeUser } = user;

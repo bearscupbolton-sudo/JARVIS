@@ -14,6 +14,7 @@ import DevFeedbackOverlay from "@/components/DevFeedbackOverlay";
 import GlobalAckOverlay from "@/components/GlobalAckOverlay";
 import UrgentMessageOverlay from "@/components/UrgentMessageOverlay";
 import JarvisIntroOverlay from "@/components/JarvisIntroOverlay";
+import InterestCollectionOverlay from "@/components/InterestCollectionOverlay";
 import { PortalLayout } from "@/components/PortalLayout";
 import { WholesaleLayout } from "@/components/WholesaleLayout";
 import { Loader2 } from "lucide-react";
@@ -584,6 +585,7 @@ function Router() {
       </Switch>
     </AppErrorBoundary>
     {user && !(user as any).seenJarvisIntro && <JarvisIntroOverlay user={user} />}
+    {user && user.seenJarvisIntro && !user.interestsCollected && !user.globalAckRequired && <InterestCollectionOverlay user={user} />}
     </LanguageContext.Provider>
   );
 }
