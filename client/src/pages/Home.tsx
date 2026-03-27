@@ -546,27 +546,22 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
           )}
 
           {isPersonalizedEnabled && greetingData?.greeting && (
-            <div className="mb-2 p-2.5 rounded-md bg-amber-500/10 border border-amber-500/15" data-testid="container-personalized-greeting">
-              <div className="flex items-start gap-2">
-                {weatherIconUrl && (
-                  <img src={weatherIconUrl} alt="weather" className="w-8 h-8 flex-shrink-0 -mt-1" data-testid="img-weather-icon" />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-personalized-greeting">{greetingData.greeting}</p>
-                  {greetingData.weather && (
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground" data-testid="container-weather-details">
-                      <span>{greetingData.weather.temp}°F</span>
-                      <span className="capitalize">{greetingData.weather.description}</span>
-                      {greetingData.traffic?.durationInTraffic && greetingData.traffic.durationInTraffic !== "unknown" && (
-                        <span className="flex items-center gap-1">
-                          <Truck className="w-3 h-3" />
-                          {greetingData.traffic.durationInTraffic}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+            <p className="text-sm text-foreground/90 leading-relaxed mb-1" data-testid="text-personalized-greeting">{greetingData.greeting}</p>
+          )}
+
+          {isPersonalizedEnabled && greetingData?.weather && (
+            <div className="flex items-center gap-3 mb-2 text-xs text-muted-foreground" data-testid="container-weather-details">
+              {weatherIconUrl && (
+                <img src={weatherIconUrl} alt="weather" className="w-5 h-5 flex-shrink-0" data-testid="img-weather-icon" />
+              )}
+              <span>{greetingData.weather.temp}°F</span>
+              <span className="capitalize">{greetingData.weather.description}</span>
+              {greetingData.traffic?.durationInTraffic && greetingData.traffic.durationInTraffic !== "unknown" && (
+                <span className="flex items-center gap-1">
+                  <Truck className="w-3 h-3" />
+                  {greetingData.traffic.durationInTraffic}
+                </span>
+              )}
             </div>
           )}
 
