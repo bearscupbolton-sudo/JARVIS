@@ -151,6 +151,18 @@ async function runNightlySync() {
     console.error(`[Nightly Sync] Square sync failed:`, err.message);
   }
 
+  try {
+    const { journalizeSquareRevenue } = await import("./accounting-engine");
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const result = await journalizeSquareRevenue(yesterdayStr, todayStr);
+    console.log(`[Nightly Sync] Square revenue journalized: ${result.journalized} new, ${result.skipped} skipped`);
+  } catch (err: any) {
+    console.error(`[Nightly Sync] Revenue journalization failed:`, err.message);
+  }
+
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[Nightly Sync] Complete in ${elapsed}s`);
 }

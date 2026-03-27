@@ -2980,6 +2980,24 @@ Rules:
       const date = (req.body?.date as string) || new Date().toISOString().split("T")[0];
       const locationId = req.body?.locationId ? parseInt(req.body.locationId, 10) : undefined;
       const result = await syncSquareSales(date, locationId);
+      try {
+        const { journalizeSquareRevenue } = await import("./accounting-engine");
+        await journalizeSquareRevenue(date, date);
+      } catch (journalErr: any) {
+        console.error("[Square Sync] Auto-journalize failed:", journalErr.message);
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/firm/journalize-square", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { journalizeSquareRevenue } = await import("./accounting-engine");
+      const startDate = req.body?.startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+      const endDate = req.body?.endDate || new Date().toISOString().slice(0, 10);
+      const result = await journalizeSquareRevenue(startDate, endDate);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

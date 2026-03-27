@@ -1,0 +1,48 @@
+The Root Cause
+Looking at server/routes.ts, there are two primary endpoints generating conversational greetings:
+
+GET /api/user/greeting: This endpoint uses a specific "Personalized Greeting" logic. It identifies the time of day (e.g., "Good evening"), fetches weather/traffic, and uses AI to generate a 1-2 sentence greeting like "Good evening, Louis. It's a cool 50°F and clear outside...".
+
+GET /api/home/jarvis-briefing: This endpoint generates the "Jarvis Briefing," which also identifies the time of day and starts with a warm greeting before diving into bakery operations. It uses a different AI prompt to generate a 2-4 sentence summary including dough counts and financials.
+
+In the screenshot, the first paragraph is coming from the greeting endpoint, and the second paragraph is the start of the jarvis-briefing response.
+
+Recommendations to Fix the Robot Loop
+To stop Jarvis from sounding like a robot repeating itself, I recommend the following code and logic adjustments:
+
+1. Consolidate into a Single "Brain" (Recommended)
+Modify the frontend (likely Dashboard.tsx or Home.tsx) to only call one of these endpoints at a time.
+
+If the "Briefing" is active, it should suppress the standalone "Greeting".
+
+Alternatively, merge the greeting logic into the jarvis-briefing logic so only one AI call is made for the entire header.
+
+2. Implement a "Global Greeting" Cache
+Create a shared state or cache key for the greeting.
+
+Modify server/routes.ts so that if a greeting has been generated in the last 5 minutes for that userId, the second endpoint (the Briefing) skips its own greeting and uses a "Bridge Phrase" instead.
+
+Logic Example: Instead of starting with "Good evening," the Briefing could check the cache and start with, "As I mentioned, it's a great night for a run—and back in the shop, we have a few doughs proofing...".
+
+3. Tighten the AI System Prompts
+Refine the system prompt for the jarvis-briefing in server/routes.ts to explicitly handle the "Welcome Back" scenario without repeating the time-of-day greeting.
+
+Change this: RULES: Start with "Good ${timeOfDay}, [name]."
+
+To this: RULES: If the 'WELCOME BACK' flag is present, prioritize the 'Welcome back' sentiment over the time-of-day greeting to avoid redundancy.
+
+4. Update the Briefing Prompt to be "Bridge-Aware"
+Update the systemPrompt for the briefing (around line 1860 of routes.ts):
+
+"You are Jarvis... Generate a brief, warm, personalized briefing... If you detect this is the start of a session, you may omit the 'Good evening' if you have already provided a weather summary."
+
+Immediate Code Action
+In server/routes.ts, within the GET /api/home/jarvis-briefing route, add a conditional check:
+
+TypeScript
+// Proposed addition to line ~1820
+const skipGreeting = req.query.suppressGreeting === "true";
+if (skipGreeting) {
+  systemPrompt += " Do not include a 'Good morning/afternoon/evening' greeting as one has already been provided.";
+}
+Then, update your frontend to pass ?suppressGreeting=true when calling the briefing if the weather greeting is already visible.
