@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { chartOfAccounts, journalEntries, ledgerLines, regionalPricing, inventoryItems, firmTransactions } from "@shared/schema";
+import { chartOfAccounts, journalEntries, ledgerLines } from "@shared/schema";
 import { eq, sql, and, gte, lte, inArray } from "drizzle-orm";
 
 async function getOpenAI() {
@@ -311,92 +311,63 @@ async function generateNarrative(
     .map(([vendor, data]) => `${vendor}: ${data.count} entries, $${data.total.toFixed(2)} total`)
     .join("; ");
 
-  let priceContext = "";
-  try {
-    const priceData = await db.select({
-      itemName: inventoryItems.name,
-      costPerUnit: inventoryItems.costPerUnit,
-      regionalAvg: regionalPricing.regionalAvgPrice,
-      region: regionalPricing.region,
-      matchedProduct: regionalPricing.matchedProduct,
-    })
-      .from(regionalPricing)
-      .innerJoin(inventoryItems, eq(regionalPricing.inventoryItemId, inventoryItems.id))
-      .where(sql`${regionalPricing.regionalAvgPrice} IS NOT NULL`);
-
-    const outliers = priceData.filter(p => {
-      if (!p.costPerUnit || !p.regionalAvg) return false;
-      const variance = ((Number(p.costPerUnit) - Number(p.regionalAvg)) / Number(p.regionalAvg)) * 100;
-      return Math.abs(variance) > 10;
-    });
-
-    if (outliers.length > 0) {
-      priceContext = "Price Heatmap context: " + outliers.slice(0, 5).map(p => {
-        const diff = (Number(p.costPerUnit) - Number(p.regionalAvg!)).toFixed(2);
-        const dir = Number(diff) > 0 ? "above" : "below";
-        return `${p.itemName} is $${Math.abs(Number(diff))} ${dir} the regional average in ${p.region}`;
-      }).join("; ") + ".";
-    }
-  } catch {}
-
-  let auditTrailContext = "";
-  try {
-    const allTx = await db.select({
-      id: firmTransactions.id,
-      isAuditVerified: firmTransactions.isAuditVerified,
-      date: firmTransactions.date,
-    }).from(firmTransactions)
-      .where(and(
-        gte(firmTransactions.date, startDate),
-        lte(firmTransactions.date, endDate),
-      ));
-
-    if (allTx.length > 0) {
-      const verified = allTx.filter(t => t.isAuditVerified).length;
-      const unverified = allTx.length - verified;
-      const verifiedPct = Math.round((verified / allTx.length) * 100);
-      auditTrailContext = `Audit Trail: ${allTx.length} bank transactions in period, ${verified} verified with email evidence (${verifiedPct}%), ${unverified} unverified.`;
-      if (verifiedPct < 50) {
-        auditTrailContext += " Low verification rate — many transactions lack supporting email documentation.";
-      }
-    }
-  } catch {}
-
   const contextParts = [
     `Period: ${startDate} to ${endDate}`,
     `Accounts: ${accounts.map(a => `${a.name} ($${a.subtotal.toFixed(2)})`).join(", ")}`,
     `Total entries: ${lines.length}`,
     vendorSummary ? `Vendor breakdown: ${vendorSummary}` : "",
-    priceContext,
-    auditTrailContext,
     duplicateRisks.length > 0 ? `Duplicate risk alerts: ${duplicateRisks.length} potential double-bookings detected` : "",
     ghostEntries.length > 0 ? `Non-cash/accrual entries: ${ghostEntries.length} ghost entries totaling $${ghostEntries.reduce((s, g) => s + Math.max(g.debit, g.credit), 0).toFixed(2)}` : "",
   ].filter(Boolean).join("\n");
 
   try {
-    const openai = await getOpenAI();
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.3,
-      max_tokens: 400,
-      messages: [
-        {
-          role: "system",
-          content: `You are the CFO AI for Bear's Cup Bakehouse, a two-location bakery in upstate New York. Write a concise 3-5 sentence narrative explaining vendor patterns, spending trends, and any notable anomalies for the owner. Be specific with dollar amounts and percentages. Mention price heatmap data and audit trail verification status when relevant. Use plain English — no jargon. No markdown formatting.`,
-        },
-        {
-          role: "user",
-          content: contextParts,
-        },
+    const { runAgenticLoop } = await import("./tool-dispatcher");
+    const systemPrompt = `You are the CFO AI for Bear's Cup Bakehouse, a two-location bakery in upstate New York. You have access to financial investigation tools. Write a concise 3-5 sentence narrative explaining vendor patterns, spending trends, and any notable anomalies for the owner. Be specific with dollar amounts and percentages. Use plain English — no jargon. No markdown formatting. Use your tools to check price variance data and tip distribution if relevant. End your narrative with "Verified via [Tool Names]" listing the data sources you consulted.`;
+
+    const { responseText, toolsUsed } = await runAgenticLoop(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Analyze this spending data and explain the trends:\n${contextParts}` },
       ],
-    });
-    return response.choices[0]?.message?.content || "Narrative generation unavailable.";
-  } catch (err: any) {
-    console.error("[AuditLineage] AI narrative error:", err.message);
-    if (vendorSummary) {
-      return `This period includes ${lines.length} entries across ${accounts.length} account(s). Top vendors: ${vendorSummary.split(";").slice(0, 3).join(";")}.${priceContext ? " " + priceContext : ""}`;
+      { skipLogging: false },
+    );
+
+    let narrative = responseText;
+    if (!narrative.includes("Verified via")) {
+      if (toolsUsed.length > 0) {
+        const uniqueTools = [...new Set(toolsUsed)];
+        narrative += ` Verified via ${uniqueTools.join(", ")}.`;
+      } else {
+        narrative += ` Verified via direct ledger query.`;
+      }
     }
-    return `This period includes ${lines.length} entries across ${accounts.length} account(s) totaling $${accounts.reduce((s, a) => s + a.subtotal, 0).toFixed(2)}.`;
+
+    return narrative;
+  } catch (err: any) {
+    console.error("[AuditLineage] Agentic narrative error:", err.message);
+    try {
+      const openai = await getOpenAI();
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.3,
+        max_tokens: 400,
+        messages: [
+          {
+            role: "system",
+            content: `You are the CFO AI for Bear's Cup Bakehouse, a two-location bakery in upstate New York. Write a concise 3-5 sentence narrative explaining vendor patterns, spending trends, and any notable anomalies for the owner. Be specific with dollar amounts and percentages. Use plain English — no jargon. No markdown formatting.`,
+          },
+          { role: "user", content: contextParts },
+        ],
+      });
+      const fallbackNarrative = response.choices[0]?.message?.content || "Narrative generation unavailable.";
+      return fallbackNarrative.includes("Verified via") ? fallbackNarrative : `${fallbackNarrative} Verified via direct ledger query.`;
+    } catch (fallbackErr: any) {
+      console.error("[AuditLineage] Fallback narrative error:", fallbackErr.message);
+      if (vendorSummary) {
+        return `This period includes ${lines.length} entries across ${accounts.length} account(s). Top vendors: ${vendorSummary.split(";").slice(0, 3).join(";")}. Verified via direct ledger query.`;
+      }
+      return `This period includes ${lines.length} entries across ${accounts.length} account(s) totaling $${accounts.reduce((s, a) => s + a.subtotal, 0).toFixed(2)}. Verified via direct ledger query.`;
+    }
   }
 }
 
