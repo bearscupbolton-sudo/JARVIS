@@ -2067,6 +2067,7 @@ export const chartOfAccounts = pgTable("chart_of_accounts", {
   parentId: integer("parent_id"),
   locationId: integer("location_id"),
   description: text("description"),
+  laymanDescription: text("layman_description"),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

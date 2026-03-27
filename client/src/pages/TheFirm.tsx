@@ -27,6 +27,7 @@ import {
   ArrowLeftRight, Dna, BellRing, Download, Mail
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
+import FinancialLineagePanel from "@/components/FinancialLineagePanel";
 import type {
   FirmAccount, InsertFirmAccount,
   FirmTransaction, InsertFirmTransaction,
@@ -453,6 +454,7 @@ interface PayrollCompileResult {
 }
 
 function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string }) {
+  const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
   const { data: jarvisInsight, isLoading: loadingInsight } = useQuery<{ insight: string }>({
     queryKey: ["/api/firm/jarvis-insight", startDate, endDate],
     queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
@@ -502,7 +504,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   return (
     <div className="space-y-4" data-testid="overview-content">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card data-testid="card-revenue">
+        <Card data-testid="card-revenue" className="cursor-pointer hover:ring-2 hover:ring-green-500/30 transition-all" onClick={() => setLineagePanel({ category: "revenue", label: "Revenue" })}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-muted-foreground font-medium">Revenue (Square Gross)<LearnTooltip term="Revenue" explanation="Total gross sales from Square POS — what customers paid. This is your top line before expenses, processing fees, or loan withholdings." /></span>
@@ -510,28 +512,28 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
             </div>
             <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(revenue)}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              {s.squareOrderCount || 0} orders{processingFees > 0 ? ` · ${formatCurrency(processingFees)} fees` : ""}
+              {s.squareOrderCount || 0} orders{processingFees > 0 ? ` · ${formatCurrency(processingFees)} fees` : ""} · Click to drill down
             </div>
           </CardContent>
         </Card>
-        <Card data-testid="card-expenses">
+        <Card data-testid="card-expenses" className="cursor-pointer hover:ring-2 hover:ring-red-500/30 transition-all" onClick={() => setLineagePanel({ category: "expense", label: "Expenses" })}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-muted-foreground font-medium">Expenses<LearnTooltip term="Expenses" explanation="All money going out — ingredients, labor, rent, supplies, loan payments. Lower expenses relative to revenue means higher profit." /></span>
               <TrendingDown className="w-4 h-4 text-red-600" />
             </div>
             <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(expenses)}</div>
-            <div className="text-[10px] text-muted-foreground mt-1">Operating expenses (excl. draws, CapEx, tax)</div>
+            <div className="text-[10px] text-muted-foreground mt-1">Operating expenses (excl. draws, CapEx, tax) · Click to drill down</div>
           </CardContent>
         </Card>
-        <Card data-testid="card-net-pl">
+        <Card data-testid="card-net-pl" className="cursor-pointer hover:ring-2 hover:ring-blue-500/30 transition-all" onClick={() => setLineagePanel({ category: "net", label: "Net P&L (Revenue & Expenses)" })}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-muted-foreground font-medium">Net P&L<LearnTooltip term="Net P&L" explanation="Profit & Loss — Revenue minus Expenses. Positive means you're making money. Negative means you're spending more than you earn." /></span>
               {netPL >= 0 ? <ArrowUpRight className="w-4 h-4 text-green-600" /> : <ArrowDownRight className="w-4 h-4 text-red-600" />}
             </div>
             <div className={`text-2xl font-bold ${netPL >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>{formatCurrency(netPL)}</div>
-            <div className="text-[10px] text-muted-foreground mt-1">{netPL >= 0 ? "Profitable" : "Operating at a loss"}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">{netPL >= 0 ? "Profitable" : "Operating at a loss"} · Click to drill down</div>
           </CardContent>
         </Card>
         <Card data-testid="card-cash-position">
@@ -787,6 +789,17 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           ) : <p className="text-sm text-muted-foreground italic">No transactions yet. Start by adding accounts and recording transactions.</p>}
         </CardContent>
       </Card>
+
+      {lineagePanel && (
+        <FinancialLineagePanel
+          open={!!lineagePanel}
+          onClose={() => setLineagePanel(null)}
+          category={lineagePanel.category}
+          label={lineagePanel.label}
+          startDate={startDate}
+          endDate={endDate}
+        />
+      )}
     </div>
   );
 }
@@ -5181,6 +5194,7 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
   const { toast } = useToast();
   const [aiClassifyInput, setAiClassifyInput] = useState({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
   const [classifyResult, setClassifyResult] = useState<any>(null);
+  const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
 
   const { data: pnl, isLoading: pnlLoading } = useQuery<any>({
     queryKey: ["/api/firm/reports/pnl", startDate, endDate],
@@ -5323,21 +5337,25 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
               ) : pnl ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border">
+                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border cursor-pointer hover:ring-2 hover:ring-green-500/30 transition-all" onClick={() => setLineagePanel({ category: "revenue", label: "Revenue" })} data-testid="cc-card-revenue">
                       <div className="text-xs text-muted-foreground">Revenue</div>
                       <div className="text-lg font-bold tabular-nums text-green-600" data-testid="text-cc-revenue">{formatCurrency(pnl.totalRevenue)}</div>
                     </div>
-                    <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border">
+                    <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border cursor-pointer hover:ring-2 hover:ring-orange-500/30 transition-all" onClick={() => setLineagePanel({ category: "cogs", label: "Cost of Goods Sold" })} data-testid="cc-card-cogs">
                       <div className="text-xs text-muted-foreground">COGS</div>
                       <div className="text-lg font-bold tabular-nums text-orange-600" data-testid="text-cc-cogs">{formatCurrency(pnl.totalCOGS)}</div>
                       <div className="text-xs text-muted-foreground">{pnl.totalRevenue > 0 ? `${((pnl.totalCOGS / pnl.totalRevenue) * 100).toFixed(1)}%` : "—"}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border cursor-pointer hover:ring-2 hover:ring-red-500/30 transition-all" onClick={() => setLineagePanel({ category: "expense", label: "Total Expenses (COGS + Operating)" })} data-testid="cc-card-expenses">
+                      <div className="text-xs text-muted-foreground">Total Expenses</div>
+                      <div className="text-lg font-bold tabular-nums text-red-600" data-testid="text-cc-expenses">{formatCurrency(pnl.totalCOGS + pnl.totalOperatingExpenses)}</div>
                     </div>
                     <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border">
                       <div className="text-xs text-muted-foreground">Gross Profit</div>
                       <div className="text-lg font-bold tabular-nums text-blue-600" data-testid="text-cc-gross">{formatCurrency(pnl.grossProfit)}</div>
                       <div className="text-xs text-muted-foreground">{pnl.grossMargin.toFixed(1)}% margin</div>
                     </div>
-                    <div className={`p-3 rounded-lg border ${pnl.netIncome >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+                    <div className={`p-3 rounded-lg border cursor-pointer hover:ring-2 hover:ring-blue-500/30 transition-all ${pnl.netIncome >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`} onClick={() => setLineagePanel({ category: "net", label: "Net P&L (Revenue & Expenses)" })} data-testid="cc-card-net">
                       <div className="text-xs text-muted-foreground">Net Income</div>
                       <div className={`text-lg font-bold tabular-nums ${pnl.netIncome >= 0 ? "text-green-600" : "text-red-600"}`} data-testid="text-cc-net">{formatCurrency(pnl.netIncome)}</div>
                       <div className="text-xs text-muted-foreground">{pnl.netMargin.toFixed(1)}% margin</div>
@@ -5551,6 +5569,17 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
           </Card>
         </div>
       </div>
+
+      {lineagePanel && (
+        <FinancialLineagePanel
+          open={!!lineagePanel}
+          onClose={() => setLineagePanel(null)}
+          category={lineagePanel.category}
+          label={lineagePanel.label}
+          startDate={startDate}
+          endDate={endDate}
+        />
+      )}
     </div>
   );
 }
