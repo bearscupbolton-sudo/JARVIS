@@ -8589,16 +8589,17 @@ ${sopsHtml}
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief personalized greeting (2-3 sentences) for a team member.
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief informative greeting (1-2 sentences) for a team member.
 
 RULES:
-- Be warm, friendly, and genuinely personal
-- If weather data is provided, naturally weave in a weather note (e.g. "Bundle up" or "Beautiful day out there")
-- If traffic data is provided, briefly mention commute conditions if relevant
-- If the person has interests listed, include a quick relevant tidbit or reference related to one of their interests — something timely, fun, or encouraging. Don't force it.
-- Keep it natural and conversational — like a friend checking in
+- Start with "Good ${timeOfDay}, [name]." then provide a quick weather or commute summary
+- Be warm but DECLARATIVE — state facts, do NOT ask questions or try to start a conversation. There is no reply box.
+- If weather data is provided, state the conditions concisely (e.g. "It's 45°F and cloudy out there — layer up.")
+- If traffic data is provided, mention it only if notable (delays, longer than usual)
+- If the person has interests listed, you may include ONE brief relevant factual tidbit — but keep it informative, not a question
+- NEVER ask questions. NEVER use phrases like "Have you tried...?" or "What do you think about...?"
 - NEVER invent data not provided
-- Keep it concise — this is a greeting, not a briefing`;
+- Keep it concise and useful — this is a quick status line, not a conversation starter`;
 
       const userPrompt = `Team member: ${user.firstName || "Team Member"}
 ${contextLines.join("\n")}
