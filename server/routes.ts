@@ -13295,12 +13295,98 @@ IMPORTANT GUIDELINES:
         .filter((a: any) => a.isActive && ["checking", "savings", "cash", "petty_cash"].includes(a.type))
         .reduce((s: number, a: any) => s + Number(a.currentBalance), 0);
 
+      let pendingLaborCost = 0;
+      let laborDragBreakdown: Record<string, number> = {};
+      try {
+        const { compilePayroll } = await import("./payroll-compiler");
+        const today = new Date();
+        const dow = today.getDay();
+        const wednesdayOffset = (dow >= 3) ? dow - 3 : dow + 4;
+        const periodStart = new Date(today);
+        periodStart.setDate(today.getDate() - wednesdayOffset);
+        const periodEnd = new Date(periodStart);
+        periodEnd.setDate(periodStart.getDate() + 6);
+        const periodStartStr = periodStart.toISOString().split("T")[0];
+        const periodEndStr = periodEnd.toISOString().split("T")[0];
+
+        const payroll = await compilePayroll(periodStartStr, periodEndStr);
+        pendingLaborCost = payroll.totals.grossEstimate || 0;
+
+        const { userLocations } = await import("@shared/schema");
+        const { db: payrollDb } = await import("./db");
+        const { eq: payrollEq } = await import("drizzle-orm");
+        const allUserLocs = await payrollDb.select().from(userLocations);
+        const userLocationMap = new Map<string, number>();
+        for (const ul of allUserLocs) {
+          if (ul.isPrimary || !userLocationMap.has(ul.userId)) {
+            userLocationMap.set(ul.userId, ul.locationId);
+          }
+        }
+
+        const saratogaLocationId = 3;
+        let boltonLabor = 0;
+        let saratogaLabor = 0;
+        for (const emp of payroll.employees) {
+          const locId = userLocationMap.get(emp.userId);
+          if (locId === saratogaLocationId) {
+            saratogaLabor += emp.grossEstimate;
+          } else {
+            boltonLabor += emp.grossEstimate;
+          }
+        }
+        laborDragBreakdown = {
+          "Bolton Landing": Math.round(boltonLabor * 100) / 100,
+          "Saratoga Springs": Math.round(saratogaLabor * 100) / 100,
+        };
+
+        if (pendingLaborCost > 0) {
+          try {
+            const { accrualPlaceholders } = await import("@shared/schema");
+            const { db } = await import("./db");
+            const { eq, and } = await import("drizzle-orm");
+            const laborVendor = "ADP Payroll";
+            const description = `Pending labor accrual ${periodStartStr} to ${periodEndStr}`;
+
+            const existing = await db.select().from(accrualPlaceholders).where(
+              and(
+                eq(accrualPlaceholders.vendorName, laborVendor),
+                eq(accrualPlaceholders.expectedDate, periodEndStr),
+                eq(accrualPlaceholders.status, "OPEN")
+              )
+            );
+
+            if (existing.length > 0) {
+              await db.update(accrualPlaceholders).set({
+                amount: pendingLaborCost,
+                description,
+              }).where(eq(accrualPlaceholders.id, existing[0].id));
+            } else {
+              await db.insert(accrualPlaceholders).values({
+                vendorName: laborVendor,
+                description,
+                amount: pendingLaborCost,
+                expectedDate: periodEndStr,
+                coaCode: "6000",
+                status: "OPEN",
+                createdBy: "liquidity-engine",
+              });
+            }
+          } catch (phErr: any) {
+            console.warn("[Liquidity] Accrual placeholder error (non-fatal):", phErr.message);
+          }
+        }
+      } catch (payrollErr: any) {
+        console.warn("[Liquidity] Payroll compilation failed (non-fatal), labor drag = 0:", payrollErr.message);
+      }
+
       const { getLiquiditySnapshot } = await import("./liquidity-engine");
       const snapshot = await getLiquiditySnapshot(
         startDate as string,
         endDate as string,
         bankBalance,
-        debtAnchor ? Number(debtAnchor) : undefined
+        debtAnchor ? Number(debtAnchor) : undefined,
+        pendingLaborCost,
+        laborDragBreakdown
       );
       res.json(snapshot);
     } catch (err: any) {

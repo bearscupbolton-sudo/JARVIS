@@ -38,6 +38,8 @@ interface LiquiditySnapshot {
   loanWithholdingRate: number;
   debtAnchor: number;
   estimatedRemainingDebt: number;
+  pendingLaborDrag: number;
+  laborDragBreakdown: Record<string, number>;
   trueSpendable: number;
   status: string;
   payoutDetails: Array<{
@@ -115,7 +117,9 @@ export async function getLiquiditySnapshot(
   startDate: string,
   endDate: string,
   bankBalance: number,
-  debtAnchor: number = 51639.74
+  debtAnchor: number = 51639.74,
+  pendingLaborCost: number = 0,
+  laborDragBreakdown: Record<string, number> = {}
 ): Promise<LiquiditySnapshot> {
   const [boltonPayouts, saratogaPayouts] = await Promise.all([
     getPayouts(BOLTON_ID, startDate, endDate),
@@ -201,7 +205,8 @@ export async function getLiquiditySnapshot(
   const estimatedRemaining = debtAnchor - boltonLoanDollars;
 
   const salesTaxReserve = bankBalance * 0.08;
-  const trueSpendable = bankBalance - salesTaxReserve - Math.max(0, estimatedRemaining > 0 ? 0 : 0);
+  const laborDrag = Math.max(0, pendingLaborCost);
+  const trueSpendable = bankBalance - salesTaxReserve - laborDrag - Math.max(0, estimatedRemaining > 0 ? 0 : 0);
 
   const status = trueSpendable > 10000 ? "GROWTH_READY" : trueSpendable > 5000 ? "STABLE" : trueSpendable > 0 ? "TIGHT" : "CRITICAL";
 
@@ -218,6 +223,8 @@ export async function getLiquiditySnapshot(
     loanWithholdingRate: Math.round(withholdingRate * 100) / 100,
     debtAnchor,
     estimatedRemainingDebt: Math.max(0, estimatedRemaining),
+    pendingLaborDrag: Math.round(laborDrag * 100) / 100,
+    laborDragBreakdown,
     trueSpendable: Math.round(trueSpendable * 100) / 100,
     status,
     payoutDetails,
