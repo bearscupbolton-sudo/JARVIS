@@ -654,6 +654,8 @@ export type InsertScheduleMessage = z.infer<typeof insertScheduleMessageSchema>;
 export const preShiftNotes = pgTable("pre_shift_notes", {
   id: serial("id").primaryKey(),
   content: text("content").notNull(),
+  rawContent: text("raw_content"),
+  focus: text("focus").default("all"),
   date: text("date").notNull(),
   authorId: text("author_id").notNull(),
   locationId: integer("location_id"),

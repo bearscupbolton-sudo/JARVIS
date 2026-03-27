@@ -256,6 +256,7 @@ function saveLayout(config: LayoutConfig) {
 const preShiftNoteFormSchema = insertPreShiftNoteSchema.pick({ content: true }).extend({
   content: z.string().min(1, "Note content is required"),
   date: z.string().min(1, "Date is required"),
+  focus: z.enum(["foh", "boh", "all"]).default("all"),
 });
 type PreShiftNoteFormValues = z.infer<typeof preShiftNoteFormSchema>;
 
@@ -783,7 +784,7 @@ export default function Home() {
   const deleteEvent = useDeleteEvent();
 
   const createNoteMutation = useMutation({
-    mutationFn: async (data: { content: string; date: string; locationId?: number | null }) => {
+    mutationFn: async (data: { content: string; rawContent?: string; date: string; focus?: string; locationId?: number | null }) => {
       const res = await apiRequest("POST", "/api/pre-shift-notes", data);
       return res.json();
     },
@@ -801,8 +802,40 @@ export default function Home() {
 
   const noteForm = useForm<PreShiftNoteFormValues>({
     resolver: zodResolver(preShiftNoteFormSchema),
-    defaultValues: { content: "", date: todayDate },
+    defaultValues: { content: "", date: todayDate, focus: "all" },
   });
+
+  const [aiPreview, setAiPreview] = useState<string | null>(null);
+  const [rawContentForPost, setRawContentForPost] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  async function handleGenerateAI() {
+    const values = noteForm.getValues();
+    if (!values.content || !values.content.trim()) {
+      toast({ title: "Missing content", description: "Enter your raw note before generating.", variant: "destructive" });
+      return;
+    }
+    setIsGenerating(true);
+    if (!rawContentForPost) {
+      setRawContentForPost(values.content);
+    }
+    try {
+      const seedContent = rawContentForPost || values.content;
+      const res = await apiRequest("POST", "/api/pre-shift-notes/generate", {
+        rawContent: seedContent,
+        date: values.date,
+        focus: values.focus,
+        locationId: selectedLocationId || null,
+      });
+      const data = await res.json();
+      setAiPreview(data.content);
+      noteForm.setValue("content", data.content);
+    } catch (err: any) {
+      toast({ title: "Generation failed", description: err.message || "Could not generate AI-enhanced note.", variant: "destructive" });
+    } finally {
+      setIsGenerating(false);
+    }
+  }
 
   const unreadMessages = inboxMessages.filter(m => !m.recipient.read);
 
@@ -994,8 +1027,16 @@ export default function Home() {
   }
 
   async function handleAddNote(values: PreShiftNoteFormValues) {
-    await createNoteMutation.mutateAsync({ content: values.content, date: values.date, locationId: null });
-    noteForm.reset({ content: "", date: todayDate });
+    await createNoteMutation.mutateAsync({
+      content: values.content,
+      rawContent: rawContentForPost || values.content,
+      date: values.date,
+      focus: values.focus,
+      locationId: selectedLocationId || null,
+    });
+    noteForm.reset({ content: "", date: todayDate, focus: "all" });
+    setAiPreview(null);
+    setRawContentForPost("");
     setShowNoteForm(false);
   }
 
@@ -1070,19 +1111,85 @@ export default function Home() {
             <CardTitle className="text-xs font-bold uppercase tracking-tighter flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />{t("Live Directives")}</CardTitle>
             <div className="flex items-center gap-1">
               {isManager && (
-                <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
+                <Dialog open={showNoteForm} onOpenChange={(open) => { setShowNoteForm(open); if (!open) { setAiPreview(null); setRawContentForPost(""); } }}>
                   <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button></DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader><DialogTitle>{t("Add Pre-Shift Note")}</DialogTitle><DialogDescription>{t("Post a note for the team. You can schedule notes for future days.")}</DialogDescription></DialogHeader>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader><DialogTitle>{t("Add Pre-Shift Note")}</DialogTitle><DialogDescription>{t("Post a note for the team. Use AI to enhance it with weather, shift, and customer feedback context.")}</DialogDescription></DialogHeader>
                     <Form {...noteForm}>
                       <form onSubmit={noteForm.handleSubmit(handleAddNote)} className="space-y-4">
-                        <FormField control={noteForm.control} name="date" render={({ field }) => (
-                          <FormItem><FormLabel>{t("Date")}</FormLabel><FormControl><Input type="date" data-testid="input-preshift-date" {...field} /></FormControl><FormMessage /></FormItem>
-                        )} />
+                        <div className="grid grid-cols-2 gap-3">
+                          <FormField control={noteForm.control} name="date" render={({ field }) => (
+                            <FormItem><FormLabel>{t("Date")}</FormLabel><FormControl><Input type="date" data-testid="input-preshift-date" {...field} /></FormControl><FormMessage /></FormItem>
+                          )} />
+                          <FormField control={noteForm.control} name="focus" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t("Focus")}</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-preshift-focus"><SelectValue placeholder="Select focus" /></SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="all">All</SelectItem>
+                                  <SelectItem value="foh">FOH</SelectItem>
+                                  <SelectItem value="boh">BOH</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        </div>
                         <FormField control={noteForm.control} name="content" render={({ field }) => (
-                          <FormItem><FormLabel>{t("Note")}</FormLabel><FormControl><Textarea placeholder={t("What does the team need to know?")} data-testid="input-preshift-content" {...field} /></FormControl><FormMessage /></FormItem>
+                          <FormItem>
+                            <FormLabel>{aiPreview ? t("AI-Enhanced Note (editable)") : t("Note")}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t("What does the team need to know?")}
+                                data-testid="input-preshift-content"
+                                className="min-h-[120px]"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
                         )} />
-                        <Button type="submit" className="w-full" disabled={createNoteMutation.isPending} data-testid="button-submit-preshift-note">{createNoteMutation.isPending ? t("Posting...") : t("Post Note")}</Button>
+                        {aiPreview && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Zap className="w-3 h-3 text-amber-500" />
+                            <span>{t("AI-enhanced with weather, shift schedule, and customer feedback context. Edit freely before posting.")}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs ml-auto"
+                              data-testid="button-discard-ai"
+                              onClick={() => {
+                                noteForm.setValue("content", rawContentForPost);
+                                setAiPreview(null);
+                              }}
+                            >
+                              {t("Use original")}
+                            </Button>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="flex-1"
+                            disabled={isGenerating}
+                            onClick={handleGenerateAI}
+                            data-testid="button-generate-ai"
+                          >
+                            {isGenerating ? (
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("Generating...")}</>
+                            ) : (
+                              <><Zap className="w-4 h-4 mr-2" />{t("Generate with AI")}</>
+                            )}
+                          </Button>
+                          <Button type="submit" className="flex-1" disabled={createNoteMutation.isPending || isGenerating} data-testid="button-submit-preshift-note">
+                            {createNoteMutation.isPending ? t("Posting...") : t("Post Note")}
+                          </Button>
+                        </div>
                       </form>
                     </Form>
                   </DialogContent>
