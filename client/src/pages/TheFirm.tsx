@@ -1418,7 +1418,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
     },
     onSuccess: (data, txId) => {
       setJarvisResults(data);
-      const txn = filteredTransactions?.find((t: any) => t.id === txId);
+      const txn = filtered?.find((t: any) => t.id === txId);
       setJarvisLookupTxn(txn || null);
       setJarvisSearchingId(null);
     },
