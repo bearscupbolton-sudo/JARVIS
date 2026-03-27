@@ -8593,6 +8593,7 @@ ${sopsHtml}
   }
   const greetingCache = new Map<string, { data: GreetingResponse; fetchedAt: number }>();
   const GREETING_CACHE_TTL = 20 * 60 * 1000;
+  const briefingSuppressedMode = new Map<string, boolean>();
 
   app.post("/api/user/dismiss-jarvis-intro", isAuthenticated, async (req: any, res) => {
     try {
@@ -8841,13 +8842,19 @@ Generate a warm, personalized greeting.`;
         return res.json({ briefingText: null, showWelcome: false, welcomeMessage: null, disabled: true });
       }
 
+      const suppressGreeting = req.query.suppressGreeting === "true";
+
       const now = new Date();
       const cacheAge = context.user.lastBriefingAt ? (now.getTime() - new Date(context.user.lastBriefingAt).getTime()) / 1000 / 60 : Infinity;
 
-      if (cacheAge < 30 && context.user.lastBriefingText && req.query.refresh !== "true") {
+      const cachedText = context.user.lastBriefingText;
+      const lastSuppressedMode = briefingSuppressedMode.get(req.appUser.id);
+      const cacheCompatible = lastSuppressedMode === undefined || lastSuppressedMode === suppressGreeting;
+
+      if (cacheAge < 30 && cachedText && req.query.refresh !== "true" && cacheCompatible) {
         const hasWelcome = !!context.user.jarvisWelcomeMessage;
         return res.json({
-          briefingText: context.user.lastBriefingText,
+          briefingText: cachedText,
           showWelcome: hasWelcome,
           welcomeMessage: hasWelcome ? context.user.jarvisWelcomeMessage : null,
           disabled: false,
@@ -9017,7 +9024,11 @@ Generate a warm, personalized greeting.`;
       };
       const focusDescription = focusLabels[focus] || focusLabels.all;
 
-      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing (2-4 sentences max) for a team member opening the app. Be natural and conversational — like a trusted friend and teammate who genuinely cares about them. No bullet points, no lists, no "here's your briefing" phrasing.
+      const greetingSuppressionRule = suppressGreeting
+        ? `\n\nGREETING SUPPRESSION — The personalized weather/commute greeting is already being shown separately above this briefing. Do NOT open with "Good ${timeOfDay}, ${context.user.firstName}" or any time-of-day greeting. Instead, jump straight into the operational update with a natural bridge — for example: "Here's what's going on at the bakehouse..." or "Quick update for you —" or "On the ops side..." or just dive right into the bakery state. Keep your opening conversational but skip the greeting entirely.`
+        : "";
+
+      const systemPrompt = `You are Jarvis, the AI assistant for Bear's Cup Bakehouse. Generate a brief, warm, personalized briefing (2-4 sentences max) for a team member opening the app. Be natural and conversational — like a trusted friend and teammate who genuinely cares about them. No bullet points, no lists, no "here's your briefing" phrasing.${greetingSuppressionRule}
 
 STRICT RULE — ONLY STATE FACTS FROM THE DATA PROVIDED BELOW. Never invent, assume, or hallucinate information. If the data says 0 doughs proofing, do NOT mention doughs proofing. If no active doughs are listed, do NOT reference any doughs. If no production logs exist, do NOT claim there are any. Only mention items explicitly present in the bakery state data.
 
@@ -9059,8 +9070,12 @@ WHEN NOTHING ELSE IS HAPPENING: If the bakery state shows little or no operation
       const userLang = (context.user as any).language || "en";
       const langInstruction = userLang === "fr" ? "\n\nIMPORTANT: Respond entirely in French. Use natural, warm French — not stiff formal French. Address them with 'tu' not 'vous'." : "";
 
+      const timeInstruction = suppressGreeting
+        ? `Time of day: ${timeOfDay} (DO NOT open with a time-of-day greeting — it's already shown above)`
+        : `Time: Good ${timeOfDay}`;
+
       const userPrompt = `Team member: ${context.user.firstName} (role: ${context.user.role}, briefing focus: ${focus})
-Time: Good ${timeOfDay}
+${timeInstruction}
 Current bakery state data (ONLY reference items that appear here — do not invent anything):
 ${stateLines.join("\n")}
 
@@ -9085,6 +9100,7 @@ Generate a personalized, empathetic briefing for ${context.user.firstName}. Reme
       const briefingText = completion.choices[0]?.message?.content || "Welcome back! Everything looks good at the bakehouse.";
 
       await storage.updateJarvisBriefingCache(req.appUser.id, briefingText);
+      briefingSuppressedMode.set(req.appUser.id, suppressGreeting);
 
       const hasWelcome = !!context.user.jarvisWelcomeMessage;
       res.json({
