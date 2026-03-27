@@ -15,6 +15,13 @@
       "when": 1774646203566,
       "tag": "0002_agentic_brain_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774650294637,
+      "tag": "0003_add_preshift_notes_ai_columns",
+      "breakpoints": true
     }
   ]
 }

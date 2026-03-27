@@ -5683,20 +5683,203 @@ Return ONLY the JSON array.`,
     }
   });
 
+  const createNoteSchema = z.object({
+    content: z.string().min(1, "Content is required"),
+    rawContent: z.string().nullable().optional(),
+    date: z.string().min(1, "Date is required"),
+    focus: z.enum(["foh", "boh", "all"]).default("all"),
+    locationId: z.number().nullable().optional(),
+  });
+
   app.post("/api/pre-shift-notes", isAuthenticated, isManager, async (req: any, res) => {
     try {
-      const { content, date, locationId } = req.body;
-      if (!content || !date) return res.status(400).json({ message: "Content and date are required" });
+      const parsed = createNoteSchema.parse(req.body);
       const user = await getUserFromReq(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       const userId = user.id;
-      const note = await storage.createPreShiftNote({ content, date, authorId: userId, locationId: locationId || null });
+      const note = await storage.createPreShiftNote({
+        content: parsed.content,
+        rawContent: parsed.rawContent || null,
+        focus: parsed.focus,
+        date: parsed.date,
+        authorId: userId,
+        locationId: parsed.locationId || null,
+      });
       res.status(201).json(note);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
+    }
+  });
+
+  const generateNoteSchema = z.object({
+    rawContent: z.string().min(1, "Raw content is required"),
+    date: z.string().min(1, "Date is required"),
+    focus: z.enum(["foh", "boh", "all"]).default("all"),
+    locationId: z.number().nullable().optional(),
+  });
+
+  app.post("/api/pre-shift-notes/generate", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const parsed = generateNoteSchema.parse(req.body);
+      const { rawContent, date, focus: focusArea, locationId } = parsed;
+      const user = await getUserFromReq(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // === GATHER PHASE ===
+      let locationName = "Springfield, MA";
+      if (locationId) {
+        const loc = await storage.getLocation(locationId);
+        if (loc?.address) {
+          locationName = loc.address;
+        } else if (loc?.name) {
+          locationName = loc.name;
+        }
+      }
+
+      const todayShifts = await storage.getShifts(date, date, locationId || undefined);
+      const allUsers = await authStorage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const shiftSummary = todayShifts
+        .filter(s => userMap.has(s.userId))
+        .map(s => {
+          const u = userMap.get(s.userId)!;
+          const name = u.firstName || u.username || "Team member";
+          return `${name}: ${s.startTime}–${s.endTime}${s.role ? ` (${s.role})` : ""}`;
+        })
+        .join("; ");
+
+      let weatherSummary = "";
+      try {
+        const weather = await fetchWeather(locationName);
+        if (weather) {
+          weatherSummary = `${weather.temp}°F, ${weather.description}, feels like ${weather.feelsLike}°F, wind ${weather.windSpeed} mph`;
+        }
+      } catch {}
+
+      const allFeedback = await storage.getCustomerFeedback();
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const recentWins = allFeedback
+        .filter(f => {
+          if (!f.createdAt || f.rating < 4) return false;
+          if (locationId && f.locationId !== locationId) return false;
+          return new Date(f.createdAt) >= sevenDaysAgo;
+        })
+        .slice(0, 5)
+        .map(f => {
+          const parts = [`${f.rating}-star`];
+          if (f.name) parts.push(`from ${f.name}`);
+          if (f.comment) parts.push(`"${f.comment.slice(0, 120)}"`);
+          return parts.join(" ");
+        })
+        .join(" | ");
+
+      const contextBlock = [
+        shiftSummary ? `TODAY'S TEAM: ${shiftSummary}` : "",
+        weatherSummary ? `WEATHER: ${weatherSummary}` : "",
+        recentWins ? `RECENT WINS (The Loop): ${recentWins}` : "",
+      ].filter(Boolean).join("\n");
+
+      const focusGuidance = focusArea === "foh"
+        ? "Focus on front-of-house: customer experience, display cases, upselling, service speed, and sales wins."
+        : focusArea === "boh"
+        ? "Focus on back-of-house: production, dough work, kitchen operations, prep lists, and bake-off schedules."
+        : "Cover both front-of-house and back-of-house topics.";
+
+      // === DRAFT PHASE ===
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const draftResponse = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a pre-shift note writer for Bear's Cup Bakehouse, a craft bakery and café. Write a warm, concise pre-shift note that weaves the manager's raw input with the contextual data provided. ${focusGuidance}
+
+Rules:
+- Keep it under 200 words
+- Use a warm, direct tone — no questions, no robotic phrasing
+- Weave in relevant context naturally (weather, who's on shift, wins)
+- Do NOT use bullet points or numbered lists — write in short paragraphs
+- Do NOT start with greetings like "Hey team" — jump right into the substance
+- Output ONLY the note text, nothing else`
+          },
+          {
+            role: "user",
+            content: `MANAGER'S RAW NOTE:\n${rawContent}\n\nCONTEXT:\n${contextBlock || "No additional context available."}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      }));
+
+      let draft = draftResponse.choices[0]?.message?.content?.trim() || rawContent;
+
+      // === REVIEW PHASE ===
+      const reviewResponse = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are an editor for Bear's Cup Bakehouse pre-shift notes. Review the draft and fix any issues:
+- Remove any questions (rephrase as statements or encouragements)
+- Remove robotic or corporate phrasing
+- Ensure the tone is warm, human, and direct
+- Keep it concise (under 200 words)
+- If the draft is already good, return it unchanged
+- Output ONLY the revised note text, nothing else`
+          },
+          {
+            role: "user",
+            content: draft
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+      }));
+
+      let reviewed = reviewResponse.choices[0]?.message?.content?.trim() || draft;
+
+      // === HUMANIZE PHASE ===
+      const authorName = user.firstName || user.username || "Manager";
+      const humanizeResponse = await withRetry(() => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are doing a final pass on a Bear's Cup Bakehouse pre-shift note. Make these adjustments:
+- If team members are mentioned by name, keep those callouts warm and personal
+- Add a brief mission-aligned closing line that connects to Bear's Cup's mission of craft baking, community, and genuine hospitality
+- Sign off with "— ${authorName}"
+- Keep the overall length under 200 words
+- Maintain the warm, direct tone
+- Output ONLY the final note text, nothing else`
+          },
+          {
+            role: "user",
+            content: reviewed
+          }
+        ],
+        temperature: 0.4,
+        max_tokens: 500,
+      }));
+
+      const finalContent = humanizeResponse.choices[0]?.message?.content?.trim() || reviewed;
+
+      res.json({ content: finalContent, rawContent });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Pre-Shift Generate] Error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate pre-shift note" });
     }
   });
 
