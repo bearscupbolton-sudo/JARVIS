@@ -12349,6 +12349,79 @@ IMPORTANT GUIDELINES:
         }
       }
 
+      const SPECIAL_CATEGORIES = new Set(["owner_draw", "prior_period_adjustment", "loan_principal", "sales_tax_payment", "equipment", "rent_split", "debt_payment"]);
+      const CATEGORY_COA_MAP: Record<string, { debit: string; credit: string }> = {
+        revenue: { debit: "1010", credit: "4010" },
+        cogs: { debit: "5010", credit: "1010" },
+        labor: { debit: "6010", credit: "1010" },
+        supplies: { debit: "6090", credit: "1010" },
+        utilities: { debit: "6040", credit: "1010" },
+        rent: { debit: "6030", credit: "1010" },
+        insurance: { debit: "6030", credit: "1010" },
+        marketing: { debit: "6100", credit: "1010" },
+        taxes: { debit: "6060", credit: "1010" },
+        other_income: { debit: "1010", credit: "4020" },
+        travel_lodging: { debit: "6140", credit: "1010" },
+        repairs: { debit: "6070", credit: "1010" },
+        advertising: { debit: "6060", credit: "1010" },
+        car_mileage: { debit: "6150", credit: "1010" },
+        vehicle_expense: { debit: "6155", credit: "1010" },
+        commissions: { debit: "6160", credit: "1010" },
+        contract_labor: { debit: "6170", credit: "1010" },
+        employee_benefits: { debit: "6180", credit: "1010" },
+        professional_services: { debit: "6100", credit: "1010" },
+        licenses_permits: { debit: "6190", credit: "1010" },
+        bank_charges: { debit: "6200", credit: "1010" },
+        amortization: { debit: "6210", credit: "1010" },
+        pension_plans: { debit: "6220", credit: "1010" },
+        llc_fee: { debit: "6230", credit: "1010" },
+        meals_deductible: { debit: "6240", credit: "1010" },
+        interest_mortgage: { debit: "6250", credit: "1010" },
+        interest_other: { debit: "6260", credit: "1010" },
+        technology: { debit: "6080", credit: "1010" },
+        misc: { debit: "6090", credit: "1010" },
+        loan_interest: { debit: "6260", credit: "1010" },
+      };
+
+      if (updates.category && !SPECIAL_CATEGORIES.has(updates.category) && CATEGORY_COA_MAP[updates.category]) {
+        const existing = await storage.getFirmTransaction(txnId);
+        if (existing) {
+          const existingJE = await db.select().from(journalEntries).where(
+            and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn"))
+          ).limit(1);
+
+          if (existingJE.length === 0) {
+            const mapping = CATEGORY_COA_MAP[updates.category];
+            const debitAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.debit)).limit(1);
+            const creditAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.credit)).limit(1);
+
+            if (debitAcct.length > 0 && creditAcct.length > 0) {
+              const absAmount = Math.abs(existing.amount);
+              try {
+                const { postJournalEntry } = await import("./accounting-engine");
+                await postJournalEntry(
+                  {
+                    transactionDate: existing.date,
+                    description: existing.description,
+                    referenceType: "firm-txn",
+                    referenceId: String(txnId),
+                    status: "posted",
+                    locationId: existing.locationId ?? undefined,
+                    createdBy: req.user?.id || "system",
+                  },
+                  [
+                    { accountId: debitAcct[0].id, debit: absAmount, credit: 0, memo: existing.description },
+                    { accountId: creditAcct[0].id, debit: 0, credit: absAmount, memo: existing.description },
+                  ]
+                );
+              } catch (jeErr: any) {
+                console.error(`[Auto-Journal] Failed for category ${updates.category}:`, jeErr.message);
+              }
+            }
+          }
+        }
+      }
+
       const transaction = await storage.updateFirmTransaction(txnId, updates);
       if (!transaction) return res.status(404).json({ message: "Transaction not found" });
       res.json(transaction);
