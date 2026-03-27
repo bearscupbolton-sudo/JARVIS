@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { chartOfAccounts, journalEntries, ledgerLines } from "@shared/schema";
+import { chartOfAccounts, journalEntries, ledgerLines, squareDailySummary } from "@shared/schema";
 import { eq, sql, and, gte, lte, desc, inArray } from "drizzle-orm";
 import type { InsertJournalEntry, InsertLedgerLine } from "@shared/schema";
 
@@ -244,6 +244,78 @@ export async function reconcilePlaidTransaction(
       { accountId: creditAccountId, debit: 0, credit: absAmount },
     ]
   );
+}
+
+export async function journalizeSquareRevenue(startDate: string, endDate: string): Promise<{ journalized: number; skipped: number; total: number }> {
+  const summaries = await db.select().from(squareDailySummary).where(
+    and(gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate))
+  );
+
+  if (summaries.length === 0) return { journalized: 0, skipped: 0, total: 0 };
+
+  const existingEntries = await db.select({ referenceId: journalEntries.referenceId })
+    .from(journalEntries)
+    .where(eq(journalEntries.referenceType, "square-daily"));
+  const alreadyPosted = new Set(existingEntries.map(e => e.referenceId));
+
+  const allAccounts = await db.select().from(chartOfAccounts);
+  const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
+
+  const cashId = codeToId.get("1010");
+  const revenueId = codeToId.get("4010");
+  const merchantFeesId = codeToId.get("6110");
+  const salesTaxId = codeToId.get("2030");
+
+  if (!cashId || !revenueId) {
+    throw new Error("Missing required COA accounts: 1010 (Cash) and/or 4010 (Bakery Sales)");
+  }
+
+  let journalized = 0;
+  let skipped = 0;
+
+  for (const summary of summaries) {
+    const refId = `square-daily-${summary.date}-loc${summary.locationId ?? "all"}`;
+    if (alreadyPosted.has(refId)) {
+      skipped++;
+      continue;
+    }
+
+    const netRevenue = summary.totalRevenue - (summary.refundAmount || 0);
+    if (netRevenue <= 0) {
+      skipped++;
+      continue;
+    }
+
+    const lines: Array<{ accountId: number; debit: number; credit: number; memo?: string }> = [];
+
+    const processingFees = summary.processingFees || 0;
+    const cashDeposit = netRevenue - processingFees;
+
+    lines.push({ accountId: cashId, debit: Math.round(cashDeposit * 100) / 100, credit: 0, memo: "Square deposit after fees" });
+
+    if (processingFees > 0 && merchantFeesId) {
+      lines.push({ accountId: merchantFeesId, debit: Math.round(processingFees * 100) / 100, credit: 0, memo: "Square processing fees" });
+    }
+
+    lines.push({ accountId: revenueId, debit: 0, credit: Math.round(netRevenue * 100) / 100, memo: `${summary.orderCount} orders` });
+
+    await postJournalEntry(
+      {
+        transactionDate: summary.date,
+        description: `Square daily revenue: ${summary.date} (${summary.orderCount} orders, $${netRevenue.toFixed(2)})`,
+        referenceId: refId,
+        referenceType: "square-daily",
+        status: "posted",
+        locationId: summary.locationId ?? undefined,
+        createdBy: "system-square-journal",
+      },
+      lines
+    );
+
+    journalized++;
+  }
+
+  return { journalized, skipped, total: summaries.length };
 }
 
 export async function getTrialBalance(startDate?: string, endDate?: string) {

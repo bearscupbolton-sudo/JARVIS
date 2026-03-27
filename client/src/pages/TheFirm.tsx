@@ -24,7 +24,7 @@ import {
   Search, Filter, Eye, EyeOff, Minus, Brain, Sparkles, ShieldAlert, Lightbulb,
   CheckCircle2, XCircle, MessageSquare, Zap, Target, Shield, Calendar, MapPin,
   FileCheck, AlertOctagon, ArrowRight, Package, Wrench, Factory, HandCoins, Camera,
-  ArrowLeftRight, Dna, BellRing, Download, Mail
+  ArrowLeftRight, ArrowUpDown, Dna, BellRing, Download, Mail
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import FinancialLineagePanel from "@/components/FinancialLineagePanel";
@@ -5223,6 +5223,22 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
     queryKey: ["/api/firm/ai/audit-trail"],
   });
 
+  const journalizeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/journalize-square", { startDate, endDate });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      toast({ title: "Revenue Journalized", description: `${data.journalized} day(s) posted to ledger, ${data.skipped} already posted` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Journalization Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/firm/ai/analyze", { startDate, endDate });
@@ -5311,6 +5327,10 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
                   <span className="text-xs text-muted-foreground font-normal">{startDate} to {endDate}</span>
                 </CardTitle>
                 <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => journalizeMutation.mutate()} disabled={journalizeMutation.isPending} data-testid="button-journalize-revenue">
+                    {journalizeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
+                    Sync Revenue
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
                     {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
                     AI Summary
