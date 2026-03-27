@@ -505,7 +505,7 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
   const clearMutation = useMutation({
     mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/clear"); },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/home/jarvis-briefing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/home/jarvis-briefing"] , exact: false });
       onDismiss();
     },
   });
@@ -752,8 +752,16 @@ export default function Home() {
   const { data: allTaskLists = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists"] });
   const { data: todayVendorOrders = [] } = useQuery<any[]>({ queryKey: ["/api/vendors/today-orders"] });
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
+  const personalizedGreetingsOn = user?.personalizedGreetingsEnabled ?? false;
+  const briefingUrl = personalizedGreetingsOn ? "/api/home/jarvis-briefing?suppressGreeting=true" : "/api/home/jarvis-briefing";
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
-    queryKey: ["/api/home/jarvis-briefing"], staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false,
+    queryKey: ["/api/home/jarvis-briefing", personalizedGreetingsOn ? "suppress" : "full"],
+    queryFn: async () => {
+      const res = await fetch(briefingUrl, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch briefing");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false,
   });
 
   const { data: problemsData, isLoading: loadingProblems } = useProblems(true);
