@@ -1,0 +1,39 @@
+Critical Optimizations for the "Agentic Brain"
+1. The "Recursive Investigation" Guardrail (Task #18.3 Optimization)
+As a tech founder, "unbounded reasoning" is a cost and latency risk.
+
+Recommendation: Implement a Hard Depth Limit of 3–5 tool calls per user query.
+
+The Logic: If Jarvis cannot find the "Why" within 5 calls, he must stop and report the data gap rather than looping through the entire ledger.
+
+Audit Impact: Every "Think" step must be logged with a parent_inference_id in ai_inference_logs to reconstruct the agent's logic for your CPA.
+
+2. Cross-Domain "Trigger" Mapping (Task #18.1 & 18.4 Optimization)
+To make the "Every Beat" awareness feel real, the tools need to be Relational, not just Functional.
+
+Optimization: When get_audit_lineage detects a spike in "Labor" (Account 6010), the system prompt should force-trigger a secondary call to get_tip_distribution.
+
+Why: Labor costs in a bakery are never just "wages"; they are a synthesis of service hours vs. tip-outs. Forcing this cross-reference ensures Jarvis doesn't miss the "operational pulse" behind the number.
+
+3. Formalizing the "Layman-to-Tax" Translation (Task #18.5 Optimization)
+Don't just surface the laymanDescription; use it as a Structural Bridge.
+
+Optimization: If Jarvis explains a "Section 179" write-off, the tool must also return the current Year-to-Date utilized limit (from your $2,560,000 allowance).
+
+Founder Mindset: A layman's description tells you what it is; an agentic description tells you what is left of your tax benefit.
+
+Structural Integrity Review (Shared Schema 2061-2073)
+The current schema handles raw inputs well, but to optimize the Agentic Brain, I recommend adding three "Inference Metadata" fields to your ledger_lines or ai_inference_logs:
+
+logic_chain_path: A stringified array of the tools used to verify that specific entry.
+
+statutory_tag: High-level markers like IS_EXPANSION, IS_CAPEX, or IS_PTET.
+
+confidence_interval: A numeric score of how certain the agent is about the "Why" synthesis.
+
+Final Audit-Ready "Done" State
+From an IRS/Foundational perspective, "Done" also includes:
+
+Deterministic Totals: The agent is strictly forbidden from "calculating" math; it must only report totals returned by get_profit_and_loss.
+
+Source Attribution: Every synthesized narrative in the FinancialLineagePanel must end with a "Verified via [Tool Name]" footer to ensure the owner knows the AI didn't guess.

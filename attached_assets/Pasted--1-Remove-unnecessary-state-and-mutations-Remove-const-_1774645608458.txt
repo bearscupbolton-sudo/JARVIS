@@ -1,0 +1,47 @@
+// 1. Remove unnecessary state and mutations
+// - Remove: const [showAckedNotes, setShowAckedNotes] = useState(false);
+// - Remove: const ackNoteMutation = ...
+// - Remove: const acknowledgeShiftNoteMutation = ...
+
+// 2. Refactored Shift Feedback Notification
+{myShiftNotes.length > 0 && (
+  <div className="space-y-2">
+    {myShiftNotes.map(note => (
+      <div key={note.id} className="flex items-start gap-3 p-4 rounded-md bg-primary/5 border border-primary/20 animate-pulse-subtle">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Shift Intel</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{note.shiftDate}</span>
+          </div>
+          <p className="text-sm font-medium leading-relaxed">{note.constructiveNote}</p>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+
+// 3. Refactored Pre-Shift Notes Widget
+preShiftNotes: () => (
+  <Card className="border-none bg-muted/30 shadow-none">
+    <CardHeader className="pb-2">
+      <CardTitle className="text-xs font-bold uppercase tracking-tighter flex items-center gap-2">
+        <FileText className="w-3 h-3" /> Live Directives
+      </CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-2">
+      {preShiftNotes.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic px-2">No transmissions for this shift.</p>
+      ) : (
+        preShiftNotes.map(note => (
+          <div key={note.id} className="p-3 rounded-lg bg-background border border-border/50 shadow-sm">
+            <p className="text-sm leading-snug">{note.content}</p>
+            <div className="mt-2 flex items-center justify-between text-[9px] uppercase font-bold text-muted-foreground">
+              <span>{note.authorName || "Management"}</span>
+              <span className="font-mono">{format(new Date(note.createdAt), "h:mm a")}</span>
+            </div>
+          </div>
+        ))
+      )}
+    </CardContent>
+  </Card>
+)
