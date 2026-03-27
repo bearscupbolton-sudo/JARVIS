@@ -103,6 +103,7 @@ export default function Assistant() {
   const [inputValue, setInputValue] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [committedActions, setCommittedActions] = useState<Set<string>>(new Set());
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipFetchRef = useRef(false);
 
@@ -209,7 +210,12 @@ export default function Assistant() {
               pendingActions.push(json.ghost_action);
               continue;
             }
+            if (json.thinking) {
+              setThinkingStatus(json.thinking);
+              continue;
+            }
             if (json.content) {
+              setThinkingStatus(null);
               assistantContent += json.content;
               const updatedContent = assistantContent;
               setMessages(prev => {
@@ -252,6 +258,7 @@ export default function Assistant() {
       });
     } finally {
       setIsStreaming(false);
+      setThinkingStatus(null);
     }
   };
 
@@ -345,6 +352,17 @@ export default function Assistant() {
                 )}
               </div>
             ))
+          )}
+          {thinkingStatus && (
+            <div className="flex gap-4 max-w-3xl mr-auto" data-testid="thinking-indicator">
+              <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 bg-primary text-primary-foreground">
+                <img src="/bear-logo.png" alt="Jarvis" className="w-5 h-5 object-contain brightness-200" />
+              </div>
+              <div className="p-3 rounded-md text-sm bg-muted/50 border border-border flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                <span className="italic text-muted-foreground animate-pulse" data-testid="text-thinking-status">{thinkingStatus}</span>
+              </div>
+            </div>
           )}
           <div ref={scrollRef} />
         </div>

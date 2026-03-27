@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real, varchar, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision, real, varchar, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -2103,6 +2103,7 @@ export const ledgerLines = pgTable("ledger_lines", {
   credit: doublePrecision("credit").default(0).notNull(),
   memo: text("memo"),
   receiptUrl: text("receipt_url"),
+  statutoryTag: text("statutory_tag"),
 });
 
 export const insertLedgerLineSchema = createInsertSchema(ledgerLines).omit({ id: true });
@@ -2123,6 +2124,10 @@ export const aiInferenceLogs = pgTable("ai_inference_logs", {
   anomalyScore: doublePrecision("anomaly_score").default(0),
   suggestedCoaCode: text("suggested_coa_code"),
   appliedCoaCode: text("applied_coa_code"),
+  toolCalls: jsonb("tool_calls"),
+  parentInferenceId: integer("parent_inference_id").references((): AnyPgColumn => aiInferenceLogs.id),
+  logicChainPath: text("logic_chain_path"),
+  confidenceInterval: doublePrecision("confidence_interval"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

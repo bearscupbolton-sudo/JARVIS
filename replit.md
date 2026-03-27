@@ -73,6 +73,33 @@ Revenue is sourced from **Square POS gross sales** (not bank deposits). The `squ
 
 **P&L waterfall**: Square Gross Revenue → minus Processing Fees (6110) → minus Loan Withholding (2500) → minus Cash Tender → = Bank Deposit (what Plaid sees).
 
+## Agentic Financial Brain (Tool Dispatcher)
+
+Jarvis uses OpenAI function calling to autonomously investigate financial questions instead of context-stuffing raw data into prompts. The system is built around `server/tool-dispatcher.ts` which provides:
+
+**Five Narrow-Scope Tools:**
+- `get_profit_and_loss` — Returns P&L with account-level breakdown (sole source of truth for totals)
+- `get_audit_lineage` — Traces a P&L spike to specific vendors/invoices (supports locationId filter)
+- `get_price_variance` — Compares ingredient costs to regional wholesale averages
+- `get_tip_distribution` — Correlates labor costs with tip-out data from Square
+- `get_coa_definition` — Returns COA details with layman descriptions and NYS statutory categories
+
+**Key Features:**
+- `runAgenticLoop()` function handles the reasoning loop with parallel tool execution via `Promise.all`
+- Hard depth limit of 5 tool calls per query with forced synthesis at limit
+- Cross-domain triggers: labor account spike auto-appends tip distribution data
+- SSE `thinking` events stream live status to frontend (e.g., "Checking the P&L...")
+- All tool invocations logged to `ai_inference_logs` with `tool_calls` JSONB, `parent_inference_id` chaining, `logic_chain_path`, and `confidence_interval`
+- Financial queries in Jarvis chat route through the agentic loop; non-financial queries use traditional streaming
+
+**Schema additions:**
+- `ai_inference_logs`: `tool_calls` (jsonb), `parent_inference_id` (integer), `logic_chain_path` (text), `confidence_interval` (double precision)
+- `ledger_lines`: `statutory_tag` (text, nullable)
+
+**Frontend:**
+- `thinkingStatus` state in Assistant.tsx shows animated indicator during tool execution
+- FinancialLineagePanel narratives enriched via agentic loop with "Verified via [Tool Name]" attribution
+
 ## Coffee Command Center - Components & Drink Builder
 
 The Coffee Command Center includes:

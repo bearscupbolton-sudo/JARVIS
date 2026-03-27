@@ -7,6 +7,7 @@ import { processCFOInstruction, GHOST_ACTION_DETECTION_PROMPT, type GhostAction 
 import { db } from "../../db";
 import { firmTransactions, users } from "@shared/schema";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { runAgenticLoop } from "../../tool-dispatcher";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -27,6 +28,15 @@ Your capabilities:
 De Minimis Safe Harbor threshold: $2,500. Any single asset purchase above this MUST be capitalized (COA 1500), not expensed.
 
 Keep answers practical and concise. Use baker's terminology when appropriate. When referencing a recipe or SOP from the system, mention it by name so the team knows exactly what you're referring to.`;
+
+const AGENTIC_SYSTEM_RULES = `
+
+CRITICAL RULES FOR FINANCIAL QUERIES:
+- NEVER calculate financial totals yourself — always use get_profit_and_loss to get authoritative numbers.
+- If you use an accounting term, look up its laymanDescription via get_coa_definition and include it in your response.
+- End every financial answer with source attribution listing which tools provided the data (e.g., "Verified via get_profit_and_loss, get_audit_lineage").
+- When investigating a spike, follow this pattern: P&L overview → identify spiking account → audit lineage for that account → price variance if ingredient-related.
+- Report numbers exactly as returned by tools. Do not round, estimate, or derive new totals.`;
 
 async function buildSystemPrompt(includeFinancial: boolean = false): Promise<string> {
   let context = BASE_SYSTEM_PROMPT;
@@ -70,34 +80,7 @@ async function buildSystemPrompt(includeFinancial: boolean = false): Promise<str
   }
 
   if (includeFinancial) {
-    try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const recentTxns = await db.select({
-        id: firmTransactions.id,
-        date: firmTransactions.date,
-        description: firmTransactions.description,
-        amount: firmTransactions.amount,
-        category: firmTransactions.category,
-        coaCode: firmTransactions.coaCode,
-        reconciled: firmTransactions.reconciled,
-      }).from(firmTransactions)
-        .where(gte(firmTransactions.date, thirtyDaysAgo.toISOString().split("T")[0]))
-        .orderBy(desc(firmTransactions.date))
-        .limit(50);
-
-      if (recentTxns.length > 0) {
-        context += "\n\n=== RECENT TRANSACTIONS (Last 30 Days) ===\n";
-        for (const tx of recentTxns) {
-          const amt = Number(tx.amount || 0);
-          const sign = amt < 0 ? "-" : "+";
-          context += `ID:${tx.id} | ${tx.date} | ${sign}$${Math.abs(amt).toFixed(2)} | ${tx.description || "N/A"} | Category: ${tx.category || "uncategorized"} | COA: ${tx.coaCode || "none"} | Reconciled: ${tx.reconciled ? "yes" : "no"}\n`;
-        }
-      }
-    } catch (error) {
-      console.error("Error loading financial data for Jarvis context:", error);
-    }
-
+    context += AGENTIC_SYSTEM_RULES;
     context += "\n" + GHOST_ACTION_DETECTION_PROMPT;
   }
 
@@ -194,15 +177,9 @@ export function registerChatRoutes(app: Express): void {
       await chatStorage.createMessage(conversationId, "user", content);
 
       const messages = await chatStorage.getMessagesByConversation(conversationId);
-      const conversationHasFinancial = messages.some(m => isFinancialQuery(m.content));
+      const currentIsFinancial = isFinancialQuery(content);
+      const conversationHasFinancial = currentIsFinancial || messages.some(m => isFinancialQuery(m.content));
       const systemPrompt = await buildSystemPrompt(conversationHasFinancial);
-      const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
-        { role: "system", content: systemPrompt },
-        ...messages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      ];
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
@@ -210,32 +187,77 @@ export function registerChatRoutes(app: Express): void {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      const stream = await withRetry(() => openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: chatMessages,
-        stream: true,
-        max_tokens: 2048,
-      }), "jarvis-chat");
+      const isFollowUpInFinancialThread = !currentIsFinancial && conversationHasFinancial && content.length < 80;
 
-      let fullResponse = "";
+      if (currentIsFinancial || isFollowUpInFinancialThread) {
+        const agenticMessages = [
+          { role: "system", content: systemPrompt },
+          ...messages.map((m) => ({
+            role: m.role as string,
+            content: m.content,
+          })),
+        ];
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content || "";
-        if (delta) {
-          fullResponse += delta;
-          res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+        const { responseText, toolsUsed } = await runAgenticLoop(agenticMessages, {
+          sseResponse: res,
+        });
+
+        let finalText = responseText;
+        if (toolsUsed.length > 0 && !finalText.includes("Verified via") && !finalText.includes("Source:")) {
+          const uniqueTools = [...new Set(toolsUsed)];
+          finalText += `\n\n*Verified via ${uniqueTools.join(", ")}.*`;
         }
-      }
 
-      const { cleanText, actions } = extractGhostActions(fullResponse);
+        const { cleanText, actions } = extractGhostActions(finalText);
 
-      if (actions.length > 0) {
-        for (const action of actions) {
-          res.write(`data: ${JSON.stringify({ ghost_action: action })}\n\n`);
+        const chunks = cleanText.match(/.{1,20}/g) || [cleanText];
+        for (const chunk of chunks) {
+          res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
         }
-      }
 
-      await chatStorage.createMessage(conversationId, "assistant", cleanText);
+        if (actions.length > 0) {
+          for (const action of actions) {
+            res.write(`data: ${JSON.stringify({ ghost_action: action })}\n\n`);
+          }
+        }
+
+        await chatStorage.createMessage(conversationId, "assistant", cleanText);
+      } else {
+        const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
+          { role: "system", content: systemPrompt },
+          ...messages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        ];
+
+        const stream = await withRetry(() => openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: chatMessages,
+          stream: true,
+          max_tokens: 2048,
+        }), "jarvis-chat");
+
+        let fullResponse = "";
+
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content || "";
+          if (delta) {
+            fullResponse += delta;
+            res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+          }
+        }
+
+        const { cleanText, actions } = extractGhostActions(fullResponse);
+
+        if (actions.length > 0) {
+          for (const action of actions) {
+            res.write(`data: ${JSON.stringify({ ghost_action: action })}\n\n`);
+          }
+        }
+
+        await chatStorage.createMessage(conversationId, "assistant", cleanText);
+      }
 
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
