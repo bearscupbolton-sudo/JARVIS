@@ -1,0 +1,126 @@
+1. Schema Hardening (shared/schema.ts)
+Recipe Soft-Delete
+Add isActive to the recipes table:
+
+TypeScript
+export const recipes = pgTable("recipes", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  isActive: boolean("is_active").default(true).notNull(), // New: Default to true
+  // ... other fields
+});
+Financial Precision (Integer Cents)
+Migrate ledger_lines and fixed_assets from doublePrecision to integer to eliminate rounding errors:
+
+ledger_lines:
+
+TypeScript
+export const ledgerLines = pgTable("ledger_lines", {
+  id: serial("id").primaryKey(),
+  entryId: integer("entry_id").notNull().references(() => journalEntries.id, { onDelete: "cascade" }),
+  accountId: integer("account_id").notNull().references(() => chartOfAccounts.id),
+  debitCents: integer("debit_cents").default(0).notNull(),  // Renamed from debit
+  creditCents: integer("credit_cents").default(0).notNull(), // Renamed from credit
+  // ...
+});
+fixed_assets:
+
+TypeScript
+export const fixedAssets = pgTable("fixed_assets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  purchasePriceCents: integer("purchase_price_cents").notNull(), // Renamed from purchasePrice
+  salvageValueCents: integer("salvage_value_cents").notNull().default(0), // Renamed from salvageValue
+  // ...
+});
+2. Infrastructure & Engine Updates
+Centralized Pastry State Sync (server/storage.ts)
+Add syncPastryState to ensure daily_pastry_tracking remains synchronized with operational logs:
+
+TypeScript
+async syncPastryState(itemName: string, date: string, locationId: number | null): Promise<void> {
+  // Aggregate all bake-off logs for this item/date/location
+  const logs = await db.select().from(bakeoffLogs).where(
+    and(
+      eq(bakeoffLogs.itemName, itemName),
+      eq(bakeoffLogs.date, date),
+      locationId ? eq(bakeoffLogs.locationId, locationId) : isNull(bakeoffLogs.locationId)
+    )
+  );
+
+  const totalBaked = logs.reduce((sum, l) => sum + l.quantity, 0);
+
+  // Check if item is marked as sold out
+  const soldOut = await db.select().from(soldoutLogs).where(
+    and(
+      eq(soldoutLogs.itemName, itemName),
+      eq(soldoutLogs.date, date),
+      locationId ? eq(soldoutLogs.locationId, locationId) : isNull(soldoutLogs.locationId)
+    )
+  ).limit(1);
+
+  const isSoldOut = soldOut.length > 0;
+
+  // Upsert the tracking record
+  await this.upsertDailyPastryTracking({
+    date,
+    itemName,
+    locationId,
+    baked: totalBaked,
+    paceStatus: isSoldOut ? "sold_out" : "active",
+    eightySixedAt: isSoldOut ? soldOut[0].soldOutAt : null,
+  });
+}
+Note: Update createBakeoffLog and deleteBakeoffLog to call this method immediately after execution.
+
+Accounting & Asset Engines
+Accounting Engine (server/accounting-engine.ts): Update all P&L and Balance Sheet calculations to sum debitCents and creditCents, then divide the final result by 100 for display.
+
+Asset Engine (server/asset-engine.ts): Transition all 55+ occurrences of purchasePrice to purchasePriceCents. Update depreciation math to use integer cents for monthly accumulation.
+
+Tool Dispatcher Tracing (server/tool-dispatcher.ts)
+Enhance executeTool to provide granular audit logs for agentic reasoning:
+
+TypeScript
+const startTime = Date.now();
+// ... tool execution ...
+const latencyMs = Date.now() - startTime;
+
+await db.insert(aiInferenceLogs).values({
+  rawInput: JSON.stringify(args),
+  logicSummary: `Function Trace: ${toolName}`,
+  confidenceScore: 1.0,
+  toolCalls: {
+    toolName,
+    rationale: `Jarvis invoked ${toolName} to reconcile P&L variances reported for ${args.startDate} to ${args.endDate}.`,
+    latencyMs
+  }
+});
+3. Client Utility: Image Optimization (client/src/lib/image-utils.ts)
+Create a portable utility for reducing server storage and memory pressure during AI processing:
+
+TypeScript
+export async function optimizeBase64Image(base64: string, maxWidth = 1600): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, maxWidth / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Compress to JPEG at 80% quality
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
+    };
+  });
+}
+4. Migration Strategy
+Drizzle Migrations: Generate SQL files that rename columns and perform the multiplication (SET debit_cents = (debit * 100)::INTEGER).
+
+Route Updates (server/routes.ts): Adjust recipe GET routes to include isActive: true in default filters and add a DELETE override for soft-deletion.
+
+UI Updates: In TheFirm.tsx and related dashboard components, update field references to access the Cents suffixed variables and apply / 100 formatting.
