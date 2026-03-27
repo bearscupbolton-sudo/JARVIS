@@ -30,6 +30,17 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **Tax Intelligence (RAgent):** Tax Profile Engine, Vibe Threshold Monitor, and FICA Tip Credit Calculator.
     *   **Year-End Financial Export:** Comprehensive JSON export engine (`server/yearend-export-engine.ts`) generating `bears-cup-yearend-YYYY.json` with all financial statements, GL detail, S-Corp tax workpapers, fixed asset schedules, payroll, donations, compliance data, and operational support data for CPA/AI Form 1120-S preparation. Owner-only "Export Year-End Package" button on The Firm page (Reconcile tab) with year selector.
 
+## Personalized Greeting System
+
+The app includes a personalized greeting system that enhances the daily Jarvis briefing:
+- **Schema fields**: `interests` (jsonb array), `personalizedGreetingsEnabled` (boolean), `interestsCollected` (boolean) on the `users` table.
+- **Interest Collection Overlay** (`client/src/components/InterestCollectionOverlay.tsx`): Multi-step onboarding modal shown once after JarvisIntro, collects interests, explains calendar features, describes security measures.
+- **Profile page**: "Interests & Personalization" section with toggle and interest tag editor.
+- **Weather API**: OpenWeatherMap integration with 15-min cache (requires `OPENWEATHERMAP_API_KEY` env var).
+- **Traffic API**: Google Maps Directions API with 10-min cache (requires `GOOGLE_MAPS_API_KEY` env var).
+- **Greeting endpoint**: `GET /api/user/greeting` generates AI-powered personalized greeting using weather, traffic, schedule, and interests data.
+- **Dashboard integration**: JarvisBriefingCard on Home page fetches and displays personalized greeting for opted-in users.
+
 ## External Dependencies
 
 *   **PostgreSQL**: Primary data store.

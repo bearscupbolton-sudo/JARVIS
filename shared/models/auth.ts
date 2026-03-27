@@ -60,6 +60,9 @@ export const users = pgTable("users", {
   isCashEmployee: boolean("is_cash_employee").default(false).notNull(),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),
+  interests: jsonb("interests").$type<string[]>().default([]),
+  personalizedGreetingsEnabled: boolean("personalized_greetings_enabled").default(false).notNull(),
+  interestsCollected: boolean("interests_collected").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

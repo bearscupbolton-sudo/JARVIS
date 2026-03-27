@@ -476,9 +476,30 @@ function ClockBar() {
   );
 }
 
+type PersonalizedGreetingData = {
+  greeting: string | null;
+  enabled: boolean;
+  weather?: {
+    temp: number;
+    feelsLike: number;
+    description: string;
+    icon: string;
+    humidity: number;
+    windSpeed: number;
+    location: string;
+  } | null;
+  traffic?: {
+    duration: string;
+    durationInTraffic: string;
+    distance: string;
+    summary: string;
+  } | null;
+};
+
 function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
   data: JarvisBriefingData; onDismiss: () => void; onRefresh: () => void; isRefreshing: boolean;
 }) {
+  const { user } = useAuth();
   const seenMutation = useMutation({ mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/seen"); } });
   const clearMutation = useMutation({
     mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/clear"); },
@@ -488,9 +509,21 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
     },
   });
 
+  const isPersonalizedEnabled = user?.personalizedGreetingsEnabled ?? false;
+
+  const { data: greetingData } = useQuery<PersonalizedGreetingData>({
+    queryKey: ["/api/user/greeting"],
+    enabled: isPersonalizedEnabled,
+    staleTime: 10 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+  });
+
   useEffect(() => { if (data.showWelcome) seenMutation.mutate(); }, [data.showWelcome]);
 
   if (data.disabled || !data.briefingText) return null;
+
+  const weatherIcon = greetingData?.weather?.icon;
+  const weatherIconUrl = weatherIcon ? `https://openweathermap.org/img/wn/${weatherIcon}.png` : null;
 
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4" data-testid="container-jarvis-briefing">
@@ -511,6 +544,32 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
           {data.showWelcome && data.welcomeMessage && (
             <p className="text-sm font-medium mb-2 text-foreground" data-testid="text-welcome-message">{data.welcomeMessage}</p>
           )}
+
+          {isPersonalizedEnabled && greetingData?.greeting && (
+            <div className="mb-2 p-2.5 rounded-md bg-amber-500/10 border border-amber-500/15" data-testid="container-personalized-greeting">
+              <div className="flex items-start gap-2">
+                {weatherIconUrl && (
+                  <img src={weatherIconUrl} alt="weather" className="w-8 h-8 flex-shrink-0 -mt-1" data-testid="img-weather-icon" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-personalized-greeting">{greetingData.greeting}</p>
+                  {greetingData.weather && (
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground" data-testid="container-weather-details">
+                      <span>{greetingData.weather.temp}°F</span>
+                      <span className="capitalize">{greetingData.weather.description}</span>
+                      {greetingData.traffic?.durationInTraffic && greetingData.traffic.durationInTraffic !== "unknown" && (
+                        <span className="flex items-center gap-1">
+                          <Truck className="w-3 h-3" />
+                          {greetingData.traffic.durationInTraffic}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-briefing-content">{data.briefingText}</p>
         </div>
       </div>

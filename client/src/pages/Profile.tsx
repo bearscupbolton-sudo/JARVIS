@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye, Globe } from "lucide-react";
+import { UserCircle, Save, Phone, Bell, BellRing, Cake, Smartphone, Trash2, Send, KeyRound, Eye, Globe, Sparkles, Plus, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LANGUAGE_OPTIONS, useTranslation } from "@/lib/i18n";
 import { useForm } from "react-hook-form";
@@ -64,6 +64,9 @@ export default function Profile() {
   const [confirmPin, setConfirmPin] = useState("");
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [subscribing, setSubscribing] = useState(false);
+  const [personalizedGreetings, setPersonalizedGreetings] = useState(user?.personalizedGreetingsEnabled ?? false);
+  const [interests, setInterests] = useState<string[]>(user?.interests as string[] || []);
+  const [newInterest, setNewInterest] = useState("");
 
   const { data: pushStatus, isLoading: loadingPush } = useQuery<PushStatus>({
     queryKey: ["/api/push/status"],
@@ -91,7 +94,9 @@ export default function Profile() {
     if (user?.birthday !== undefined) setBirthday(user.birthday || "");
     if ((user as any)?.demoMode !== undefined) setDemoMode(!!(user as any).demoMode);
     if ((user as any)?.language) setLanguage((user as any).language);
-  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday, (user as any)?.demoMode, (user as any)?.language]);
+    if (user?.personalizedGreetingsEnabled !== undefined) setPersonalizedGreetings(!!user.personalizedGreetingsEnabled);
+    if (user?.interests) setInterests(user.interests as string[] || []);
+  }, [user?.username, user?.phone, user?.smsOptIn, user?.birthday, (user as any)?.demoMode, (user as any)?.language, user?.personalizedGreetingsEnabled, user?.interests]);
 
   const mutation = useMutation({
     mutationFn: async (data: ProfileFormValues) => {
@@ -249,6 +254,69 @@ export default function Profile() {
       toast({ title: error.message, variant: "destructive" });
     },
   });
+
+  const personalizedGreetingsMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personalizedGreetingsEnabled: enabled }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to update personalized greetings");
+      return res.json();
+    },
+    onSuccess: (_data, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      fetch("/api/user/greeting-cache", { method: "DELETE", credentials: "include" }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/user/greeting"] });
+      });
+      toast({ title: enabled ? "Personalized greetings enabled" : "Personalized greetings disabled" });
+    },
+    onError: (error: Error, enabled) => {
+      toast({ title: error.message, variant: "destructive" });
+      setPersonalizedGreetings(!enabled);
+    },
+  });
+
+  const interestsMutation = useMutation({
+    mutationFn: async (newInterests: string[]) => {
+      const res = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interests: newInterests }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to update interests");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      fetch("/api/user/greeting-cache", { method: "DELETE", credentials: "include" }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/user/greeting"] });
+      });
+      toast({ title: "Interests updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: error.message, variant: "destructive" });
+    },
+  });
+
+  const addInterest = () => {
+    const trimmed = newInterest.trim();
+    if (trimmed && !interests.includes(trimmed)) {
+      const updated = [...interests, trimmed];
+      setInterests(updated);
+      setNewInterest("");
+      interestsMutation.mutate(updated);
+    }
+  };
+
+  const removeInterest = (interest: string) => {
+    const updated = interests.filter(i => i !== interest);
+    setInterests(updated);
+    interestsMutation.mutate(updated);
+  };
 
   const handlePinChange = () => {
     if (!currentPin) {
@@ -596,6 +664,83 @@ export default function Profile() {
             <Save className="w-4 h-4 mr-2" />
             {contactMutation.isPending ? t("Saving...") : t("Save Contact Info")}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5" />
+            {t("Interests & Personalization")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">{t("Personalized Greetings")}</p>
+                <p className="text-xs text-muted-foreground">{t("Get a personalized greeting based on your interests, weather, and commute")}</p>
+              </div>
+            </div>
+            <Button
+              variant={personalizedGreetings ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                const newVal = !personalizedGreetings;
+                setPersonalizedGreetings(newVal);
+                personalizedGreetingsMutation.mutate(newVal);
+              }}
+              disabled={personalizedGreetingsMutation.isPending}
+              data-testid="button-toggle-personalized-greetings"
+            >
+              {personalizedGreetings ? "On" : "Off"}
+            </Button>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">{t("Your Interests")}</label>
+            <p className="text-xs text-muted-foreground mb-2">{t("Add topics, hobbies, or things you care about")}</p>
+            {interests.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3" data-testid="container-profile-interests">
+                {interests.map(interest => (
+                  <Badge
+                    key={interest}
+                    variant="secondary"
+                    className="cursor-pointer hover:bg-destructive/20 transition-colors"
+                    data-testid={`badge-interest-${interest.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    {interest}
+                    <button
+                      onClick={() => removeInterest(interest)}
+                      className="ml-1 hover:text-destructive"
+                      data-testid={`button-remove-interest-${interest.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Input
+                value={newInterest}
+                onChange={e => setNewInterest(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addInterest()}
+                placeholder="e.g., Hiking, Football, Photography..."
+                data-testid="input-add-interest"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={addInterest}
+                disabled={!newInterest.trim() || interestsMutation.isPending}
+                data-testid="button-add-interest"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
