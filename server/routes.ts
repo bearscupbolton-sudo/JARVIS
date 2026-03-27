@@ -3004,6 +3004,104 @@ Rules:
     }
   });
 
+  app.post("/api/firm/backfill-journal-entries", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { postJournalEntry } = await import("./accounting-engine");
+
+      const SPECIAL_CATEGORIES = new Set(["owner_draw", "prior_period_adjustment", "loan_principal", "sales_tax_payment", "equipment", "rent_split", "debt_payment", "Test Expense"]);
+      const CATEGORY_COA_MAP: Record<string, { debit: string; credit: string }> = {
+        revenue: { debit: "1010", credit: "4010" },
+        cogs: { debit: "5010", credit: "1010" },
+        labor: { debit: "6010", credit: "1010" },
+        supplies: { debit: "6090", credit: "1010" },
+        utilities: { debit: "6040", credit: "1010" },
+        rent: { debit: "6030", credit: "1010" },
+        insurance: { debit: "6030", credit: "1010" },
+        marketing: { debit: "6100", credit: "1010" },
+        taxes: { debit: "6060", credit: "1010" },
+        other_income: { debit: "1010", credit: "4020" },
+        travel_lodging: { debit: "6140", credit: "1010" },
+        repairs: { debit: "6070", credit: "1010" },
+        advertising: { debit: "6060", credit: "1010" },
+        car_mileage: { debit: "6150", credit: "1010" },
+        vehicle_expense: { debit: "6155", credit: "1010" },
+        commissions: { debit: "6160", credit: "1010" },
+        contract_labor: { debit: "6170", credit: "1010" },
+        employee_benefits: { debit: "6180", credit: "1010" },
+        professional_services: { debit: "6100", credit: "1010" },
+        licenses_permits: { debit: "6190", credit: "1010" },
+        bank_charges: { debit: "6200", credit: "1010" },
+        amortization: { debit: "6210", credit: "1010" },
+        pension_plans: { debit: "6220", credit: "1010" },
+        llc_fee: { debit: "6230", credit: "1010" },
+        meals_deductible: { debit: "6240", credit: "1010" },
+        interest_mortgage: { debit: "6250", credit: "1010" },
+        interest_other: { debit: "6260", credit: "1010" },
+        technology: { debit: "6080", credit: "1010" },
+        misc: { debit: "6090", credit: "1010" },
+        loan_interest: { debit: "6260", credit: "1010" },
+      };
+
+      const allTxns = await db.select().from(firmTransactions);
+      const categorized = allTxns.filter(t => t.category && !SPECIAL_CATEGORIES.has(t.category) && CATEGORY_COA_MAP[t.category]);
+
+      const existingJEs = await db.select({ referenceId: journalEntries.referenceId })
+        .from(journalEntries)
+        .where(eq(journalEntries.referenceType, "firm-txn"));
+      const alreadyPosted = new Set(existingJEs.map(e => e.referenceId));
+
+      const allAccounts = await db.select().from(chartOfAccounts);
+      const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
+
+      let posted = 0;
+      let skipped = 0;
+      let errors = 0;
+
+      for (const txn of categorized) {
+        if (alreadyPosted.has(String(txn.id))) {
+          skipped++;
+          continue;
+        }
+
+        const mapping = CATEGORY_COA_MAP[txn.category!];
+        const debitId = codeToId.get(mapping.debit);
+        const creditId = codeToId.get(mapping.credit);
+
+        if (!debitId || !creditId) {
+          errors++;
+          continue;
+        }
+
+        const absAmount = Math.abs(txn.amount);
+        try {
+          await postJournalEntry(
+            {
+              transactionDate: txn.date,
+              description: txn.description,
+              referenceType: "firm-txn",
+              referenceId: String(txn.id),
+              status: "posted",
+              locationId: txn.locationId ?? undefined,
+              createdBy: "system-backfill",
+            },
+            [
+              { accountId: debitId, debit: absAmount, credit: 0, memo: txn.description },
+              { accountId: creditId, debit: 0, credit: absAmount, memo: txn.description },
+            ]
+          );
+          posted++;
+        } catch (err: any) {
+          console.error(`[Backfill] Failed for txn ${txn.id}:`, err.message);
+          errors++;
+        }
+      }
+
+      res.json({ posted, skipped, errors, totalCategorized: categorized.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/square/sales", isAuthenticated, isOwner, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;

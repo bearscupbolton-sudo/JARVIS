@@ -5239,6 +5239,22 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/backfill-journal-entries");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      toast({ title: "Expense Backfill Complete", description: `${data.posted} journal entries created, ${data.skipped} already existed, ${data.errors} errors` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Backfill Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/firm/ai/analyze", { startDate, endDate });
@@ -5330,6 +5346,10 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
                   <Button size="sm" variant="outline" onClick={() => journalizeMutation.mutate()} disabled={journalizeMutation.isPending} data-testid="button-journalize-revenue">
                     {journalizeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
                     Sync Revenue
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending} data-testid="button-backfill-expenses">
+                    {backfillMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
+                    Post Expenses
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
                     {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
