@@ -722,7 +722,7 @@ export default function Home() {
   const [showEventForm, setShowEventForm] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
-  const [showAckedNotes, setShowAckedNotes] = useState(false);
+
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   const emailToEventInputRef = useRef<HTMLInputElement>(null);
@@ -769,16 +769,6 @@ export default function Home() {
     refetchInterval: 60000,
   });
 
-  const acknowledgeShiftNoteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("POST", `/api/shift-notes/${id}/acknowledge`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/shift-notes/mine"] });
-      toast({ title: "Acknowledged", description: "Shift note acknowledged." });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
   const { data: pastryTotals = [] } = useQuery<PastryTotal[]>({
     queryKey: [`/api/pastry-totals?date=${todayDate}`],
   });
@@ -808,10 +798,6 @@ export default function Home() {
     onSuccess: () => { queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") }); },
   });
 
-  const ackNoteMutation = useMutation({
-    mutationFn: async (id: number) => { await apiRequest("POST", `/api/pre-shift-notes/${id}/ack`); },
-    onSuccess: () => { queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith("/api/pre-shift-notes") }); },
-  });
 
   const noteForm = useForm<PreShiftNoteFormValues>({
     resolver: zodResolver(preShiftNoteFormSchema),
@@ -1078,21 +1064,11 @@ export default function Home() {
     ),
 
     preShiftNotes: () => {
-      const unackedNotes = preShiftNotes.filter(n => !n.acked);
-      const ackedNotes = preShiftNotes.filter(n => n.acked);
-      const visibleNotes = showAckedNotes ? preShiftNotes : unackedNotes;
-
       return (
-        <Card data-testid="container-preshift-notes">
+        <Card className="border-none bg-muted/30 shadow-none" data-testid="container-preshift-notes">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-display flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />{t("Pre-Shift Notes")}</CardTitle>
+            <CardTitle className="text-xs font-bold uppercase tracking-tighter flex items-center gap-2"><FileText className="w-4 h-4 text-primary" />{t("Live Directives")}</CardTitle>
             <div className="flex items-center gap-1">
-              {ackedNotes.length > 0 && (
-                <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => setShowAckedNotes(!showAckedNotes)} data-testid="button-toggle-acked-notes">
-                  {showAckedNotes ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
-                  {showAckedNotes ? t("Hide read") : `${ackedNotes.length} ${t("Read").toLowerCase()}`}
-                </Button>
-              )}
               {isManager && (
                 <Dialog open={showNoteForm} onOpenChange={setShowNoteForm}>
                   <DialogTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-add-preshift-note"><Plus className="w-4 h-4" /></Button></DialogTrigger>
@@ -1115,32 +1091,24 @@ export default function Home() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            {loadingNotes ? <Skeleton className="h-10 rounded-md" /> : visibleNotes.length === 0 ? (
+            {loadingNotes ? <Skeleton className="h-10 rounded-md" /> : preShiftNotes.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-3">
-                {preShiftNotes.length === 0 ? t("No notes for today.") : t("All notes acknowledged.")}
+                {t("No notes for today.")}
               </p>
             ) : (
               <div className="space-y-1.5">
-                {visibleNotes.map(note => (
-                  <div key={note.id} className={cn("flex items-start gap-2 p-2.5 rounded-md border", note.acked ? "border-border/50 opacity-60" : "border-border")} data-testid={`card-preshift-note-${note.id}`}>
+                {preShiftNotes.map(note => (
+                  <div key={note.id} className="flex items-start gap-2 p-2.5 rounded-md bg-background border border-border/50 shadow-sm" data-testid={`card-preshift-note-${note.id}`}>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm">{note.content}</p>
-                      <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 mt-1 text-[9px] uppercase font-bold text-muted-foreground">
                         {note.authorName && <span>{note.authorName}</span>}
                         {note.createdAt && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{format(new Date(note.createdAt), "h:mm a")}</span>}
-                        {note.acked && <span className="flex items-center gap-1 text-green-600"><Check className="w-3 h-3" />{t("Read")}</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {!note.acked && (
-                        <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => ackNoteMutation.mutate(note.id)} disabled={ackNoteMutation.isPending} data-testid={`button-ack-preshift-note-${note.id}`}>
-                          <Check className="w-3 h-3 mr-1" />{t("Got it")}
-                        </Button>
-                      )}
-                      {isManager && (
-                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => deleteNoteMutation.mutate(note.id)} data-testid={`button-delete-preshift-note-${note.id}`}><Trash2 className="w-3 h-3 text-muted-foreground" /></Button>
-                      )}
-                    </div>
+                    {isManager && (
+                      <Button size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0" onClick={() => deleteNoteMutation.mutate(note.id)} data-testid={`button-delete-preshift-note-${note.id}`}><Trash2 className="w-3 h-3 text-muted-foreground" /></Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1814,33 +1782,20 @@ export default function Home() {
               {myShiftNotes.map(note => (
                 <div
                   key={note.id}
-                  className="flex items-start gap-3 p-4 rounded-md bg-amber-500/10 border border-amber-500/20"
+                  className="p-4 rounded-md bg-primary/10 border border-primary/20 animate-pulse-subtle"
                   data-testid={`card-shift-note-${note.id}`}
                 >
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-amber-700 dark:text-amber-300" data-testid={`text-shift-note-label-${note.id}`}>
-                        {t("Shift Feedback")}
-                      </span>
-                      <span className="text-xs text-muted-foreground" data-testid={`text-shift-note-date-${note.id}`}>
-                        {note.shiftDate}
-                      </span>
-                    </div>
-                    <p className="text-sm leading-relaxed" data-testid={`text-shift-note-content-${note.id}`}>
-                      {note.constructiveNote}
-                    </p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-primary" data-testid={`text-shift-note-label-${note.id}`}>
+                      {t("Shift Intel")}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground" data-testid={`text-shift-note-date-${note.id}`}>
+                      {note.shiftDate}
+                    </span>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-shrink-0"
-                    onClick={() => acknowledgeShiftNoteMutation.mutate(note.id)}
-                    disabled={acknowledgeShiftNoteMutation.isPending}
-                    data-testid={`button-acknowledge-shift-note-${note.id}`}
-                  >
-                    <Check className="w-3.5 h-3.5 mr-1.5" />{t("Got it")}
-                  </Button>
+                  <p className="text-sm leading-relaxed" data-testid={`text-shift-note-content-${note.id}`}>
+                    {note.constructiveNote}
+                  </p>
                 </div>
               ))}
             </div>
