@@ -14739,6 +14739,22 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     }
   });
 
+  app.get("/api/firm/audit/lineage", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { code, category, startDate, endDate } = req.query;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+      const codeOrCategory = code || category || "expense";
+      const { getAuditLineage } = await import("./audit-lineage-engine");
+      const result = await getAuditLineage(String(codeOrCategory), String(startDate), String(endDate));
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AuditLineage] Route error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === ADP RUN API ROUTES ===
   app.get("/api/hr/adp/status", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
