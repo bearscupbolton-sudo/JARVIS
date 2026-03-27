@@ -3009,8 +3009,8 @@ Rules:
       const { postJournalEntry } = await import("./accounting-engine");
 
       const SPECIAL_CATEGORIES = new Set(["owner_draw", "prior_period_adjustment", "loan_principal", "sales_tax_payment", "equipment", "rent_split", "debt_payment", "Test Expense"]);
+      const REVENUE_CATEGORIES = new Set(["revenue", "other_income"]);
       const CATEGORY_COA_MAP: Record<string, { debit: string; credit: string }> = {
-        revenue: { debit: "1010", credit: "4010" },
         cogs: { debit: "5010", credit: "1010" },
         labor: { debit: "6010", credit: "1010" },
         supplies: { debit: "6090", credit: "1010" },
@@ -3019,7 +3019,6 @@ Rules:
         insurance: { debit: "6030", credit: "1010" },
         marketing: { debit: "6100", credit: "1010" },
         taxes: { debit: "6060", credit: "1010" },
-        other_income: { debit: "1010", credit: "4020" },
         travel_lodging: { debit: "6140", credit: "1010" },
         repairs: { debit: "6070", credit: "1010" },
         advertising: { debit: "6060", credit: "1010" },
@@ -3043,7 +3042,7 @@ Rules:
       };
 
       const allTxns = await db.select().from(firmTransactions);
-      const categorized = allTxns.filter(t => t.category && !SPECIAL_CATEGORIES.has(t.category) && CATEGORY_COA_MAP[t.category]);
+      const categorized = allTxns.filter(t => t.category && !SPECIAL_CATEGORIES.has(t.category) && !REVENUE_CATEGORIES.has(t.category) && CATEGORY_COA_MAP[t.category]);
 
       const existingJEs = await db.select({ referenceId: journalEntries.referenceId })
         .from(journalEntries)
@@ -12448,8 +12447,8 @@ IMPORTANT GUIDELINES:
       }
 
       const SPECIAL_CATEGORIES = new Set(["owner_draw", "prior_period_adjustment", "loan_principal", "sales_tax_payment", "equipment", "rent_split", "debt_payment"]);
+      const REVENUE_CATEGORIES = new Set(["revenue", "other_income"]);
       const CATEGORY_COA_MAP: Record<string, { debit: string; credit: string }> = {
-        revenue: { debit: "1010", credit: "4010" },
         cogs: { debit: "5010", credit: "1010" },
         labor: { debit: "6010", credit: "1010" },
         supplies: { debit: "6090", credit: "1010" },
@@ -12458,7 +12457,6 @@ IMPORTANT GUIDELINES:
         insurance: { debit: "6030", credit: "1010" },
         marketing: { debit: "6100", credit: "1010" },
         taxes: { debit: "6060", credit: "1010" },
-        other_income: { debit: "1010", credit: "4020" },
         travel_lodging: { debit: "6140", credit: "1010" },
         repairs: { debit: "6070", credit: "1010" },
         advertising: { debit: "6060", credit: "1010" },
@@ -12481,7 +12479,7 @@ IMPORTANT GUIDELINES:
         loan_interest: { debit: "6260", credit: "1010" },
       };
 
-      if (updates.category && !SPECIAL_CATEGORIES.has(updates.category) && CATEGORY_COA_MAP[updates.category]) {
+      if (updates.category && !SPECIAL_CATEGORIES.has(updates.category) && !REVENUE_CATEGORIES.has(updates.category) && CATEGORY_COA_MAP[updates.category]) {
         const existing = await storage.getFirmTransaction(txnId);
         if (existing) {
           const existingJE = await db.select().from(journalEntries).where(
