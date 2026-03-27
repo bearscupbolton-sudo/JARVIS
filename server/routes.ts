@@ -8549,11 +8549,13 @@ ${sopsHtml}
         if (peq.componentsBelowPar?.length > 0) {
           stateLines.push("Components below par level: " + peq.componentsBelowPar.map((c: any) => `${c.name} (${c.current}/${c.par})`).join(", "));
         }
-        if (peq.doughRecommendations?.length > 0) {
-          stateLines.push("Dough prep needed for tomorrow: " + peq.doughRecommendations.map((r: any) => `${r.name}: ${r.doughsNeeded} dough${r.doughsNeeded > 1 ? "s" : ""} (${r.piecesPerDough} pcs/dough)`).join(", "));
-        }
-        if (peq.leadTimeItemsNeedingPrep?.length > 0) {
-          stateLines.push("Lead-time items requiring prep today: " + peq.leadTimeItemsNeedingPrep.join(", "));
+        if (includeBOH) {
+          if (peq.doughRecommendations?.length > 0) {
+            stateLines.push("Dough prep needed for tomorrow: " + peq.doughRecommendations.map((r: any) => `${r.name}: ${r.doughsNeeded} dough${r.doughsNeeded > 1 ? "s" : ""} (${r.piecesPerDough} pcs/dough)`).join(", "));
+          }
+          if (peq.leadTimeItemsNeedingPrep?.length > 0) {
+            stateLines.push("Lead-time items requiring prep today: " + peq.leadTimeItemsNeedingPrep.join(", "));
+          }
         }
       }
 
@@ -8594,6 +8596,8 @@ CALENDAR AWARENESS — If upcoming events are listed, naturally weave them in:
 - Keep event mentions brief and conversational, not a list.
 
 This person's briefing focus is "${focus}" — they care about ${focusDescription}. Prioritize information relevant to their focus. Don't mention things outside their focus unless critical.
+
+LAMINATION & DOUGH PRODUCTION — Lamination studio data, dough production details (proofing, resting, chilling, freezing, fridge counts, active doughs, production logs, recipe sessions, dough prep recommendations) are strictly bakery/BOH domain information. If this person's focus is "foh", do NOT reference any dough or lamination production data whatsoever — even if such data somehow appears in the state below. FOH staff should only hear about pastry availability and sales, never production mechanics.
 
 FINANCIAL AWARENESS — If FINANCIAL data is provided (owner only):
 - Briefly mention the month-to-date financial snapshot if numbers are meaningful
