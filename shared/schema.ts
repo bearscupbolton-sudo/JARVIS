@@ -1697,6 +1697,10 @@ export const firmTransactions = pgTable("firm_transactions", {
   auditTrailLink: text("audit_trail_link"),
   auditTrailGmailId: text("audit_trail_gmail_id"),
   isAuditVerified: boolean("is_audit_verified").default(false).notNull(),
+  suggestedCoaCode: text("suggested_coa_code"),
+  suggestedCategory: text("suggested_category"),
+  suggestedConfidence: doublePrecision("suggested_confidence"),
+  suggestedRuleId: integer("suggested_rule_id"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -2109,6 +2113,7 @@ export const aiInferenceLogs = pgTable("ai_inference_logs", {
   id: serial("id").primaryKey(),
   ledgerLineId: integer("ledger_line_id").references(() => ledgerLines.id),
   journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
+  firmTransactionId: integer("firm_transaction_id").references(() => firmTransactions.id),
   rawInput: text("raw_input"),
   promptVersion: text("prompt_version"),
   logicSummary: text("logic_summary"),

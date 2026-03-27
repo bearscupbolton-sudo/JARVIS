@@ -3240,10 +3240,183 @@ function CashTab({ cashCounts, startDate, endDate }: { cashCounts: FirmCashCount
   );
 }
 
+function BatchReviewView({ unreconciledBank, batchPage, setBatchPage, unpinnedIds, setUnpinnedIds, batchAcceptMut, auditLogTxnId, setAuditLogTxnId, auditLogs, categoryLabels, formatCurrency }: any) {
+  const BATCH_SIZE = 25;
+  const autoAllocated = unreconciledBank.filter((t: any) => t.suggestedCoaCode && (t.suggestedConfidence || 0) >= 0.95);
+  const totalPages = Math.max(1, Math.ceil(autoAllocated.length / BATCH_SIZE));
+  const pageItems = autoAllocated.slice((batchPage - 1) * BATCH_SIZE, batchPage * BATCH_SIZE);
+  const validForAccept = pageItems.filter((t: any) => !unpinnedIds.has(t.id));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-yellow-500" /> Auto-Allocated Transactions
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            {autoAllocated.length} transactions auto-allocated with high confidence (≥95%). Review and accept in batch.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          disabled={validForAccept.length === 0 || batchAcceptMut.isPending}
+          onClick={() => {
+            const ids = validForAccept.map((t: any) => t.id);
+            batchAcceptMut.mutate(ids);
+          }}
+          data-testid="button-batch-accept-all"
+          className="bg-green-600 hover:bg-green-700 text-white"
+        >
+          {batchAcceptMut.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
+          Accept All Validated Matches ({validForAccept.length})
+        </Button>
+      </div>
+
+      {autoAllocated.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <Sparkles className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+            <p className="text-sm text-muted-foreground">No auto-allocated transactions pending. Tag a transaction manually to trigger rule propagation.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-sm" data-testid="table-batch-review">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="text-left p-3 font-medium w-8"></th>
+                  <th className="text-left p-3 font-medium">Date</th>
+                  <th className="text-left p-3 font-medium">Description</th>
+                  <th className="text-left p-3 font-medium">Suggested Category</th>
+                  <th className="text-left p-3 font-medium">COA</th>
+                  <th className="text-center p-3 font-medium">Confidence</th>
+                  <th className="text-right p-3 font-medium">Amount</th>
+                  <th className="text-center p-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pageItems.map((txn: any) => {
+                  const isUnpinned = unpinnedIds.has(txn.id);
+                  return (
+                    <tr key={txn.id} className={`hover:bg-muted/20 transition-colors ${isUnpinned ? "opacity-50" : ""} ${!isUnpinned ? "bg-yellow-50/50 dark:bg-yellow-950/10" : ""}`} data-testid={`batch-row-${txn.id}`}>
+                      <td className="p-3">
+                        <button
+                          onClick={() => {
+                            setUnpinnedIds((prev: Set<number>) => {
+                              const next = new Set(prev);
+                              if (next.has(txn.id)) next.delete(txn.id);
+                              else next.add(txn.id);
+                              return next;
+                            });
+                          }}
+                          className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isUnpinned ? "border-muted-foreground/30" : "border-green-500 bg-green-500 text-white"}`}
+                          data-testid={`batch-pin-${txn.id}`}
+                        >
+                          {!isUnpinned && <Check className="w-3 h-3" />}
+                        </button>
+                      </td>
+                      <td className="p-3 text-muted-foreground text-xs">{txn.date}</td>
+                      <td className="p-3 font-medium">{txn.description}</td>
+                      <td className="p-3">
+                        <Badge variant="secondary" className={`text-[10px] ${!isUnpinned ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-300 dark:border-yellow-700" : ""}`}>
+                          {categoryLabels[txn.suggestedCategory] || txn.suggestedCategory}
+                        </Badge>
+                        {!isUnpinned && <span className="text-[9px] text-yellow-600 dark:text-yellow-500 ml-1">auto-allocated</span>}
+                      </td>
+                      <td className="p-3 text-xs font-mono">{txn.suggestedCoaCode}</td>
+                      <td className="p-3 text-center">
+                        <Badge className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                          {Math.round((txn.suggestedConfidence || 0) * 100)}%
+                        </Badge>
+                      </td>
+                      <td className={`p-3 text-right tabular-nums font-medium ${txn.amount < 0 ? "text-red-600" : "text-green-600"}`}>{formatCurrency(txn.amount)}</td>
+                      <td className="p-3 text-center">
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setAuditLogTxnId(auditLogTxnId === txn.id ? null : txn.id)} data-testid={`button-audit-${txn.id}`}>
+                          <Eye className="w-3 h-3 mr-1" /> Audit
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button size="sm" variant="outline" disabled={batchPage <= 1} onClick={() => setBatchPage((p: number) => p - 1)} data-testid="button-batch-prev">
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">Page {batchPage} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={batchPage >= totalPages} onClick={() => setBatchPage((p: number) => p + 1)} data-testid="button-batch-next">
+            Next
+          </Button>
+        </div>
+      )}
+
+      {auditLogTxnId && (
+        <Card className="border-blue-200 dark:border-blue-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Shield className="w-4 h-4 text-blue-500" /> Inference Audit Trail — Transaction #{auditLogTxnId}
+              <Button size="sm" variant="ghost" className="ml-auto h-6 px-2" onClick={() => setAuditLogTxnId(null)}>
+                <XCircle className="w-3.5 h-3.5" />
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!auditLogs || auditLogs.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-2">
+                {(() => {
+                  const txn = unreconciledBank.find((t: any) => t.id === auditLogTxnId);
+                  if (txn?.suggestedRuleId) {
+                    return (
+                      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded p-3 text-xs">
+                        <p className="font-medium text-blue-700 dark:text-blue-400">Pre-reconciliation suggestion</p>
+                        <p className="mt-1">Matched Global Rule #{txn.suggestedRuleId}: {txn.description.replace(/[^a-zA-Z\s]/g, "").trim().split(/\s+/).slice(0, 3).join(" ")} → {txn.suggestedCoaCode} {categoryLabels[txn.suggestedCategory] || txn.suggestedCategory}</p>
+                        <p className="mt-1">Confidence: {Math.round((txn.suggestedConfidence || 0) * 100)}%</p>
+                      </div>
+                    );
+                  }
+                  return "No inference logs found for this transaction yet. Logs are created when transactions are batch-accepted.";
+                })()}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {auditLogs.map((log: any) => (
+                  <div key={log.id} className="bg-muted/30 rounded p-3 text-xs space-y-1" data-testid={`audit-log-${log.id}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">
+                        {log.journalEntryId ? `Journal Entry #${log.journalEntryId}` : "Pre-Reconciliation Suggestion"}
+                      </span>
+                      <Badge className="text-[9px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{Math.round((log.confidenceScore || 0) * 100)}% confidence</Badge>
+                    </div>
+                    <p className="text-muted-foreground">{log.logicSummary}</p>
+                    <div className="flex gap-3 text-muted-foreground">
+                      <span>COA: {log.appliedCoaCode}</span>
+                      <span>Stage: {log.journalEntryId ? "Posted" : "Auto-Allocated"}</span>
+                      <span>Version: {log.promptVersion}</span>
+                      {log.createdAt && <span>{new Date(log.createdAt).toLocaleString()}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate: string }) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [view, setView] = useState<"unreconciled" | "reconciled" | "placeholders">("unreconciled");
+  const [view, setView] = useState<"unreconciled" | "reconciled" | "placeholders" | "batch">("unreconciled");
   const [matchingInternal, setMatchingInternal] = useState<any>(null);
   const [matchCategory, setMatchCategory] = useState("cogs");
   const [matchNotes, setMatchNotes] = useState("");
@@ -3257,6 +3430,9 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
   const [lightningSuggestion, setLightningSuggestion] = useState<any>(null);
   const [lightningTxnId, setLightningTxnId] = useState<number | null>(null);
   const [lightningLoading, setLightningLoading] = useState<number | null>(null);
+  const [batchPage, setBatchPage] = useState(1);
+  const [unpinnedIds, setUnpinnedIds] = useState<Set<number>>(new Set());
+  const [auditLogTxnId, setAuditLogTxnId] = useState<number | null>(null);
 
   const { data: recon, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/firm/reconciliation", startDate, endDate],
@@ -3305,6 +3481,28 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
       queryClient.invalidateQueries({ queryKey: ["/api/firm/adjusted-cash"] });
       toast({ title: "Placeholder voided" });
     },
+  });
+
+  const batchAcceptMut = useMutation({
+    mutationFn: async (transactionIds: number[]) => {
+      const res = await apiRequest("POST", "/api/firm/reconcile/batch-accept", { transactionIds });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Batch accepted", description: `${data.accepted} transactions reconciled and posted to GL` });
+      refetch();
+      setUnpinnedIds(new Set());
+    },
+    onError: (err: any) => toast({ title: "Batch error", description: err.message, variant: "destructive" }),
+  });
+
+  const { data: auditLogs } = useQuery<any[]>({
+    queryKey: ["/api/firm/transactions", auditLogTxnId, "inference-log"],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/transactions/${auditLogTxnId}/inference-log`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!auditLogTxnId,
   });
 
   const fetchLightningSuggestion = async (txnId: number, description: string, amount: number) => {
@@ -3507,6 +3705,14 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
         </Button>
         <Button variant={view === "reconciled" ? "default" : "outline"} size="sm" onClick={() => setView("reconciled")} data-testid="button-view-reconciled">
           <Check className="w-3.5 h-3.5 mr-1" /> Reconciled
+        </Button>
+        <Button variant={view === "batch" ? "default" : "outline"} size="sm" onClick={() => { setView("batch"); setBatchPage(1); }} data-testid="button-view-batch">
+          <Sparkles className="w-3.5 h-3.5 mr-1" /> Batch Review
+          {unreconciledBank.filter((t: any) => t.suggestedCoaCode && (t.suggestedConfidence || 0) >= 0.95).length > 0 && (
+            <Badge variant="secondary" className="ml-1.5 text-[10px] h-4 px-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+              {unreconciledBank.filter((t: any) => t.suggestedCoaCode && (t.suggestedConfidence || 0) >= 0.95).length}
+            </Badge>
+          )}
         </Button>
         <Button variant={view === "placeholders" ? "default" : "outline"} size="sm" onClick={() => setView("placeholders")} data-testid="button-view-placeholders">
           <FileText className="w-3.5 h-3.5 mr-1" /> Ghost Entries
@@ -3758,6 +3964,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
           )}
         </div>
       ) : view === "reconciled" ? (
+        <div className="space-y-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -3776,6 +3983,7 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
                   <th className="text-left p-3 font-medium">Category</th>
                   <th className="text-left p-3 font-medium">Source</th>
                   <th className="text-right p-3 font-medium">Amount</th>
+                  <th className="text-center p-3 font-medium w-20">Audit</th>
                 </tr></thead>
                 <tbody className="divide-y">
                   {reconciledItems.map((item: any) => (
@@ -3785,6 +3993,11 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
                       <td className="p-3"><Badge variant="secondary" className="text-[10px]">{categoryLabels[item.category] || item.category}</Badge></td>
                       <td className="p-3"><Badge variant="outline" className="text-[10px]">{item.referenceType}</Badge>{item.accountName && <span className="text-xs text-muted-foreground ml-1">{item.accountName}</span>}</td>
                       <td className={`p-3 text-right tabular-nums font-medium ${item.amount < 0 ? "text-red-600" : "text-green-600"}`}>{formatCurrency(item.amount)}</td>
+                      <td className="p-3 text-center">
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setAuditLogTxnId(auditLogTxnId === item.id ? null : item.id)} data-testid={`button-audit-reconciled-${item.id}`}>
+                          <Eye className="w-3 h-3" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -3792,6 +4005,58 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
             )}
           </CardContent>
         </Card>
+        {auditLogTxnId && (
+          <Card className="border-blue-200 dark:border-blue-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-500" /> Inference Audit Trail — Transaction #{auditLogTxnId}
+                <Button size="sm" variant="ghost" className="ml-auto h-6 px-2" onClick={() => setAuditLogTxnId(null)}>
+                  <XCircle className="w-3.5 h-3.5" />
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!auditLogs || auditLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">No inference logs found for this transaction.</p>
+              ) : (
+                <div className="space-y-2">
+                  {auditLogs.map((log: any) => (
+                    <div key={log.id} className="bg-muted/30 rounded p-3 text-xs space-y-1" data-testid={`audit-log-reconciled-${log.id}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {log.journalEntryId ? `Journal Entry #${log.journalEntryId}` : "Pre-Reconciliation Suggestion"}
+                        </span>
+                        <Badge className="text-[9px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{Math.round((log.confidenceScore || 0) * 100)}% confidence</Badge>
+                      </div>
+                      <p className="text-muted-foreground">{log.logicSummary}</p>
+                      <div className="flex gap-3 text-muted-foreground">
+                        <span>COA: {log.appliedCoaCode}</span>
+                        <span>Stage: {log.journalEntryId ? "Posted" : "Auto-Allocated"}</span>
+                        <span>Version: {log.promptVersion}</span>
+                        {log.createdAt && <span>{new Date(log.createdAt).toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        </div>
+      ) : view === "batch" ? (
+        <BatchReviewView
+          unreconciledBank={unreconciledBank}
+          batchPage={batchPage}
+          setBatchPage={setBatchPage}
+          unpinnedIds={unpinnedIds}
+          setUnpinnedIds={setUnpinnedIds}
+          batchAcceptMut={batchAcceptMut}
+          auditLogTxnId={auditLogTxnId}
+          setAuditLogTxnId={setAuditLogTxnId}
+          auditLogs={auditLogs}
+          categoryLabels={categoryLabels}
+          formatCurrency={formatCurrency}
+        />
       ) : view === "placeholders" ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between">

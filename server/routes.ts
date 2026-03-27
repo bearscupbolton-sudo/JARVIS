@@ -12324,6 +12324,10 @@ IMPORTANT GUIDELINES:
         reconciled: false,
         referenceId: t.referenceId,
         notes: t.notes,
+        suggestedCoaCode: t.suggestedCoaCode,
+        suggestedCategory: t.suggestedCategory,
+        suggestedConfidence: t.suggestedConfidence,
+        suggestedRuleId: t.suggestedRuleId,
       }));
 
       const reconciledItems = bankTxns.filter(t => t.reconciled).map(t => ({
@@ -12368,6 +12372,30 @@ IMPORTANT GUIDELINES:
             referenceId: String(internalId),
           }),
         });
+
+        if (category) {
+          const txn = await db.select().from(firmTransactions).where(eq(firmTransactions.id, bankTxnId)).limit(1);
+          if (txn.length > 0) {
+            const { extractVendorToken, learnVendorRule, autoSweepUnreconciled } = await import("./reconciler");
+            const vendorString = extractVendorToken(txn[0].description);
+            if (vendorString.length >= 3) {
+              const allAccounts = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.isActive, true));
+              const categoryToCoaMap: Record<string, string> = {
+                cogs: "5010", revenue: "4010", labor: "6010", rent: "6030", utilities: "6040",
+                insurance: "6050", supplies: "6090", marketing: "6060", technology: "6080",
+                professional_services: "6100", misc: "6090", equipment: "1500",
+                travel_lodging: "6140", repairs: "6070", bank_charges: "6200",
+              };
+              const coaCode = categoryToCoaMap[category] || "6090";
+              const coaAccount = allAccounts.find(a => a.code === coaCode);
+              const coaName = coaAccount?.name || category;
+
+              const user = await getUserFromReq(req);
+              const rule = await learnVendorRule(vendorString, coaCode, coaName, category, user?.username || "Unknown");
+              await autoSweepUnreconciled(vendorString, coaCode, category, rule.id, coaName);
+            }
+          }
+        }
       }
 
       if (internalType === "manual" && internalId) {
@@ -12375,6 +12403,146 @@ IMPORTANT GUIDELINES:
       }
 
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/reconcile/batch-accept", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionIds } = req.body;
+      if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
+        return res.status(400).json({ message: "transactionIds array required" });
+      }
+
+      const txns = await db.select().from(firmTransactions)
+        .where(and(
+          inArray(firmTransactions.id, transactionIds),
+          eq(firmTransactions.reconciled, false)
+        ));
+
+      const validTxns = txns.filter(t => t.suggestedCoaCode && (t.suggestedConfidence || 0) >= 0.95);
+      if (validTxns.length === 0) {
+        return res.status(400).json({ message: "No valid high-confidence transactions to accept" });
+      }
+
+      const allAccounts = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.isActive, true));
+      const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
+      const cashAccountId = codeToId.get("1010");
+      if (!cashAccountId) {
+        return res.status(500).json({ message: "Cash account (1010) not found" });
+      }
+
+      const ruleIds = [...new Set(validTxns.map(t => t.suggestedRuleId).filter(Boolean))] as number[];
+      const ruleMap = new Map<number, any>();
+      if (ruleIds.length > 0) {
+        const rules = await db.select().from(aiLearningRules).where(inArray(aiLearningRules.id, ruleIds));
+        for (const rule of rules) ruleMap.set(rule.id, rule);
+      }
+
+      const results = await db.transaction(async (tx) => {
+        const txResults: any[] = [];
+
+        for (const txn of validTxns) {
+          const targetAccountId = codeToId.get(txn.suggestedCoaCode!);
+          if (!targetAccountId) continue;
+
+          const absAmount = Math.abs(txn.amount);
+          const isExpense = txn.amount < 0;
+
+          const jeLines = isExpense
+            ? [
+                { accountId: targetAccountId, debit: absAmount, credit: 0, memo: `Auto-reconciled: ${txn.description}` },
+                { accountId: cashAccountId, debit: 0, credit: absAmount, memo: null as string | null },
+              ]
+            : [
+                { accountId: cashAccountId, debit: absAmount, credit: 0, memo: null as string | null },
+                { accountId: targetAccountId, debit: 0, credit: absAmount, memo: `Auto-reconciled: ${txn.description}` },
+              ];
+
+          const [journalEntry] = await tx.insert(journalEntries).values({
+            transactionDate: txn.date,
+            description: txn.description,
+            referenceId: String(txn.id),
+            referenceType: "batch_reconcile",
+            status: "reconciled",
+            createdBy: "batch-reconciler",
+          }).returning();
+
+          const createdLines = [];
+          for (const line of jeLines) {
+            const [created] = await tx.insert(ledgerLines).values({
+              entryId: journalEntry.id,
+              accountId: line.accountId,
+              debit: line.debit || 0,
+              credit: line.credit || 0,
+              memo: line.memo || null,
+            }).returning();
+            createdLines.push(created);
+          }
+
+          await tx.update(firmTransactions).set({
+            reconciled: true,
+            category: txn.suggestedCategory || txn.category,
+          }).where(eq(firmTransactions.id, txn.id));
+
+          const coaAccount = allAccounts.find(a => a.code === txn.suggestedCoaCode);
+          const rule = txn.suggestedRuleId ? ruleMap.get(txn.suggestedRuleId) : null;
+          const ruleInfo = rule
+            ? `Matched Global Rule #${rule.id}: ${rule.vendorString} → ${rule.matchedCoaCode} ${rule.matchedCoaName}`
+            : "";
+
+          await tx.insert(aiInferenceLogs).values({
+            firmTransactionId: txn.id,
+            journalEntryId: journalEntry.id,
+            ledgerLineId: createdLines[0]?.id || null,
+            rawInput: `${txn.description} | $${txn.amount} | ${txn.date}`,
+            promptVersion: "batch-accept-v1",
+            logicSummary: ruleInfo || `Auto-allocated to ${txn.suggestedCoaCode} ${coaAccount?.name || ""} with ${((txn.suggestedConfidence || 0) * 100).toFixed(0)}% confidence`,
+            confidenceScore: txn.suggestedConfidence || 0.99,
+            anomalyFlag: false,
+            anomalyScore: 0,
+            suggestedCoaCode: txn.suggestedCoaCode,
+            appliedCoaCode: txn.suggestedCoaCode,
+          });
+
+          txResults.push({ transactionId: txn.id, journalEntryId: journalEntry.id });
+        }
+
+        return txResults;
+      });
+
+      res.json({ success: true, accepted: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/transactions/:id/inference-log", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const txnId = Number(req.params.id);
+      const logs = await db.select({
+        id: aiInferenceLogs.id,
+        firmTransactionId: aiInferenceLogs.firmTransactionId,
+        journalEntryId: aiInferenceLogs.journalEntryId,
+        ledgerLineId: aiInferenceLogs.ledgerLineId,
+        rawInput: aiInferenceLogs.rawInput,
+        promptVersion: aiInferenceLogs.promptVersion,
+        logicSummary: aiInferenceLogs.logicSummary,
+        confidenceScore: aiInferenceLogs.confidenceScore,
+        anomalyFlag: aiInferenceLogs.anomalyFlag,
+        suggestedCoaCode: aiInferenceLogs.suggestedCoaCode,
+        appliedCoaCode: aiInferenceLogs.appliedCoaCode,
+        createdAt: aiInferenceLogs.createdAt,
+      }).from(aiInferenceLogs)
+        .where(
+          or(
+            eq(aiInferenceLogs.firmTransactionId, txnId),
+            sql`${aiInferenceLogs.journalEntryId} IN (SELECT id FROM journal_entries WHERE reference_id = ${String(txnId)})`
+          )
+        )
+        .orderBy(desc(aiInferenceLogs.createdAt));
+      res.json(logs);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
