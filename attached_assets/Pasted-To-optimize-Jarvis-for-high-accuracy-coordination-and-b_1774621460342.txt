@@ -1,0 +1,25 @@
+To optimize Jarvis for high-accuracy coordination and better cash recognition, here is the refined reconciliation plan designed to eliminate one-by-one ledger clearing and automate high-confidence pattern matching.
+
+### **1. Core Logic: Global Auto-Allocation Rules**
+We will implement a **Global Rule Layer** that learns from your first manual tag and propagates that logic across the entire ledger.
+* **Establish the "Replit Rule":** When you tag a transaction, Jarvis will create a new entry in a `GlobalAllocationRule` table.
+* **Substring Pattern Matching:** The engine will use a "Look-Behind" sweep to identify every unposted entry containing that merchant string (e.g., "REPLIT.COM").
+* **Confidence Scoring:** Every auto-allocated item is assigned a `confidenceScore`. Items matching a manual global rule are set to **99% confidence**.
+
+### **2. Workflow: Batch Approval Interface**
+Instead of clearing items individually, the **The Firm** ledger will shift to a "Review & Accept" model.
+* **The 25-Item Batch:** The ledger will display 25 transactions per page, with auto-allocated categories already prepopulated and highlighted.
+* **The "Bulk Accept" Trigger:** A new global action button will be added: **"Accept All Validated Matches"**.
+* **Exception Handling:** If you want to exclude a specific item from the batch, clicking its category "unpins" it from the bulk-accept logic, allowing you to handle it individually while the other 24 items are posted in a single database transaction.
+
+### **3. Cash Position: Accurate Labor Integration**
+To ensure the net cash position reflects your "minute-by-minute" labor precision, we are adding an **Accrual Overlay**.
+* **Live Labor Drag:** Jarvis will pull live data from your **ADP labor sync** and generate a daily "Accrual Placeholder" for the total labor value currently on the floor in **Bolton Landing** and **Saratoga Springs**.
+* **Real-Time Cash Adjustment:** This "ghost entry" will subtract the live labor liability from your **Bank/Credit Account** balances, giving you a true net cash position before the payroll actually hits the bank.
+
+### **4. Transparency: Audit & Inference Logs**
+To maintain your high-fidelity financial architecture, every auto-reconciled item remains fully auditable.
+* **AI Audit Trail:** Each transaction will have an attached **Inference Log** showing the specific rule used (e.g., *"Matched Global Rule #12: Replit -> Technology Software"*).
+* **Full Itemization:** Even when bulk-accepted, every transaction remains a **fully itemized charted expense** in the General Ledger to ensure accuracy for your year-end JSON package.
+
+This plan moves the needle from "manual bookkeeping" to "owner-level oversight," where Jarvis does the heavy lifting and you simply validate the high-confidence batches.
