@@ -5836,6 +5836,28 @@ function LiquidityWidget({ startDate, endDate }: { startDate: string; endDate: s
           </div>
         )}
 
+        {liquidity.pendingLaborDrag > 0 && (
+          <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 space-y-1" data-testid="pending-labor-drag-section">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Users className="w-3 h-3 text-indigo-600" /> Pending Labor Drag
+              </p>
+              <p className="text-sm font-bold tabular-nums text-indigo-700 dark:text-indigo-400" data-testid="text-pending-labor-drag">-{fmt(liquidity.pendingLaborDrag)}</p>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Accrued payroll not yet debited — reduces available cash</p>
+            {liquidity.laborDragBreakdown && Object.keys(liquidity.laborDragBreakdown).length > 0 && (
+              <div className="pt-1 space-y-0.5">
+                {Object.entries(liquidity.laborDragBreakdown).map(([loc, amt]) => (
+                  <div key={loc} className="flex justify-between text-[10px]" data-testid={`text-labor-drag-${loc.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <span className="text-muted-foreground">{loc}</span>
+                    <span className="tabular-nums font-medium">{fmt(amt as number)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {debtTracker && !loadingDebt && (
           <div className="border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-2" data-testid="debt-tracker-section">
             <div className="flex items-center justify-between">
