@@ -12514,7 +12514,18 @@ IMPORTANT GUIDELINES:
             and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn"))
           ).limit(1);
 
-          if (existingJE.length === 0) {
+          if (existingJE.length > 0) {
+            for (const je of existingJE) {
+              await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+              await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+            }
+            try {
+              const { invalidateLineageCache } = await import("./audit-lineage-engine");
+              invalidateLineageCache();
+            } catch {}
+          }
+
+          {
             const mapping = CATEGORY_COA_MAP[updates.category];
             const debitAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.debit)).limit(1);
             const creditAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.credit)).limit(1);
