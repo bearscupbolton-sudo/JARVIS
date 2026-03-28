@@ -395,6 +395,7 @@ export default function FinancialLineagePanel({ open, onClose, category, label, 
   const [expandedSection, setExpandedSection] = useState<string | null>("entries");
   const [searchFilter, setSearchFilter] = useState("");
   const [drilldownAccount, setDrilldownAccount] = useState<{ code: string; name: string } | null>(null);
+  const [showEmptyAccounts, setShowEmptyAccounts] = useState(false);
 
   const { data, isLoading, error } = useQuery<LineageResponse>({
     queryKey: ["/api/firm/audit/lineage", category, startDate, endDate],
@@ -521,26 +522,62 @@ export default function FinancialLineagePanel({ open, onClose, category, label, 
                     {data.cached && <Badge variant="outline" className="mt-1 text-[10px] text-cyan-300 border-cyan-500/30">cached</Badge>}
                   </div>
 
-                  {data.accounts?.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="text-xs text-gray-400 uppercase tracking-wide">Click any account to drill into its journal entries</div>
-                      {data.isNetView && (
-                        <>
-                          <div className="text-xs font-semibold text-green-400 uppercase tracking-wide pt-2">Revenue Accounts</div>
-                          {data.accounts.filter((a: LineageAccount) => a.type === "Revenue").map((acct: LineageAccount) => (
-                            <AccountRow key={acct.code} acct={acct} onClick={() => setDrilldownAccount({ code: acct.code, name: acct.name })} />
-                          ))}
-                          <div className="text-xs font-semibold text-red-400 uppercase tracking-wide pt-3">Expense Accounts</div>
-                          {data.accounts.filter((a: LineageAccount) => a.type !== "Revenue").map((acct: LineageAccount) => (
-                            <AccountRow key={acct.code} acct={acct} onClick={() => setDrilldownAccount({ code: acct.code, name: acct.name })} />
-                          ))}
-                        </>
-                      )}
-                      {!data.isNetView && data.accounts.map((acct: LineageAccount) => (
+                  {data.accounts?.length > 0 && (() => {
+                    const activeAccounts = data.accounts.filter((a: LineageAccount) => Math.abs(a.subtotal) > 0);
+                    const emptyAccounts = data.accounts.filter((a: LineageAccount) => Math.abs(a.subtotal) === 0);
+
+                    const renderAccountGroup = (accounts: LineageAccount[], typeFilter?: string) => {
+                      const filtered = typeFilter ? accounts.filter((a: LineageAccount) => (typeFilter === "Revenue" ? a.type === "Revenue" : a.type !== "Revenue")) : accounts;
+                      return filtered.map((acct: LineageAccount) => (
                         <AccountRow key={acct.code} acct={acct} onClick={() => setDrilldownAccount({ code: acct.code, name: acct.name })} />
-                      ))}
-                    </div>
-                  )}
+                      ));
+                    };
+
+                    return (
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-400 uppercase tracking-wide">Click any account to drill into its journal entries</div>
+                        {data.isNetView ? (
+                          <>
+                            {activeAccounts.some((a: LineageAccount) => a.type === "Revenue") && (
+                              <>
+                                <div className="text-xs font-semibold text-green-400 uppercase tracking-wide pt-2">Revenue Accounts</div>
+                                {renderAccountGroup(activeAccounts, "Revenue")}
+                              </>
+                            )}
+                            {activeAccounts.some((a: LineageAccount) => a.type !== "Revenue") && (
+                              <>
+                                <div className="text-xs font-semibold text-red-400 uppercase tracking-wide pt-3">Expense Accounts</div>
+                                {renderAccountGroup(activeAccounts, "Expense")}
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          renderAccountGroup(activeAccounts)
+                        )}
+
+                        {emptyAccounts.length > 0 && (
+                          <div className="pt-2">
+                            <button
+                              onClick={() => setShowEmptyAccounts(!showEmptyAccounts)}
+                              className="w-full flex items-center justify-between text-left py-2 px-3 rounded-lg border border-white/5 hover:border-white/10 transition-colors"
+                              style={{ background: "rgba(255,255,255,0.02)" }}
+                              data-testid="toggle-empty-accounts"
+                            >
+                              <span className="text-xs text-gray-500">{emptyAccounts.length} account{emptyAccounts.length > 1 ? "s" : ""} with no activity</span>
+                              {showEmptyAccounts ? <ChevronUp className="w-3 h-3 text-gray-500" /> : <ChevronDown className="w-3 h-3 text-gray-500" />}
+                            </button>
+                            {showEmptyAccounts && (
+                              <div className="mt-2 space-y-1">
+                                {emptyAccounts.map((acct: LineageAccount) => (
+                                  <AccountRow key={acct.code} acct={acct} onClick={() => setDrilldownAccount({ code: acct.code, name: acct.name })} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {data.duplicateRisks?.length > 0 && (
                     <div className="rounded-xl border-2 border-amber-500/60 p-4 animate-pulse-border" style={{ background: "rgba(245,158,11,0.08)" }} data-testid="lineage-duplicates">
