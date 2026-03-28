@@ -5255,6 +5255,22 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
     },
   });
 
+  const cleanupRevenueMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/cleanup-revenue-journal-entries");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      toast({ title: "Revenue Cleanup Complete", description: data.message });
+    },
+    onError: (err: any) => {
+      toast({ title: "Cleanup Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/firm/ai/analyze", { startDate, endDate });
@@ -5350,6 +5366,10 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
                   <Button size="sm" variant="outline" onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending} data-testid="button-backfill-expenses">
                     {backfillMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
                     Post Expenses
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => cleanupRevenueMutation.mutate()} disabled={cleanupRevenueMutation.isPending} data-testid="button-cleanup-revenue">
+                    {cleanupRevenueMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
+                    Fix Revenue
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
                     {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}

@@ -3101,6 +3101,34 @@ Rules:
     }
   });
 
+  app.post("/api/firm/cleanup-revenue-journal-entries", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const revenueAccounts = await db.select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
+        .from(chartOfAccounts)
+        .where(eq(chartOfAccounts.type, "Revenue"));
+      const revenueAccountIds = new Set(revenueAccounts.map(a => a.id));
+
+      const firmTxnEntries = await db.select({ id: journalEntries.id, referenceId: journalEntries.referenceId, description: journalEntries.description })
+        .from(journalEntries)
+        .where(eq(journalEntries.referenceType, "firm-txn"));
+
+      let deleted = 0;
+      for (const entry of firmTxnEntries) {
+        const lines = await db.select().from(ledgerLines).where(eq(ledgerLines.entryId, entry.id));
+        const hasRevenueLine = lines.some(l => revenueAccountIds.has(l.accountId));
+        if (hasRevenueLine) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, entry.id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, entry.id));
+          deleted++;
+        }
+      }
+
+      res.json({ deleted, message: `Removed ${deleted} revenue journal entries from bank transactions. Revenue should only come from Square.` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/square/sales", isAuthenticated, isOwner, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;
