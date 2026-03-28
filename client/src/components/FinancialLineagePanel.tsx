@@ -448,7 +448,7 @@ export default function FinancialLineagePanel({ open, onClose, category, label, 
         data-testid="lineage-backdrop"
       />
       <div
-        className="fixed top-0 right-0 h-full w-full max-w-xl z-50 overflow-y-auto shadow-2xl"
+        className="fixed top-0 right-0 h-full w-full max-w-xl z-50 overflow-y-auto shadow-2xl lineage-scroll-left"
         style={{
           background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
           backgroundImage: `
@@ -734,6 +734,12 @@ export default function FinancialLineagePanel({ open, onClose, category, label, 
         }
         .animate-pulse-border {
           animation: pulseBorder 2s ease-in-out infinite;
+        }
+        .lineage-scroll-left {
+          direction: rtl;
+        }
+        .lineage-scroll-left > * {
+          direction: ltr;
         }
       `}</style>
     </>
