@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import FinancialLineagePanel from "@/components/FinancialLineagePanel";
+import JarvisCFOPanel from "@/components/JarvisCFOPanel";
 import type {
   FirmAccount, InsertFirmAccount,
   FirmTransaction, InsertFirmTransaction,
@@ -227,6 +228,7 @@ export default function TheFirm() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
+  const [cfoOpen, setCfoOpen] = useState(false);
   const [ledgerFilterAccountId, setLedgerFilterAccountId] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodKey>("this_month");
   const [customStart, setCustomStart] = useState("");
@@ -271,6 +273,7 @@ export default function TheFirm() {
   });
 
   return (
+    <>
     <div className="max-w-7xl mx-auto p-4 space-y-4" data-testid="the-firm-page">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -398,6 +401,19 @@ export default function TheFirm() {
         </TabsContent>
       </Tabs>
     </div>
+
+      <button
+        onClick={() => setCfoOpen(true)}
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center group"
+        data-testid="button-open-cfo"
+        title="Jarvis CFO"
+      >
+        <Brain className="w-6 h-6 group-hover:scale-110 transition-transform" />
+        <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-background animate-pulse" />
+      </button>
+
+      <JarvisCFOPanel open={cfoOpen} onClose={() => setCfoOpen(false)} />
+    </>
   );
 }
 
