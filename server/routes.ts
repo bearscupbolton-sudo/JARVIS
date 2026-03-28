@@ -14976,6 +14976,126 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     }
   });
 
+  app.get("/api/firm/journal/by-account", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { code, startDate, endDate } = req.query;
+      if (!code) return res.status(400).json({ message: "code (COA code) is required" });
+
+      const [account] = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, code as string)).limit(1);
+      if (!account) return res.status(404).json({ message: `Account ${code} not found` });
+
+      let conditions: any[] = [eq(ledgerLines.accountId, account.id)];
+      if (startDate) conditions.push(gte(journalEntries.transactionDate, startDate as string));
+      if (endDate) conditions.push(lte(journalEntries.transactionDate, endDate as string));
+
+      const lines = await db.select({
+        ledgerLineId: ledgerLines.id,
+        entryId: journalEntries.id,
+        debit: ledgerLines.debit,
+        credit: ledgerLines.credit,
+        memo: ledgerLines.memo,
+        transactionDate: journalEntries.transactionDate,
+        description: journalEntries.description,
+        status: journalEntries.status,
+        referenceType: journalEntries.referenceType,
+        referenceId: journalEntries.referenceId,
+        createdBy: journalEntries.createdBy,
+      }).from(ledgerLines)
+        .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+        .where(and(...conditions))
+        .orderBy(desc(journalEntries.transactionDate));
+
+      const entriesWithLines = [];
+      const seenEntryIds = new Set<number>();
+      for (const line of lines) {
+        if (seenEntryIds.has(line.entryId)) continue;
+        seenEntryIds.add(line.entryId);
+
+        const allLines = await db.select({
+          id: ledgerLines.id,
+          accountId: ledgerLines.accountId,
+          accountCode: chartOfAccounts.code,
+          accountName: chartOfAccounts.name,
+          debit: ledgerLines.debit,
+          credit: ledgerLines.credit,
+          memo: ledgerLines.memo,
+        }).from(ledgerLines)
+          .innerJoin(chartOfAccounts, eq(ledgerLines.accountId, chartOfAccounts.id))
+          .where(eq(ledgerLines.entryId, line.entryId));
+
+        entriesWithLines.push({
+          entryId: line.entryId,
+          transactionDate: line.transactionDate,
+          description: line.description,
+          status: line.status,
+          referenceType: line.referenceType,
+          referenceId: line.referenceId,
+          createdBy: line.createdBy,
+          lines: allLines,
+        });
+      }
+
+      res.json({ account, entries: entriesWithLines });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/firm/journal/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const entryId = parseInt(req.params.id);
+      const { description, transactionDate, status, memo } = req.body;
+      const updates: any = {};
+      if (description !== undefined) updates.description = description;
+      if (transactionDate !== undefined) updates.transactionDate = transactionDate;
+      if (status !== undefined) updates.status = status;
+
+      if (Object.keys(updates).length > 0) {
+        await db.update(journalEntries).set(updates).where(eq(journalEntries.id, entryId));
+      }
+
+      if (memo !== undefined) {
+        await db.update(ledgerLines).set({ memo }).where(eq(ledgerLines.entryId, entryId));
+      }
+
+      const { invalidateLineageCache } = await import("./audit-lineage-engine");
+      invalidateLineageCache();
+
+      const [updated] = await db.select().from(journalEntries).where(eq(journalEntries.id, entryId));
+      const lines = await db.select({
+        id: ledgerLines.id,
+        accountId: ledgerLines.accountId,
+        accountCode: chartOfAccounts.code,
+        accountName: chartOfAccounts.name,
+        debit: ledgerLines.debit,
+        credit: ledgerLines.credit,
+        memo: ledgerLines.memo,
+      }).from(ledgerLines)
+        .innerJoin(chartOfAccounts, eq(ledgerLines.accountId, chartOfAccounts.id))
+        .where(eq(ledgerLines.entryId, entryId));
+
+      res.json({ ...updated, lines });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/firm/journal/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const entryId = parseInt(req.params.id);
+
+      await db.delete(ledgerLines).where(eq(ledgerLines.entryId, entryId));
+      await db.delete(journalEntries).where(eq(journalEntries.id, entryId));
+
+      const { invalidateLineageCache } = await import("./audit-lineage-engine");
+      invalidateLineageCache();
+
+      res.json({ deleted: true, entryId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/firm/journal/reconcile-plaid", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { plaidTxnId, amount, description, transactionDate, debitAccountId, creditAccountId, locationId } = req.body;
