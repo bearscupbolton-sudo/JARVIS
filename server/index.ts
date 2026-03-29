@@ -147,6 +147,22 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
+  (async () => {
+    try {
+      const { db } = await import("./db");
+      const { journalEntries, ledgerLines } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const bad = await db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.id, 458)).limit(1);
+      if (bad.length > 0) {
+        await db.delete(ledgerLines).where(eq(ledgerLines.entryId, 458));
+        await db.delete(journalEntries).where(eq(journalEntries.id, 458));
+        console.log("[Cleanup] Deleted misclassified journal entry #458 (duplicate of corrected #1263)");
+      }
+    } catch (e: any) {
+      console.error("[Cleanup] Entry #458 cleanup skipped:", e.message);
+    }
+  })();
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
