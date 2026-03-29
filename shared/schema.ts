@@ -2507,3 +2507,33 @@ export const insertVibeAlertSchema = createInsertSchema(vibeAlerts).omit({ id: t
 export type VibeAlert = typeof vibeAlerts.$inferSelect;
 export type InsertVibeAlert = z.infer<typeof insertVibeAlertSchema>;
 
+export const hivePuzzles = pgTable("hive_puzzles", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull().unique(),
+  centerLetter: text("center_letter").notNull(),
+  outerLetters: text("outer_letters").array().notNull(),
+  validWords: text("valid_words").array().notNull(),
+  pangrams: text("pangrams").array().notNull(),
+  maxScore: integer("max_score").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertHivePuzzleSchema = createInsertSchema(hivePuzzles).omit({ id: true, createdAt: true });
+export type HivePuzzle = typeof hivePuzzles.$inferSelect;
+export type InsertHivePuzzle = z.infer<typeof insertHivePuzzleSchema>;
+
+export const hiveFoundWords = pgTable("hive_found_words", {
+  id: serial("id").primaryKey(),
+  puzzleId: integer("puzzle_id").notNull().references(() => hivePuzzles.id),
+  userId: text("user_id").notNull(),
+  userName: text("user_name").notNull(),
+  word: text("word").notNull(),
+  points: integer("points").notNull(),
+  isPangram: boolean("is_pangram").default(false).notNull(),
+  foundAt: timestamp("found_at").defaultNow(),
+});
+
+export const insertHiveFoundWordSchema = createInsertSchema(hiveFoundWords).omit({ id: true, foundAt: true });
+export type HiveFoundWord = typeof hiveFoundWords.$inferSelect;
+export type InsertHiveFoundWord = z.infer<typeof insertHiveFoundWordSchema>;
+

@@ -1,0 +1,101 @@
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+
+const HiveHexagon = ({ letter, isCenter, onClick }) => {
+  return (
+    <motion.div
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={() => onClick(letter)}
+      className={`
+        relative cursor-pointer flex items-center justify-center
+        w-24 h-28 select-none
+        ${isCenter ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-white hover:bg-zinc-700'}
+      `}
+      style={{
+        clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+        transition: 'background-color 0.2s'
+      }}
+    >
+      <span className="text-2xl font-bold tracking-tighter uppercase font-mono">
+        {letter}
+      </span>
+    </motion.div>
+  );
+};
+
+const SpellingBeeWidget = ({ dailyData }) => {
+  const [input, setInput] = useState("");
+  const { center, outer } = dailyData;
+
+  const handleLetterClick = (l) => setInput(prev => prev + l);
+
+  return (
+    <div className="flex flex-col items-center p-8 bg-black rounded-3xl border border-zinc-800 shadow-2xl max-w-md mx-auto">
+      {/* Header & Leaderboard Teaser */}
+      <div className="w-full flex justify-between items-center mb-8 px-2">
+        <div>
+          <h3 className="text-amber-500 font-bold text-xs uppercase tracking-widest">Jarvis Hive</h3>
+          <p className="text-zinc-400 text-[10px]">Team Goal: 42/80 Words</p>
+        </div>
+        <div className="h-8 w-8 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center">
+          <span className="text-amber-500 text-xs font-bold">#1</span>
+        </div>
+      </div>
+
+      {/* The Grid Layout */}
+      <div className="relative h-[320px] w-[300px] mb-6">
+        {/* Top Two */}
+        <div className="absolute top-0 left-1/2 -translate-x-[102%]">
+          <HiveHexagon letter={outer[0]} onClick={handleLetterClick} />
+        </div>
+        <div className="absolute top-0 left-1/2 translate-x-[2%]">
+          <HiveHexagon letter={outer[1]} onClick={handleLetterClick} />
+        </div>
+
+        {/* Middle Three (including Center) */}
+        <div className="absolute top-1/2 left-0 -translate-y-1/2">
+          <HiveHexagon letter={outer[2]} onClick={handleLetterClick} />
+        </div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+          <HiveHexagon letter={center} isCenter onClick={handleLetterClick} />
+        </div>
+        <div className="absolute top-1/2 right-0 -translate-y-1/2">
+          <HiveHexagon letter={outer[3]} onClick={handleLetterClick} />
+        </div>
+
+        {/* Bottom Two */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-[102%]">
+          <HiveHexagon letter={outer[4]} onClick={handleLetterClick} />
+        </div>
+        <div className="absolute bottom-0 left-1/2 translate-x-[2%]">
+          <HiveHexagon letter={outer[5]} onClick={handleLetterClick} />
+        </div>
+      </div>
+
+      {/* Input Display */}
+      <div className="h-12 flex items-center mb-6">
+        <span className="text-3xl font-light text-white tracking-widest uppercase">
+          {input || <span className="text-zinc-700">Type or tap...</span>}
+        </span>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex gap-4">
+        <button 
+          onClick={() => setInput("")}
+          className="px-6 py-2 rounded-full border border-zinc-700 text-zinc-400 text-sm hover:bg-zinc-900 transition-colors"
+        >
+          Delete
+        </button>
+        <button 
+          className="px-8 py-2 rounded-full bg-white text-black font-bold text-sm hover:bg-amber-500 transition-colors"
+        >
+          Enter
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default SpellingBeeWidget;
