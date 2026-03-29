@@ -14698,6 +14698,115 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/audit-trail/extract-pdf", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { messageId, accountEmail } = req.body;
+      if (!messageId || !accountEmail) return res.status(400).json({ message: "messageId and accountEmail required" });
+
+      const { getMessageAttachmentDetails, downloadAttachmentForAccount } = await import("./gmail-multi");
+
+      const attachments = await getMessageAttachmentDetails(accountEmail, messageId);
+      const pdfAttachments = attachments.filter(a =>
+        a.mimeType === "application/pdf" || a.filename.toLowerCase().endsWith(".pdf")
+      );
+
+      if (pdfAttachments.length === 0) {
+        return res.json({ success: false, message: "No PDF attachments found", data: {} });
+      }
+
+      let extractedText = "";
+      const downloadedFiles: string[] = [];
+
+      for (const pdf of pdfAttachments) {
+        try {
+          const buffer = await downloadAttachmentForAccount(accountEmail, messageId, pdf.attachmentId);
+          downloadedFiles.push(pdf.filename);
+
+          const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+          const doc = await (pdfjs as any).getDocument({ data: new Uint8Array(buffer) }).promise;
+          for (let i = 1; i <= doc.numPages; i++) {
+            const page = await doc.getPage(i);
+            const content = await page.getTextContent();
+            extractedText += content.items.map((item: any) => item.str).join(" ") + "\n";
+          }
+        } catch (pdfErr: any) {
+          console.error(`[AuditTrail] PDF extraction failed for ${pdf.filename}:`, pdfErr.message);
+        }
+      }
+
+      if (!extractedText.trim()) {
+        const imageAttachments = attachments.filter(a =>
+          a.mimeType.startsWith("image/") && !a.mimeType.includes("pdf")
+        );
+        if (imageAttachments.length > 0) {
+          try {
+            const target = imageAttachments[0];
+            if (target.size > 10 * 1024 * 1024) throw new Error("Image attachment too large (>10MB)");
+            const buffer = await downloadAttachmentForAccount(accountEmail, messageId, target.attachmentId);
+            const OpenAI = (await import("openai")).default;
+            const openai = new OpenAI();
+            const base64 = buffer.toString("base64");
+            const response = await openai.chat.completions.create({
+              model: "gpt-4o",
+              messages: [
+                { role: "system", content: "Extract all text from this invoice/receipt document. Return the raw text content including all line items, quantities, prices, and totals." },
+                { role: "user", content: [{ type: "image_url", image_url: { url: `data:${target.mimeType};base64,${base64}` } }] },
+              ],
+              max_tokens: 3000,
+            });
+            extractedText = response.choices[0]?.message?.content || "";
+          } catch (ocrErr: any) {
+            console.error("[AuditTrail] OCR fallback failed:", ocrErr.message);
+          }
+        }
+      }
+
+      if (!extractedText.trim()) {
+        return res.json({ success: false, message: "Could not extract text from PDF(s)", data: {}, files: downloadedFiles });
+      }
+
+      try {
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI();
+
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `Parse the following extracted invoice/receipt text into structured data for a bakery business.
+Return JSON:
+{
+  "vendorName": string or null,
+  "totalAmount": number or null,
+  "subtotal": number or null,
+  "tax": number or null,
+  "shipping": number or null,
+  "invoiceDate": "YYYY-MM-DD" or null,
+  "invoiceNumber": string or null,
+  "orderNumber": string or null,
+  "lineItems": [{"description": string, "quantity": number, "unitPrice": number, "total": number}] or [],
+  "confidence": number (0-1)
+}
+Focus on the final total, not subtotals or tax lines. Date format must be YYYY-MM-DD.`,
+            },
+            { role: "user", content: `Extracted Text:\n${extractedText.substring(0, 8000)}` },
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 3000,
+        });
+
+        const parsed = JSON.parse(response.choices[0]?.message?.content || "{}");
+        console.log(`[AuditTrail] PDF extracted: ${downloadedFiles.join(", ")} → $${parsed.totalAmount} (${parsed.lineItems?.length || 0} line items)`);
+        res.json({ success: true, data: parsed, files: downloadedFiles, textLength: extractedText.length });
+      } catch (parseErr: any) {
+        res.json({ success: false, message: "Text extracted but parsing failed", rawText: extractedText.substring(0, 2000), files: downloadedFiles });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/firm/audit-trail/stats", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
       const { auditTrailAssessor } = await import("./audit-trail-engine");

@@ -32,6 +32,7 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **Year-End Financial Export:** Comprehensive JSON export engine for CPA/AI Form 1120-S preparation.
     *   **Personalized Greeting System:** Enhances daily Jarvis briefing with user interests, weather, and traffic data.
     *   **Email Intelligence Engine:** 4-stage pipeline for automated extraction and anchoring of financial data from vendor emails to bank transactions, with cross-reference and intelligence layers for CapEx/Prepaid detection and auto-classification.
+    *   **Audit Trail PDF Extraction:** In-dialog "Read PDF" button on audit lookup results downloads and parses PDF invoice attachments via pdfjs-dist (with GPT-4o vision OCR fallback for scanned/image PDFs), extracts structured line items, and displays vendor, invoice #, totals with amount-match highlighting against the bank transaction. Endpoint: `POST /api/firm/audit-trail/extract-pdf`.
     *   **Coffee Command Center:** Includes a Components Library for coffee ingredients and an AI-powered Jarvis Drink Builder for recipe creation, supporting base drink templates with variations and end-to-end cost rollup.
 
 ## External Dependencies
