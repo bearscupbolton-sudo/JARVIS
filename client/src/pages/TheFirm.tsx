@@ -4652,6 +4652,8 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
   const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [searchDescription, setSearchDescription] = useState("");
+  const [searchAmount, setSearchAmount] = useState("");
   const [newEntry, setNewEntry] = useState({
     transactionDate: format(new Date(), "yyyy-MM-dd"),
     description: "",
@@ -4673,6 +4675,25 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
   const { data: coaAccounts = [] } = useQuery<COAAccount[]>({ queryKey: ["/api/firm/coa"] });
 
   const activeAccounts = useMemo(() => coaAccounts.filter(a => a.isActive), [coaAccounts]);
+
+  const filteredEntries = useMemo(() => {
+    let result = entries;
+    if (searchDescription.trim()) {
+      const term = searchDescription.trim().toLowerCase();
+      result = result.filter(e => e.description.toLowerCase().includes(term));
+    }
+    if (searchAmount.trim()) {
+      const target = parseFloat(searchAmount);
+      if (!isNaN(target)) {
+        result = result.filter(e =>
+          e.lines.some(l =>
+            Math.abs(Number(l.debit) - target) < 0.01 || Math.abs(Number(l.credit) - target) < 0.01
+          )
+        );
+      }
+    }
+    return result;
+  }, [entries, searchDescription, searchAmount]);
 
   const postMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -4734,11 +4755,36 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
 
   return (
     <div className="space-y-4" data-testid="journal-tab">
-      <div className="flex justify-between items-center">
-        <div className="text-sm text-muted-foreground">{entries.length} entries</div>
-        <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} data-testid="button-add-journal">
-          <Plus className="h-4 w-4 mr-1" /> New Entry
-        </Button>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <div className="text-sm text-muted-foreground" data-testid="text-journal-count">{filteredEntries.length} entries</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search description..."
+              value={searchDescription}
+              onChange={e => setSearchDescription(e.target.value)}
+              className="pl-7 h-9 w-[170px] text-xs"
+              data-testid="search-journal-description"
+            />
+          </div>
+          <div className="relative">
+            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Amount..."
+              value={searchAmount}
+              onChange={e => setSearchAmount(e.target.value)}
+              className="pl-7 h-9 w-[120px] text-xs"
+              type="number"
+              step="0.01"
+              min="0"
+              data-testid="search-journal-amount"
+            />
+          </div>
+          <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} data-testid="button-add-journal">
+            <Plus className="h-4 w-4 mr-1" /> New Entry
+          </Button>
+        </div>
       </div>
 
       {showAddForm && (
@@ -4829,17 +4875,17 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
         </Card>
       )}
 
-      {entries.length === 0 && (
+      {filteredEntries.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No journal entries in this period</p>
-            <p className="text-sm">Create a new entry to get started</p>
+            <p className="font-medium">{entries.length === 0 ? "No journal entries in this period" : "No entries match your search"}</p>
+            <p className="text-sm">{entries.length === 0 ? "Create a new entry to get started" : "Try adjusting your search terms"}</p>
           </CardContent>
         </Card>
       )}
 
-      {entries.map(entry => (
+      {filteredEntries.map(entry => (
         <Card key={entry.id} className="overflow-hidden" data-testid={`card-journal-${entry.id}`}>
           <div
             className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/30"
