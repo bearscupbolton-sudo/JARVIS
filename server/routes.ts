@@ -3016,9 +3016,9 @@ Rules:
         supplies: { debit: "6090", credit: "1010" },
         utilities: { debit: "6040", credit: "1010" },
         rent: { debit: "6030", credit: "1010" },
-        insurance: { debit: "6030", credit: "1010" },
-        marketing: { debit: "6100", credit: "1010" },
-        taxes: { debit: "6060", credit: "1010" },
+        insurance: { debit: "6050", credit: "1010" },
+        marketing: { debit: "6060", credit: "1010" },
+        taxes: { debit: "6020", credit: "1010" },
         travel_lodging: { debit: "6140", credit: "1010" },
         repairs: { debit: "6070", credit: "1010" },
         advertising: { debit: "6060", credit: "1010" },
@@ -12319,6 +12319,17 @@ IMPORTANT GUIDELINES:
         const existing = await storage.getFirmTransaction(txnId);
         if (!existing) return res.status(404).json({ message: "Transaction not found" });
 
+        const priorJEs = await db.select().from(journalEntries).where(
+          or(
+            and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn")),
+            and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "owner_draw"))
+          )
+        );
+        for (const je of priorJEs) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+        }
+
         const drawAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3010")).limit(1);
         const creditAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2020")).limit(1);
 
@@ -12332,7 +12343,7 @@ IMPORTANT GUIDELINES:
                 description: `Owner's Draw — ${existing.description}`,
                 referenceType: "owner_draw",
                 referenceId: String(txnId),
-                createdBy: req.user?.id || null,
+                createdBy: req.appUser?.id || null,
               },
               [
                 { accountId: drawAccount[0].id, debit: absAmount, credit: 0, memo: `Personal: ${existing.description}` },
@@ -12364,6 +12375,17 @@ IMPORTANT GUIDELINES:
       if (updates.category === "prior_period_adjustment") {
         const ppaTxn = await storage.getFirmTransaction(txnId);
         if (ppaTxn) {
+          const priorJEs = await db.select().from(journalEntries).where(
+            or(
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn")),
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "prior_period"))
+            )
+          );
+          for (const je of priorJEs) {
+            await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+            await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+          }
+
           const retainedEarningsAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "3020")).limit(1);
           const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
 
@@ -12377,7 +12399,7 @@ IMPORTANT GUIDELINES:
                   description: `Prior Period Adjustment — ${ppaTxn.description}`,
                   referenceType: "prior_period",
                   referenceId: String(txnId),
-                  createdBy: req.user?.id || null,
+                  createdBy: req.appUser?.id || null,
                 },
                 [
                   { accountId: retainedEarningsAccount[0].id, debit: absAmount, credit: 0, memo: `Back-year settlement: ${ppaTxn.description}` },
@@ -12408,6 +12430,17 @@ IMPORTANT GUIDELINES:
       if (updates.category === "loan_principal") {
         const loanTxn = await storage.getFirmTransaction(txnId);
         if (loanTxn) {
+          const priorJEs = await db.select().from(journalEntries).where(
+            or(
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn")),
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "loan_principal"))
+            )
+          );
+          for (const je of priorJEs) {
+            await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+            await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+          }
+
           const loansPayableAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
           const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
 
@@ -12421,7 +12454,7 @@ IMPORTANT GUIDELINES:
                   description: `Loan Principal Payment — ${loanTxn.description}`,
                   referenceType: "loan_principal",
                   referenceId: String(txnId),
-                  createdBy: req.user?.id || null,
+                  createdBy: req.appUser?.id || null,
                 },
                 [
                   { accountId: loansPayableAccount[0].id, debit: absAmount, credit: 0, memo: `Principal reduction: ${loanTxn.description}` },
@@ -12436,9 +12469,16 @@ IMPORTANT GUIDELINES:
       }
 
       if (updates.category === "equipment") {
+        const priorJEs = await db.select().from(journalEntries).where(
+          and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn"))
+        );
+        for (const je of priorJEs) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+        }
         try {
           const { assetAssessor } = await import("./asset-engine");
-          await assetAssessor.capitalizeSingleAsset(txnId, req.user?.username || req.user?.firstName || "System");
+          await assetAssessor.capitalizeSingleAsset(txnId, req.appUser?.username || req.appUser?.firstName || "System");
         } catch (assetErr: any) {
           console.error("[CapEx] Auto-asset creation failed:", assetErr.message);
         }
@@ -12447,6 +12487,17 @@ IMPORTANT GUIDELINES:
       if (updates.category === "sales_tax_payment") {
         const taxTxn = await storage.getFirmTransaction(txnId);
         if (taxTxn) {
+          const priorJEs = await db.select().from(journalEntries).where(
+            or(
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn")),
+              and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "sales_tax"))
+            )
+          );
+          for (const je of priorJEs) {
+            await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+            await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+          }
+
           const taxLiabilityAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2030")).limit(1);
           const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
 
@@ -12460,7 +12511,7 @@ IMPORTANT GUIDELINES:
                   description: `Sales Tax Settlement — ${taxTxn.description}`,
                   referenceType: "sales_tax",
                   referenceId: String(txnId),
-                  createdBy: req.user?.id || null,
+                  createdBy: req.appUser?.id || null,
                 },
                 [
                   { accountId: taxLiabilityAccount[0].id, debit: absAmount, credit: 0, memo: `Tax settlement: ${taxTxn.description}` },
@@ -12482,9 +12533,9 @@ IMPORTANT GUIDELINES:
         supplies: { debit: "6090", credit: "1010" },
         utilities: { debit: "6040", credit: "1010" },
         rent: { debit: "6030", credit: "1010" },
-        insurance: { debit: "6030", credit: "1010" },
-        marketing: { debit: "6100", credit: "1010" },
-        taxes: { debit: "6060", credit: "1010" },
+        insurance: { debit: "6050", credit: "1010" },
+        marketing: { debit: "6060", credit: "1010" },
+        taxes: { debit: "6020", credit: "1010" },
         travel_lodging: { debit: "6140", credit: "1010" },
         repairs: { debit: "6070", credit: "1010" },
         advertising: { debit: "6060", credit: "1010" },
@@ -12505,6 +12556,9 @@ IMPORTANT GUIDELINES:
         technology: { debit: "6080", credit: "1010" },
         misc: { debit: "6090", credit: "1010" },
         loan_interest: { debit: "6260", credit: "1010" },
+        delivery: { debit: "6120", credit: "1010" },
+        merchant_fees: { debit: "6110", credit: "1010" },
+        depreciation: { debit: "6130", credit: "1010" },
       };
 
       if (updates.category && !SPECIAL_CATEGORIES.has(updates.category) && !REVENUE_CATEGORIES.has(updates.category) && CATEGORY_COA_MAP[updates.category]) {
@@ -12542,7 +12596,7 @@ IMPORTANT GUIDELINES:
                     referenceId: String(txnId),
                     status: "posted",
                     locationId: existing.locationId ?? undefined,
-                    createdBy: req.user?.id || "system",
+                    createdBy: req.appUser?.id || "system",
                   },
                   [
                     { accountId: debitAcct[0].id, debit: absAmount, credit: 0, memo: existing.description },

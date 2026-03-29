@@ -151,15 +151,58 @@ app.use((req, res, next) => {
     try {
       const { db } = await import("./db");
       const { journalEntries, ledgerLines } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const bad = await db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.id, 458)).limit(1);
-      if (bad.length > 0) {
-        await db.delete(ledgerLines).where(eq(ledgerLines.entryId, 458));
-        await db.delete(journalEntries).where(eq(journalEntries.id, 458));
-        console.log("[Cleanup] Deleted misclassified journal entry #458 (duplicate of corrected #1263)");
+      const { eq, and, sql } = await import("drizzle-orm");
+
+      const singleDeletes = [458];
+      for (const id of singleDeletes) {
+        const bad = await db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.id, id)).limit(1);
+        if (bad.length > 0) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, id));
+          console.log(`[Cleanup] Deleted misclassified journal entry #${id}`);
+        }
+      }
+
+      const dupeResult = await db.execute(sql`
+        WITH ranked AS (
+          SELECT je.id, je.description, je.transaction_date, je.reference_type, je.reference_id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY je.reference_type, je.reference_id
+                   ORDER BY je.id ASC
+                 ) AS rn
+          FROM journal_entries je
+          WHERE je.reference_type = 'firm-txn'
+            AND je.reference_id IS NOT NULL
+        )
+        SELECT id FROM ranked WHERE rn > 1
+      `);
+      const dupeIds = (dupeResult.rows || []).map((r: any) => Number(r.id)).filter((id: number) => id > 0);
+      if (dupeIds.length > 0) {
+        for (const id of dupeIds) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, id));
+        }
+        console.log(`[Cleanup] Deleted ${dupeIds.length} duplicate firm-txn journal entries`);
+      }
+
+      const misclassifiedNYS = await db.execute(sql`
+        SELECT je.id FROM journal_entries je
+        JOIN ledger_lines ll ON ll.entry_id = je.id
+        JOIN chart_of_accounts coa ON coa.id = ll.account_id
+        WHERE je.description ILIKE '%NYS DTF%'
+          AND coa.code = '6060'
+          AND ll.debit > 0
+      `);
+      const nysIds = (misclassifiedNYS.rows || []).map((r: any) => Number(r.id)).filter((id: number) => id > 0);
+      if (nysIds.length > 0) {
+        for (const id of nysIds) {
+          await db.delete(ledgerLines).where(eq(ledgerLines.entryId, id));
+          await db.delete(journalEntries).where(eq(journalEntries.id, id));
+        }
+        console.log(`[Cleanup] Deleted ${nysIds.length} NYS tax entries misclassified as Marketing (6060)`);
       }
     } catch (e: any) {
-      console.error("[Cleanup] Entry #458 cleanup skipped:", e.message);
+      console.error("[Cleanup] Startup cleanup error:", e.message);
     }
   })();
 
