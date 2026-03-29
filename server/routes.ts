@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, squareDailySummary, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts, hiveFoundWords } from "@shared/schema";
+import { squareCatalogMap, squareSales, squareDailySummary, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts, hiveFoundWords, emailExtractions, vendorProfiles } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -16656,6 +16656,136 @@ Return JSON:
       res.json({ success: true, labels });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message, labels: [] });
+    }
+  });
+
+  // === EMAIL INTELLIGENCE ENGINE ===
+  app.post("/api/email-intelligence/process", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { messageId } = req.body;
+      if (!messageId) return res.status(400).json({ message: "messageId required" });
+      const { processEmailIntelligence } = await import("./email-intelligence-engine");
+      const result = await processEmailIntelligence(messageId, req.appUser?.username || "system");
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-intelligence/scan", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const daysBack = req.body.daysBack || 3;
+      const { scanAndProcessVendorEmails } = await import("./email-intelligence-engine");
+      const result = await scanAndProcessVendorEmails(daysBack, req.appUser?.username || "system");
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-intelligence/summary", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const { getExtractionSummary } = await import("./email-intelligence-engine");
+      const summary = await getExtractionSummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-intelligence/extractions", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const all = await db.select().from(emailExtractions).orderBy(sql`${emailExtractions.createdAt} DESC`).limit(50);
+      res.json(all);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-intelligence/vendor-profiles", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const profiles = await db.select().from(vendorProfiles).orderBy(sql`${vendorProfiles.totalProcessed} DESC`);
+      res.json(profiles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/email-intelligence/vendor-profiles/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updates = req.body;
+      const [updated] = await db.update(vendorProfiles)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(vendorProfiles.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Vendor profile not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-intelligence/review-queue", isAuthenticated, isOwner, async (_req, res) => {
+    try {
+      const items = await db.select().from(emailExtractions)
+        .where(eq(emailExtractions.requiresReview, true))
+        .orderBy(sql`${emailExtractions.createdAt} DESC`);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-intelligence/approve/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const extraction = await db.select().from(emailExtractions).where(eq(emailExtractions.id, id)).limit(1);
+      if (extraction.length === 0) return res.status(404).json({ message: "Extraction not found" });
+      const ext = extraction[0];
+
+      let actionResult = "Approved — no auto-action taken.";
+
+      if (ext.extractedAmount && ext.extractedAmount >= 2500 && ext.anchoredTransactionId) {
+        try {
+          const { assetAssessor } = await import("./asset-engine");
+          await assetAssessor.capitalizeSingleAsset(ext.anchoredTransactionId, req.appUser?.username || "System");
+          actionResult = `CapEx: Capitalized txn #${ext.anchoredTransactionId} as fixed asset.`;
+        } catch (capErr: any) {
+          actionResult = `CapEx attempted but failed: ${capErr.message}`;
+        }
+      }
+
+      if (ext.suggestedCategory && ext.actionTaken?.includes("prepaid amortization") && ext.extractedAmount) {
+        try {
+          const { createPrepaidAmortization } = await import("./prepaid-engine");
+          const vendorProfile = ext.vendorName ? await db.select().from(vendorProfiles)
+            .where(eq(vendorProfiles.vendorName, ext.vendorName)).limit(1) : [];
+          const months = vendorProfile.length > 0 && vendorProfile[0].prepaidMonths ? vendorProfile[0].prepaidMonths : 12;
+
+          await createPrepaidAmortization({
+            description: `${ext.vendorName || "Vendor"} — ${ext.subject || "Prepaid Expense"}`,
+            totalAmount: ext.extractedAmount,
+            totalMonths: months,
+            expenseAccountCode: ext.suggestedCoaCode || "6100",
+            startDate: ext.extractedDate || new Date().toISOString().split("T")[0],
+            createdBy: req.appUser?.username || "System",
+          });
+          actionResult = `Prepaid: Created ${months}-month amortization for $${ext.extractedAmount.toFixed(2)}.`;
+        } catch (prepErr: any) {
+          actionResult = `Prepaid attempted but failed: ${prepErr.message}`;
+        }
+      }
+
+      await db.update(emailExtractions).set({
+        requiresReview: false,
+        actionTaken: actionResult,
+        status: "approved",
+      }).where(eq(emailExtractions.id, id));
+
+      res.json({ success: true, action: actionResult });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

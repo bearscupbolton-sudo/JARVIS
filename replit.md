@@ -104,6 +104,40 @@ Jarvis uses OpenAI function calling to autonomously investigate financial questi
 - `thinkingStatus` state in Assistant.tsx shows animated indicator during tool execution
 - FinancialLineagePanel narratives enriched via agentic loop with "Verified via [Tool Name]" attribution
 
+## Email Intelligence Engine
+
+4-stage vendor email processing pipeline (`server/email-intelligence-engine.ts`) that automatically extracts financial data from vendor emails and anchors it to bank transactions:
+
+**Extraction Stages:**
+1. **Vector Extraction** — PDF text extraction via `pdfjs-dist` + OCR/Vision via GPT-4o for images
+2. **Semantic HTML Parsing** — LLM prompt identifies "invisible tables" and order summaries in email HTML
+3. **URL Forensic Analysis** — Regex locates portal links (view-order, invoice, receipt URLs)
+4. **Headless Extraction** — Flags high-value external links for manual review (no Puppeteer in Replit)
+
+**Cross-Reference Engine:**
+- Anchors extracted amounts to `firm_transactions` by amount+date matching (±5 days, tiered confidence)
+- Historical pattern matching from `journal_entries` for vendor COA code inference
+- Vendor profiles learn from processing history (typical amounts, delivery methods, default COA codes)
+
+**Intelligence Layer:**
+- CapEx detection: amounts ≥$2,500 flagged for `asset-engine` capitalization
+- Prepaid detection: retainer/annual fee keywords trigger `prepaid-engine` amortization proposals
+- Auto-classification at ≥85% confidence; review queue for lower confidence
+
+**Schema:** `vendor_profiles` (vendor behavior intelligence), `email_extractions` (extraction results + audit trail)
+
+**API Routes:**
+- `POST /api/email-intelligence/process` — process single email by messageId
+- `POST /api/email-intelligence/scan` — scan and process all vendor emails (daysBack param)
+- `GET /api/email-intelligence/summary` — extraction stats and vendor breakdown
+- `GET /api/email-intelligence/extractions` — recent extraction results
+- `GET /api/email-intelligence/vendor-profiles` — vendor intelligence profiles
+- `PATCH /api/email-intelligence/vendor-profiles/:id` — update vendor profile (mark CapEx, set prepaid months)
+- `GET /api/email-intelligence/review-queue` — items needing human review
+- `POST /api/email-intelligence/approve/:id` — approve and execute (CapEx or prepaid amortization)
+
+**Nightly Sync:** Automatically scans last 3 days of vendor emails during nightly sync cycle.
+
 ## Coffee Command Center - Components & Drink Builder
 
 The Coffee Command Center includes:

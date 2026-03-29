@@ -169,6 +169,14 @@ async function runNightlySync() {
     console.error(`[Nightly Sync] Revenue journalization failed:`, err.message);
   }
 
+  try {
+    const { scanAndProcessVendorEmails } = await import("./email-intelligence-engine");
+    const emailResult = await scanAndProcessVendorEmails(3, "nightly-sync");
+    console.log(`[Nightly Sync] Email intelligence: ${emailResult.processed} vendor emails processed`);
+  } catch (err: any) {
+    console.error(`[Nightly Sync] Email intelligence failed:`, err.message);
+  }
+
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[Nightly Sync] Complete in ${elapsed}s`);
 }

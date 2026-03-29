@@ -2563,6 +2563,58 @@ export const insertHivePuzzleSchema = createInsertSchema(hivePuzzles).omit({ id:
 export type HivePuzzle = typeof hivePuzzles.$inferSelect;
 export type InsertHivePuzzle = z.infer<typeof insertHivePuzzleSchema>;
 
+export const vendorProfiles = pgTable("vendor_profiles", {
+  id: serial("id").primaryKey(),
+  vendorName: text("vendor_name").notNull().unique(),
+  knownEmails: text("known_emails").array(),
+  defaultCoaCode: text("default_coa_code"),
+  defaultCategory: text("default_category"),
+  receiptDeliveryMethod: text("receipt_delivery_method"),
+  typicalAmountMin: doublePrecision("typical_amount_min"),
+  typicalAmountMax: doublePrecision("typical_amount_max"),
+  extractionNotes: text("extraction_notes"),
+  isCapExVendor: boolean("is_cap_ex_vendor").default(false).notNull(),
+  isPrepaidVendor: boolean("is_prepaid_vendor").default(false).notNull(),
+  prepaidMonths: integer("prepaid_months"),
+  lastSeenDate: text("last_seen_date"),
+  totalProcessed: integer("total_processed").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertVendorProfileSchema = createInsertSchema(vendorProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type VendorProfile = typeof vendorProfiles.$inferSelect;
+export type InsertVendorProfile = z.infer<typeof insertVendorProfileSchema>;
+
+export const emailExtractions = pgTable("email_extractions", {
+  id: serial("id").primaryKey(),
+  messageId: text("message_id").notNull(),
+  subject: text("subject"),
+  sender: text("sender"),
+  dateReceived: text("date_received"),
+  vendorName: text("vendor_name"),
+  extractedAmount: doublePrecision("extracted_amount"),
+  extractedDate: text("extracted_date"),
+  extractedInvoiceNumber: text("extracted_invoice_number"),
+  extractedLineItems: text("extracted_line_items"),
+  stageCompleted: integer("stage_completed").default(0).notNull(),
+  stageResults: text("stage_results"),
+  anchoredTransactionId: integer("anchored_transaction_id"),
+  anchoredJournalEntryId: integer("anchored_journal_entry_id"),
+  suggestedCoaCode: text("suggested_coa_code"),
+  suggestedCategory: text("suggested_category"),
+  confidence: doublePrecision("confidence").default(0).notNull(),
+  actionTaken: text("action_taken"),
+  requiresReview: boolean("requires_review").default(false).notNull(),
+  reviewNotes: text("review_notes"),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEmailExtractionSchema = createInsertSchema(emailExtractions).omit({ id: true, createdAt: true });
+export type EmailExtraction = typeof emailExtractions.$inferSelect;
+export type InsertEmailExtraction = z.infer<typeof insertEmailExtractionSchema>;
+
 export const hiveFoundWords = pgTable("hive_found_words", {
   id: serial("id").primaryKey(),
   puzzleId: integer("puzzle_id").notNull().references(() => hivePuzzles.id),
