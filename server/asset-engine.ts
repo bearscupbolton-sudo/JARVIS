@@ -221,22 +221,94 @@ export class AssetAssessor {
     const assetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.ASSET_ACCOUNT)).limit(1);
     const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.CASH_ACCOUNT)).limit(1);
     if (assetAccount.length > 0 && cashAccount.length > 0) {
-      await postJournalEntry(
-        {
-          transactionDate: tx.date,
-          description: `CapEx — ${tx.description}`,
-          referenceType: "capex",
-          referenceId: String(transactionId),
-          createdBy: null,
-        },
-        [
-          { accountId: assetAccount[0].id, debit: absAmount, credit: 0, memo: `Capitalize: ${tx.description}` },
-          { accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Capitalize: ${tx.description}` },
-        ]
-      );
+      const [je] = await db.insert(journalEntries).values({
+        transactionDate: tx.date,
+        description: `CapEx — ${tx.description}`,
+        referenceType: "capex",
+        referenceId: String(transactionId),
+        createdBy: createdBy || null,
+        status: "posted",
+      }).returning();
+
+      if (je) {
+        const { ledgerLines } = await import("@shared/schema");
+        await db.insert(ledgerLines).values([
+          { entryId: je.id, accountId: assetAccount[0].id, debit: absAmount, credit: 0, memo: `Capitalize: ${tx.description}` },
+          { entryId: je.id, accountId: cashAccount[0].id, debit: 0, credit: absAmount, memo: `Capitalize: ${tx.description}` },
+        ]);
+
+        await db.update(fixedAssets).set({
+          journalEntryId: je.id,
+        }).where(eq(fixedAssets.id, newAsset.id));
+      }
     }
 
-    console.log(`[AssetAssessor] Auto-created asset #${newAsset.id} from TX #${transactionId}: $${absAmount}`);
+    const bookSchedule = calculateStraightLineSchedule(
+      absAmount,
+      0,
+      newAsset.usefulLifeMonths,
+      tx.date
+    );
+
+    const [bookSched] = await db.insert(depreciationSchedules).values({
+      assetId: newAsset.id,
+      ledgerType: "book",
+      method: "straight_line",
+      totalAmount: bookSchedule.totalAmount,
+      monthlyAmount: bookSchedule.monthlyAmount,
+      startDate: tx.date,
+      endDate: bookSchedule.entries[bookSchedule.entries.length - 1]?.periodDate,
+      totalMonths: bookSchedule.totalMonths,
+      yearOneDeduction: null,
+    }).returning();
+
+    for (const e of bookSchedule.entries) {
+      await db.insert(depreciationEntries).values({
+        scheduleId: bookSched.id,
+        assetId: newAsset.id,
+        periodDate: e.periodDate,
+        amount: e.amount,
+        accumulatedDepreciation: e.accumulatedDepreciation,
+        netBookValue: e.netBookValue,
+        posted: false,
+      });
+    }
+
+    if (newAsset.section179Eligible) {
+      const taxSchedule = calculateSection179Schedule(absAmount, tx.date);
+      const [taxSched] = await db.insert(depreciationSchedules).values({
+        assetId: newAsset.id,
+        ledgerType: "tax",
+        method: "section_179",
+        totalAmount: taxSchedule.totalAmount,
+        monthlyAmount: null,
+        startDate: tx.date,
+        endDate: taxSchedule.entries[0]?.periodDate,
+        totalMonths: 1,
+        yearOneDeduction: taxSchedule.yearOneDeduction,
+      }).returning();
+
+      for (const e of taxSchedule.entries) {
+        await db.insert(depreciationEntries).values({
+          scheduleId: taxSched.id,
+          assetId: newAsset.id,
+          periodDate: e.periodDate,
+          amount: e.amount,
+          accumulatedDepreciation: e.accumulatedDepreciation,
+          netBookValue: e.netBookValue,
+          posted: false,
+        });
+      }
+    }
+
+    await logAssetAudit(
+      newAsset.id,
+      "DEPRECIATION_SCHEDULED",
+      `Book depreciation: straight-line over ${newAsset.usefulLifeMonths} months ($${bookSchedule.monthlyAmount.toFixed(2)}/mo). Asset pending detail completion (serial, make, model).`,
+      createdBy
+    );
+
+    console.log(`[AssetAssessor] Auto-created asset #${newAsset.id} from TX #${transactionId}: $${absAmount} — depreciation schedule created`);
     return newAsset;
   }
 
