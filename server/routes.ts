@@ -3039,6 +3039,8 @@ Rules:
         technology: { debit: "6080", credit: "1010" },
         misc: { debit: "6090", credit: "1010" },
         loan_interest: { debit: "6260", credit: "1010" },
+        donations_charity: { debit: "7700", credit: "1010" },
+        donations_promo: { debit: "7040", credit: "1010" },
       };
 
       const allTxns = await db.select().from(firmTransactions);
@@ -12592,6 +12594,8 @@ IMPORTANT GUIDELINES:
         delivery: { debit: "6120", credit: "1010" },
         merchant_fees: { debit: "6110", credit: "1010" },
         depreciation: { debit: "6130", credit: "1010" },
+        donations_charity: { debit: "7700", credit: "1010" },
+        donations_promo: { debit: "7040", credit: "1010" },
       };
 
       if (updates.category && !SPECIAL_CATEGORIES.has(updates.category) && !REVENUE_CATEGORIES.has(updates.category) && CATEGORY_COA_MAP[updates.category]) {
