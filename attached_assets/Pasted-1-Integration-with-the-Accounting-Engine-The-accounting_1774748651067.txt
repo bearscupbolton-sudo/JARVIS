@@ -1,0 +1,29 @@
+1. Integration with the Accounting Engine
+The accounting-engine.ts currently defines the DEFAULT_COA. To support this, a new account must be added to the schema:
+
+Account Code 1200: "Prepaid Expenses" (Type: Asset, Category: Current).
+
+Logic: This follows the same "fuel tank" logic as your Cash accounts, but instead of holding liquid cash, it holds "value" that hasn't been "burned" as an expense yet.
+
+2. Leveraging the Asset Engine for Amortization
+The most efficient way to handle this in Jarvis is to treat the prepaid fee as an Intangible Asset. Your asset-engine.ts already contains a calculateStraightLineSchedule function.
+
+The Mechanism: You can use this exact function to spread the cost. Instead of 84 months (typical for equipment), you would set the usefulLifeMonths to 12 (or the remainder of the year).
+
+Ghost Accountant Automation: The AssetAssessor class already has a runMonthlyDepreciation method. By extending this to look at "Amortization" (Account 6210) instead of "Depreciation" (Account 6130), Jarvis can automatically post the monthly portion to your P&L without you lifting a finger each month.
+
+3. S-Corp Basis Impact
+Because you are operating as an S-Corp, spreading this expense is highly strategic:
+
+Basis Continuity: Large one-off hits to the P&L can artificially tank your net income in a single month, which might look concerning on internal reports or for loan readiness.
+
+Predictable Margins: Your ghost-accountant.ts performs Vertical Analysis, flagging when expenses exceed 8% of revenue. Booking a large fee all at once would trigger a "Critical" anomaly alert. Spreading it via a prepaid schedule keeps your "Operating Expense" ratios stable and your AI-generated insights accurate.
+
+Recommended Next Steps for Jarvis:
+Update COA: Insert the 1200 code into your chartOfAccounts table.
+
+Amortization Entry: Use the postJournalEntry function to move the cash to the Prepaid account.
+
+Schedule Creation: Use the calculateStraightLineSchedule logic to create 12 pending entries in a prepaid_amortization table (similar to your depreciation_entries).
+
+Monthly Trigger: Ensure the "Ghost Accountant" nightly sync includes a check for posted: false amortization lines to move them into your 6170 - Contract Labor or 6100 - Professional Services accounts.

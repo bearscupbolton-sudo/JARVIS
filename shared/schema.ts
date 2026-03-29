@@ -2338,6 +2338,47 @@ export const insertAssetAuditLogSchema = createInsertSchema(assetAuditLog).omit(
 export type AssetAuditLogEntry = typeof assetAuditLog.$inferSelect;
 export type InsertAssetAuditLogEntry = z.infer<typeof insertAssetAuditLogSchema>;
 
+// === PREPAID AMORTIZATIONS ===
+export const prepaidAmortizations = pgTable("prepaid_amortizations", {
+  id: serial("id").primaryKey(),
+  description: text("description").notNull(),
+  vendor: text("vendor"),
+  totalAmount: doublePrecision("total_amount").notNull(),
+  monthlyAmount: doublePrecision("monthly_amount").notNull(),
+  expenseAccountCode: text("expense_account_code").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  totalMonths: integer("total_months").notNull(),
+  amortizedToDate: doublePrecision("amortized_to_date").notNull().default(0),
+  remainingBalance: doublePrecision("remaining_balance").notNull(),
+  status: text("status").notNull().default("active"),
+  transactionId: integer("transaction_id"),
+  initialJournalEntryId: integer("initial_journal_entry_id"),
+  locationId: integer("location_id"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPrepaidAmortizationSchema = createInsertSchema(prepaidAmortizations).omit({ id: true, createdAt: true });
+export type PrepaidAmortization = typeof prepaidAmortizations.$inferSelect;
+export type InsertPrepaidAmortization = z.infer<typeof insertPrepaidAmortizationSchema>;
+
+export const prepaidAmortizationEntries = pgTable("prepaid_amortization_entries", {
+  id: serial("id").primaryKey(),
+  amortizationId: integer("amortization_id").notNull(),
+  periodDate: text("period_date").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  accumulatedAmortization: doublePrecision("accumulated_amortization").notNull(),
+  remainingBalance: doublePrecision("remaining_balance").notNull(),
+  journalEntryId: integer("journal_entry_id"),
+  posted: boolean("posted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPrepaidAmortizationEntrySchema = createInsertSchema(prepaidAmortizationEntries).omit({ id: true, createdAt: true });
+export type PrepaidAmortizationEntry = typeof prepaidAmortizationEntries.$inferSelect;
+export type InsertPrepaidAmortizationEntry = z.infer<typeof insertPrepaidAmortizationEntrySchema>;
+
 // === EMPLOYEE REIMBURSEMENTS ===
 export const employeeReimbursements = pgTable("employee_reimbursements", {
   id: serial("id").primaryKey(),
