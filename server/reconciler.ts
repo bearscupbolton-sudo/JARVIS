@@ -30,8 +30,25 @@ const VENDOR_TEMPLATES: Record<string, { coaCode: string; category: string }> = 
   "square": { coaCode: "6080", category: "misc" },
   "intuit": { coaCode: "6080", category: "misc" },
   "replit": { coaCode: "6080", category: "technology" },
-  "adp": { coaCode: "6100", category: "professional_services" },
-  "gusto": { coaCode: "6100", category: "professional_services" },
+  "adp": { coaCode: "6010", category: "labor" },
+  "gusto": { coaCode: "6010", category: "labor" },
+  "payroll": { coaCode: "6010", category: "labor" },
+  "paycheck": { coaCode: "6010", category: "labor" },
+  "wages": { coaCode: "6010", category: "labor" },
+  "salary": { coaCode: "6010", category: "labor" },
+  "direct deposit": { coaCode: "6010", category: "labor" },
+  "paychex": { coaCode: "6010", category: "labor" },
+  "quickbooks payroll": { coaCode: "6010", category: "labor" },
+  "eftps": { coaCode: "6020", category: "labor" },
+  "tax deposit": { coaCode: "6020", category: "labor" },
+  "payroll tax": { coaCode: "6020", category: "labor" },
+  "irs payment": { coaCode: "6020", category: "labor" },
+  "state tax": { coaCode: "6020", category: "labor" },
+  "unemployment tax": { coaCode: "6020", category: "labor" },
+  "futa": { coaCode: "6020", category: "labor" },
+  "suta": { coaCode: "6020", category: "labor" },
+  "fica": { coaCode: "6020", category: "labor" },
+  "withholding": { coaCode: "6020", category: "labor" },
 };
 
 const LODGING_KEYWORDS = [
@@ -53,7 +70,8 @@ export interface MatchResult {
 
 export function findVendorTemplate(description: string): { coaCode: string; category: string } | null {
   const lower = description.toLowerCase();
-  for (const [vendor, template] of Object.entries(VENDOR_TEMPLATES)) {
+  const entries = Object.entries(VENDOR_TEMPLATES).sort((a, b) => b[0].length - a[0].length);
+  for (const [vendor, template] of entries) {
     if (lower.includes(vendor)) return template;
   }
   return null;
@@ -423,4 +441,176 @@ export function startPlaceholderTTLWorker() {
   }, TWELVE_HOURS);
 
   console.log("[TTL Worker] Placeholder stale-check worker started");
+}
+
+const LABOR_WAGE_KEYWORDS = [
+  "payroll", "paycheck", "wages", "salary", "direct deposit",
+  "adp", "gusto", "paychex", "quickbooks payroll",
+];
+const LABOR_TAX_KEYWORDS = [
+  "eftps", "tax deposit", "payroll tax", "irs payment",
+  "state tax", "unemployment tax", "futa", "suta", "fica", "withholding",
+];
+
+export async function reclassifyLaborExpenses(): Promise<{ wageCount: number; taxCount: number }> {
+  const miscAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6090"));
+  const wageAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010"));
+  const taxAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6020"));
+
+  if (!miscAccount[0] || !wageAccount[0] || !taxAccount[0]) {
+    console.log("[LaborFix] COA accounts not yet seeded, skipping reclassification");
+    return { wageCount: 0, taxCount: 0 };
+  }
+
+  const alreadyRan = await db.select().from(aiInferenceLogs)
+    .where(eq(aiInferenceLogs.promptVersion, "labor_reclassification_v1"));
+  if (alreadyRan.length > 0) {
+    return { wageCount: 0, taxCount: 0 };
+  }
+
+  const profSvcAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6100"));
+
+  const miscLedgerLines = await db.select({
+    lineId: ledgerLines.id,
+    entryId: ledgerLines.entryId,
+    memo: ledgerLines.memo,
+    debit: ledgerLines.debit,
+    credit: ledgerLines.credit,
+  }).from(ledgerLines)
+    .where(
+      profSvcAccount[0]
+        ? or(eq(ledgerLines.accountId, miscAccount[0].id), eq(ledgerLines.accountId, profSvcAccount[0].id))
+        : eq(ledgerLines.accountId, miscAccount[0].id)
+    );
+
+  const miscJournalIds = [...new Set(miscLedgerLines.map(l => l.entryId))];
+  let entries: Array<{ id: number; description: string }> = [];
+  if (miscJournalIds.length > 0) {
+    entries = await db.select({ id: journalEntries.id, description: journalEntries.description })
+      .from(journalEntries)
+      .where(inArray(journalEntries.id, miscJournalIds));
+  }
+  const entryMap = new Map(entries.map(e => [e.id, e.description]));
+
+  let wageCount = 0;
+  let taxCount = 0;
+
+  for (const line of miscLedgerLines) {
+    const desc = (line.memo || entryMap.get(line.entryId) || "").toLowerCase();
+    let newAccountId: number | null = null;
+
+    if (LABOR_TAX_KEYWORDS.some(kw => desc.includes(kw))) {
+      newAccountId = taxAccount[0].id;
+      taxCount++;
+    } else if (LABOR_WAGE_KEYWORDS.some(kw => desc.includes(kw))) {
+      newAccountId = wageAccount[0].id;
+      wageCount++;
+    }
+
+    if (newAccountId) {
+      await db.update(ledgerLines)
+        .set({ accountId: newAccountId })
+        .where(eq(ledgerLines.id, line.lineId));
+    }
+  }
+
+  const miscFirmTxns = await db.select().from(firmTransactions)
+    .where(eq(firmTransactions.category, "misc"));
+
+  for (const txn of miscFirmTxns) {
+    const desc = (txn.description || "").toLowerCase();
+    let newCoaCode = "";
+    let newCategory = "";
+
+    if (LABOR_TAX_KEYWORDS.some(kw => desc.includes(kw))) {
+      newCoaCode = "6020";
+      newCategory = "labor";
+    } else if (LABOR_WAGE_KEYWORDS.some(kw => desc.includes(kw))) {
+      newCoaCode = "6010";
+      newCategory = "labor";
+    }
+
+    if (newCoaCode) {
+      await db.update(firmTransactions)
+        .set({
+          category: newCategory,
+          suggestedCoaCode: newCoaCode,
+          notes: `Reclassified from Miscellaneous (6090) to Labor (${newCoaCode}) — automated labor fix`,
+        })
+        .where(eq(firmTransactions.id, txn.id));
+    }
+  }
+
+  const profSvcFirmTxns = await db.select().from(firmTransactions)
+    .where(eq(firmTransactions.category, "professional_services"));
+
+  for (const txn of profSvcFirmTxns) {
+    const desc = (txn.description || "").toLowerCase();
+    if (LABOR_WAGE_KEYWORDS.some(kw => desc.includes(kw))) {
+      await db.update(firmTransactions)
+        .set({
+          category: "labor",
+          suggestedCoaCode: "6010",
+          notes: `Reclassified from Professional Services (6100) to Labor - Wages (6010) — automated labor fix`,
+        })
+        .where(eq(firmTransactions.id, txn.id));
+      wageCount++;
+    }
+  }
+
+  await db.insert(aiInferenceLogs).values({
+    promptVersion: "labor_reclassification_v1",
+    rawInput: `Retroactive labor reclassification: ${wageCount} wage entries, ${taxCount} payroll tax entries moved from 6090/6100 to 6010/6020`,
+    logicSummary: `Completed. Wages→6010: ${wageCount}, PayrollTax→6020: ${taxCount}`,
+    confidenceScore: 1.0,
+    anomalyFlag: false,
+  });
+
+  console.log(`[LaborFix] Reclassified ${wageCount} wage entries to 6010, ${taxCount} payroll tax entries to 6020`);
+  return { wageCount, taxCount };
+}
+
+export async function seedLaborLearningRules(): Promise<void> {
+  const laborRules = [
+    { vendor: "adp", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "gusto", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "paychex", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "payroll", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "paycheck", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "wages", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "salary", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "direct deposit", code: "6010", name: "Labor - Wages", cat: "labor" },
+    { vendor: "eftps", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "tax deposit", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "payroll tax", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "futa", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "suta", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "fica", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+  ];
+
+  for (const rule of laborRules) {
+    const existing = await db.select().from(aiLearningRules)
+      .where(eq(aiLearningRules.vendorString, rule.vendor));
+    if (existing.length === 0) {
+      await db.insert(aiLearningRules).values({
+        vendorString: rule.vendor,
+        matchedCoaCode: rule.code,
+        matchedCoaName: rule.name,
+        category: rule.cat,
+        confidenceScore: 0.99,
+        source: "system_labor_fix",
+        createdBy: "system",
+      });
+    } else if (existing[0].matchedCoaCode !== rule.code) {
+      await db.update(aiLearningRules)
+        .set({
+          matchedCoaCode: rule.code,
+          matchedCoaName: rule.name,
+          category: rule.cat,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiLearningRules.id, existing[0].id));
+    }
+  }
+  console.log("[LaborFix] Labor learning rules seeded/updated");
 }

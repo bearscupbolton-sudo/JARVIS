@@ -8,6 +8,7 @@ import { db } from "../../db";
 import { firmTransactions, users } from "@shared/schema";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { runAgenticLoop } from "../../tool-dispatcher";
+import { isAuthenticated } from "../auth/replitAuth";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -272,12 +273,9 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/ghost-action/execute", async (req: Request, res: Response) => {
+  app.post("/api/ghost-action/execute", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const appUser = (req as any).appUser;
-      if (!appUser) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
 
       const [user] = await db.select().from(users).where(eq(users.id, appUser.id));
       if (!user || user.role !== "owner") {
