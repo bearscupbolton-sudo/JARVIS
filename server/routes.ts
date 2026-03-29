@@ -12525,6 +12525,39 @@ IMPORTANT GUIDELINES:
         }
       }
 
+      if (updates.category) {
+        const existing = await storage.getFirmTransaction(txnId);
+        if (existing) {
+          const { prepaidAmortizations, prepaidAmortizationEntries } = await import("@shared/schema");
+          const existingPrepaid = await db.select().from(prepaidAmortizations)
+            .where(eq(prepaidAmortizations.transactionId, txnId)).limit(1);
+
+          if (existingPrepaid.length > 0 && updates.category !== "amortization") {
+            const prepaid = existingPrepaid[0];
+            const prepaidEntries = await db.select().from(prepaidAmortizationEntries)
+              .where(eq(prepaidAmortizationEntries.amortizationId, prepaid.id));
+            for (const entry of prepaidEntries) {
+              if (entry.journalEntryId) {
+                await db.delete(ledgerLines).where(eq(ledgerLines.entryId, entry.journalEntryId));
+                await db.delete(journalEntries).where(eq(journalEntries.id, entry.journalEntryId));
+              }
+            }
+            await db.delete(prepaidAmortizationEntries).where(eq(prepaidAmortizationEntries.amortizationId, prepaid.id));
+            if (prepaid.initialJournalEntryId) {
+              await db.delete(ledgerLines).where(eq(ledgerLines.entryId, prepaid.initialJournalEntryId));
+              await db.delete(journalEntries).where(eq(journalEntries.id, prepaid.initialJournalEntryId));
+            }
+            await db.delete(prepaidAmortizations).where(eq(prepaidAmortizations.id, prepaid.id));
+            console.log(`[Amortize Cleanup] Removed prepaid #${prepaid.id} + all JEs for txn #${txnId} (re-categorized to ${updates.category})`);
+          }
+
+          if (updates.category === "amortization" && existingPrepaid.length > 0) {
+            const updated = await storage.updateFirmTransaction(txnId, { category: "amortization" });
+            return res.json(updated);
+          }
+        }
+      }
+
       const SPECIAL_CATEGORIES = new Set(["owner_draw", "prior_period_adjustment", "loan_principal", "sales_tax_payment", "equipment", "rent_split", "debt_payment"]);
       const REVENUE_CATEGORIES = new Set(["revenue", "other_income"]);
       const CATEGORY_COA_MAP: Record<string, { debit: string; credit: string }> = {
@@ -14433,6 +14466,14 @@ IMPORTANT GUIDELINES:
       if (txns.length === 0) return res.status(404).json({ message: "Transaction not found" });
       const txn = txns[0];
       if ((txn.amount || 0) >= 0) return res.status(400).json({ message: "Only expense (negative amount) transactions can be amortized." });
+
+      const priorJEs = await db.select().from(journalEntries).where(
+        and(eq(journalEntries.referenceId, String(transactionId)), eq(journalEntries.referenceType, "firm-txn"))
+      );
+      for (const je of priorJEs) {
+        await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+        await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+      }
 
       const txnDate = new Date(txn.date + "T00:00:00");
       const txnMonth = txnDate.getMonth();
