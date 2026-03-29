@@ -14046,6 +14046,10 @@ IMPORTANT GUIDELINES:
     try {
       const { transactionId, invoiceId } = req.body;
       if (!transactionId || !invoiceId) return res.status(400).json({ message: "transactionId and invoiceId required" });
+      const [txn] = await db.select().from(firmTransactions).where(eq(firmTransactions.id, transactionId));
+      if (!txn) return res.status(404).json({ message: "Transaction not found" });
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      if (!inv) return res.status(404).json({ message: "Invoice not found" });
       const { linkInvoiceToTransaction } = await import("./vendor-integrity-engine");
       await linkInvoiceToTransaction(transactionId, invoiceId);
       res.json({ success: true });
@@ -14058,6 +14062,8 @@ IMPORTANT GUIDELINES:
     try {
       const { transactionId } = req.body;
       if (!transactionId) return res.status(400).json({ message: "transactionId required" });
+      const [txn] = await db.select().from(firmTransactions).where(eq(firmTransactions.id, transactionId));
+      if (!txn) return res.status(404).json({ message: "Transaction not found" });
       const { unlinkInvoiceFromTransaction } = await import("./vendor-integrity-engine");
       await unlinkInvoiceFromTransaction(transactionId);
       res.json({ success: true });
