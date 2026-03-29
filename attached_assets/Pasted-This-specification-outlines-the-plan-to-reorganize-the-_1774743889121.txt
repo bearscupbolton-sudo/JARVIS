@@ -1,0 +1,64 @@
+This specification outlines the plan to reorganize the Jarvis sidebar for better approachability, promote the Lamination Studio to a primary position, and implement a dedicated Lamination Pulse card for the bakery department on the home screen.
+
+1. Sidebar Architectural Overhaul
+The sidebar will be reorganized into four high-level functional groups to reduce cognitive load while keeping critical tools at the top level.
+
+A. Global Pulse (Always Visible)
+Home: Primary dashboard.
+
+Lamination Studio: Promoted to a stand-alone top-tier item due to its core operational importance.
+
+Messages: Includes unread and urgent badges.
+
+B. Production Hub (Collapsible)
+Groups all "doing" activities by department to help bakers focus on their specific tasks.
+
+Bakery Hub: Bakery (Case management), Pastry Passports, and Production Logs.
+
+Kitchen Hub: Kitchen and Prep EQ.
+
+Coffee Hub: Coffee Inventory and Drink Recipes.
+
+Formula Library: Master Recipes and SOPs.
+
+C. Operations & Support (Collapsible)
+Separates operational "how-to" and scheduling from active production.
+
+Team Ops: Schedule, Calendar, Task Manager, and Time Cards.
+
+Back Office: Inventory master list, Vendors, and Maintenance.
+
+Resources: Tutorials and Test Kitchen.
+
+D. Intelligence & Data (Role-Based)
+Restricted to Owner and GM roles to keep the front-line UI clean.
+
+Business Intelligence: The Firm, Insights, The Loop, Payroll Review, and Sentiment Matrix.
+
+Integrations: Collapsed technical hub containing Plaid, Square Settings, Square Labor, and ADP Labor.
+
+2. Home Screen: Lamination Pulse Card
+For members of the bakery department, a high-priority "Quick Access" card will be implemented on the Home dashboard (client/src/pages/Home.tsx).
+
+Visibility: Dynamic based on the user's department attribute (where department === 'bakery').
+
+Data Integration: Connected to the /api/lamination/active endpoint to pull real-time dough states.
+
+Interface Elements:
+
+Live Status: Count of doughs currently in "Turning," "Chilling," or "Proofing" states.
+
+Rest Alerts: Visual indicator if any dough has exceeded its chilling duration and is ready for the next turn.
+
+Action Primary: "New Batch" button to quickly initiate dough logs.
+
+Action Secondary: Link to the full Lamination Studio for deep-dive management.
+
+3. Implementation Steps
+Refactor Sidebar Logic: Update client/src/components/Layout.tsx to use the new SidebarGroup and SidebarMenuSub components from the UI library.
+
+Permission Filtering: Update the canSeeSidebarItem helper to ensure the Integrations hub is hidden from non-admin users.
+
+Lamination Component: Build a new LaminationPulseCard.tsx component and register it in the Home.tsx dashboard grid.
+
+Route Cleanup: Ensure all legacy top-level routes are properly nested under their new parent categories in the navigation logic.

@@ -24,6 +24,8 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **AI Integration (Jarvis):** Utilizes OpenAI-compatible APIs for chat, audio, image generation, invoice scanning, personalized briefings, and recipe optimization.
     *   **Multi-Location Support:** All operational data is tagged by `locationId`.
     *   **Authentication & Roles:** PIN-based authentication with role-based permissions (`owner`, `manager`, `member`).
+    *   **Sidebar Architecture:** Reorganized into four collapsible groups (Production Hub, Operations & Support, Intelligence & Data, Integrations) plus Global Pulse top-level items (Home, Lamination Studio, Messages, Jarvis). Groups persist collapse state in localStorage. Intelligence & Data restricted to owner/manager/GM; Integrations to owner only. Component: `client/src/components/Layout.tsx`.
+    *   **Lamination Pulse Card:** Home dashboard widget showing real-time dough status (turning/chilling/proofing counts), rest alerts for overdue doughs, and quick-action buttons. Visible to bakery department users, owners, and managers. Component: `client/src/components/LaminationPulseCard.tsx`. Widget ID: `laminationPulse`.
     *   **Operational Dashboards:** Consolidated Home Page, Admin Insights & KPI Reports, TTIS (Tip Transparency), and Platform 9¾ (FOH Command Center).
     *   **Communication & Collaboration:** Messaging system, global acknowledgment system, task manager, and notes system.
     *   **Customer & Wholesale:** La Carte customer portal, BC Wholesale portal, and JMT (Jarvis Menu Theater) for dynamic menu display.
