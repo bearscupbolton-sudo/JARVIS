@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { format, isToday, isTomorrow, addDays, isSameDay, getMonth, getDate } from "date-fns";
 import type { Shift, Announcement, DirectMessage, MessageRecipient, TimeEntry, BreakEntry, CalendarEvent, Problem, BakeoffLog, PastryTotal, PreShiftNote, ShiftNote } from "@shared/schema";
+import LaminationPulseCard from "@/components/LaminationPulseCard";
 import { insertPreShiftNoteSchema } from "@shared/schema";
 
 const BearLogoIcon = ({ className }: { className?: string }) => (
@@ -181,7 +182,7 @@ function saveQuickActions(actions: string[]) {
   localStorage.setItem(QA_STORAGE_KEY, JSON.stringify(actions));
 }
 
-type WidgetId = "briefing" | "announcements" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "myTasks" | "todayOrders" | "messages" | "quickActions" | "whosOn";
+type WidgetId = "briefing" | "announcements" | "laminationPulse" | "quickStats" | "preShiftNotes" | "production" | "problems" | "forwardLook" | "mySchedule" | "myEvents" | "myEventJobs" | "myTasks" | "todayOrders" | "messages" | "quickActions" | "whosOn";
 
 type WidgetMeta = {
   id: WidgetId;
@@ -194,6 +195,7 @@ type WidgetMeta = {
 const WIDGET_REGISTRY: WidgetMeta[] = [
   { id: "briefing", label: "Daily Briefing", icon: Star },
   { id: "announcements", label: "Pinned Announcements", icon: Pin },
+  { id: "laminationPulse", label: "Lamination Pulse", icon: Layers },
   { id: "quickStats", label: "Quick Stats", icon: AlertCircle },
   { id: "preShiftNotes", label: "Pre-Shift Notes", icon: FileText },
   { id: "production", label: "Production Today", icon: Flame },
@@ -210,7 +212,7 @@ const WIDGET_REGISTRY: WidgetMeta[] = [
 ];
 
 const DEFAULT_WIDGET_ORDER: WidgetId[] = [
-  "briefing", "announcements", "quickStats", "preShiftNotes",
+  "briefing", "announcements", "laminationPulse", "quickStats", "preShiftNotes",
   "production", "problems", "forwardLook",
   "mySchedule", "myEvents", "myEventJobs", "myTasks", "todayOrders", "messages", "quickActions",
 ];
@@ -922,6 +924,7 @@ export default function Home() {
   const WIDGET_SECTION_MAP: Record<WidgetId, string> = {
     briefing: "briefing",
     announcements: "announcements",
+    laminationPulse: "production",
     quickStats: "stats",
     preShiftNotes: "preshift-notes",
     production: "production",
@@ -1078,6 +1081,13 @@ export default function Home() {
         </div>
       ) : null
     ),
+
+    laminationPulse: () => {
+      const dept = (user as any)?.department;
+      const isBakeryUser = !dept || dept === "bakery" || user?.role === "owner" || user?.role === "manager";
+      if (!isBakeryUser) return null;
+      return <LaminationPulseCard />;
+    },
 
     quickStats: () => (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="container-quick-stats">

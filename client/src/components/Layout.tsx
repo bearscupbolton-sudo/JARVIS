@@ -52,6 +52,13 @@ import {
   Store,
   GraduationCap,
   Link2,
+  ChevronDown,
+  ChevronRight,
+  Factory,
+  Cog,
+  LayoutGrid,
+  Shield,
+  Brain,
 } from "lucide-react";
 import bearLogoPath from "@assets/bear_logo_clean.png";
 import { useAuth } from "@/hooks/use-auth";
@@ -115,61 +122,113 @@ function saveShortcuts(shortcuts: string[]) {
   localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(shortcuts));
 }
 
-const NAV_ITEMS = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/notes", label: "Notes", icon: StickyNote },
-  { href: "/bakery", label: "Bakery", icon: Croissant },
-  { href: "/coffee", label: "Coffee", icon: Coffee },
-  { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
-  { href: "/recipes", label: "Recipes", icon: ChefHat },
-  { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
-  { href: "/lamination", label: "Lamination Studio", icon: Layers },
-  { href: "/production", label: "Production Logs", icon: ClipboardList },
-  { href: "/sops", label: "SOPs", icon: BookOpen },
-  { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/vendors", label: "Vendors", icon: Truck },
-  { href: "/maintenance", label: "Maintenance", icon: Wrench },
-  { href: "/schedule", label: "Schedule", icon: CalendarDays },
-  { href: "/calendar", label: "Calendar", icon: Calendar },
-  { href: "/time-cards", label: "Time Cards", icon: Clock },
-  { href: "/tasks", label: "Task Manager", icon: ListChecks },
-  { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
-  { href: "/starkade", label: "Starkade", icon: Gamepad2 },
-  { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
-  { href: "/bagel-bros", label: "Bagel Bros", icon: CircleDot },
-];
+const COLLAPSED_KEY = "jarvis-sidebar-collapsed";
 
-const MANAGER_NAV_ITEMS = [
-  { href: "/admin/users", label: "Team", icon: Users },
-  { href: "/hr", label: "HR", icon: Briefcase },
-  { href: "/mll", label: "MLL", icon: Truck },
-  { href: "/time-review", label: "Time Review", icon: Timer },
-  { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
-  { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
-  { href: "/loop", label: "The Loop", icon: RefreshCw },
-];
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    const stored = localStorage.getItem(COLLAPSED_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return {};
+}
 
-const GM_NAV_ITEMS = [
-  { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
-  { href: "/sentiment", label: "Sentiment Matrix", icon: HeartHandshake },
-];
+function saveCollapsed(collapsed: Record<string, boolean>) {
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
+}
 
-const OWNER_ONLY_NAV_ITEMS = [
-  { href: "/wholesale-admin", label: "Wholesale", icon: Store },
-  { href: "/jmt", label: "Menu Theater", icon: Tv },
-  { href: "/the-firm", label: "The Firm", icon: Landmark },
-  { href: "/payroll", label: "Payroll Review", icon: DollarSign },
-  { href: "/square-labor", label: "Square Labor", icon: Zap },
-  { href: "/adp-labor", label: "ADP Labor", icon: Link2 },
-  { href: "/admin/square", label: "Square Settings", icon: Settings2 },
-  { href: "/admin/insights", label: "Insights", icon: Eye },
-  { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
-  { href: "/dev-feedback", label: "Dev Feedback", icon: Code2 },
-  { href: "/admin/tutorials", label: "Tutorials", icon: GraduationCap },
-];
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  items: NavItem[];
+  collapsible?: boolean;
+  roleRestriction?: "owner_manager" | "owner_gm" | "owner";
+};
+
+function SidebarGroup({
+  group,
+  collapsed,
+  onToggle,
+  location,
+  onNavigate,
+  canSeeSidebarItem,
+  t,
+  pendingCount,
+  isOwner,
+  isGeneralManager,
+}: {
+  group: NavGroup;
+  collapsed: boolean;
+  onToggle: () => void;
+  location: string;
+  onNavigate: () => void;
+  canSeeSidebarItem: (href: string) => boolean;
+  t: (s: string) => string;
+  pendingCount?: number;
+  isOwner: boolean;
+  isGeneralManager: boolean;
+}) {
+  const visibleItems = group.items.filter(item => canSeeSidebarItem(item.href));
+  if (visibleItems.length === 0) return null;
+
+  const hasActiveChild = visibleItems.some(item =>
+    item.href === "/" ? location === "/" : location.startsWith(item.href)
+  );
+
+  return (
+    <div className="space-y-0.5">
+      {group.collapsible ? (
+        <button
+          onClick={onToggle}
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors",
+            hasActiveChild && collapsed
+              ? "text-primary bg-primary/5"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          )}
+          data-testid={`sidebar-group-${group.id}`}
+        >
+          <group.icon className="w-3.5 h-3.5" />
+          <span className="flex-1 text-left">{group.label}</span>
+          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+      ) : (
+        <div className="px-3 pt-3 pb-1">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold flex items-center gap-1.5">
+            <group.icon className="w-3 h-3" />
+            {group.label}
+          </p>
+        </div>
+      )}
+
+      {!collapsed && visibleItems.map((item) => {
+        const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
+        return (
+          <PrefetchLink key={item.href} href={item.href}>
+            <div
+              className={cn(
+                "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 cursor-pointer group ml-1",
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+              onClick={onNavigate}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <item.icon className={cn("w-4 h-4", isActive ? "text-accent" : "group-hover:text-primary")} />
+              <span className="text-sm font-medium">{t(item.label)}</span>
+              {item.label === "Approvals" && pendingCount && pendingCount > 0 && (
+                <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-pending-count">
+                  {pendingCount}
+                </Badge>
+              )}
+            </div>
+          </PrefetchLink>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -178,8 +237,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [shortcuts, setShortcuts] = React.useState<string[]>(loadShortcuts);
   const [editingShortcuts, setEditingShortcuts] = React.useState(false);
   const [editDraft, setEditDraft] = React.useState<string[]>([]);
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>(loadCollapsed);
   const { t } = useTranslation();
   const isOwner = user?.role === "owner";
+  const isManager = user?.role === "manager";
   const isGeneralManager = !!(user as any)?.isGeneralManager;
   const sidebarPerms: string[] | null = (user as any)?.sidebarPermissions ?? null;
   const canSeeSidebarItem = (href: string) => isOwner || sidebarPerms === null || sidebarPerms.includes(href);
@@ -257,6 +318,99 @@ export function Layout({ children }: { children: React.ReactNode }) {
     setEditingShortcuts(false);
   };
 
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      saveCollapsed(next);
+      return next;
+    });
+  };
+
+  const PRODUCTION_HUB: NavGroup = {
+    id: "production",
+    label: "Production Hub",
+    icon: Factory,
+    collapsible: true,
+    items: [
+      { href: "/bakery", label: "Bakery", icon: Croissant },
+      { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
+      { href: "/production", label: "Production Logs", icon: ClipboardList },
+      { href: "/kitchen", label: "Kitchen", icon: UtensilsCrossed },
+      { href: "/coffee", label: "Coffee", icon: Coffee },
+      { href: "/recipes", label: "Formula Library", icon: ChefHat },
+      { href: "/sops", label: "SOPs", icon: BookOpen },
+      { href: "/bagel-bros", label: "Bagel Bros", icon: CircleDot },
+    ],
+  };
+
+  const OPS_SUPPORT: NavGroup = {
+    id: "ops",
+    label: "Operations & Support",
+    icon: Cog,
+    collapsible: true,
+    items: [
+      { href: "/schedule", label: "Schedule", icon: CalendarDays },
+      { href: "/calendar", label: "Calendar", icon: Calendar },
+      { href: "/tasks", label: "Task Manager", icon: ListChecks },
+      { href: "/time-cards", label: "Time Cards", icon: Clock },
+      { href: "/inventory", label: "Inventory", icon: Package },
+      { href: "/vendors", label: "Vendors", icon: Truck },
+      { href: "/maintenance", label: "Maintenance", icon: Wrench },
+      { href: "/notes", label: "Notes", icon: StickyNote },
+      { href: "/admin/tutorials", label: "Tutorials", icon: GraduationCap },
+      { href: "/test-kitchen", label: "Test Kitchen", icon: FlaskConical },
+      { href: "/admin/users", label: "Team", icon: Users },
+      { href: "/hr", label: "HR", icon: Briefcase },
+      { href: "/mll", label: "MLL", icon: Truck },
+      { href: "/time-review", label: "Time Review", icon: Timer },
+      { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
+      { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
+      { href: "/starkade", label: "Starkade", icon: Gamepad2 },
+      { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
+    ],
+  };
+
+  const INTELLIGENCE: NavGroup = {
+    id: "intelligence",
+    label: "Intelligence & Data",
+    icon: Brain,
+    collapsible: true,
+    items: [
+      { href: "/the-firm", label: "The Firm", icon: Landmark },
+      { href: "/admin/insights", label: "Insights", icon: Eye },
+      { href: "/loop", label: "The Loop", icon: RefreshCw },
+      { href: "/payroll", label: "Payroll Review", icon: DollarSign },
+      { href: "/sentiment", label: "Sentiment Matrix", icon: HeartHandshake },
+      { href: "/admin/ttis", label: "TTIS", icon: DollarSign },
+      { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
+      { href: "/wholesale-admin", label: "Wholesale", icon: Store },
+      { href: "/jmt", label: "Menu Theater", icon: Tv },
+      { href: "/live-inventory", label: "Live Inventory", icon: BarChart3 },
+      { href: "/dev-feedback", label: "Dev Feedback", icon: Code2 },
+    ],
+  };
+
+  const INTEGRATIONS: NavGroup = {
+    id: "integrations",
+    label: "Integrations",
+    icon: Link2,
+    collapsible: true,
+    items: [
+      { href: "/admin/square", label: "Square Settings", icon: Settings2 },
+      { href: "/square-labor", label: "Square Labor", icon: Zap },
+      { href: "/adp-labor", label: "ADP Labor", icon: Link2 },
+    ],
+  };
+
+  const navGroups: NavGroup[] = [PRODUCTION_HUB, OPS_SUPPORT];
+
+  if (isOwner || isManager || isGeneralManager) {
+    navGroups.push(INTELLIGENCE);
+  }
+  if (isOwner) {
+    navGroups.push(INTEGRATIONS);
+  }
+
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
       <div className="p-6">
@@ -298,8 +452,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
-        {NAV_ITEMS.slice(0, 2).map((item) => {
+      <nav className="flex-1 px-4 space-y-1 mt-2 overflow-y-auto">
+        {/* Global Pulse — always visible top-level items */}
+        {([
+          { href: "/", label: "Home", icon: Home },
+          { href: "/lamination", label: "Lamination Studio", icon: Layers },
+          { href: "/messages", label: "Messages", icon: MessageSquare },
+          { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
+        ] as NavItem[]).filter(item => item.href === "/" || canSeeSidebarItem(item.href)).map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
           return (
             <PrefetchLink key={item.href} href={item.href}>
@@ -311,6 +471,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 onClick={() => setMobileOpen(false)}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
                 <span className="font-medium">{t(item.label)}</span>
@@ -334,6 +495,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           );
         })}
 
+        {/* Shortcuts Section */}
         {!editingShortcuts && shortcutItems.length > 0 && (
           <>
             <div className="pt-3 pb-1 px-2 flex items-center justify-between">
@@ -421,101 +583,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </>
         )}
 
-        <div className="pt-3 pb-1 px-2">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Navigation</p>
+        {/* Collapsible Nav Groups */}
+        <div className="pt-2 space-y-1">
+          {navGroups.map(group => (
+            <SidebarGroup
+              key={group.id}
+              group={group}
+              collapsed={!!collapsedGroups[group.id]}
+              onToggle={() => toggleGroup(group.id)}
+              location={location}
+              onNavigate={() => setMobileOpen(false)}
+              canSeeSidebarItem={canSeeSidebarItem}
+              t={t}
+              pendingCount={pendingCount?.count}
+              isOwner={isOwner}
+              isGeneralManager={isGeneralManager}
+            />
+          ))}
         </div>
-        {NAV_ITEMS.slice(2).filter(item => canSeeSidebarItem(item.href)).map((item) => {
-          const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
-          return (
-            <PrefetchLink key={item.href} href={item.href}>
-              <div
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
-                  isActive 
-                    ? "bg-primary text-primary-foreground shadow-md" 
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-                onClick={() => setMobileOpen(false)}
-              >
-                <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                <span className="font-medium">{t(item.label)}</span>
-              </div>
-            </PrefetchLink>
-          );
-        })}
-
-        {(isOwner || user?.role === "manager") && (
-          <>
-            <div className="pt-4 pb-1 px-2">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Admin</p>
-            </div>
-            {MANAGER_NAV_ITEMS.filter(item => canSeeSidebarItem(item.href)).map((item) => {
-              const isActive = location === item.href;
-              return (
-                <PrefetchLink key={item.href} href={item.href}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
-                      isActive 
-                        ? "bg-primary text-primary-foreground shadow-md" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`nav-${item.label.toLowerCase()}`}
-                  >
-                    <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label)}</span>
-                  </div>
-                </PrefetchLink>
-              );
-            })}
-            {(isOwner || isGeneralManager) && GM_NAV_ITEMS.map((item) => {
-              const isActive = location === item.href;
-              return (
-                <PrefetchLink key={item.href} href={item.href}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
-                      isActive 
-                        ? "bg-primary text-primary-foreground shadow-md" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`nav-${item.label.toLowerCase()}`}
-                  >
-                    <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label)}</span>
-                    {item.label === "Approvals" && pendingCount && pendingCount.count > 0 && (
-                      <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-pending-count">
-                        {pendingCount.count}
-                      </Badge>
-                    )}
-                  </div>
-                </PrefetchLink>
-              );
-            })}
-            {isOwner && OWNER_ONLY_NAV_ITEMS.map((item) => {
-              const isActive = location === item.href;
-              return (
-                <PrefetchLink key={item.href} href={item.href}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group",
-                      isActive 
-                        ? "bg-primary text-primary-foreground shadow-md" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`nav-${item.label.toLowerCase()}`}
-                  >
-                    <item.icon className={cn("w-5 h-5", isActive ? "text-accent" : "group-hover:text-primary")} />
-                    <span className="font-medium">{t(item.label)}</span>
-                  </div>
-                </PrefetchLink>
-              );
-            })}
-          </>
-        )}
       </nav>
 
       <div className="p-4 border-t border-border mt-auto">
