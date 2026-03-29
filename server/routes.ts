@@ -14748,7 +14748,7 @@ IMPORTANT GUIDELINES:
             if (target.size > 10 * 1024 * 1024) throw new Error("Image attachment too large (>10MB)");
             const buffer = await downloadAttachmentForAccount(accountEmail, messageId, target.attachmentId);
             const OpenAI = (await import("openai")).default;
-            const openai = new OpenAI();
+            const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
             const base64 = buffer.toString("base64");
             const response = await openai.chat.completions.create({
               model: "gpt-4o",
@@ -14771,7 +14771,7 @@ IMPORTANT GUIDELINES:
 
       try {
         const OpenAI = (await import("openai")).default;
-        const openai = new OpenAI();
+        const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
         const response = await openai.chat.completions.create({
           model: "gpt-4o",
@@ -14804,6 +14804,7 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
         console.log(`[AuditTrail] PDF extracted: ${downloadedFiles.join(", ")} → $${parsed.totalAmount} (${parsed.lineItems?.length || 0} line items)`);
         res.json({ success: true, data: parsed, files: downloadedFiles, textLength: extractedText.length });
       } catch (parseErr: any) {
+        console.error("[AuditTrail] PDF parse step failed:", parseErr.message, parseErr.status || "");
         res.json({ success: false, message: "Text extracted but parsing failed", rawText: extractedText.substring(0, 2000), files: downloadedFiles });
       }
     } catch (err: any) {
