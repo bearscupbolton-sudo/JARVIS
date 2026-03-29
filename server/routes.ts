@@ -2995,9 +2995,10 @@ Rules:
   app.post("/api/firm/journalize-square", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { journalizeSquareRevenue } = await import("./accounting-engine");
-      const startDate = req.body?.startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+      const startDate = req.body?.startDate || `${new Date().getFullYear()}-01-01`;
       const endDate = req.body?.endDate || new Date().toISOString().slice(0, 10);
       const result = await journalizeSquareRevenue(startDate, endDate);
+      console.log(`[Journalize Square] ${startDate} → ${endDate}: ${result.journalized} journalized, ${result.skipped} skipped of ${result.total} summaries`);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -3174,6 +3175,14 @@ Rules:
           await new Promise(r => setTimeout(r, 200));
         }
         console.log(`[Square Backfill] Complete: ${synced} synced, ${errors} errors out of ${dates.length} days`);
+
+        try {
+          const { journalizeSquareRevenue } = await import("./accounting-engine");
+          const result = await journalizeSquareRevenue(startDate, endDate);
+          console.log(`[Square Backfill] Auto-journalized revenue: ${result.journalized} new, ${result.skipped} already existed`);
+        } catch (journalErr: any) {
+          console.error(`[Square Backfill] Auto-journalize failed: ${journalErr.message}`);
+        }
       })();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
