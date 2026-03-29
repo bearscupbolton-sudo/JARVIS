@@ -14288,9 +14288,12 @@ IMPORTANT GUIDELINES:
       const user = await getUserFromReq(req);
       const { periodDate } = req.body;
       if (!periodDate) return res.status(400).json({ message: "periodDate required (YYYY-MM-DD)" });
+      const createdBy = user?.username || "System";
       const { postMonthlyDepreciation } = await import("./asset-engine");
-      const result = await postMonthlyDepreciation(periodDate, user?.username || "System");
-      res.json(result);
+      const depResult = await postMonthlyDepreciation(periodDate, createdBy);
+      const { runMonthlyAmortization } = await import("./prepaid-engine");
+      const amortResult = await runMonthlyAmortization(periodDate, createdBy);
+      res.json({ depreciation: depResult, amortization: amortResult });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -14322,6 +14325,55 @@ IMPORTANT GUIDELINES:
         recommendation = await getCapExRecommendation(Math.abs(amount), ytdNetIncome);
       }
       res.json({ isCapEx, recommendation });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PREPAID AMORTIZATIONS ===
+  app.get("/api/firm/prepaids", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const { getPrepaidSummary } = await import("./prepaid-engine");
+      const summary = await getPrepaidSummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/prepaids", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { description, vendor, totalAmount, totalMonths, expenseAccountCode, startDate, locationId, transactionId } = req.body;
+      if (!description || !totalAmount || !totalMonths || !expenseAccountCode || !startDate) {
+        return res.status(400).json({ message: "description, totalAmount, totalMonths, expenseAccountCode, and startDate are required" });
+      }
+      const { createPrepaidAmortization } = await import("./prepaid-engine");
+      const result = await createPrepaidAmortization({
+        description,
+        vendor,
+        totalAmount: Math.abs(totalAmount),
+        totalMonths,
+        expenseAccountCode,
+        startDate,
+        locationId,
+        transactionId,
+        createdBy: user?.username || user?.firstName || "System",
+      });
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/prepaids/run-monthly", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { periodDate } = req.body;
+      if (!periodDate) return res.status(400).json({ message: "periodDate required (YYYY-MM-DD)" });
+      const { runMonthlyAmortization } = await import("./prepaid-engine");
+      const result = await runMonthlyAmortization(periodDate, user?.username || user?.firstName || "System");
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
