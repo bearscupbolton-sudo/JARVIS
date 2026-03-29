@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { usePlaidLink } from "react-plaid-link";
 import FinancialLineagePanel from "@/components/FinancialLineagePanel";
+import VendorIntegrityTab from "@/components/VendorIntegrityTab";
 import JarvisCFOPanel from "@/components/JarvisCFOPanel";
 import type {
   FirmAccount, InsertFirmAccount,

@@ -1,0 +1,54 @@
+Taking a step back and looking at this from **The Firm** perspective, the current gap is that Invoice Capture acts as a "source of truth" for inventory and itemized COGS, while the Bank Ledger acts as a "source of truth" for actual cash movement. When they don't meet in the middle, you lose the ability to catch billing errors or duplicate payments.
+
+Here is a architectural rethink for processing invoice data holistically within Jarvis.
+
+### 1. The "Vendor Integrity" Logic
+Instead of just matching individual transactions, we should treat the **Vendor** as a clearing entity. 
+
+* **The Problem:** You scan a $150 invoice from "BakeMark." Later, a $300 charge hits your bank from "BakeMark." Currently, Jarvis might just reconcile the $300 to COGS manually, leaving the $150 invoice "unpaid" or "floating" in the inventory system.
+* **The Solution:** A **Vendor Reconciliation Folder** that aggregates two streams of data over a rolling 30/60 day window:
+    * **Voucher Stream (Accounts Payable):** Sum of all itemized totals from `invoices` and `accrual_placeholders`.
+    * **Settlement Stream (Cash Out):** Sum of all `firm_transactions` already cleared in the ledger for that vendor.
+
+### 2. Proposed UI: The "Vendors Folder" in Reconciliation
+Inside the `Reconciliation` screen, a new "Vendors" tab would present a high-level integrity check:
+
+| Vendor | Invoiced (Captured) | Settled (Bank) | Variance | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **US Foods** | $4,200.50 | $4,200.50 | $0.00 | ✅ Balanced |
+| **BakeMark** | $1,200.00 | $1,450.00 | **($250.00)** | ⚠️ Overcharged |
+| **Copper Horse** | $800.00 | $400.00 | $400.00 | 🔍 Missing Invoice |
+
+### 3. Engineering Implementation (The Firm Perspective)
+
+#### A. The "Discrepancy Engine"
+We can modify `reconciler.ts` to include a function that flags "Ghost Charges"—bank transactions that have no matching captured invoice.
+
+```typescript
+// Proposed logic for server/reconciler.ts
+export async function getVendorIntegrityReport() {
+  // 1. Get all captured invoice totals by vendor (last 30 days)
+  // 2. Get all firm_transactions categorized to that vendor
+  // 3. Return the delta. 
+  // If (Settled > Invoiced) -> Potential overcharge or missed scan.
+  // If (Invoiced > Settled) -> Outstanding liability (Accounts Payable).
+}
+```
+
+#### B. Linking "The Firm" to "Invoice Capture"
+In `shared/schema.ts`, the `invoices` table currently tracks metadata but isn't strictly tied to a `firm_transaction`. To rethink this holistically, we should add a `ledgerEntryId` to the `invoices` table.
+
+* When you reconcile a bank transaction for $200 from "US Foods," the UI should show a list of **"Unlinked Captured Invoices"** for that vendor.
+* Selecting the invoice "pays" it in Jarvis, linking the itemized inventory data to the actual cash movement in the ledger.
+
+### 4. Behavioral Shifts for Jarvis
+To make this holistic, Jarvis should proactively alert you in the **Assistant** or **Dashboard** when:
+1.  **Missing Paperwork:** A bank transaction cleared for a vendor, but no invoice was scanned in `InvoiceCapture`.
+2.  **Price Gouging:** The bank charge is >5% higher than the sum of the captured invoices for that period.
+3.  **Double Jeopardy:** You have an `accrual_placeholder` (Ghost Entry) and a `firm_transaction` for the same amount/vendor that haven't been merged.
+
+### Summary of the "Holistic" Workflow:
+1.  **Capture:** Scan the invoice. It updates inventory `onHand` and creates a "Voucher."
+2.  **Settle:** Bank transaction imports via Plaid.
+3.  **Reconcile:** In the "Vendors" folder, you see the Voucher and the Settlement. You click "Match."
+4.  **Audit:** If the settlement is $200 but the voucher is $100, Jarvis prevents reconciliation and moves it to a **"Dispute/Review"** state, forcing you to look for the discrepancy before the books close.

@@ -1703,6 +1703,7 @@ export const firmTransactions = pgTable("firm_transactions", {
   suggestedCategory: text("suggested_category"),
   suggestedConfidence: doublePrecision("suggested_confidence"),
   suggestedRuleId: integer("suggested_rule_id"),
+  linkedInvoiceId: integer("linked_invoice_id"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
