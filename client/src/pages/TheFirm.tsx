@@ -342,6 +342,7 @@ export default function TheFirm() {
             <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
             <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
             <TabsTrigger value="tax-dna" className="whitespace-nowrap px-3 text-xs" data-testid="tab-tax-dna">Tax DNA</TabsTrigger>
+            <TabsTrigger value="vendors" className="whitespace-nowrap px-3 text-xs" data-testid="tab-vendors">Vendors</TabsTrigger>
             <TabsTrigger value="transfers" className="whitespace-nowrap px-3 text-xs" data-testid="tab-transfers">Transfers</TabsTrigger>
           </TabsList>
         </div>
@@ -396,6 +397,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="tax-dna">
           <TaxDnaTab />
+        </TabsContent>
+        <TabsContent value="vendors">
+          <VendorIntegrityTab />
         </TabsContent>
         <TabsContent value="transfers">
           <TransfersTab />

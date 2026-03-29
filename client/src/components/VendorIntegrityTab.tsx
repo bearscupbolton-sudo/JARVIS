@@ -244,7 +244,7 @@ export default function VendorIntegrityTab() {
 
   const { data, isLoading } = useQuery<VendorReport>({
     queryKey: ["/api/firm/vendor-integrity", { days }],
-    queryFn: () => fetch(`/api/firm/vendor-integrity?days=${days}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/firm/vendor-integrity?days=${days}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const report = data?.report || [];
