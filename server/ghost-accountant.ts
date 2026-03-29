@@ -45,6 +45,12 @@ OUTPUT CONSTRAINTS:
 3. Provide a 2-sentence logic summary.
 4. Return JSON only.
 
+CRITICAL LABOR CLASSIFICATION RULES:
+- Payroll processors (ADP, Gusto, Paychex, QuickBooks Payroll) process WAGES → classify as 6010 (Labor - Wages), NOT Professional Services or Miscellaneous.
+- Any transaction with keywords: payroll, wages, salary, direct deposit, paycheck → 6010 (Labor - Wages).
+- Tax deposits to IRS (EFTPS), state tax agencies, FUTA, SUTA, FICA, withholding → 6020 (Labor - Payroll Tax).
+- Do NOT classify labor/payroll transactions under 6090 (Miscellaneous) or 6100 (Professional Services).
+
 Chart of Accounts:
 ${coaList}
 

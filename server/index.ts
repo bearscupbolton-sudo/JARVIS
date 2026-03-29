@@ -82,18 +82,32 @@ app.use((req, res, next) => {
 
   seedMarchShifts().catch(err => console.error("[Seed] March shift seeding failed:", err));
 
-  import("./accounting-engine").then(({ seedChartOfAccounts }) => {
-    seedChartOfAccounts().catch(err => console.error("[Accounting] COA seed failed:", err));
+  import("./accounting-engine").then(async ({ seedChartOfAccounts }) => {
+    try {
+      await seedChartOfAccounts();
+    } catch (err) {
+      console.error("[Accounting] COA seed failed:", err);
+    }
+
+    import("./reconciler").then(async ({ startPlaceholderTTLWorker, reclassifyLaborExpenses, seedLaborLearningRules }) => {
+      startPlaceholderTTLWorker();
+      try {
+        await seedLaborLearningRules();
+      } catch (err) {
+        console.error("[LaborFix] Learning rules seed failed:", err);
+      }
+      try {
+        await reclassifyLaborExpenses();
+      } catch (err) {
+        console.error("[LaborFix] Reclassification failed:", err);
+      }
+    });
   });
 
   import("./compliance-engine").then(({ seedSalesTaxJurisdictions, seedComplianceCalendar2026, startComplianceScheduler }) => {
     seedSalesTaxJurisdictions().catch(err => console.error("[Compliance] Jurisdiction seed failed:", err));
     seedComplianceCalendar2026().catch(err => console.error("[Compliance] Calendar seed failed:", err));
     startComplianceScheduler();
-  });
-
-  import("./reconciler").then(({ startPlaceholderTTLWorker }) => {
-    startPlaceholderTTLWorker();
   });
 
   import("./nightly-sync").then(({ startNightlySync }) => {
