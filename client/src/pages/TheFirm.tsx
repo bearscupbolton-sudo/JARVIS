@@ -5572,17 +5572,47 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
 
   const journalizeMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/firm/journalize-square", { startDate, endDate });
+      const ytdStart = `${new Date().getFullYear()}-01-01`;
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await apiRequest("POST", "/api/firm/journalize-square", { startDate: ytdStart, endDate: today });
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
       toast({ title: "Revenue Journalized", description: `${data.journalized} day(s) posted to ledger, ${data.skipped} already posted` });
     },
     onError: (err: any) => {
       toast({ title: "Journalization Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const [fullSyncRunning, setFullSyncRunning] = useState(false);
+  const fullRevenueSyncMut = useMutation({
+    mutationFn: async () => {
+      setFullSyncRunning(true);
+      const ytdStart = `${new Date().getFullYear()}-01-01`;
+      const today = new Date().toISOString().slice(0, 10);
+      const backfillRes = await apiRequest("POST", "/api/square/backfill", { startDate: ytdStart, endDate: today });
+      const backfillData = await backfillRes.json();
+      const waitMs = Math.min((backfillData.daysQueued || 90) * 250, 30000);
+      await new Promise(r => setTimeout(r, waitMs));
+      const journalRes = await apiRequest("POST", "/api/firm/journalize-square", { startDate: ytdStart, endDate: today });
+      return journalRes.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      setFullSyncRunning(false);
+      toast({ title: "Full Revenue Sync Complete", description: `${data.journalized} day(s) journalized, ${data.skipped} already posted` });
+    },
+    onError: (err: any) => {
+      setFullSyncRunning(false);
+      toast({ title: "Revenue Sync Failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -5706,17 +5736,17 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
                   <span className="text-xs text-muted-foreground font-normal">{startDate} to {endDate}</span>
                 </CardTitle>
                 <div className="flex gap-2">
+                  <Button size="sm" variant="default" className="bg-green-600 hover:bg-green-700" onClick={() => fullRevenueSyncMut.mutate()} disabled={fullSyncRunning || fullRevenueSyncMut.isPending} data-testid="button-full-revenue-sync">
+                    {fullSyncRunning ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    {fullSyncRunning ? "Syncing Revenue..." : "Sync All YTD Revenue"}
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => journalizeMutation.mutate()} disabled={journalizeMutation.isPending} data-testid="button-journalize-revenue">
                     {journalizeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
-                    Sync Revenue
+                    Journalize
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending} data-testid="button-backfill-expenses">
                     {backfillMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
                     Post Expenses
-                  </Button>
-                  <Button size="sm" variant="destructive" onClick={() => cleanupRevenueMutation.mutate()} disabled={cleanupRevenueMutation.isPending} data-testid="button-cleanup-revenue">
-                    {cleanupRevenueMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ArrowUpDown className="h-4 w-4 mr-1" />}
-                    Fix Revenue
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
                     {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
