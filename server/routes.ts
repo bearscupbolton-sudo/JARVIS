@@ -15246,13 +15246,14 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
 
   app.post("/api/firm/ai/infer-and-post", isAuthenticated, isOwner, async (req: any, res) => {
     try {
-      const { description, amount, date, referenceId, referenceType, locationId } = req.body;
+      const { description, amount, date, referenceId, referenceType, locationId, category } = req.body;
       if (!description || amount == null || !date) return res.status(400).json({ message: "description, amount, date required" });
       const user = await getUserFromReq(req);
       const { inferAndPostTransaction } = await import("./ghost-accountant");
       const result = await inferAndPostTransaction(
         description, amount, date, referenceId, referenceType, locationId,
-        user?.username || user?.firstName || "Unknown"
+        user?.username || user?.firstName || "Unknown",
+        category
       );
       res.status(201).json(result);
     } catch (err: any) {

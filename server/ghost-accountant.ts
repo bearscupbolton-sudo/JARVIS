@@ -94,6 +94,15 @@ ${existingCategory ? `Previous category: ${existingCategory}` : ""}`
   }
 }
 
+const CATEGORY_TO_COA: Record<string, { code: string; name: string }> = {
+  labor: { code: "6010", name: "Labor - Wages" },
+  cogs: { code: "5010", name: "COGS - Food & Ingredients" },
+  rent: { code: "6030", name: "Rent & Occupancy" },
+  utilities: { code: "6040", name: "Utilities" },
+  insurance: { code: "6050", name: "Insurance" },
+  debt_payment: { code: "2500", name: "Loans Payable" },
+};
+
 export async function inferAndPostTransaction(
   rawDescription: string,
   amount: number,
@@ -101,9 +110,24 @@ export async function inferAndPostTransaction(
   referenceId?: string,
   referenceType?: string,
   locationId?: number,
-  createdBy?: string
+  createdBy?: string,
+  existingCategory?: string
 ) {
-  const classification = await classifyTransaction(rawDescription, amount, date);
+  let classification: Awaited<ReturnType<typeof classifyTransaction>>;
+
+  const deterministic = existingCategory ? CATEGORY_TO_COA[existingCategory] : null;
+  if (deterministic) {
+    classification = {
+      coaCode: deterministic.code,
+      coaName: deterministic.name,
+      confidence: 0.99,
+      anomalyScore: 0,
+      logicSummary: `Deterministic mapping from bank category '${existingCategory}' → ${deterministic.code} ${deterministic.name}.`,
+      sentiment: "neutral",
+    };
+  } else {
+    classification = await classifyTransaction(rawDescription, amount, date, existingCategory);
+  }
 
   const allAccounts = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.isActive, true));
   const targetAccount = allAccounts.find(a => a.code === classification.coaCode);
