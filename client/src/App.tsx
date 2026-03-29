@@ -94,6 +94,7 @@ const WholesaleOrders = lazy(() => import("@/pages/wholesale/WholesaleOrders"));
 const WholesaleOnboarding = lazy(() => import("@/pages/wholesale/WholesaleOnboarding"));
 const WholesaleAdmin = lazy(() => import("@/pages/WholesaleAdmin"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
+const JarvisHive = lazy(() => import("@/pages/JarvisHive"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
 const SquareLaborSync = lazy(() => import("@/pages/SquareLaborSync"));
 const AdpLaborSync = lazy(() => import("@/pages/AdpLaborSync"));
@@ -443,6 +444,9 @@ function Router() {
         </Route>
         <Route path="/lamination">
           {() => <ProtectedRoute component={LaminationStudio} />}
+        </Route>
+        <Route path="/hive">
+          {() => <ProtectedRoute component={JarvisHive} />}
         </Route>
         <Route path="/kiosk">
           {() => <ProtectedRoute component={Kiosk} noLayout />}
