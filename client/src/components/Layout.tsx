@@ -126,12 +126,24 @@ function saveShortcuts(shortcuts: string[]) {
 
 const COLLAPSED_KEY = "jarvis-sidebar-collapsed";
 
+const DEFAULT_COLLAPSED: Record<string, boolean> = {
+  production: true,
+  ops: true,
+  intelligence: true,
+  integrations: true,
+};
+
 function loadCollapsed(): Record<string, boolean> {
   try {
     const stored = localStorage.getItem(COLLAPSED_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { ...DEFAULT_COLLAPSED, ...parsed };
+      }
+    }
   } catch {}
-  return {};
+  return { ...DEFAULT_COLLAPSED };
 }
 
 function saveCollapsed(collapsed: Record<string, boolean>) {
@@ -183,7 +195,7 @@ function SidebarGroup({
         <button
           onClick={onToggle}
           className={cn(
-            "w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors",
+            "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-bold uppercase tracking-wider transition-colors",
             hasActiveChild && collapsed
               ? "text-primary bg-primary/5"
               : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -209,7 +221,7 @@ function SidebarGroup({
           <PrefetchLink key={item.href} href={item.href}>
             <div
               className={cn(
-                "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 cursor-pointer group ml-1",
+                "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 cursor-pointer group ml-1",
                 isActive
                   ? "bg-primary text-primary-foreground shadow-md"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -218,7 +230,7 @@ function SidebarGroup({
               data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
             >
               <item.icon className={cn("w-4 h-4", isActive ? "text-accent" : "group-hover:text-primary")} />
-              <span className="text-sm font-medium">{t(item.label)}</span>
+              <span className={cn("text-sm", isActive ? "font-medium" : "font-normal")}>{t(item.label)}</span>
               {item.label === "Approvals" && pendingCount && pendingCount > 0 && (
                 <Badge variant="destructive" className="ml-auto text-[10px]" data-testid="badge-pending-count">
                   {pendingCount}
@@ -587,7 +599,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Collapsible Nav Groups */}
-        <div className="pt-2 space-y-1">
+        <div className="pt-2 space-y-4">
           {navGroups.map(group => (
             <SidebarGroup
               key={group.id}
