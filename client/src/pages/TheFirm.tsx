@@ -1355,6 +1355,8 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
   const [filterSource, setFilterSource] = useState("all");
   const [filterReconciled, setFilterReconciled] = useState("no");
   const [filterTag, setFilterTag] = useState("all");
+  const [searchDescription, setSearchDescription] = useState("");
+  const [searchAmount, setSearchAmount] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [form, setForm] = useState<Partial<InsertFirmTransaction>>({ date: format(new Date(), "yyyy-MM-dd"), description: "", amount: 0, category: "misc", referenceType: "manual", notes: "", tags: [], department: undefined });
 
@@ -1569,8 +1571,18 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
     if (filterSource !== "all") list = list.filter(t => t.referenceType === filterSource);
     if (filterReconciled !== "all") list = list.filter(t => t.reconciled === (filterReconciled === "yes"));
     if (filterTag !== "all") list = list.filter(t => (t.tags || []).includes(filterTag));
+    if (searchDescription.trim()) {
+      const needle = searchDescription.trim().toLowerCase();
+      list = list.filter(t => (t.description || "").toLowerCase().includes(needle));
+    }
+    if (searchAmount.trim()) {
+      const target = parseFloat(searchAmount.trim());
+      if (!isNaN(target)) {
+        list = list.filter(t => Math.abs(Math.abs(t.amount) - target) < 0.015);
+      }
+    }
     return list.sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled, filterTag]);
+  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled, filterTag, searchDescription, searchAmount]);
 
   const totalIn = filtered.filter(t => t.amount >= 0).reduce((s, t) => s + t.amount, 0);
   const totalOut = filtered.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
@@ -1632,6 +1644,29 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
             </SelectContent>
           </Select>
         )}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search description..."
+            value={searchDescription}
+            onChange={e => setSearchDescription(e.target.value)}
+            className="pl-7 h-9 w-[170px] text-xs"
+            data-testid="search-description"
+          />
+        </div>
+        <div className="relative">
+          <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Amount..."
+            value={searchAmount}
+            onChange={e => setSearchAmount(e.target.value)}
+            className="pl-7 h-9 w-[120px] text-xs"
+            type="number"
+            step="0.01"
+            min="0"
+            data-testid="search-amount"
+          />
+        </div>
         {creditCardAccounts.length > 0 && (
           <div className="flex items-center gap-1">
             {creditCardAccounts.map(cc => (
