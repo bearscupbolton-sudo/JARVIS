@@ -14029,6 +14029,43 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  // === VENDOR INTEGRITY ===
+  app.get("/api/firm/vendor-integrity", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 60;
+      const { getVendorIntegrityReport, getVendorAlertSummary } = await import("./vendor-integrity-engine");
+      const report = await getVendorIntegrityReport(days);
+      const summary = getVendorAlertSummary(report);
+      res.json({ report, summary });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vendor-integrity/link", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionId, invoiceId } = req.body;
+      if (!transactionId || !invoiceId) return res.status(400).json({ message: "transactionId and invoiceId required" });
+      const { linkInvoiceToTransaction } = await import("./vendor-integrity-engine");
+      await linkInvoiceToTransaction(transactionId, invoiceId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vendor-integrity/unlink", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { transactionId } = req.body;
+      if (!transactionId) return res.status(400).json({ message: "transactionId required" });
+      const { unlinkInvoiceFromTransaction } = await import("./vendor-integrity-engine");
+      await unlinkInvoiceFromTransaction(transactionId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === FIXED ASSETS (Capital Equipment) ===
   app.get("/api/firm/assets", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
