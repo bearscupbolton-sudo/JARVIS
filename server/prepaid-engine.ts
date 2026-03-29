@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { prepaidAmortizations, prepaidAmortizationEntries, chartOfAccounts, journalEntries, ledgerLines } from "@shared/schema";
+import { prepaidAmortizations, prepaidAmortizationEntries, chartOfAccounts, journalEntries, ledgerLines, firmTransactions } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { calculateStraightLineSchedule } from "./asset-engine";
 
@@ -18,6 +18,18 @@ export async function createPrepaidAmortization(params: {
   createdBy: string;
 }) {
   const { description, vendor, totalAmount, totalMonths, expenseAccountCode, startDate, locationId, transactionId, createdBy } = params;
+
+  if (transactionId) {
+    const existing = await db.select().from(prepaidAmortizations)
+      .where(eq(prepaidAmortizations.transactionId, transactionId)).limit(1);
+    if (existing.length > 0) {
+      throw new Error(`Transaction #${transactionId} already has an amortization schedule (prepaid #${existing[0].id}).`);
+    }
+  }
+
+  if (totalMonths < 1) {
+    throw new Error("totalMonths must be at least 1.");
+  }
 
   const schedule = calculateStraightLineSchedule(totalAmount, 0, totalMonths, startDate);
 

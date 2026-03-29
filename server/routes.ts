@@ -14420,6 +14420,47 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/prepaids/from-transaction", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { transactionId, expenseAccountCode } = req.body;
+      if (!transactionId || !expenseAccountCode) {
+        return res.status(400).json({ message: "transactionId and expenseAccountCode are required" });
+      }
+      const { firmTransactions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const txns = await db.select().from(firmTransactions).where(eq(firmTransactions.id, transactionId)).limit(1);
+      if (txns.length === 0) return res.status(404).json({ message: "Transaction not found" });
+      const txn = txns[0];
+      if ((txn.amount || 0) >= 0) return res.status(400).json({ message: "Only expense (negative amount) transactions can be amortized." });
+
+      const txnDate = new Date(txn.date + "T00:00:00");
+      const txnMonth = txnDate.getMonth();
+      const monthsRemaining = 12 - txnMonth;
+      const startDate = `${txnDate.getFullYear()}-${String(txnMonth + 1).padStart(2, "0")}-01`;
+      const totalAmount = Math.abs(txn.amount || 0);
+
+      const { createPrepaidAmortization } = await import("./prepaid-engine");
+      const result = await createPrepaidAmortization({
+        description: txn.description || "Amortized Expense",
+        vendor: txn.vendor || txn.description || "Unknown",
+        totalAmount,
+        totalMonths: monthsRemaining,
+        expenseAccountCode,
+        startDate,
+        locationId: txn.locationId || undefined,
+        transactionId: txn.id,
+        createdBy: user?.username || user?.firstName || "System",
+      });
+
+      await db.update(firmTransactions).set({ category: "amortization" }).where(eq(firmTransactions.id, transactionId));
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.post("/api/firm/prepaids/run-monthly", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);

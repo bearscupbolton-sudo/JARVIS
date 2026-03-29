@@ -135,6 +135,8 @@ const CATEGORIES = [
   { value: "misc", label: "Misc" },
 ];
 
+const AMORTIZE_ACTION = { value: "amortize_calendar", label: "⏳ Amortize (Calendar Year)" };
+
 const CATEGORY_TO_COA: Record<string, string> = {
   revenue: "4010", cogs: "5010", labor: "6010", supplies: "6090",
   utilities: "6040", rent: "6030", rent_split: "6030", insurance: "6030", marketing: "6100",
@@ -1430,6 +1432,30 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
     rentSplitMut.mutate({ transactionId: rentSplitTxn.id, businessPercent: rentBusinessPct, memo: rentMemo });
   };
 
+  const [amortizeTxn, setAmortizeTxn] = useState<any | null>(null);
+  const [amortizeCategory, setAmortizeCategory] = useState("professional_services");
+
+  const handleAmortizeCategory = (txn: any) => {
+    setEditingCategoryId(null);
+    setAmortizeTxn(txn);
+    setAmortizeCategory("professional_services");
+  };
+
+  const amortizeMut = useMutation({
+    mutationFn: async (data: { transactionId: number; expenseAccountCode: string }) =>
+      apiRequest("POST", "/api/firm/prepaids/from-transaction", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/prepaids"] });
+      setAmortizeTxn(null);
+      toast({ title: "Prepaid amortization created", description: "Expense will be spread evenly across remaining months this calendar year." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Amortization failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const [jarvisLookupTxn, setJarvisLookupTxn] = useState<any | null>(null);
   const [jarvisResults, setJarvisResults] = useState<any | null>(null);
   const [jarvisSearchingId, setJarvisSearchingId] = useState<number | null>(null);
@@ -1818,6 +1844,8 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                                 handleEquipmentCategory(txn);
                               } else if (val === "rent_split") {
                                 handleRentSplitCategory(txn);
+                              } else if (val === "amortize_calendar") {
+                                handleAmortizeCategory(txn);
                               } else {
                                 reclassifyMut.mutate({ id: txn.id, category: val, description: txn.description });
                               }
@@ -1827,6 +1855,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                           <SelectTrigger className="h-7 text-xs w-[130px]" data-testid={`select-reclassify-${txn.id}`}><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                            {txn.amount < 0 && <SelectItem key={AMORTIZE_ACTION.value} value={AMORTIZE_ACTION.value}>{AMORTIZE_ACTION.label}</SelectItem>}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -2274,6 +2303,114 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                   >
                     {rentSplitMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Building2 className="w-4 h-4 mr-1" />}
                     Book Rent Split
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!amortizeTxn} onOpenChange={(open) => { if (!open) setAmortizeTxn(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Timer className="w-5 h-5 text-blue-500" />
+              Amortize — Calendar Year
+            </DialogTitle>
+          </DialogHeader>
+          {amortizeTxn && (() => {
+            const totalAmount = Math.abs(amortizeTxn.amount);
+            const rawDate = amortizeTxn.date ? new Date(amortizeTxn.date + "T00:00:00") : new Date();
+            const txnDate = isNaN(rawDate.getTime()) ? new Date() : rawDate;
+            const txnMonth = txnDate.getMonth();
+            const monthsRemaining = 12 - txnMonth;
+            const monthlyAmount = Math.round((totalAmount / monthsRemaining) * 100) / 100;
+            const startDate = format(new Date(txnDate.getFullYear(), txnMonth, 1), "yyyy-MM-dd");
+            const expenseCategories = CATEGORIES.filter(c =>
+              !["revenue", "other_income", "owner_draw", "sales_tax_payment", "prior_period_adjustment",
+                "loan_principal", "debt_payment", "equipment", "rent_split", "amortize_calendar", "misc"].includes(c.value)
+            );
+            const selectedCoaCode = CATEGORY_TO_COA[amortizeCategory] || "6090";
+            const selectedLabel = CATEGORIES.find(c => c.value === amortizeCategory)?.label || amortizeCategory;
+            return (
+              <div className="space-y-4">
+                <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">{amortizeTxn.description}</span>
+                    <span className="font-bold tabular-nums text-red-700 dark:text-red-400">{formatCurrency(-totalAmount)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{amortizeTxn.date}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Expense Category</Label>
+                  <Select value={amortizeCategory} onValueChange={setAmortizeCategory}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-amortize-category"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {expenseCategories.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">COA {selectedCoaCode} — {selectedLabel}</p>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 space-y-2 text-sm">
+                  <p className="font-semibold text-blue-800 dark:text-blue-300 text-xs uppercase tracking-wide">Amortization Schedule</p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span>Total Amount</span>
+                      <span className="font-medium tabular-nums">{formatCurrency(totalAmount)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Months Remaining ({format(txnDate, "MMM")} → Dec)</span>
+                      <span className="font-medium tabular-nums">{monthsRemaining}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-1.5">
+                      <span className="font-medium">Monthly Expense</span>
+                      <span className="font-bold tabular-nums">{formatCurrency(monthlyAmount)}/mo</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 space-y-2 text-sm">
+                  <p className="font-semibold text-amber-800 dark:text-amber-300 text-xs uppercase tracking-wide">Journal Entry Preview</p>
+                  <div className="space-y-1.5 text-xs">
+                    <p className="text-muted-foreground italic">Day 1 — Park in Prepaid:</p>
+                    <div className="flex justify-between">
+                      <span>DR 1200 Prepaid Expenses</span>
+                      <span className="font-medium tabular-nums text-green-700 dark:text-green-400">{formatCurrency(totalAmount)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>CR 1010 Operating Cash</span>
+                      <span className="font-medium tabular-nums text-red-700 dark:text-red-400">{formatCurrency(totalAmount)}</span>
+                    </div>
+                    <p className="text-muted-foreground italic pt-1">Each Month — Drip to P&L:</p>
+                    <div className="flex justify-between">
+                      <span>DR {selectedCoaCode} {selectedLabel}</span>
+                      <span className="font-medium tabular-nums text-green-700 dark:text-green-400">{formatCurrency(monthlyAmount)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>CR 1200 Prepaid Expenses</span>
+                      <span className="font-medium tabular-nums text-red-700 dark:text-red-400">{formatCurrency(monthlyAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setAmortizeTxn(null)} data-testid="button-cancel-amortize">Cancel</Button>
+                  <Button
+                    onClick={() => {
+                      amortizeMut.mutate({
+                        transactionId: amortizeTxn.id,
+                        expenseAccountCode: selectedCoaCode,
+                      });
+                    }}
+                    disabled={amortizeMut.isPending}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-submit-amortize"
+                  >
+                    {amortizeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Timer className="w-4 h-4 mr-1" />}
+                    Amortize ({monthsRemaining} months)
                   </Button>
                 </DialogFooter>
               </div>
