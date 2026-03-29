@@ -33,6 +33,7 @@ import {
   Eye,
   MessageSquare,
   Gamepad2,
+  Hexagon,
   Star,
   Pencil,
   Plus,
@@ -98,6 +99,7 @@ const ALL_SHORTCUT_OPTIONS: NavItem[] = [
   { href: "/tasks", label: "Task Manager", icon: ListChecks },
   { href: "/assistant", label: "Jarvis", icon: BearLogoIcon },
   { href: "/starkade", label: "Starkade", icon: Gamepad2 },
+  { href: "/hive", label: "Jarvis Hive", icon: Hexagon },
   { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
   { href: "/bagel-bros", label: "Bagel Bros", icon: CircleDot },
   { href: "/profile", label: "My Profile", icon: UserCircle },
@@ -366,6 +368,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       { href: "/admin/pastry-items", label: "Master Pastry List", icon: Cookie },
       { href: "/pastry-goals", label: "Pastry Goals", icon: TrendingUp },
       { href: "/starkade", label: "Starkade", icon: Gamepad2 },
+      { href: "/hive", label: "Jarvis Hive", icon: Hexagon },
       { href: "/kiosk", label: "Kiosk Mode", icon: Mic },
     ],
   };

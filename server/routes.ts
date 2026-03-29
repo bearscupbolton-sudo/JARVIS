@@ -15,7 +15,7 @@ import { sendSms } from "./sms";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq, and, gte, lte, lt, desc, asc, isNotNull, isNull, inArray, or, sql } from "drizzle-orm";
-import { squareCatalogMap, squareSales, squareDailySummary, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts } from "@shared/schema";
+import { squareCatalogMap, squareSales, squareDailySummary, shifts, directMessages, messageRecipients, timeEntries, breakEntries, laminationDoughs, recipeSessions, bakeoffLogs, pastryItems, sentimentShiftScores, customerFeedback, locations, pastryPassports, doughTypeConfigs, inventoryItems, insertCoffeeInventorySchema, insertCoffeeUsageLogSchema, insertServiceContactSchema, insertEquipmentSchema, insertEquipmentMaintenanceSchema, insertProductionComponentSchema, insertComponentBomSchema, productionComponents, componentBom, componentTransactions, jmtMenus, jmtDisplays, jmtDisplayHistory, soldoutLogs, wholesaleOrders, tutorials, tutorialViews, insertTutorialSchema, appSettings, coffeeDrinkRecipes, recipes, regionalPricing, invoices, invoiceLines, chartOfAccounts, journalEntries, ledgerLines, firmTransactions, financialConsultations, aiInferenceLogs, complianceCalendar, salesTaxJurisdictions, accrualPlaceholders, donations, fixedAssets, depreciationSchedules, depreciationEntries, assetAuditLog, employeeReimbursements, aiLearningRules, cashPayoutLogs, projectMetadata, taxProfiles, inventoryTransfers, vibeAlerts, hiveFoundWords } from "@shared/schema";
 import { getDemoDataForEndpoint } from "./demo-data";
 import { withRetry } from "./ai-retry";
 import { calculatePastryCost, calculateAllPastryCosts, calculateRecipeCost } from "./cost-engine";
@@ -16963,6 +16963,74 @@ Return JSON array:
       const date = req.params.date;
       const isExpansion = await isExpansionLabor(locationId, date);
       res.json({ isExpansion, locationId, date });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === JARVIS HIVE (Team Spelling Bee) ===
+  app.get("/api/hive/today", isAuthenticated, async (_req: any, res) => {
+    try {
+      const { getOrCreateTodayPuzzle, getLeaderboard, getRankTitle } = await import("./hive-engine");
+      const { puzzle } = await getOrCreateTodayPuzzle();
+
+      const leaderboard = await getLeaderboard(puzzle.id);
+      const teamScore = leaderboard.reduce((s, e) => s + e.totalPoints, 0);
+      const teamWordsFound = leaderboard.reduce((s, e) => s + e.wordCount, 0);
+
+      res.json({
+        puzzleId: puzzle.id,
+        date: puzzle.date,
+        centerLetter: puzzle.centerLetter,
+        outerLetters: puzzle.outerLetters,
+        totalWords: puzzle.validWords.length,
+        maxScore: puzzle.maxScore,
+        teamScore,
+        teamWordsFound,
+        teamRank: getRankTitle(teamScore, puzzle.maxScore),
+        leaderboard,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hive/:puzzleId/my-words", isAuthenticated, async (req: any, res) => {
+    try {
+      const puzzleId = parseInt(req.params.puzzleId);
+      if (!Number.isFinite(puzzleId)) return res.status(400).json({ message: "Invalid puzzleId" });
+      const userId = req.appUser.id;
+      const words = await db.select().from(hiveFoundWords).where(
+        and(eq(hiveFoundWords.puzzleId, puzzleId), eq(hiveFoundWords.userId, userId))
+      ).orderBy(desc(hiveFoundWords.foundAt));
+      res.json(words);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/hive/:puzzleId/all-words", isAuthenticated, async (req: any, res) => {
+    try {
+      const puzzleId = parseInt(req.params.puzzleId);
+      if (!Number.isFinite(puzzleId)) return res.status(400).json({ message: "Invalid puzzleId" });
+      const words = await db.select().from(hiveFoundWords).where(
+        eq(hiveFoundWords.puzzleId, puzzleId)
+      ).orderBy(desc(hiveFoundWords.foundAt));
+      res.json(words);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/hive/submit", isAuthenticated, async (req: any, res) => {
+    try {
+      const { puzzleId, word } = req.body;
+      if (!puzzleId || !word) return res.status(400).json({ message: "puzzleId and word required" });
+      const userId = req.appUser.id;
+      const userName = `${req.appUser.firstName || ""} ${req.appUser.lastName || ""}`.trim() || req.appUser.username;
+      const { submitWord } = await import("./hive-engine");
+      const result = await submitWord(puzzleId, userId, userName, word);
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

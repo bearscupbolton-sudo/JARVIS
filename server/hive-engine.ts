@@ -238,6 +238,87 @@ const BAKERY_WORDS = [
   "thaw","tofu","tray","trim","turn","vine","warm","wort","wrap","zest",
 ];
 
+const LONGER_WORDS = [
+  "abandon","ability","absence","absorb","abstract","absurd","accept","achieve","acquire","action",
+  "active","actual","adjust","admire","advance","advice","affirm","afford","agency","agenda",
+  "ailing","airline","algebra","alleged","already","amazing","ancient","angular","animals","another",
+  "anytime","applied","appoint","archive","article","attract","auction","auditor","average","backing",
+  "balance","balcony","banking","bargain","barrier","basking","bathing","battery","bearing","beating",
+  "becomes","believe","belongs","benefit","besides","billion","blanket","blaster","blazing","blended",
+  "blessed","blocked","blocker","bolster","bonding","booking","boolean","booming","borders","braised",
+  "branded","brewing","bridges","briefly","broader","broiled","brought","bruised","buckets","budgets",
+  "builder","burning","cabinet","caliber","calling","camping","capable","capital","capture","careful",
+  "carried","catalog","caution","central","certain","chapter","charter","chasing","cheaper","checked",
+  "cherish","chimney","choking","chopped","circled","claimed","clamber","clarity","classic","cleaned",
+  "cleared","climate","clicked","climate","closely","closing","cluster","coasted","coating","combine",
+  "comfort","command","comment","commits","compact","company","compete","complex","concern","conduct",
+  "confirm","conjure","connect","consent","consist","consult","contact","contain","content","context",
+  "contour","control","convert","cooking","copying","correct","council","counted","counter","country",
+  "couples","courage","covered","cracker","crafted","craving","created","creator","credits","cricket",
+  "crinkle","crouton","crucial","crushed","crystal","culture","cunning","current","curtain","customs",
+  "cutting","dancing","dealing","debated","decline","decrypt","default","deficit","defined","deficit",
+  "deliver","demands","deposit","derived","desktop","details","develop","devised","digital","diploma",
+  "disable","discard","display","dispose","dispute","diverts","divided","donated","doubled","drafted",
+  "draping","drawing","dressed","drifted","driving","drought","dumping","durable","dynamic","earlier",
+  "earning","eastern","editing","edition","effects","efforts","elastic","elderly","elected","elegant",
+  "element","embrace","enabled","enacted","endless","engaged","english","enjoyed","enquiry","entered",
+  "episode","equally","erosion","escaped","escorts","essence","ethical","evident","exactly","examine",
+  "example","excited","exclude","existed","expense","explain","exploit","explore","exposed","extends",
+  "extract","extreme","factors","factory","faculty","failing","falling","farming","fashion","fastest",
+  "fathers","fearing","feature","feeding","fiction","fighter","figured","filters","finally","finding",
+  "fingers","fishing","fitness","fitting","flanked","flashed","flicker","flights","floated","flowing",
+  "focused","folkish","forcing","foreign","forming","formula","forward","founded","fragile","freight",
+  "frigate","frosted","fulfill","funding","further","gaining","gallery","gaming","garbled","garbage",
+  "general","genuine","getting","glacier","glimpse","glowing","graphic","grasped","gravity","greater",
+  "greatly","grilled","growing","gunfire","habitat","halfway","handled","handler","happily","harbour",
+  "harmful","harvest","heading","healthy","hearing","heavily","helpful","helping","herself","highest",
+  "himself","holding","holiday","hostile","hosting","however","hugely","humbled","hundred","hunting",
+  "hurdles","hygiene","ignored","illegal","imagine","imaging","impacts","implied","imports","imposed",
+  "impress","impulse","include","incomes","indexed","induced","infused","initial","innings","insight",
+  "inspect","install","instead","insulin","insured","intense","invalid","invited","involve","islands",
+  "isolate","jointly","journal","journey","justice","justify","keeping","kitchen","kneaded","labeled",
+  "lacking","landing","largely","lasting","lateral","laughed","laundry","leading","leafing","learned",
+  "leather","lending","lengthy","lentils","letters","liberal","liberty","license","lighter","limited",
+  "lightly","linking","listing","literal","loading","located","lodging","logical","longest","looking",
+  "loyalty","luggage","machine","magical","majored","managed","manager","mandate","mangled","marking",
+  "married","massive","masking","mastery","matched","matters","maximal","meaning","measure","medical",
+  "meeting","melting","mention","merging","mineral","minimal","miracle","missing","mistake","mixture",
+  "mobile","modular","monitor","monthly","morally","morning","mounted","musical","mystery","nailing",
+  "nations","natural","nearest","nightly","nominal","nothing","noticed","nuclear","nursing","obliged",
+  "obtain","obvious","offered","officer","omnibus","opening","opinion","optimal","organic","outline",
+  "outside","overall","overlap","packing","painful","painted","parched","partial","parties","partner",
+  "passing","patient","pattern","payment","pending","pension","perfect","perhaps","persist","picking",
+  "picture","pilgrim","pitched","placing","planned","plaster","plastic","plating","plaudit","playful",
+  "playing","plotted","plugged","plumber","pointed","policed","polaris","policed","polling","popular",
+  "portion","posture","pottery","pouring","powered","praised","precise","premium","prepare","present",
+  "pressed","prevent","primate","printer","private","problem","process","produce","product","profile",
+  "profits","program","project","promise","promote","protect","protein","protest","provide","proving",
+  "publish","pudding","pulling","pumping","punched","pushing","qualify","quarter","quickly","radical",
+  "raising","ranking","rapidly","ratched","reached","reacted","reactor","reading","reality","rebuild",
+  "receipt","receive","reduced","reflect","refresh","refused","regroup","related","release","removal",
+  "removed","renewal","replace","replica","replies","reports","request","require","rescued","reserve",
+  "resolve","restore","results","retired","returns","reunion","reveals","reverse","revival","rigging",
+  "rightly","roughly","rounded","routine","rubbing","running","rushing","sailing","salvage","sanding",
+  "savings","scaling","scatter","scholar","scoring","scratch","scribed","sculpts","sealing","secured",
+  "seeking","segment","selfish","selling","sending","serving","setting","settled","several","shelter",
+  "shifted","shining","shipped","shocked","shortly","showing","shrinks","signals","silence","similar",
+  "simpler","sitting","skelter","skilled","slicing","sliding","slowing","smaller","smiling","smoking",
+  "soaking","soldier","solving","sorting","sparked","special","spelled","spheric","spiking","spotted",
+  "stacked","staging","stained","stalked","stamped","started","stating","station","staying","steamed",
+  "stepped","sterile","sticker","stifled","stirred","stocked","stoking","stopped","storage","strands",
+  "strange","strikes","strings","studied","styling","subject","submits","succeed","suggest","summary",
+  "summing","sunrise","support","surface","surgeon","surplus","survive","suspect","suspend","swamped",
+  "sweater","swiftly","tactics","talkers","talking","tangent","tapping","teacher","teaming","testing",
+  "thawing","thereby","thicker","thrifts","through","tightly","tilting","timbers","tipping","tobacco",
+  "topical","topside","touched","tourism","towards","tracker","trading","trained","transit","treated",
+  "trigger","trouble","trusted","tuition","turning","twisted","typical","undoing","unified","unknown",
+  "updated","upgrade","upright","upscale","upsilon","usually","utensil","utility","vaccine","variety",
+  "vehicle","venture","verdict","version","violent","virtual","visible","visited","voltage","waiting",
+  "walking","wanting","warning","wasting","watched","wearing","weather","website","wedding","weighed",
+  "welcome","welding","western","whisked","whistle","whoever","winding","winning","wintery","wishing",
+  "witness","wonkish","working","worried","worship","wrapped","writing","yelling","yielded","younger",
+];
+
 function getAllWords(): string[] {
   const set = new Set<string>();
   for (const w of COMMON_WORDS) {
@@ -245,6 +326,10 @@ function getAllWords(): string[] {
     if (cleaned.length >= 4 && /^[a-z]+$/.test(cleaned)) set.add(cleaned);
   }
   for (const w of BAKERY_WORDS) {
+    const cleaned = w.toLowerCase().trim();
+    if (cleaned.length >= 4 && /^[a-z]+$/.test(cleaned)) set.add(cleaned);
+  }
+  for (const w of LONGER_WORDS) {
     const cleaned = w.toLowerCase().trim();
     if (cleaned.length >= 4 && /^[a-z]+$/.test(cleaned)) set.add(cleaned);
   }
