@@ -1459,6 +1459,25 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
   const [jarvisLookupTxn, setJarvisLookupTxn] = useState<any | null>(null);
   const [jarvisResults, setJarvisResults] = useState<any | null>(null);
   const [jarvisSearchingId, setJarvisSearchingId] = useState<number | null>(null);
+  const [pdfExtracts, setPdfExtracts] = useState<Record<string, any>>({});
+  const [pdfExtractingId, setPdfExtractingId] = useState<string | null>(null);
+
+  const extractPdfMut = useMutation({
+    mutationFn: async ({ messageId, accountEmail }: { messageId: string; accountEmail: string }) => {
+      if (pdfExtracts[messageId] || pdfExtractingId) return pdfExtracts[messageId];
+      setPdfExtractingId(messageId);
+      const res = await apiRequest("POST", "/api/firm/audit-trail/extract-pdf", { messageId, accountEmail });
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      setPdfExtracts(prev => ({ ...prev, [variables.messageId]: data }));
+      setPdfExtractingId(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "PDF extraction failed", description: err.message, variant: "destructive" });
+      setPdfExtractingId(null);
+    },
+  });
 
   const jarvisLookupMut = useMutation({
     mutationFn: async (txId: number) => {
@@ -2419,7 +2438,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!jarvisLookupTxn} onOpenChange={(open) => { if (!open) { setJarvisLookupTxn(null); setJarvisResults(null); } }}>
+      <Dialog open={!!jarvisLookupTxn} onOpenChange={(open) => { if (!open) { setJarvisLookupTxn(null); setJarvisResults(null); setPdfExtracts({}); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2487,28 +2506,113 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                       </div>
                       <p className="text-xs text-muted-foreground line-clamp-2">{result.snippet}</p>
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                           <span>{result.date}</span>
-                          {result.hasAttachment && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0">
-                              <FileCheck className="w-2.5 h-2.5 mr-0.5" />
-                              {result.attachmentNames?.join(", ") || "attachment"}
-                            </Badge>
-                          )}
+                          {result.hasAttachment && result.attachmentNames?.map((name: string, ai: number) => {
+                            const isPdf = name.toLowerCase().endsWith(".pdf");
+                            return (
+                              <Badge key={ai} variant="outline" className={`text-[9px] px-1 py-0 ${isPdf ? "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30" : ""}`}
+                                onClick={isPdf ? () => extractPdfMut.mutate({ messageId: result.messageId, accountEmail: result.accountOwner }) : undefined}
+                                data-testid={`badge-attachment-${idx}-${ai}`}
+                              >
+                                {pdfExtractingId === result.messageId ? <Loader2 className="w-2.5 h-2.5 mr-0.5 animate-spin" /> : <FileText className="w-2.5 h-2.5 mr-0.5" />}
+                                {name}
+                              </Badge>
+                            );
+                          })}
                           <Badge variant="secondary" className="text-[9px] px-1 py-0">{result.accountOwner}</Badge>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-6 text-xs"
-                          onClick={() => jarvisLinkMut.mutate({ transactionId: jarvisLookupTxn.id, messageId: result.messageId })}
-                          disabled={jarvisLinkMut.isPending}
-                          data-testid={`button-link-evidence-${idx}`}
-                        >
-                          {jarvisLinkMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Link2 className="w-3 h-3 mr-1" />}
-                          Link
-                        </Button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {result.hasAttachment && result.attachmentNames?.some((n: string) => n.toLowerCase().endsWith(".pdf")) && !pdfExtracts[result.messageId] && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-xs"
+                              onClick={() => extractPdfMut.mutate({ messageId: result.messageId, accountEmail: result.accountOwner })}
+                              disabled={pdfExtractingId === result.messageId}
+                              data-testid={`button-read-pdf-${idx}`}
+                            >
+                              {pdfExtractingId === result.messageId ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+                              Read PDF
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-6 text-xs"
+                            onClick={() => jarvisLinkMut.mutate({ transactionId: jarvisLookupTxn.id, messageId: result.messageId })}
+                            disabled={jarvisLinkMut.isPending}
+                            data-testid={`button-link-evidence-${idx}`}
+                          >
+                            {jarvisLinkMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Link2 className="w-3 h-3 mr-1" />}
+                            Link
+                          </Button>
+                        </div>
                       </div>
+
+                      {pdfExtracts[result.messageId] && (() => {
+                        const ext = pdfExtracts[result.messageId];
+                        if (!ext.success) {
+                          return (
+                            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded p-2 text-xs text-amber-800 dark:text-amber-300">
+                              <AlertTriangle className="w-3 h-3 inline mr-1" />
+                              {ext.message || "Could not parse PDF content"}
+                            </div>
+                          );
+                        }
+                        const d = ext.data;
+                        return (
+                          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wide flex items-center gap-1">
+                                <FileText className="w-3 h-3" /> Invoice Data — {ext.files?.join(", ")}
+                              </p>
+                              {d.confidence != null && (
+                                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${d.confidence >= 0.8 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"}`}>
+                                  {Math.round(d.confidence * 100)}%
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                              {d.vendorName && <div><span className="text-muted-foreground">Vendor:</span> <span className="font-medium">{d.vendorName}</span></div>}
+                              {d.invoiceNumber && <div><span className="text-muted-foreground">Invoice #:</span> <span className="font-medium">{d.invoiceNumber}</span></div>}
+                              {d.orderNumber && <div><span className="text-muted-foreground">Order #:</span> <span className="font-medium">{d.orderNumber}</span></div>}
+                              {d.invoiceDate && <div><span className="text-muted-foreground">Date:</span> <span className="font-medium">{d.invoiceDate}</span></div>}
+                            </div>
+                            {d.lineItems && d.lineItems.length > 0 && (
+                              <div className="space-y-0.5">
+                                <p className="text-[10px] font-medium text-muted-foreground mt-1">Line Items:</p>
+                                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                                  {d.lineItems.map((item: any, li: number) => (
+                                    <div key={li} className="flex justify-between text-[11px] py-0.5 border-b border-blue-100 dark:border-blue-900 last:border-0">
+                                      <span className="flex-1 truncate pr-2">{item.description}</span>
+                                      <div className="flex gap-3 shrink-0 tabular-nums text-muted-foreground">
+                                        {item.quantity != null && <span>{item.quantity}x</span>}
+                                        {item.unitPrice != null && <span>${Number(item.unitPrice).toFixed(2)}</span>}
+                                        <span className="font-medium text-foreground w-16 text-right">${Number(item.total || 0).toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="border-t border-blue-200 dark:border-blue-800 pt-1.5 space-y-0.5 text-xs">
+                              {d.subtotal != null && <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="tabular-nums">${Number(d.subtotal).toFixed(2)}</span></div>}
+                              {d.shipping != null && d.shipping > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Shipping</span><span className="tabular-nums">${Number(d.shipping).toFixed(2)}</span></div>}
+                              {d.tax != null && d.tax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span className="tabular-nums">${Number(d.tax).toFixed(2)}</span></div>}
+                              {d.totalAmount != null && (
+                                <div className="flex justify-between font-bold">
+                                  <span>Total</span>
+                                  <span className={`tabular-nums ${Math.abs(d.totalAmount - Math.abs(jarvisLookupTxn?.amount || 0)) < 0.02 ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+                                    ${Number(d.totalAmount).toFixed(2)}
+                                    {Math.abs(d.totalAmount - Math.abs(jarvisLookupTxn?.amount || 0)) < 0.02 && <CheckCircle2 className="w-3 h-3 inline ml-1" />}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

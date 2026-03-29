@@ -197,6 +197,34 @@ export async function searchAcrossAccounts(query: string, maxPerAccount: number 
   return { results, searchedAccounts, failedAccounts };
 }
 
+export async function downloadAttachmentForAccount(
+  accountEmail: string,
+  messageId: string,
+  attachmentId: string
+): Promise<Buffer> {
+  const gmail = await getGmailClientForAccount(accountEmail);
+  const res = await gmail.users.messages.attachments.get({
+    userId: "me",
+    messageId,
+    id: attachmentId,
+  });
+  const data = res.data.data || "";
+  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+export async function getMessageAttachmentDetails(
+  accountEmail: string,
+  messageId: string
+): Promise<{ filename: string; mimeType: string; attachmentId: string; size: number }[]> {
+  const gmail = await getGmailClientForAccount(accountEmail);
+  const detail = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "full",
+  });
+  return findAttachments(detail.data.payload);
+}
+
 export async function getConnectedAccounts(): Promise<{ email: string; isActive: boolean; lastSyncedAt: Date | null }[]> {
   const creds = await db.select({
     email: gmailCredentials.email,
