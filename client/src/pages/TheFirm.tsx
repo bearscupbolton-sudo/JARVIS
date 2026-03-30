@@ -5599,8 +5599,8 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
       const backfillData = await backfillRes.json();
       const waitMs = Math.min((backfillData.daysQueued || 90) * 250, 30000);
       await new Promise(r => setTimeout(r, waitMs));
-      const journalRes = await apiRequest("POST", "/api/firm/journalize-square", { startDate: ytdStart, endDate: today });
-      return journalRes.json();
+      const rebuildRes = await apiRequest("POST", "/api/firm/rebuild-revenue");
+      return rebuildRes.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
@@ -5608,7 +5608,7 @@ function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: 
       queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
       setFullSyncRunning(false);
-      toast({ title: "Full Revenue Sync Complete", description: `${data.journalized} day(s) journalized, ${data.skipped} already posted` });
+      toast({ title: "Full Revenue Sync Complete", description: `Rebuilt: ${data.deletedOldJes} old JEs removed, ${data.journalized} new JEs created from corrected data` });
     },
     onError: (err: any) => {
       setFullSyncRunning(false);

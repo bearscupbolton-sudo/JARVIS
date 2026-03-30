@@ -3132,6 +3132,38 @@ Rules:
     }
   });
 
+  app.post("/api/firm/rebuild-revenue", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const allSquareJes = await db.select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(eq(journalEntries.referenceType, "square-daily"));
+
+      let deletedJes = 0;
+      for (const je of allSquareJes) {
+        await db.delete(ledgerLines).where(eq(ledgerLines.entryId, je.id));
+        await db.delete(journalEntries).where(eq(journalEntries.id, je.id));
+        deletedJes++;
+      }
+      console.log(`[Rebuild Revenue] Deleted ${deletedJes} stale square-daily JEs`);
+
+      const ytdStart = `${new Date().getFullYear()}-01-01`;
+      const today = new Date().toISOString().slice(0, 10);
+
+      const { journalizeSquareRevenue } = await import("./accounting-engine");
+      const result = await journalizeSquareRevenue(ytdStart, today);
+
+      res.json({
+        deletedOldJes: deletedJes,
+        journalized: result.journalized,
+        skipped: result.skipped,
+        cleaned: result.cleaned,
+        message: `Rebuilt revenue: deleted ${deletedJes} old JEs, created ${result.journalized} new JEs from corrected Square data`
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/square/sales", isAuthenticated, isOwner, async (req, res) => {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
     const locationId = req.query.locationId ? parseInt(req.query.locationId as string, 10) : undefined;

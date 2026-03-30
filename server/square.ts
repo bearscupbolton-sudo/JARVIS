@@ -191,9 +191,8 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
 
         locAgg.ordersProcessed++;
         const orderTotalCents = (order as any).totalMoney?.amount ? Number((order as any).totalMoney.amount) : 0;
-        locAgg.totalRevenue += orderTotalCents / 100;
-
         const tipCents = (order as any).totalTipMoney?.amount ? Number((order as any).totalTipMoney.amount) : 0;
+        locAgg.totalRevenue += orderTotalCents / 100;
         locAgg.tipAmount += tipCents / 100;
 
         const tenders = (order as any).tenders || [];
@@ -273,8 +272,13 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       console.warn("[Square Sync] Could not fetch processing fees:", feeErr.message);
     }
 
-    await db.delete(squareSales).where(eq(squareSales.date, date));
-    await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
+    if (jarvisLocationId) {
+      await db.delete(squareSales).where(and(eq(squareSales.date, date), eq(squareSales.locationId, jarvisLocationId)));
+      await db.delete(squareDailySummary).where(and(eq(squareDailySummary.date, date), eq(squareDailySummary.locationId, jarvisLocationId)));
+    } else {
+      await db.delete(squareSales).where(eq(squareSales.date, date));
+      await db.delete(squareDailySummary).where(eq(squareDailySummary.date, date));
+    }
 
     const entries = Array.from(salesAgg.entries());
     for (const [itemName, data] of entries) {
