@@ -247,17 +247,18 @@ export async function reconcilePlaidTransaction(
   );
 }
 
-export async function journalizeSquareRevenue(startDate: string, endDate: string): Promise<{ journalized: number; skipped: number; total: number }> {
+export async function journalizeSquareRevenue(startDate: string, endDate: string): Promise<{ journalized: number; skipped: number; total: number; cleaned: number }> {
   const summaries = await db.select().from(squareDailySummary).where(
     and(gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate))
   );
 
-  if (summaries.length === 0) return { journalized: 0, skipped: 0, total: 0 };
+  if (summaries.length === 0) return { journalized: 0, skipped: 0, total: 0, cleaned: 0 };
 
-  const existingEntries = await db.select({ referenceId: journalEntries.referenceId })
+  const existingEntries = await db.select({ id: journalEntries.id, referenceId: journalEntries.referenceId })
     .from(journalEntries)
     .where(eq(journalEntries.referenceType, "square-daily"));
   const alreadyPosted = new Set(existingEntries.map(e => e.referenceId));
+  const refToJeId = new Map(existingEntries.map(e => [e.referenceId, e.id]));
 
   const allAccounts = await db.select().from(chartOfAccounts);
   const codeToId = new Map(allAccounts.map(a => [a.code, a.id]));
@@ -271,52 +272,80 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
     throw new Error("Missing required COA accounts: 1010 (Cash) and/or 4010 (Bakery Sales)");
   }
 
-  let journalized = 0;
-  let skipped = 0;
-
-  for (const summary of summaries) {
-    const refId = `square-daily-${summary.date}-loc${summary.locationId ?? "all"}`;
-    if (alreadyPosted.has(refId)) {
-      skipped++;
-      continue;
-    }
-
-    const netRevenue = summary.totalRevenue - (summary.refundAmount || 0);
-    if (netRevenue <= 0) {
-      skipped++;
-      continue;
-    }
-
-    const lines: Array<{ accountId: number; debit: number; credit: number; memo?: string }> = [];
-
-    const processingFees = summary.processingFees || 0;
-    const cashDeposit = netRevenue - processingFees;
-
-    lines.push({ accountId: cashId, debit: Math.round(cashDeposit * 100) / 100, credit: 0, memo: "Square deposit after fees" });
-
-    if (processingFees > 0 && merchantFeesId) {
-      lines.push({ accountId: merchantFeesId, debit: Math.round(processingFees * 100) / 100, credit: 0, memo: "Square processing fees" });
-    }
-
-    lines.push({ accountId: revenueId, debit: 0, credit: Math.round(netRevenue * 100) / 100, memo: `${summary.orderCount} orders` });
-
-    await postJournalEntry(
-      {
-        transactionDate: summary.date,
-        description: `Square daily revenue: ${summary.date} (${summary.orderCount} orders, $${netRevenue.toFixed(2)})`,
-        referenceId: refId,
-        referenceType: "square-daily",
-        status: "posted",
-        locationId: summary.locationId ?? undefined,
-        createdBy: "system-square-journal",
-      },
-      lines
-    );
-
-    journalized++;
+  const summariesByDate = new Map<string, typeof summaries>();
+  for (const s of summaries) {
+    const list = summariesByDate.get(s.date) || [];
+    list.push(s);
+    summariesByDate.set(s.date, list);
   }
 
-  return { journalized, skipped, total: summaries.length };
+  let journalized = 0;
+  let skipped = 0;
+  let cleaned = 0;
+
+  for (const [date, dateSummaries] of summariesByDate.entries()) {
+    const hasPerLocation = dateSummaries.some(s => s.locationId !== null);
+
+    if (hasPerLocation) {
+      const locallRefId = `square-daily-${date}-locall`;
+      const locallJeId = refToJeId.get(locallRefId);
+      if (locallJeId) {
+        await db.delete(ledgerLines).where(eq(ledgerLines.entryId, locallJeId));
+        await db.delete(journalEntries).where(eq(journalEntries.id, locallJeId));
+        alreadyPosted.delete(locallRefId);
+        cleaned++;
+      }
+    }
+
+    const summariesToUse = hasPerLocation
+      ? dateSummaries.filter(s => s.locationId !== null)
+      : dateSummaries;
+
+    for (const summary of summariesToUse) {
+      const refId = `square-daily-${summary.date}-loc${summary.locationId ?? "all"}`;
+      if (alreadyPosted.has(refId)) {
+        skipped++;
+        continue;
+      }
+
+      const netRevenue = summary.totalRevenue - (summary.refundAmount || 0);
+      if (netRevenue <= 0) {
+        skipped++;
+        continue;
+      }
+
+      const lines: Array<{ accountId: number; debit: number; credit: number; memo?: string }> = [];
+
+      const processingFees = summary.processingFees || 0;
+      const cashDeposit = netRevenue - processingFees;
+
+      lines.push({ accountId: cashId, debit: Math.round(cashDeposit * 100) / 100, credit: 0, memo: "Square deposit after fees" });
+
+      if (processingFees > 0 && merchantFeesId) {
+        lines.push({ accountId: merchantFeesId, debit: Math.round(processingFees * 100) / 100, credit: 0, memo: "Square processing fees" });
+      }
+
+      lines.push({ accountId: revenueId, debit: 0, credit: Math.round(netRevenue * 100) / 100, memo: `${summary.orderCount} orders` });
+
+      await postJournalEntry(
+        {
+          transactionDate: summary.date,
+          description: `Square daily revenue: ${summary.date} (${summary.orderCount} orders, $${netRevenue.toFixed(2)})`,
+          referenceId: refId,
+          referenceType: "square-daily",
+          status: "posted",
+          locationId: summary.locationId ?? undefined,
+          createdBy: "system-square-journal",
+        },
+        lines
+      );
+
+      alreadyPosted.add(refId);
+      journalized++;
+    }
+  }
+
+  return { journalized, skipped, total: summaries.length, cleaned };
 }
 
 export async function getTrialBalance(startDate?: string, endDate?: string) {

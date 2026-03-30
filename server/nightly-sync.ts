@@ -129,6 +129,20 @@ async function runSquareDailySync(): Promise<number> {
       console.error(`[Nightly Sync] Square sync error for ${date}:`, err.message);
     }
   }
+
+  try {
+    const { journalizeSquareRevenue } = await import("./accounting-engine");
+    const past7 = new Date();
+    past7.setDate(past7.getDate() - 7);
+    const past7Str = past7.toISOString().slice(0, 10);
+    const result = await journalizeSquareRevenue(past7Str, todayStr);
+    if (result.cleaned > 0) {
+      console.log(`[Nightly Sync] Revenue JE cleanup: removed ${result.cleaned} duplicate locall entries`);
+    }
+  } catch (err: any) {
+    console.error(`[Nightly Sync] Revenue JE cleanup failed:`, err.message);
+  }
+
   return totalOrders;
 }
 
