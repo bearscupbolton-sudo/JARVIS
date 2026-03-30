@@ -13776,6 +13776,310 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.post("/api/firm/import-csv-2025", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const { postJournalEntry, createJournalEntry } = await import("./accounting-engine");
+
+      const csvPath = path.resolve("attached_assets/transactions_(1)_1774894808831.csv");
+      if (!fs.existsSync(csvPath)) return res.status(404).json({ message: "CSV file not found" });
+
+      const raw = fs.readFileSync(csvPath, "utf-8");
+      const lines = raw.split("\n").filter(l => l.trim());
+      const dataLines = lines.slice(1);
+
+      const FIRM_ACCOUNT_ID = 13;
+
+      const SPECIAL_CHECKS: Record<string, { category: string; coaCode: string; notes: string }> = {
+        "1030": { category: "prepaid_expense", coaCode: "1200", notes: "Prepaid rent - amortize $8,750/mo Jan-Jul to 6030 Rent" },
+        "1031": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Phinney Architectural Design" },
+        "1032": { category: "owner_draw", coaCode: "3010", notes: "Owner's Draw - reduces Equity Basis" },
+        "2188": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Lance Plumbing build-out" },
+        "2192": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Phinney Architectural" },
+        "2109": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: JME Electric" },
+        "2119": { category: "rent", coaCode: "6030", notes: "Standard Monthly Rent" },
+      };
+
+      function classifyByKeyword(desc: string, debit: number | null, credit: number | null, checkNum: string | null): { category: string; coaCode: string; notes: string } {
+        const d = desc.toUpperCase();
+
+        if (checkNum && SPECIAL_CHECKS[checkNum]) {
+          return SPECIAL_CHECKS[checkNum];
+        }
+
+        if (d.includes("ADP WAGE PAY") || d.includes("ADP TAX")) return { category: "labor", coaCode: d.includes("TAX") ? "6020" : "6010", notes: "" };
+        if (d.includes("ADP PAYROLL FEES") || d.includes("ADP PAY-BY-PAY")) return { category: "labor", coaCode: "6020", notes: "ADP service fees" };
+
+        if (d.includes("SQUARE INC") && d.includes("DIRECTDEP")) return { category: "revenue", coaCode: "4010", notes: "Square deposit - skip JE (Square is sole revenue source)" };
+        if (d.includes("SQUARE INC") && d.includes("SQ CAP")) {
+          if (credit && credit > 0) return { category: "loan_proceeds", coaCode: "2500", notes: "Square Capital loan proceeds" };
+          return { category: "debt_payment", coaCode: "2500", notes: "Square Capital repayment" };
+        }
+        if (d.includes("SQUARE INC SQ") && credit && credit > 0) return { category: "revenue", coaCode: "4010", notes: "Square deposit - skip JE (Square is sole revenue source)" };
+        if (d.includes("SQUARE INC SQ") && debit && debit > 0) return { category: "merchant_fees", coaCode: "6110", notes: "Square processing fees" };
+
+        if (d.includes("SYSCO") || d.includes("US FOODSERVICE") || d.includes("HILLCREST") || d.includes("DECRESCENTE DIST")) return { category: "cogs", coaCode: "5010", notes: "" };
+        if (d.includes("TOPS MARKETS") || d.includes("MARKET32") || d.includes("PRICE CHOPPE") || d.includes("WAL MART")) return { category: "cogs", coaCode: "5010", notes: "Grocery/supplies for kitchen" };
+
+        if (d.includes("NGRID36")) return { category: "utilities", coaCode: "6040", notes: "National Grid" };
+        if (d.includes("SPECTRUM")) return { category: "utilities", coaCode: "6040", notes: "Spectrum internet/cable" };
+
+        if (d.includes("AMEX EPAYMENT")) return { category: "debt_payment", coaCode: "2500", notes: "Amex card payment" };
+        if (d.includes("CITY NATIONAL BA") && d.includes("SBAPAYMENT")) return { category: "debt_payment", coaCode: "2500", notes: "SBA loan payment" };
+        if (d.includes("ALLY ALLY PAYMT")) return { category: "debt_payment", coaCode: "2500", notes: "Ally auto/equipment loan" };
+        if (d.includes("HOME DEPOT AUTO PYMT") || d.includes("HOME DEPOT ONLINE PMT")) return { category: "debt_payment", coaCode: "2500", notes: "Home Depot credit payment" };
+        if (d.includes("NAVITAS CREDIT")) return { category: "debt_payment", coaCode: "2500", notes: "Navitas equipment financing" };
+        if (d.includes("BEST BUY PAYMENT")) return { category: "debt_payment", coaCode: "2500", notes: "Best Buy credit payment" };
+
+        if (d.includes("NYS DTF SALES TAX")) return { category: "sales_tax_payment", coaCode: "2030", notes: "NY sales tax remittance" };
+        if (d.includes("NYS DTF PIT TAX") || d.includes("NYS DTF CT TAX")) return { category: "tax_payment", coaCode: "6090", notes: "NYS income/corp tax" };
+
+        if (d.includes("PROGRESSIVE") && d.includes("INSURANCE")) return { category: "insurance", coaCode: "6050", notes: "Progressive Insurance" };
+        if (d.includes("ERIENIAGARAINSAS")) return { category: "insurance", coaCode: "6050", notes: "Erie/Niagara Insurance" };
+
+        if (d.includes("INTUIT") && d.includes("QBOOKS")) return { category: "technology", coaCode: "6080", notes: "QuickBooks subscription" };
+
+        if (d.includes("PLANET FITNESS") || d.includes("PLANET FIT")) return { category: "owner_draw", coaCode: "3010", notes: "Personal expense - owner draw" };
+
+        if (d.includes("VENMO")) {
+          if (d.includes("JULIA HALL") || d.includes("JULIA MCLAUGHLIN") || d.includes("JULIA MCLAUGHL")) return { category: "labor", coaCode: "6170", notes: "Contract labor via Venmo" };
+          if (d.includes("ALYSSA BRADY")) return { category: "labor", coaCode: "6170", notes: "Contract labor via Venmo" };
+          if (d.includes("LOUIS DESANTIS") || d.includes("ALEX DESANTIS")) return { category: "owner_draw", coaCode: "3010", notes: "Owner/family draw via Venmo" };
+          if (d.includes("BRIANNA PECK") || d.includes("BRYCE ROSE") || d.includes("KAYLA SWEET") || d.includes("MCKENNA OKEEFE") || d.includes("BRYAN O KEEFE") || d.includes("CHLOE FREEMAN") || d.includes("ALLYSON REYNOL") || d.includes("NICHOLAS ANDER") || d.includes("MR FORMAL")) return { category: "labor", coaCode: "6170", notes: "Contract labor via Venmo" };
+          return { category: "owner_draw", coaCode: "3010", notes: "Venmo payment - default to owner draw" };
+        }
+
+        if (d.includes("HOME DEPOT") || d.includes("HOMEDEPOT") || d.includes("HARBOR FREIGHT") || d.includes("LOWE")) return { category: "supplies", coaCode: "5020", notes: "Hardware/supplies" };
+        if (d.includes("ALLERDICE GLASS")) return { category: "equipment", coaCode: "1500", notes: "Allerdice glass/mirror" };
+        if (d.includes("WOLBERG ELECTRICAL")) return { category: "supplies", coaCode: "5020", notes: "Electrical supplies" };
+        if (d.includes("FASTSIGNS")) return { category: "marketing", coaCode: "6060", notes: "Signage" };
+        if (d.includes("STICKER MULE")) return { category: "marketing", coaCode: "6060", notes: "Sticker Mule marketing" };
+
+        if (d.includes("JME ELECTRIC")) return { category: "equipment", coaCode: "1500", notes: "JME Electric - Saratoga buildout" };
+        if (d.includes("SUNOCO")) return { category: "supplies", coaCode: "6150", notes: "Gas/fuel" };
+        if (d.includes("FEDEX")) return { category: "supplies", coaCode: "6120", notes: "Shipping" };
+
+        if (d.includes("WHITEMAN OSTERMAN")) return { category: "professional_services", coaCode: "6100", notes: "Legal services" };
+        if (d.includes("PHINNEY")) return { category: "equipment", coaCode: "1500", notes: "Architectural services - CapEx" };
+        if (d.includes("ALBANY FIRE PROTECTI")) return { category: "equipment", coaCode: "1500", notes: "Fire protection - buildout" };
+        if (d.includes("MEERKAT PEST")) return { category: "maintenance", coaCode: "6070", notes: "Pest control" };
+
+        if (d.includes("ETSY")) return { category: "supplies", coaCode: "5020", notes: "Etsy purchase" };
+        if (d.includes("AMAZON")) return { category: "supplies", coaCode: "5020", notes: "Amazon purchase" };
+        if (d.includes("ANTHROPOLOGIE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal expense - owner draw" };
+        if (d.includes("CASALE CUSTOM")) return { category: "marketing", coaCode: "6060", notes: "Custom apparel/branding" };
+
+        if (d.includes("INTERIOR DESIGNS ATELI")) return { category: "equipment", coaCode: "1500", notes: "Interior design - Saratoga buildout" };
+        if (d.includes("F W  WEBB") || d.includes("FW WEBB")) return { category: "supplies", coaCode: "5020", notes: "Plumbing supplies" };
+        if (d.includes("GENNAROS PIZZA")) return { category: "supplies", coaCode: "6090", notes: "Meals/miscellaneous" };
+        if (d.includes("TARGET")) return { category: "supplies", coaCode: "5020", notes: "Target supplies" };
+        if (d.includes("SUBWAY") || d.includes("STEWARTS")) return { category: "supplies", coaCode: "6090", notes: "Meals/miscellaneous" };
+        if (d.includes("JOYBOS")) return { category: "supplies", coaCode: "5020", notes: "Kitchen supplies" };
+
+        if (d.includes("SQ  RON S HARDWARE")) return { category: "supplies", coaCode: "5020", notes: "Local hardware" };
+        if (d.includes("SQ  SQUARE HARDWARE")) return { category: "supplies", coaCode: "5020", notes: "Square hardware purchase" };
+        if (d.includes("FRSMITHANDSONMARIN")) return { category: "maintenance", coaCode: "6070", notes: "FR Smith & Sons Marine" };
+        if (d.includes("NEMER CHRYSLER")) return { category: "supplies", coaCode: "6150", notes: "Vehicle expense" };
+        if (d.includes("521 BROADWAY")) return { category: "rent", coaCode: "6030", notes: "Saratoga lease - 521 Broadway" };
+
+        if (d.includes("TD ZELLE SENT")) {
+          if (d.includes("EPICURUS")) return { category: "cogs", coaCode: "5010", notes: "Epicurus LLC food vendor via Zelle" };
+          if (d.includes("ELIZABETH SRIVASTAV")) return { category: "professional_services", coaCode: "6100", notes: "Professional services via Zelle" };
+          return { category: "misc", coaCode: "6090", notes: "Zelle payment" };
+        }
+
+        if (d.includes("XFER") || d.includes("TRANSFER")) {
+          if (d.includes("TRANSFER TO CK")) return { category: "transfer_out", coaCode: "1010", notes: "Internal transfer out" };
+          if (d.includes("TRANSFER FROM CK")) return { category: "transfer_in", coaCode: "1010", notes: "Internal transfer in" };
+          return { category: "transfer", coaCode: "1010", notes: "Internal bank transfer" };
+        }
+
+        if (d.includes("SBB MDEPOSIT")) return { category: "other_income", coaCode: "4090", notes: "Mobile deposit" };
+        if (d.includes("IRS  TREAS") && d.includes("TAX REF")) return { category: "other_income", coaCode: "4090", notes: "IRS tax refund" };
+        if (d.includes("NY STATE") && d.includes("TAXRFD")) return { category: "other_income", coaCode: "4090", notes: "NY State tax refund" };
+        if (d.includes("CREDIT FEES REFUNDED")) return { category: "other_income", coaCode: "4090", notes: "Bank fee refund" };
+        if (d.includes("FISHSTORE CLASS ACTION")) return { category: "other_income", coaCode: "4090", notes: "Class action settlement" };
+        if (d.includes("ADP PAY-BY-PAY") && credit && credit > 0) return { category: "other_income", coaCode: "4090", notes: "ADP credit/refund" };
+
+        if (d.includes("ZAZZLE")) return { category: "marketing", coaCode: "6060", notes: "Zazzle marketing" };
+        if (d.includes("LANCE PLUMBING")) return { category: "equipment", coaCode: "1500", notes: "Lance Plumbing - Saratoga buildout" };
+        if (d.includes("PAYPAL")) return { category: "misc", coaCode: "6090", notes: "PayPal payment" };
+
+        return { category: "misc", coaCode: "6090", notes: "Uncategorized" };
+      }
+
+      const SKIP_JE_CATEGORIES = new Set(["revenue", "other_income", "transfer_in", "transfer_out", "transfer"]);
+
+      const allAccounts = await db.select().from(chartOfAccounts);
+      const codeToId = new Map(allAccounts.map((a: any) => [a.code, a.id]));
+      const cashId = codeToId.get("1010");
+      if (!cashId) return res.status(500).json({ message: "Cash account 1010 not found" });
+
+      const existing = await storage.getFirmTransactions({ startDate: "2025-01-01", endDate: "2025-12-31" });
+      const existingRefIds = new Set(existing.filter(e => e.referenceType === "csv-import-2025").map(e => e.referenceId));
+
+      let added = 0, skipped = 0, jePosted = 0, errors: string[] = [];
+      const seenRefKeys = new Map<string, number>();
+
+      for (const line of dataLines) {
+        try {
+          const parts: string[] = [];
+          let current = "";
+          let inQuotes = false;
+          for (const ch of line) {
+            if (ch === '"') { inQuotes = !inQuotes; continue; }
+            if (ch === ',' && !inQuotes) { parts.push(current.trim()); current = ""; continue; }
+            current += ch;
+          }
+          parts.push(current.trim());
+
+          const [dateStr, , , txnType, description, debitStr, creditStr, checkNumStr] = parts;
+          if (!dateStr || !description) continue;
+
+          const debit = debitStr ? parseFloat(debitStr.replace(/,/g, "")) : null;
+          const credit = creditStr ? parseFloat(creditStr.replace(/,/g, "")) : null;
+          const checkNum = checkNumStr || null;
+          const amount = credit && credit > 0 ? credit : -(debit || 0);
+
+          const baseRefId = `csv2025-${dateStr}-${(description || "").substring(0, 40).replace(/[^a-zA-Z0-9]/g, "")}-${Math.abs(amount).toFixed(2)}`;
+          const seenCount = (seenRefKeys.get(baseRefId) || 0) + 1;
+          seenRefKeys.set(baseRefId, seenCount);
+          const refId = seenCount > 1 ? `${baseRefId}-dup${seenCount}` : baseRefId;
+
+          if (existingRefIds.has(refId)) { skipped++; continue; }
+
+          const { category, coaCode, notes } = classifyByKeyword(description, debit, credit, checkNum);
+
+          const txn = await storage.createFirmTransaction({
+            accountId: FIRM_ACCOUNT_ID,
+            date: dateStr,
+            description,
+            amount,
+            category,
+            referenceType: "csv-import-2025",
+            referenceId: refId,
+            reconciled: true,
+            notes: notes || null,
+            suggestedCoaCode: coaCode,
+            createdBy: "csv-import",
+          });
+          existingRefIds.add(refId);
+          added++;
+
+          if (SKIP_JE_CATEGORIES.has(category)) continue;
+
+          const targetAcctId = codeToId.get(coaCode);
+          if (!targetAcctId) {
+            errors.push(`No COA for code ${coaCode} on ${dateStr}: ${description}`);
+            continue;
+          }
+
+          const absAmount = Math.abs(amount);
+          if (absAmount === 0) continue;
+
+          let jeLines: Array<{ accountId: number; debit: number; credit: number; memo?: string }>;
+
+          if (category === "sales_tax_payment") {
+            jeLines = [
+              { accountId: targetAcctId, debit: absAmount, credit: 0, memo: `Sales tax payment: ${description}` },
+              { accountId: cashId, debit: 0, credit: absAmount },
+            ];
+          } else if (coaCode === "1200" || coaCode === "1500" || coaCode === "3010") {
+            jeLines = [
+              { accountId: targetAcctId, debit: absAmount, credit: 0, memo: notes || description },
+              { accountId: cashId, debit: 0, credit: absAmount },
+            ];
+          } else if (coaCode === "2500") {
+            if (amount > 0) {
+              jeLines = [
+                { accountId: cashId, debit: absAmount, credit: 0 },
+                { accountId: targetAcctId, debit: 0, credit: absAmount, memo: notes || description },
+              ];
+            } else {
+              jeLines = [
+                { accountId: targetAcctId, debit: absAmount, credit: 0, memo: notes || description },
+                { accountId: cashId, debit: 0, credit: absAmount },
+              ];
+            }
+          } else {
+            if (amount < 0) {
+              jeLines = [
+                { accountId: targetAcctId, debit: absAmount, credit: 0, memo: notes || undefined },
+                { accountId: cashId, debit: 0, credit: absAmount },
+              ];
+            } else {
+              jeLines = [
+                { accountId: cashId, debit: absAmount, credit: 0 },
+                { accountId: targetAcctId, debit: 0, credit: absAmount, memo: notes || undefined },
+              ];
+            }
+          }
+
+          await postJournalEntry(
+            {
+              transactionDate: dateStr,
+              description,
+              referenceId: refId,
+              referenceType: "csv-import-2025",
+              status: "reconciled",
+              createdBy: "csv-import",
+            },
+            jeLines
+          );
+          jePosted++;
+        } catch (lineErr: any) {
+          errors.push(`Line error: ${lineErr.message} - ${line.substring(0, 80)}`);
+        }
+      }
+
+      let amortized = 0;
+      try {
+        const months = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06", "2025-07"];
+        const prepaidId = codeToId.get("1200");
+        const rentId = codeToId.get("6030");
+        if (prepaidId && rentId) {
+          for (const mo of months) {
+            const amortRefId = `csv2025-prepaid-amort-${mo}`;
+            const existingJe = await db.select().from(journalEntries).where(eq(journalEntries.referenceId, amortRefId));
+            if (existingJe.length > 0) continue;
+
+            await postJournalEntry(
+              {
+                transactionDate: `${mo}-28`,
+                description: `Prepaid rent amortization - ${mo} ($8,750/mo of CHECK 1030 $61,250)`,
+                referenceId: amortRefId,
+                referenceType: "csv-import-2025-amort",
+                status: "reconciled",
+                createdBy: "csv-import",
+              },
+              [
+                { accountId: rentId, debit: 8750, credit: 0, memo: "Monthly rent amortization from prepaid" },
+                { accountId: prepaidId, debit: 0, credit: 8750 },
+              ]
+            );
+            amortized++;
+          }
+        }
+      } catch (amortErr: any) {
+        errors.push(`Amortization error: ${amortErr.message}`);
+      }
+
+      console.log(`[CSV Import 2025] ${added} transactions added, ${skipped} duplicates skipped, ${jePosted} JEs posted, ${amortized} amortization entries, ${errors.length} errors`);
+      res.json({
+        added,
+        skipped,
+        jePosted,
+        amortizationEntries: amortized,
+        errors: errors.slice(0, 20),
+        totalLines: dataLines.length,
+      });
+    } catch (err: any) {
+      console.error("[CSV Import 2025] Fatal error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/plaid/items", isAuthenticated, isOwner, async (_req, res) => {
     try {
       const items = await storage.getPlaidItems();

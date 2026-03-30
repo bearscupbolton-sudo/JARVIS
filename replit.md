@@ -48,3 +48,21 @@ The application is structured as a monorepo, featuring a React 18 frontend built
 *   **Twilio (Optional)**: SMS notifications.
 *   **ADP RUN API (Optional)**: Payroll and worker management.
 *   **Plaid**: Bank and credit card integration.
+
+## 2025 Historical Bank Data Import
+
+A bulk CSV import of 869 rows from TD Bank (account 6252167036 → firm_account_id 13) covering Jan–Dec 2025 has been loaded. Key facts:
+
+*   **857 firm_transactions** created with `referenceType: "csv-import-2025"`.
+*   **705 journal entries** posted (698 transaction JEs + 7 prepaid rent amortization entries).
+*   **Revenue/Square deposits** (144 transactions) are tagged `category: "revenue"` with **no JEs** — Square daily sync is the sole revenue JE source.
+*   **7 Special Checks** mapped per owner's Transaction Map:
+    *   CHECK 1030 ($61,250) → Prepaid Expense (1200), amortized $8,750/mo Jan–Jul to Rent (6030).
+    *   CHECK 1031 ($10,000), 2188, 2192, 2109 → Equipment/CapEx (1500) for Saratoga buildout.
+    *   CHECK 1032 ($50,000) → Owner's Draw (3010).
+    *   CHECK 2119 ($10,046) → Rent (6030).
+*   **Keyword-based classification** handles ADP payroll, Sysco/food vendors, utilities (NGRID, Spectrum), debt payments (Amex, SBA, Ally), insurance, and Venmo (labor vs owner draw by payee name).
+*   **Re-import safe**: Duplicate detection via `referenceId` pattern `csv2025-{date}-{desc}-{amount}`.
+*   **API endpoint**: `POST /api/firm/import-csv-2025` (owner-only, requires auth).
+*   All JEs balanced: Total debits = Total credits = $1,423,557.45.
+*   Ledger default filter is `reconciled: "no"` — imported transactions show under "All" or "Yes" reconciled filter.
