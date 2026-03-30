@@ -15113,7 +15113,7 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
   app.post("/api/firm/vault/payout", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
-      const { amount, category, recipientName, description, locationId, projectId, expansionCategory } = req.body;
+      const { amount, category, recipientName, description, locationId, projectId, expansionCategory, assetDetails } = req.body;
       if (!amount || amount <= 0) return res.status(400).json({ message: "amount is required and must be positive" });
       if (!recipientName) return res.status(400).json({ message: "recipientName is required" });
 
@@ -15141,7 +15141,7 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
           transactionDate: today,
           description: memo,
           referenceId: `shadow-payout-${Date.now()}`,
-          referenceType: "shadow_ledger",
+          referenceType: expansionCategory === "capex" ? "capex" : "shadow_ledger",
           status: "posted",
           locationId: locationId || undefined,
           projectId: projectId || undefined,
@@ -15172,7 +15172,100 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
         }).where(eq(projectMetadata.id, projectId));
       }
 
-      res.status(201).json({ payout, journalEntry: entry });
+      let createdAsset = null;
+      if (expansionCategory === "capex") {
+        const { getLocationTag, logAssetAudit } = await import("./asset-engine");
+        const assetName = assetDetails?.name || recipientName;
+        const usefulLifeMonths = assetDetails?.usefulLifeMonths || 84;
+        const section179 = assetDetails?.section179 !== false;
+        const rounded = Math.round(amount * 100) / 100;
+
+        const [asset] = await db.insert(fixedAssets).values({
+          name: assetName,
+          description: assetDetails?.description || memo,
+          vendor: recipientName,
+          purchasePrice: rounded,
+          serialNumber: assetDetails?.serialNumber || null,
+          warrantyExpiration: assetDetails?.warrantyExpiration || null,
+          placedInServiceDate: today,
+          usefulLifeMonths,
+          salvageValue: assetDetails?.salvageValue || 0,
+          locationId: locationId || null,
+          locationTag: getLocationTag(locationId || null),
+          status: "placed_in_service",
+          section179Eligible: section179,
+          section179Elected: false,
+          bookDepreciationMethod: "straight_line",
+          taxDepreciationMethod: section179 ? "section_179" : "straight_line",
+          journalEntryId: entry?.id || null,
+          createdBy: user?.username || "system",
+        }).returning();
+
+        const { calculateStraightLineSchedule, calculateSection179Schedule } = await import("./asset-engine");
+        const bookSchedule = calculateStraightLineSchedule(rounded, assetDetails?.salvageValue || 0, usefulLifeMonths, today);
+        const [bookSched] = await db.insert(depreciationSchedules).values({
+          assetId: asset.id,
+          ledgerType: "book",
+          method: "straight_line",
+          totalAmount: bookSchedule.totalAmount,
+          monthlyAmount: bookSchedule.monthlyAmount,
+          startDate: today,
+          endDate: bookSchedule.entries[bookSchedule.entries.length - 1]?.periodDate,
+          totalMonths: bookSchedule.totalMonths,
+          yearOneDeduction: null,
+        }).returning();
+
+        for (const e of bookSchedule.entries) {
+          await db.insert(depreciationEntries).values({
+            scheduleId: bookSched.id,
+            assetId: asset.id,
+            periodDate: e.periodDate,
+            amount: e.amount,
+            accumulatedDepreciation: e.accumulatedDepreciation,
+            netBookValue: e.netBookValue,
+            posted: false,
+          });
+        }
+
+        if (section179) {
+          const taxSchedule = calculateSection179Schedule(rounded, today);
+          const [taxSched] = await db.insert(depreciationSchedules).values({
+            assetId: asset.id,
+            ledgerType: "tax",
+            method: "section_179",
+            totalAmount: taxSchedule.totalAmount,
+            monthlyAmount: null,
+            startDate: today,
+            endDate: taxSchedule.entries[0]?.periodDate,
+            totalMonths: 1,
+            yearOneDeduction: taxSchedule.yearOneDeduction,
+          }).returning();
+
+          for (const e of taxSchedule.entries) {
+            await db.insert(depreciationEntries).values({
+              scheduleId: taxSched.id,
+              assetId: asset.id,
+              periodDate: e.periodDate,
+              amount: e.amount,
+              accumulatedDepreciation: e.accumulatedDepreciation,
+              netBookValue: e.netBookValue,
+              posted: false,
+            });
+          }
+        }
+
+        await logAssetAudit(
+          asset.id,
+          "VAULT_CAPEX",
+          `Created from vault CapEx payout. Vendor: ${recipientName}. Amount: $${rounded}. Useful life: ${usefulLifeMonths} months. Book: straight-line ($${bookSchedule.monthlyAmount.toFixed(2)}/mo). ${section179 ? "Section 179 eligible." : ""}${projectId ? ` Tagged to project #${projectId}.` : ""}`,
+          user?.username || "system"
+        );
+
+        createdAsset = asset;
+        console.log(`[VaultCapEx] Asset #${asset.id} created: ${assetName} ($${rounded}) — depreciation scheduled`);
+      }
+
+      res.status(201).json({ payout, journalEntry: entry, asset: createdAsset });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

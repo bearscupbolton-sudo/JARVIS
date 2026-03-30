@@ -28,6 +28,10 @@ export default function QuickPayout() {
   const [expansionMode, setExpansionMode] = useState(false);
   const [expansionCategory, setExpansionCategory] = useState<ExpansionCategory>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [assetName, setAssetName] = useState("");
+  const [usefulLifeYears, setUsefulLifeYears] = useState("7");
+  const [section179, setSection179] = useState(true);
+  const [serialNumber, setSerialNumber] = useState("");
 
   const { data: locations } = useQuery<any[]>({ queryKey: ["/api/my-locations"] });
   const primaryLocation = locations?.[0]?.location;
@@ -62,18 +66,31 @@ export default function QuickPayout() {
       if (expansionMode && selectedProjectId) {
         body.projectId = selectedProjectId;
       }
+      if (expansionMode && expansionCategory === "capex") {
+        body.assetDetails = {
+          name: assetName.trim() || trimmedName,
+          usefulLifeMonths: parseInt(usefulLifeYears) * 12 || 84,
+          section179,
+          serialNumber: serialNumber.trim() || undefined,
+          salvageValue: 0,
+        };
+      }
       const res = await apiRequest("POST", "/api/firm/vault/payout", body);
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Payout recorded", description: `$${parseFloat(amount).toFixed(2)} to ${recipientName}${expansionMode ? " (Expansion)" : ""}` });
+    onSuccess: (data: any) => {
+      const assetMsg = data?.asset ? ` — Asset #${data.asset.id} created with depreciation` : "";
+      toast({ title: "Payout recorded", description: `$${parseFloat(amount).toFixed(2)} to ${recipientName}${expansionMode ? " (Expansion)" : ""}${assetMsg}` });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/vault/balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/vault/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets"] });
       setAmount("");
       setRecipientName("");
       setNote("");
       setExpansionCategory(null);
+      setAssetName("");
+      setSerialNumber("");
     },
     onError: (err: any) => {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -206,6 +223,55 @@ export default function QuickPayout() {
                     ))}
                   </div>
                 </div>
+
+                {expansionCategory === "capex" && (
+                  <div className="p-3 border-2 border-purple-300 dark:border-purple-700 rounded-lg space-y-3 bg-purple-50/50 dark:bg-purple-950/20">
+                    <p className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5" /> Asset Details
+                    </p>
+                    <div>
+                      <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Equipment Name</label>
+                      <Input
+                        placeholder="e.g. La Marzocco Linea PB"
+                        value={assetName}
+                        onChange={e => setAssetName(e.target.value)}
+                        className="h-10 text-sm"
+                        data-testid="input-asset-name"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Useful Life (years)</label>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          value={usefulLifeYears}
+                          onChange={e => setUsefulLifeYears(e.target.value)}
+                          className="h-10 text-sm"
+                          data-testid="input-useful-life"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Serial # (optional)</label>
+                        <Input
+                          placeholder="SN"
+                          value={serialNumber}
+                          onChange={e => setSerialNumber(e.target.value)}
+                          className="h-10 text-sm"
+                          data-testid="input-serial"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      variant={section179 ? "default" : "outline"}
+                      className={`w-full h-9 text-xs font-semibold ${section179 ? "bg-green-600 hover:bg-green-700" : ""}`}
+                      onClick={() => setSection179(!section179)}
+                      data-testid="button-section179"
+                    >
+                      {section179 ? "Section 179 Eligible (Full Year-1 Deduction)" : "Section 179 Off (Straight-Line Only)"}
+                    </Button>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 block">Tag to Project</label>
