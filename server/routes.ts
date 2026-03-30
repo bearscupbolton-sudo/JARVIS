@@ -15113,14 +15113,22 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
   app.post("/api/firm/vault/payout", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
-      const { amount, category, recipientName, description, locationId } = req.body;
+      const { amount, category, recipientName, description, locationId, projectId, expansionCategory } = req.body;
       if (!amount || amount <= 0) return res.status(400).json({ message: "amount is required and must be positive" });
       if (!recipientName) return res.status(400).json({ message: "recipientName is required" });
 
+      const EXPANSION_COA_MAP: Record<string, string> = {
+        "pre-opening-labor": "6015-V",
+        "capex": "1500",
+        "startup-amortization": "6210",
+      };
+
+      const targetCoaCode = (expansionCategory && EXPANSION_COA_MAP[expansionCategory]) || "6015";
+
       const vaultAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010-V")).limit(1);
-      const laborAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6015")).limit(1);
-      if (vaultAccount.length === 0 || laborAccount.length === 0) {
-        return res.status(400).json({ message: "Shadow ledger accounts not seeded. Re-seed COA." });
+      const targetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, targetCoaCode)).limit(1);
+      if (vaultAccount.length === 0 || targetAccount.length === 0) {
+        return res.status(400).json({ message: `Required accounts not seeded (1010-V, ${targetCoaCode}). Re-seed COA.` });
       }
 
       const today = new Date().toISOString().split("T")[0];
@@ -15136,26 +15144,33 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
           referenceType: "shadow_ledger",
           status: "posted",
           locationId: locationId || undefined,
+          projectId: projectId || undefined,
           createdBy: user?.username || "system",
         },
         [
-          { accountId: laborAccount[0].id, debit: Math.round(amount * 100) / 100, credit: 0, memo: `Cash labor: ${recipientName} (${dept})` },
+          { accountId: targetAccount[0].id, debit: Math.round(amount * 100) / 100, credit: 0, memo: `${targetCoaCode === "1500" ? "CapEx" : "Cash labor"}: ${recipientName} (${dept})` },
           { accountId: vaultAccount[0].id, debit: 0, credit: Math.round(amount * 100) / 100, memo: `Vault payout to ${recipientName}` },
         ]
       );
 
       const [payout] = await db.insert(cashPayoutLogs).values({
         amount,
-        payoutType: "shadow_labor",
+        payoutType: expansionCategory ? `expansion_${expansionCategory}` : "shadow_labor",
         recipientName,
         description: memo,
         sourceAccount: "1010-V",
-        targetCoaCode: "6015",
+        targetCoaCode,
         locationId: locationId || null,
         journalEntryId: entry?.id || null,
         payoutDate: today,
         performedBy: user?.username || "Unknown",
       }).returning();
+
+      if (projectId) {
+        await db.update(projectMetadata).set({
+          totalSpent: sql`COALESCE(${projectMetadata.totalSpent}, 0) + ${Math.round(amount * 100) / 100}`,
+        }).where(eq(projectMetadata.id, projectId));
+      }
 
       res.status(201).json({ payout, journalEntry: entry });
     } catch (err: any) {
@@ -15654,7 +15669,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
       const { getProfitAndLoss } = await import("./accounting-engine");
       const layer = (req.query.layer === "baker") ? "baker" : "bank";
-      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer);
+      const excludeProjectId = req.query.excludeProjectId ? parseInt(req.query.excludeProjectId as string) : undefined;
+      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer, excludeProjectId ? { excludeProjectId } : undefined);
       res.json(pnl);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

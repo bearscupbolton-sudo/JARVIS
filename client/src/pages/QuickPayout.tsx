@@ -7,8 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Vault, DollarSign, ChevronLeft, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Loader2, Vault, DollarSign, ChevronLeft, CheckCircle2, AlertTriangle, Building2, Wrench } from "lucide-react";
 import { Link } from "wouter";
+
+type ExpansionCategory = "pre-opening-labor" | "capex" | "startup-amortization" | null;
+
+const EXPANSION_CATEGORIES = [
+  { value: "pre-opening-labor" as const, label: "Pre-Opening Labor", code: "6015-V", icon: "👷" },
+  { value: "capex" as const, label: "CapEx (Equipment)", code: "1500", icon: "🔧" },
+  { value: "startup-amortization" as const, label: "Startup Costs", code: "6210", icon: "📋" },
+];
 
 export default function QuickPayout() {
   const { user } = useAuth();
@@ -17,6 +25,9 @@ export default function QuickPayout() {
   const [recipientName, setRecipientName] = useState("");
   const [category, setCategory] = useState<"BOH" | "FOH" | "Maint">("BOH");
   const [note, setNote] = useState("");
+  const [expansionMode, setExpansionMode] = useState(false);
+  const [expansionCategory, setExpansionCategory] = useState<ExpansionCategory>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 
   const { data: locations } = useQuery<any[]>({ queryKey: ["/api/my-locations"] });
   const primaryLocation = locations?.[0]?.location;
@@ -25,28 +36,44 @@ export default function QuickPayout() {
     queryKey: ["/api/firm/vault/balance"],
   });
 
+  const { data: projects } = useQuery<any[]>({
+    queryKey: ["/api/firm/projects"],
+    enabled: expansionMode,
+  });
+
+  const activeProjects = projects?.filter((p: any) => p.status === "active") || [];
+
   const payoutMut = useMutation({
     mutationFn: async () => {
       const trimmedName = recipientName.trim();
       const parsed = parseFloat(amount);
       if (!trimmedName || isNaN(parsed) || parsed <= 0) throw new Error("Invalid input");
       const rounded = Math.round(parsed * 100) / 100;
-      const res = await apiRequest("POST", "/api/firm/vault/payout", {
+      const body: any = {
         amount: rounded,
         category,
         recipientName: trimmedName,
         description: note.trim() || undefined,
         locationId: primaryLocation?.id || undefined,
-      });
+      };
+      if (expansionMode && expansionCategory) {
+        body.expansionCategory = expansionCategory;
+      }
+      if (expansionMode && selectedProjectId) {
+        body.projectId = selectedProjectId;
+      }
+      const res = await apiRequest("POST", "/api/firm/vault/payout", body);
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Payout recorded", description: `$${parseFloat(amount).toFixed(2)} to ${recipientName}` });
+      toast({ title: "Payout recorded", description: `$${parseFloat(amount).toFixed(2)} to ${recipientName}${expansionMode ? " (Expansion)" : ""}` });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/vault/balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/firm/vault/history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/projects"] });
       setAmount("");
       setRecipientName("");
       setNote("");
+      setExpansionCategory(null);
     },
     onError: (err: any) => {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -67,7 +94,9 @@ export default function QuickPayout() {
         </Link>
         <div className="flex-1">
           <h1 className="text-lg font-bold" data-testid="text-page-title">Quick Payout</h1>
-          <p className="text-xs text-muted-foreground">Shadow Ledger — Cash Labor</p>
+          <p className="text-xs text-muted-foreground">
+            {expansionMode ? "Expansion Project — Tagged Costs" : "Shadow Ledger — Cash Labor"}
+          </p>
         </div>
         <div className="text-right">
           <p className="text-[10px] text-muted-foreground uppercase">Vault</p>
@@ -88,7 +117,26 @@ export default function QuickPayout() {
         </div>
       )}
 
-      <div className="flex-1 p-4 space-y-5">
+      <div className="flex-1 p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant={!expansionMode ? "default" : "outline"}
+            className="h-11 text-sm font-semibold"
+            onClick={() => { setExpansionMode(false); setExpansionCategory(null); setSelectedProjectId(null); }}
+            data-testid="button-mode-standard"
+          >
+            <Vault className="w-4 h-4 mr-1.5" /> Standard
+          </Button>
+          <Button
+            variant={expansionMode ? "default" : "outline"}
+            className={`h-11 text-sm font-semibold ${expansionMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+            onClick={() => setExpansionMode(true)}
+            data-testid="button-mode-expansion"
+          >
+            <Building2 className="w-4 h-4 mr-1.5" /> Expansion
+          </Button>
+        </div>
+
         <Card>
           <CardContent className="pt-5 space-y-4">
             <div>
@@ -113,7 +161,7 @@ export default function QuickPayout() {
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">Paid To</label>
               <Input
-                placeholder="Name"
+                placeholder="Name or vendor"
                 value={recipientName}
                 onChange={e => setRecipientName(e.target.value)}
                 className="h-12 text-base"
@@ -138,6 +186,56 @@ export default function QuickPayout() {
               </div>
             </div>
 
+            {expansionMode && (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 block">Expansion Category</label>
+                  <div className="space-y-2">
+                    {EXPANSION_CATEGORIES.map(ec => (
+                      <Button
+                        key={ec.value}
+                        variant={expansionCategory === ec.value ? "default" : "outline"}
+                        className={`w-full h-12 justify-start text-sm font-semibold ${expansionCategory === ec.value ? "bg-purple-600 hover:bg-purple-700" : "border-2"}`}
+                        onClick={() => setExpansionCategory(ec.value)}
+                        data-testid={`button-expansion-${ec.value}`}
+                      >
+                        <span className="mr-2 text-lg">{ec.icon}</span>
+                        {ec.label}
+                        <Badge variant="outline" className="ml-auto text-[10px]">{ec.code}</Badge>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 block">Tag to Project</label>
+                  {activeProjects.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">No active projects. Create one in The Firm.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {activeProjects.map((proj: any) => (
+                        <Button
+                          key={proj.id}
+                          variant={selectedProjectId === proj.id ? "default" : "outline"}
+                          className={`w-full h-11 justify-start text-sm ${selectedProjectId === proj.id ? "bg-purple-600 hover:bg-purple-700" : "border-2"}`}
+                          onClick={() => setSelectedProjectId(proj.id)}
+                          data-testid={`button-project-${proj.id}`}
+                        >
+                          <Badge variant="secondary" className="mr-2 text-[10px]">{proj.code}</Badge>
+                          {proj.name}
+                          {proj.totalBudget && (
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              ${(proj.totalSpent || 0).toLocaleString()} / ${proj.totalBudget.toLocaleString()}
+                            </span>
+                          )}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">Note (optional)</label>
               <Input
@@ -152,6 +250,11 @@ export default function QuickPayout() {
             {primaryLocation && (
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs" data-testid="badge-location">{primaryLocation.name}</Badge>
+                {expansionMode && expansionCategory && (
+                  <Badge className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" data-testid="badge-expansion-cat">
+                    {EXPANSION_CATEGORIES.find(e => e.value === expansionCategory)?.label}
+                  </Badge>
+                )}
               </div>
             )}
           </CardContent>
@@ -159,8 +262,8 @@ export default function QuickPayout() {
 
         <Button
           size="lg"
-          className="w-full h-16 text-lg font-bold"
-          disabled={!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !recipientName.trim() || payoutMut.isPending}
+          className={`w-full h-16 text-lg font-bold ${expansionMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+          disabled={!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !recipientName.trim() || payoutMut.isPending || (expansionMode && !expansionCategory)}
           onClick={() => payoutMut.mutate()}
           data-testid="button-submit-payout"
         >
@@ -168,10 +271,12 @@ export default function QuickPayout() {
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
           ) : payoutMut.isSuccess ? (
             <CheckCircle2 className="w-5 h-5 mr-2" />
+          ) : expansionMode ? (
+            <Building2 className="w-5 h-5 mr-2" />
           ) : (
             <Vault className="w-5 h-5 mr-2" />
           )}
-          {payoutMut.isPending ? "Recording..." : payoutMut.isSuccess ? "Recorded!" : "Record Payout"}
+          {payoutMut.isPending ? "Recording..." : payoutMut.isSuccess ? "Recorded!" : expansionMode ? "Record Expansion Cost" : "Record Payout"}
         </Button>
       </div>
     </div>

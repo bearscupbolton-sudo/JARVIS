@@ -37,6 +37,7 @@ export const DEFAULT_COA = [
   { code: "6000", name: "Operating Expenses", type: "Expense", category: "Operating", laymanDescription: "All the costs of running the bakery that aren't ingredients. Rent, labor, insurance — the overhead that keeps the lights on." },
   { code: "6010", name: "Labor - Wages", type: "Expense", category: "Operating", laymanDescription: "Straight pay for our team's hours worked, as recorded in the time-clock. The single biggest controllable cost." },
   { code: "6015", name: "Labor - Cash/Off-book", type: "Expense", category: "Operating", laymanDescription: "Cash payroll paid from the register — the Baker's Truth layer. Shows real labor cost before it hits the bank. Only visible in the internal P&L." },
+  { code: "6015-V", name: "Pre-Opening Labor", type: "Expense", category: "Operating", laymanDescription: "Cash labor paid for setting up a new store location — build-outs, training, pre-launch prep. Shadow ledger, tagged to expansion project." },
   { code: "6020", name: "Labor - Payroll Tax", type: "Expense", category: "Operating", laymanDescription: "The government's cut on top of wages — Social Security, Medicare, unemployment insurance. About 10-12% on top of gross pay." },
   { code: "6030", name: "Rent", type: "Expense", category: "Operating", laymanDescription: "Monthly rent for both locations. A fixed cost that doesn't change whether you sell 10 loaves or 1,000." },
   { code: "6040", name: "Utilities", type: "Expense", category: "Operating", laymanDescription: "Electric, gas, water, internet. The ovens and proofing boxes are power-hungry — this spikes in summer and winter." },
@@ -356,7 +357,7 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
   return { journalized, skipped, total: summaries.length, cleaned };
 }
 
-export async function getTrialBalance(startDate?: string, endDate?: string) {
+export async function getTrialBalance(startDate?: string, endDate?: string, opts?: { excludeProjectId?: number }) {
   let query = db
     .select({
       accountId: ledgerLines.accountId,
@@ -374,6 +375,7 @@ export async function getTrialBalance(startDate?: string, endDate?: string) {
   const conditions = [];
   if (startDate) conditions.push(gte(journalEntries.transactionDate, startDate));
   if (endDate) conditions.push(lte(journalEntries.transactionDate, endDate));
+  if (opts?.excludeProjectId) conditions.push(sql`(${journalEntries.projectId} IS NULL OR ${journalEntries.projectId} != ${opts.excludeProjectId})`);
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -395,10 +397,10 @@ export async function getTrialBalance(startDate?: string, endDate?: string) {
   }));
 }
 
-const SHADOW_CODES = new Set(["1010-V", "6015"]);
+const SHADOW_CODES = new Set(["1010-V", "6015", "6015-V"]);
 
-export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank") {
-  const trialBalance = await getTrialBalance(startDate, endDate);
+export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank", opts?: { excludeProjectId?: number }) {
+  const trialBalance = await getTrialBalance(startDate, endDate, opts);
 
   const filtered = layer === "bank"
     ? trialBalance.filter(r => !SHADOW_CODES.has(r.accountCode))
