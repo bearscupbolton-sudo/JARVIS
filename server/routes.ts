@@ -13732,13 +13732,19 @@ IMPORTANT GUIDELINES:
               let category = "misc";
               if (txn.personal_finance_category?.primary) {
                 const pc = txn.personal_finance_category.primary.toLowerCase();
+                const desc = (txn.name || txn.merchant_name || "").toLowerCase();
                 if (pc.includes("food") || pc.includes("groceries")) category = "cogs";
                 else if (pc.includes("rent")) category = "rent";
                 else if (pc.includes("utilities")) category = "utilities";
                 else if (pc.includes("insurance")) category = "insurance";
+                else if (pc.includes("payroll") || pc.includes("wages") || pc.includes("salary")) category = "labor";
                 else if (pc.includes("transfer")) category = "misc";
                 else if (pc.includes("income") || pc.includes("deposit")) category = "revenue";
                 else if (pc.includes("loan") || pc.includes("debt")) category = "debt_payment";
+                else if (desc.includes("adp") || desc.includes("payroll") || desc.includes("paychex") || desc.includes("gusto")) category = "labor";
+              } else {
+                const desc = (txn.name || txn.merchant_name || "").toLowerCase();
+                if (desc.includes("adp") || desc.includes("payroll") || desc.includes("paychex") || desc.includes("gusto")) category = "labor";
               }
 
               await storage.createFirmTransaction({
