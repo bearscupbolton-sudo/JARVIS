@@ -6778,6 +6778,12 @@ function LiquidityWidget({ startDate, endDate }: { startDate: string; endDate: s
               <p className="text-sm font-bold tabular-nums text-indigo-700 dark:text-indigo-400" data-testid="text-pending-labor-drag">-{fmt(liquidity.pendingLaborDrag)}</p>
             </div>
             <p className="text-[10px] text-muted-foreground">Accrued payroll not yet debited — reduces available cash</p>
+            <div className="flex items-center gap-1 pt-0.5">
+              <Badge className="text-[9px] bg-indigo-600 px-1.5 py-0" data-testid="badge-accrual-posted">
+                <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> Accrual Posted to P&L
+              </Badge>
+              <span className="text-[9px] text-muted-foreground">DR 6010 / CR 2100</span>
+            </div>
             {liquidity.laborDragBreakdown && Object.keys(liquidity.laborDragBreakdown).length > 0 && (
               <div className="pt-1 space-y-0.5">
                 {Object.entries(liquidity.laborDragBreakdown).map(([loc, amt]) => (

@@ -3065,6 +3065,38 @@ Rules:
           continue;
         }
 
+        const absAmount = Math.abs(txn.amount);
+
+        if (txn.category === "labor") {
+          const activeAccruals = await db.select().from(journalEntries)
+            .where(and(eq(journalEntries.referenceType, "labor_accrual"), eq(journalEntries.status, "posted")));
+          if (activeAccruals.length > 0) {
+            const payrollLiabId = codeToId.get("2100");
+            const cashId = codeToId.get("1010");
+            if (payrollLiabId && cashId) {
+              try {
+                await postJournalEntry(
+                  {
+                    transactionDate: txn.date,
+                    description: `Payroll payment (accrual reversal): ${txn.description}`,
+                    referenceType: "firm-txn",
+                    referenceId: String(txn.id),
+                    status: "posted",
+                    locationId: txn.locationId ?? undefined,
+                    createdBy: "system-backfill",
+                  },
+                  [
+                    { accountId: payrollLiabId, debit: absAmount, credit: 0, memo: `Reversal of accrued payroll` },
+                    { accountId: cashId, debit: 0, credit: absAmount, memo: `Cash payment for payroll` },
+                  ]
+                );
+                posted++;
+              } catch (err: any) { errors++; }
+              continue;
+            }
+          }
+        }
+
         const mapping = CATEGORY_COA_MAP[txn.category!];
         const debitId = codeToId.get(mapping.debit);
         const creditId = codeToId.get(mapping.credit);
@@ -3074,7 +3106,6 @@ Rules:
           continue;
         }
 
-        const absAmount = Math.abs(txn.amount);
         try {
           await postJournalEntry(
             {
@@ -12658,31 +12689,93 @@ IMPORTANT GUIDELINES:
           }
 
           {
-            const mapping = CATEGORY_COA_MAP[updates.category];
-            const debitAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.debit)).limit(1);
-            const creditAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.credit)).limit(1);
+            const absAmount = Math.abs(existing.amount);
+            const { postJournalEntry } = await import("./accounting-engine");
 
-            if (debitAcct.length > 0 && creditAcct.length > 0) {
-              const absAmount = Math.abs(existing.amount);
-              try {
-                const { postJournalEntry } = await import("./accounting-engine");
-                await postJournalEntry(
-                  {
-                    transactionDate: existing.date,
-                    description: existing.description,
-                    referenceType: "firm-txn",
-                    referenceId: String(txnId),
-                    status: "posted",
-                    locationId: existing.locationId ?? undefined,
-                    createdBy: req.appUser?.id || "system",
-                  },
-                  [
-                    { accountId: debitAcct[0].id, debit: absAmount, credit: 0, memo: existing.description },
-                    { accountId: creditAcct[0].id, debit: 0, credit: absAmount, memo: existing.description },
-                  ]
-                );
-              } catch (jeErr: any) {
-                console.error(`[Auto-Journal] Failed for category ${updates.category}:`, jeErr.message);
+            if (updates.category === "labor") {
+              const activeAccruals = await db.select().from(journalEntries)
+                .where(and(
+                  eq(journalEntries.referenceType, "labor_accrual"),
+                  eq(journalEntries.status, "posted")
+                ));
+              const hasActiveAccrual = activeAccruals.length > 0;
+
+              if (hasActiveAccrual) {
+                const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
+                const cashAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+                if (payrollLiab.length > 0 && cashAcct.length > 0) {
+                  try {
+                    await postJournalEntry(
+                      {
+                        transactionDate: existing.date,
+                        description: `Payroll payment (accrual reversal): ${existing.description}`,
+                        referenceType: "firm-txn",
+                        referenceId: String(txnId),
+                        status: "posted",
+                        locationId: existing.locationId ?? undefined,
+                        createdBy: req.appUser?.id || "system",
+                      },
+                      [
+                        { accountId: payrollLiab[0].id, debit: absAmount, credit: 0, memo: `Reversal of accrued payroll: ${existing.description}` },
+                        { accountId: cashAcct[0].id, debit: 0, credit: absAmount, memo: `Cash payment for payroll` },
+                      ]
+                    );
+                    console.log(`[LaborAccrual] Bank txn #${txnId} reversed accrual: $${absAmount} — debit 2100, credit 1010`);
+                  } catch (jeErr: any) {
+                    console.error(`[LaborAccrual] Reversal JE failed:`, jeErr.message);
+                  }
+                }
+              } else {
+                const mapping = CATEGORY_COA_MAP[updates.category];
+                const debitAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.debit)).limit(1);
+                const creditAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.credit)).limit(1);
+                if (debitAcct.length > 0 && creditAcct.length > 0) {
+                  try {
+                    await postJournalEntry(
+                      {
+                        transactionDate: existing.date,
+                        description: existing.description,
+                        referenceType: "firm-txn",
+                        referenceId: String(txnId),
+                        status: "posted",
+                        locationId: existing.locationId ?? undefined,
+                        createdBy: req.appUser?.id || "system",
+                      },
+                      [
+                        { accountId: debitAcct[0].id, debit: absAmount, credit: 0, memo: existing.description },
+                        { accountId: creditAcct[0].id, debit: 0, credit: absAmount, memo: existing.description },
+                      ]
+                    );
+                  } catch (jeErr: any) {
+                    console.error(`[Auto-Journal] Failed for labor:`, jeErr.message);
+                  }
+                }
+              }
+            } else {
+              const mapping = CATEGORY_COA_MAP[updates.category];
+              const debitAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.debit)).limit(1);
+              const creditAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, mapping.credit)).limit(1);
+
+              if (debitAcct.length > 0 && creditAcct.length > 0) {
+                try {
+                  await postJournalEntry(
+                    {
+                      transactionDate: existing.date,
+                      description: existing.description,
+                      referenceType: "firm-txn",
+                      referenceId: String(txnId),
+                      status: "posted",
+                      locationId: existing.locationId ?? undefined,
+                      createdBy: req.appUser?.id || "system",
+                    },
+                    [
+                      { accountId: debitAcct[0].id, debit: absAmount, credit: 0, memo: existing.description },
+                      { accountId: creditAcct[0].id, debit: 0, credit: absAmount, memo: existing.description },
+                    ]
+                  );
+                } catch (jeErr: any) {
+                  console.error(`[Auto-Journal] Failed for category ${updates.category}:`, jeErr.message);
+                }
               }
             }
           }
@@ -14352,39 +14445,71 @@ IMPORTANT GUIDELINES:
         };
 
         if (pendingLaborCost > 0) {
-          try {
-            const { accrualPlaceholders } = await import("@shared/schema");
-            const { db } = await import("./db");
-            const { eq, and } = await import("drizzle-orm");
-            const laborVendor = "ADP Payroll";
-            const description = `Pending labor accrual ${periodStartStr} to ${periodEndStr}`;
+          const refId = `labor-accrual-${periodStartStr}-${periodEndStr}`;
+          const existingAccrualJE = await db.select().from(journalEntries)
+            .where(eq(journalEntries.referenceId, refId)).limit(1);
 
-            const existing = await db.select().from(accrualPlaceholders).where(
-              and(
-                eq(accrualPlaceholders.vendorName, laborVendor),
-                eq(accrualPlaceholders.expectedDate, periodEndStr),
-                eq(accrualPlaceholders.status, "OPEN")
-              )
-            );
+          if (existingAccrualJE.length > 0) {
+            const oldLines = await db.select().from(ledgerLines)
+              .where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
+            const oldDebit = oldLines.find(l => Number(l.debit) > 0);
+            const oldAmount = oldDebit ? Number(oldDebit.debit) : 0;
 
-            if (existing.length > 0) {
-              await db.update(accrualPlaceholders).set({
-                amount: pendingLaborCost,
-                description,
-              }).where(eq(accrualPlaceholders.id, existing[0].id));
-            } else {
-              await db.insert(accrualPlaceholders).values({
-                vendorName: laborVendor,
-                description,
-                amount: pendingLaborCost,
-                expectedDate: periodEndStr,
-                coaCode: "6000",
-                status: "OPEN",
-                createdBy: "liquidity-engine",
-              });
+            if (Math.abs(oldAmount - pendingLaborCost) > 0.01) {
+              await db.delete(ledgerLines).where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
+              await db.delete(journalEntries).where(eq(journalEntries.id, existingAccrualJE[0].id));
+              console.log(`[LaborAccrual] Removed stale accrual JE #${existingAccrualJE[0].id} ($${oldAmount} → $${pendingLaborCost})`);
+
+              const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+              const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
+              if (laborAcct.length > 0 && payrollLiab.length > 0) {
+                const { postJournalEntry } = await import("./accounting-engine");
+                const rounded = Math.round(pendingLaborCost * 100) / 100;
+                await postJournalEntry(
+                  {
+                    transactionDate: periodEndStr,
+                    description: `Labor accrual: ${periodStartStr} to ${periodEndStr} (${payroll.totals.employeeCount} employees)`,
+                    referenceId: refId,
+                    referenceType: "labor_accrual",
+                    status: "posted",
+                    isNonCash: true,
+                    createdBy: "payroll-compiler",
+                  },
+                  [
+                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${payroll.totals.employeeCount} employees` },
+                    { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
+                  ]
+                );
+                console.log(`[LaborAccrual] Posted updated accrual: $${rounded} for ${periodStartStr} to ${periodEndStr}`);
+              }
             }
-          } catch (phErr: any) {
-            console.warn("[Liquidity] Accrual placeholder error (non-fatal):", phErr.message);
+          } else {
+            const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+            const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
+            if (laborAcct.length > 0 && payrollLiab.length > 0) {
+              try {
+                const { postJournalEntry } = await import("./accounting-engine");
+                const rounded = Math.round(pendingLaborCost * 100) / 100;
+                await postJournalEntry(
+                  {
+                    transactionDate: periodEndStr,
+                    description: `Labor accrual: ${periodStartStr} to ${periodEndStr} (${payroll.totals.employeeCount} employees)`,
+                    referenceId: refId,
+                    referenceType: "labor_accrual",
+                    status: "posted",
+                    isNonCash: true,
+                    createdBy: "payroll-compiler",
+                  },
+                  [
+                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${payroll.totals.employeeCount} employees` },
+                    { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
+                  ]
+                );
+                console.log(`[LaborAccrual] Posted new accrual: $${rounded} for ${periodStartStr} to ${periodEndStr}`);
+              } catch (jeErr: any) {
+                console.warn("[LaborAccrual] JE post error (non-fatal):", jeErr.message);
+              }
+            }
           }
         }
       } catch (payrollErr: any) {
