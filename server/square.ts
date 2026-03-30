@@ -144,6 +144,7 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
       cardTender: number;
       otherTender: number;
       tipAmount: number;
+      salesTax: number;
       refundAmount: number;
       hourlyBuckets: Map<number, { orderCount: number; revenue: number; itemsSold: number }>;
     };
@@ -151,7 +152,7 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
     for (const sqLocId of squareLocIds) {
       perLocationAgg.set(sqLocId, {
         ordersProcessed: 0, totalRevenue: 0, cashTender: 0, cardTender: 0,
-        otherTender: 0, tipAmount: 0, refundAmount: 0,
+        otherTender: 0, tipAmount: 0, salesTax: 0, refundAmount: 0,
         hourlyBuckets: new Map(),
       });
     }
@@ -192,8 +193,10 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
         locAgg.ordersProcessed++;
         const orderTotalCents = (order as any).totalMoney?.amount ? Number((order as any).totalMoney.amount) : 0;
         const tipCents = (order as any).totalTipMoney?.amount ? Number((order as any).totalTipMoney.amount) : 0;
+        const taxCents = (order as any).totalTaxMoney?.amount ? Number((order as any).totalTaxMoney.amount) : 0;
         locAgg.totalRevenue += orderTotalCents / 100;
         locAgg.tipAmount += tipCents / 100;
+        locAgg.salesTax += taxCents / 100;
 
         const tenders = (order as any).tenders || [];
         for (const tender of tenders) {
@@ -314,6 +317,7 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
         cardTender: agg.cardTender,
         otherTender: agg.otherTender,
         tipAmount: agg.tipAmount,
+        salesTax: agg.salesTax,
         processingFees: fees,
         refundAmount: agg.refundAmount,
         hourlyBreakdown,
