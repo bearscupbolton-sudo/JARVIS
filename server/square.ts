@@ -250,26 +250,25 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
     let processingFeesByLoc = new Map<string, number>();
     try {
       for (const sqLocId of squareLocIds) {
-        let paymentCursor: string | undefined;
         let totalFees = 0;
-        do {
-          const paymentResponse = await client.payments.list({
-            beginTime: startAt,
-            endTime: endAt,
-            locationId: sqLocId,
-            cursor: paymentCursor,
-          });
-          const payments = paymentResponse.payments || [];
-          for (const pmt of payments) {
-            const feeCents = (pmt as any).processingFee?.reduce((s: number, f: any) => s + (Number(f.amountMoney?.amount) || 0), 0) || 0;
-            totalFees += feeCents / 100;
-          }
-          paymentCursor = (paymentResponse as any).cursor || undefined;
-        } while (paymentCursor);
+        const paymentsPage = await client.payments.list({
+          beginTime: startAt,
+          endTime: endAt,
+          locationId: sqLocId,
+        });
+        for await (const pmt of paymentsPage) {
+          const feeCents = (pmt as any).processingFee?.reduce((s: number, f: any) => s + (Number(f.amountMoney?.amount) || 0), 0) || 0;
+          totalFees += feeCents / 100;
+        }
         processingFeesByLoc.set(sqLocId, totalFees);
       }
     } catch (feeErr: any) {
       console.warn("[Square Sync] Could not fetch processing fees:", feeErr.message);
+      if ((feeErr as any).body) {
+        try {
+          console.warn("[Square Sync] Fee error details:", JSON.stringify((feeErr as any).body).slice(0, 500));
+        } catch {}
+      }
     }
 
     if (jarvisLocationId) {
