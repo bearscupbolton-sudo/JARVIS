@@ -15091,6 +15091,134 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
     }
   });
 
+  // === SHADOW LEDGER / VIRTUAL VAULT ===
+  app.get("/api/firm/vault/balance", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const vaultAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010-V")).limit(1);
+      if (vaultAccount.length === 0) return res.json({ balance: 0, accountId: null });
+      const result = await db.select({
+        balance: sql<number>`COALESCE(SUM(${ledgerLines.debit}) - SUM(${ledgerLines.credit}), 0)`,
+      }).from(ledgerLines)
+        .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+        .where(and(
+          eq(ledgerLines.accountId, vaultAccount[0].id),
+          eq(journalEntries.status, "posted"),
+        ));
+      res.json({ balance: Number(result[0]?.balance || 0), accountId: vaultAccount[0].id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vault/payout", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { amount, category, recipientName, description, locationId } = req.body;
+      if (!amount || amount <= 0) return res.status(400).json({ message: "amount is required and must be positive" });
+      if (!recipientName) return res.status(400).json({ message: "recipientName is required" });
+
+      const vaultAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010-V")).limit(1);
+      const laborAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6015")).limit(1);
+      if (vaultAccount.length === 0 || laborAccount.length === 0) {
+        return res.status(400).json({ message: "Shadow ledger accounts not seeded. Re-seed COA." });
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+      const dept = category || "BOH";
+      const memo = description || `Cash payout: ${recipientName} (${dept})`;
+
+      const { postJournalEntry } = await import("./accounting-engine");
+      const entry = await postJournalEntry(
+        {
+          transactionDate: today,
+          description: memo,
+          referenceId: `shadow-payout-${Date.now()}`,
+          referenceType: "shadow_ledger",
+          status: "posted",
+          locationId: locationId || undefined,
+          createdBy: user?.username || "system",
+        },
+        [
+          { accountId: laborAccount[0].id, debit: Math.round(amount * 100) / 100, credit: 0, memo: `Cash labor: ${recipientName} (${dept})` },
+          { accountId: vaultAccount[0].id, debit: 0, credit: Math.round(amount * 100) / 100, memo: `Vault payout to ${recipientName}` },
+        ]
+      );
+
+      const [payout] = await db.insert(cashPayoutLogs).values({
+        amount,
+        payoutType: "shadow_labor",
+        recipientName,
+        description: memo,
+        sourceAccount: "1010-V",
+        targetCoaCode: "6015",
+        locationId: locationId || null,
+        journalEntryId: entry?.id || null,
+        payoutDate: today,
+        performedBy: user?.username || "Unknown",
+      }).returning();
+
+      res.status(201).json({ payout, journalEntry: entry });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/firm/vault/shadow-post-payroll", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const { compilePayroll } = await import("./payroll-compiler");
+      const preview = await compilePayroll(startDate, endDate);
+      const cashGross = preview.totals.cashGross;
+      if (cashGross <= 0) return res.json({ message: "No cash payroll to shadow-post", cashGross: 0 });
+
+      const vaultAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010-V")).limit(1);
+      const laborAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6015")).limit(1);
+      if (vaultAccount.length === 0 || laborAccount.length === 0) {
+        return res.status(400).json({ message: "Shadow ledger accounts not seeded" });
+      }
+
+      const refId = `shadow-payroll-${startDate}-${endDate}`;
+      const existing = await db.select().from(journalEntries).where(eq(journalEntries.referenceId, refId)).limit(1);
+      if (existing.length > 0) return res.status(400).json({ message: "Shadow payroll already posted for this period" });
+
+      const { postJournalEntry } = await import("./accounting-engine");
+      const entry = await postJournalEntry(
+        {
+          transactionDate: endDate,
+          description: `Shadow Payroll: Cash labor ${startDate} to ${endDate} ($${cashGross.toFixed(2)})`,
+          referenceId: refId,
+          referenceType: "shadow_ledger",
+          status: "posted",
+          createdBy: user?.username || "system",
+        },
+        [
+          { accountId: laborAccount[0].id, debit: Math.round(cashGross * 100) / 100, credit: 0, memo: `Cash payroll: ${preview.totals.employeeCount} employees` },
+          { accountId: vaultAccount[0].id, debit: 0, credit: Math.round(cashGross * 100) / 100, memo: `Vault draw for cash payroll` },
+        ]
+      );
+
+      res.status(201).json({ cashGross, journalEntry: entry, period: { startDate, endDate } });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/vault/history", isAuthenticated, isOwner, async (_req: any, res) => {
+    try {
+      const entries = await db.select()
+        .from(journalEntries)
+        .where(eq(journalEntries.referenceType, "shadow_ledger"))
+        .orderBy(desc(journalEntries.createdAt))
+        .limit(100);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === PROJECT METADATA (Project Tagging) ===
   app.get("/api/firm/projects", isAuthenticated, isOwner, async (_req: any, res) => {
     try {
@@ -15525,7 +15653,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       const { startDate, endDate } = req.query;
       if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
       const { getProfitAndLoss } = await import("./accounting-engine");
-      const pnl = await getProfitAndLoss(startDate as string, endDate as string);
+      const layer = (req.query.layer === "baker") ? "baker" : "bank";
+      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer);
       res.json(pnl);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -9,6 +9,7 @@ export const DEFAULT_COA = [
   { code: "1020", name: "Savings Account", type: "Asset", category: "Current", laymanDescription: "Your rainy-day fund. Cash set aside for taxes, emergencies, or future equipment purchases." },
   { code: "1030", name: "Cash Drawer - Saratoga", type: "Asset", category: "Current", locationId: 1, laymanDescription: "Physical cash sitting in the Saratoga register. Gets counted at close and deposited weekly." },
   { code: "1031", name: "Cash Drawer - Bolton", type: "Asset", category: "Current", locationId: 2, laymanDescription: "Physical cash sitting in the Bolton Landing register. Gets counted at close and deposited weekly." },
+  { code: "1010-V", name: "Virtual Vault", type: "Asset", category: "Current", laymanDescription: "Shadow cash clearinghouse — tracks physical cash between the Square register and the bank. Used for the Baker's Truth layer to reconcile cash labor payouts." },
   { code: "1050", name: "Accounts Receivable", type: "Asset", category: "Current", laymanDescription: "Money people owe you but haven't paid yet — wholesale invoices, catering deposits still outstanding." },
   { code: "1100", name: "Inventory", type: "Asset", category: "Current", laymanDescription: "Flour, butter, sugar, packaging on your shelves right now. It's cash you've already spent that hasn't been baked yet." },
   { code: "1200", name: "Prepaid Expenses", type: "Asset", category: "Current", laymanDescription: "Large one-off costs you've already paid but are spreading over multiple months — consulting fees, annual contracts, insurance premiums. Value that hasn't been 'burned' as an expense yet." },
@@ -35,6 +36,7 @@ export const DEFAULT_COA = [
   { code: "5030", name: "COGS - Beverages", type: "Expense", category: "COGS", laymanDescription: "Coffee beans, milk, syrups, tea — the raw materials for every drink you pour." },
   { code: "6000", name: "Operating Expenses", type: "Expense", category: "Operating", laymanDescription: "All the costs of running the bakery that aren't ingredients. Rent, labor, insurance — the overhead that keeps the lights on." },
   { code: "6010", name: "Labor - Wages", type: "Expense", category: "Operating", laymanDescription: "Straight pay for our team's hours worked, as recorded in the time-clock. The single biggest controllable cost." },
+  { code: "6015", name: "Labor - Cash/Off-book", type: "Expense", category: "Operating", laymanDescription: "Cash payroll paid from the register — the Baker's Truth layer. Shows real labor cost before it hits the bank. Only visible in the internal P&L." },
   { code: "6020", name: "Labor - Payroll Tax", type: "Expense", category: "Operating", laymanDescription: "The government's cut on top of wages — Social Security, Medicare, unemployment insurance. About 10-12% on top of gross pay." },
   { code: "6030", name: "Rent", type: "Expense", category: "Operating", laymanDescription: "Monthly rent for both locations. A fixed cost that doesn't change whether you sell 10 loaves or 1,000." },
   { code: "6040", name: "Utilities", type: "Expense", category: "Operating", laymanDescription: "Electric, gas, water, internet. The ovens and proofing boxes are power-hungry — this spikes in summer and winter." },
@@ -393,18 +395,24 @@ export async function getTrialBalance(startDate?: string, endDate?: string) {
   }));
 }
 
-export async function getProfitAndLoss(startDate: string, endDate: string) {
+const SHADOW_CODES = new Set(["1010-V", "6015"]);
+
+export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank") {
   const trialBalance = await getTrialBalance(startDate, endDate);
 
-  const revenue = trialBalance
+  const filtered = layer === "bank"
+    ? trialBalance.filter(r => !SHADOW_CODES.has(r.accountCode))
+    : trialBalance;
+
+  const revenue = filtered
     .filter(r => r.accountType === "Revenue")
     .map(r => ({ ...r, amount: r.totalCredit - r.totalDebit }));
 
-  const cogs = trialBalance
+  const cogs = filtered
     .filter(r => r.accountType === "Expense" && r.accountCategory === "COGS")
     .map(r => ({ ...r, amount: r.totalDebit - r.totalCredit }));
 
-  const operatingExpenses = trialBalance
+  const operatingExpenses = filtered
     .filter(r => r.accountType === "Expense" && r.accountCategory !== "COGS")
     .map(r => ({ ...r, amount: r.totalDebit - r.totalCredit }));
 
@@ -416,6 +424,7 @@ export async function getProfitAndLoss(startDate: string, endDate: string) {
 
   return {
     period: { startDate, endDate },
+    layer,
     revenue,
     totalRevenue,
     cogs,

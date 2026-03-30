@@ -94,6 +94,7 @@ const WholesaleOrders = lazy(() => import("@/pages/wholesale/WholesaleOrders"));
 const WholesaleOnboarding = lazy(() => import("@/pages/wholesale/WholesaleOnboarding"));
 const WholesaleAdmin = lazy(() => import("@/pages/WholesaleAdmin"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
+const QuickPayout = lazy(() => import("@/pages/QuickPayout"));
 const JarvisHive = lazy(() => import("@/pages/JarvisHive"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
 const SquareLaborSync = lazy(() => import("@/pages/SquareLaborSync"));
@@ -522,6 +523,9 @@ function Router() {
         </Route>
         <Route path="/the-firm">
           {() => <ProtectedRoute component={TheFirm} />}
+        </Route>
+        <Route path="/quick-payout">
+          {() => <ProtectedRoute component={QuickPayout} />}
         </Route>
         <Route path="/payroll">
           {() => <ProtectedRoute component={PayrollReview} />}
