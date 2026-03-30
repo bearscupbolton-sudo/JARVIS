@@ -1361,6 +1361,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
   const [filterSource, setFilterSource] = useState("all");
   const [filterReconciled, setFilterReconciled] = useState("no");
   const [filterTag, setFilterTag] = useState("all");
+  const [sortBy, setSortBy] = useState<"date" | "amount_desc" | "amount_asc">("date");
   const [searchDescription, setSearchDescription] = useState("");
   const [searchAmount, setSearchAmount] = useState("");
   const [tagInput, setTagInput] = useState("");
@@ -1630,8 +1631,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
         list = list.filter(t => Math.abs(Math.abs(t.amount) - target) < 0.015);
       }
     }
+    if (sortBy === "amount_desc") return list.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    if (sortBy === "amount_asc") return list.sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
     return list.sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled, filterTag, searchDescription, searchAmount]);
+  }, [transactions, filterAccount, filterCategory, filterSource, filterReconciled, filterTag, searchDescription, searchAmount, sortBy]);
 
   const totalIn = filtered.filter(t => t.amount >= 0).reduce((s, t) => s + t.amount, 0);
   const totalOut = filtered.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
@@ -1693,6 +1696,14 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
             </SelectContent>
           </Select>
         )}
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+          <SelectTrigger className="w-[150px]" data-testid="sort-by"><SelectValue placeholder="Sort by" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="date">Date (Newest)</SelectItem>
+            <SelectItem value="amount_desc">Amount (Largest)</SelectItem>
+            <SelectItem value="amount_asc">Amount (Smallest)</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <Input
