@@ -16,15 +16,19 @@ async function runPlaidBalanceSync(): Promise<number> {
       for (const acct of response.data.accounts) {
         const plaidAcct = await storage.getPlaidAccountByAccountId(acct.account_id);
         if (plaidAcct) {
+          const plaidCurrent = acct.balances.current || 0;
+          const plaidAvailable = acct.balances.available;
           await storage.updatePlaidAccount(plaidAcct.id, {
-            currentBalance: acct.balances.current || 0,
-            availableBalance: acct.balances.available || null,
+            currentBalance: plaidCurrent,
+            availableBalance: plaidAvailable ?? null,
             creditLimit: acct.balances.limit || null,
             lastUpdated: new Date(),
           });
           if (plaidAcct.firmAccountId) {
+            const acctType = acct.type || "";
+            const useAvailable = ["depository"].includes(acctType) && plaidAvailable != null;
             await storage.updateFirmAccount(plaidAcct.firmAccountId, {
-              currentBalance: acct.balances.current || 0,
+              currentBalance: useAvailable ? plaidAvailable : plaidCurrent,
               creditLimit: acct.balances.limit || undefined,
             });
           }
