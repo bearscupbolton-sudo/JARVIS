@@ -166,18 +166,21 @@ export async function calculateSalesTaxLiability(periodStart: string, periodEnd:
   for (const j of jurisdictions) {
     const locationSummaries = dailySummaries.filter(s => s.locationId === j.locationId || (!s.locationId && j.locationId === 1));
     const grossRevenue = locationSummaries.reduce((sum, s) => sum + (s.totalRevenue || 0), 0);
-    const taxableRevenue = grossRevenue / (1 + j.combinedRate);
-    const taxDue = grossRevenue - taxableRevenue;
+    const actualTaxCollected = locationSummaries.reduce((sum, s) => sum + (s.salesTax || 0), 0);
+    const hasRealTaxData = actualTaxCollected > 0;
+    const taxableRevenue = hasRealTaxData ? (grossRevenue - actualTaxCollected) : (grossRevenue / (1 + j.combinedRate));
+    const taxDue = hasRealTaxData ? actualTaxCollected : (grossRevenue - taxableRevenue);
     total += taxDue;
 
     for (const s of locationSummaries) {
       const dayGross = s.totalRevenue || 0;
-      const dayTaxable = dayGross / (1 + j.combinedRate);
+      const dayTax = (s.salesTax || 0);
+      const dayTaxAccrued = dayTax > 0 ? dayTax : (dayGross - dayGross / (1 + j.combinedRate));
       dailyAccrual.push({
         date: s.date,
         locationId: s.locationId,
         grossRevenue: dayGross,
-        taxAccrued: dayGross - dayTaxable,
+        taxAccrued: dayTaxAccrued,
       });
     }
 
