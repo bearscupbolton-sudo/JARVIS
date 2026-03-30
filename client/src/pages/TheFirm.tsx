@@ -5197,7 +5197,7 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
   );
 }
 
-type ReportView = "pnl" | "balance-sheet" | "cash-flow" | "trial-balance";
+type ReportView = "pnl" | "balance-sheet" | "cash-flow" | "trial-balance" | "equity-basis";
 
 function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string }) {
   const [view, setView] = useState<ReportView>("pnl");
@@ -5217,12 +5217,16 @@ function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string
         <Button size="sm" variant={view === "trial-balance" ? "default" : "outline"} onClick={() => setView("trial-balance")} data-testid="button-report-tb">
           <FileText className="h-4 w-4 mr-1" /> Trial Balance
         </Button>
+        <Button size="sm" variant={view === "equity-basis" ? "default" : "outline"} onClick={() => setView("equity-basis")} data-testid="button-report-equity" className={view === "equity-basis" ? "bg-purple-600 hover:bg-purple-700" : ""}>
+          <Dna className="h-4 w-4 mr-1" /> Equity Basis
+        </Button>
       </div>
 
       {view === "pnl" && <PnLReport startDate={startDate} endDate={endDate} />}
       {view === "balance-sheet" && <BalanceSheetReport asOfDate={endDate} />}
       {view === "cash-flow" && <CashFlowReport startDate={startDate} endDate={endDate} />}
       {view === "trial-balance" && <TrialBalanceReport startDate={startDate} endDate={endDate} />}
+      {view === "equity-basis" && <EquityBasisDashboard startDate={startDate} endDate={endDate} />}
     </div>
   );
 }
@@ -5347,6 +5351,175 @@ function PnLReport({ startDate, endDate }: { startDate: string; endDate: string 
         </table>
       </CardContent>
     </Card>
+  );
+}
+
+function EquityBasisDashboard({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [period, setPeriod] = useState<"custom" | "month" | "quarter" | "year">("custom");
+
+  const periodDates = useMemo(() => {
+    if (period === "custom") return { start: startDate, end: endDate };
+    const end = new Date(endDate);
+    if (period === "month") {
+      const s = startOfMonth(end);
+      return { start: format(s, "yyyy-MM-dd"), end: format(endOfMonth(end), "yyyy-MM-dd") };
+    }
+    if (period === "quarter") {
+      const qMonth = Math.floor(end.getMonth() / 3) * 3;
+      const s = new Date(end.getFullYear(), qMonth, 1);
+      const e = new Date(end.getFullYear(), qMonth + 3, 0);
+      return { start: format(s, "yyyy-MM-dd"), end: format(e, "yyyy-MM-dd") };
+    }
+    const s = new Date(end.getFullYear(), 0, 1);
+    const e = new Date(end.getFullYear(), 11, 31);
+    return { start: format(s, "yyyy-MM-dd"), end: format(e, "yyyy-MM-dd") };
+  }, [period, startDate, endDate]);
+
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/reports/equity-basis", periodDates.start, periodDates.end],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/equity-basis?startDate=${periodDates.start}&endDate=${periodDates.end}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-96 w-full" />;
+  if (!data) return null;
+
+  const effRatio = data.movement.efficiencyRatio;
+  const effColor = effRatio === null ? "text-muted-foreground" : effRatio >= 1.5 ? "text-green-600" : effRatio >= 1.0 ? "text-yellow-600" : "text-red-600";
+  const netMovement = data.movement.netMovement;
+
+  const waterfallMax = Math.max(...data.waterfallSteps.map((s: any) => Math.abs(s.value)), 1);
+
+  return (
+    <div className="space-y-4" data-testid="equity-basis-dashboard">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-muted-foreground">Period:</span>
+        {(["custom", "month", "quarter", "year"] as const).map(p => (
+          <Button key={p} size="sm" variant={period === p ? "default" : "outline"} onClick={() => setPeriod(p)} data-testid={`button-period-${p}`} className={period === p ? "bg-purple-600 hover:bg-purple-700" : ""}>
+            {p === "custom" ? "Custom" : p.charAt(0).toUpperCase() + p.slice(1)}
+          </Button>
+        ))}
+        <span className="text-xs text-muted-foreground ml-auto">{periodDates.start} to {periodDates.end}</span>
+      </div>
+
+      <Card className="border-purple-200 dark:border-purple-800" data-testid="card-equity-pulse">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Dna className="h-5 w-5 text-purple-600" /> Live Equity Pulse
+            {data.isBalanced ? (
+              <Badge className="text-xs bg-green-600 ml-auto"><Check className="h-3 w-3 mr-1" /> Balanced</Badge>
+            ) : (
+              <Badge variant="destructive" className="text-xs ml-auto"><AlertTriangle className="h-3 w-3 mr-1" /> Unbalanced</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center mb-4">
+            <div className="text-3xl font-bold tabular-nums text-purple-700 dark:text-purple-400" data-testid="text-current-basis">{formatCurrency(data.currentBasis)}</div>
+            <div className="text-xs text-muted-foreground mt-1">Total Assets ({formatCurrency(data.totalAssets)}) - Total Liabilities ({formatCurrency(data.totalLiabilities)})</div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-muted/30 rounded-lg p-3 text-center">
+              <div className="text-xs text-muted-foreground mb-1">Opening Basis</div>
+              <div className="text-lg font-semibold tabular-nums" data-testid="text-opening-basis">{formatCurrency(data.openingBasis)}</div>
+            </div>
+            <div className="bg-muted/30 rounded-lg p-3 text-center">
+              <div className="text-xs text-muted-foreground mb-1">Closing Basis</div>
+              <div className="text-lg font-semibold tabular-nums" data-testid="text-closing-basis">{formatCurrency(data.closingBasis)}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card data-testid="card-organic-growth">
+          <CardContent className="pt-4 text-center">
+            <div className="text-xs text-muted-foreground mb-1 flex items-center justify-center gap-1"><TrendingUp className="h-3 w-3" /> Organic Growth</div>
+            <div className={`text-xl font-bold tabular-nums ${data.movement.organicGrowth >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(data.movement.organicGrowth)}</div>
+            <div className="text-xs text-muted-foreground">Net Income</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-distributions">
+          <CardContent className="pt-4 text-center">
+            <div className="text-xs text-muted-foreground mb-1 flex items-center justify-center gap-1"><ArrowDownRight className="h-3 w-3" /> Distributions</div>
+            <div className="text-xl font-bold tabular-nums text-orange-600">{formatCurrency(data.movement.distributions)}</div>
+            <div className="text-xs text-muted-foreground">Owner Draws (3010)</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-efficiency-ratio">
+          <CardContent className="pt-4 text-center">
+            <div className="text-xs text-muted-foreground mb-1 flex items-center justify-center gap-1"><Target className="h-3 w-3" /> Efficiency Ratio</div>
+            <div className={`text-xl font-bold tabular-nums ${effColor}`} data-testid="text-efficiency-ratio">
+              {effRatio !== null ? effRatio.toFixed(2) + "x" : "N/A"}
+            </div>
+            <div className="text-xs text-muted-foreground">Goal: {">"}1.0x</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card data-testid="card-waterfall">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" /> Equity Waterfall
+            <Badge variant={netMovement >= 0 ? "default" : "destructive"} className={`ml-auto text-xs ${netMovement >= 0 ? "bg-green-600" : ""}`}>
+              {netMovement >= 0 ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
+              {formatCurrency(netMovement)}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {data.waterfallSteps.map((step: any, i: number) => {
+              const pct = Math.abs(step.value) / waterfallMax * 100;
+              const isBase = step.type === "base" || step.type === "total";
+              const barColor = isBase ? "bg-purple-500" : step.value >= 0 ? "bg-green-500" : "bg-red-400";
+              return (
+                <div key={i} className="flex items-center gap-2" data-testid={`waterfall-step-${i}`}>
+                  <div className="w-36 text-xs text-right text-muted-foreground truncate">{step.label}</div>
+                  <div className="flex-1 relative h-6 bg-muted/30 rounded overflow-hidden">
+                    <div className={`absolute left-0 top-0 h-full rounded ${barColor} transition-all`} style={{ width: `${Math.max(pct, 2)}%` }} />
+                    <span className="absolute right-2 top-0 h-full flex items-center text-xs font-mono tabular-nums">
+                      {step.value >= 0 ? "" : "-"}{formatCurrency(Math.abs(step.value))}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-pnl-summary">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2"><BookOpen className="h-4 w-4" /> P&L Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <table className="w-full text-sm">
+            <tbody>
+              {[
+                { label: "Revenue", value: data.pnlSummary.totalRevenue, color: "text-green-600" },
+                { label: "COGS", value: -data.pnlSummary.totalCOGS, color: "text-red-500" },
+                { label: "Gross Profit", value: data.pnlSummary.grossProfit, color: "", bold: true },
+                { label: "Operating Expenses", value: -data.pnlSummary.totalOperatingExpenses, color: "text-red-500" },
+                { label: "Net Income", value: data.pnlSummary.netIncome, color: data.pnlSummary.netIncome >= 0 ? "text-green-600" : "text-red-600", bold: true },
+              ].map((row, i) => (
+                <tr key={i} className={`border-b ${row.bold ? "font-semibold" : ""}`}>
+                  <td className="p-2">{row.label}</td>
+                  <td className={`p-2 text-right tabular-nums ${row.color}`}>
+                    {row.bold && row.label === "Gross Profit" && <span className="text-xs text-muted-foreground mr-2">({data.pnlSummary.grossMargin.toFixed(1)}%)</span>}
+                    {row.bold && row.label === "Net Income" && <span className="text-xs text-muted-foreground mr-2">({data.pnlSummary.netMargin.toFixed(1)}%)</span>}
+                    {formatCurrency(row.value)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
