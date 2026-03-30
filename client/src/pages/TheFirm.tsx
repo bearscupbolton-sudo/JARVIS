@@ -5229,13 +5229,22 @@ function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string
 
 function PnLReport({ startDate, endDate }: { startDate: string; endDate: string }) {
   const [layer, setLayer] = useState<"bank" | "baker">("bank");
+  const [excludeExpansion, setExcludeExpansion] = useState(false);
+
+  const { data: projects } = useQuery<any[]>({ queryKey: ["/api/firm/projects"] });
+  const expansionProject = projects?.find((p: any) => p.status === "active" && p.type === "capex");
+
+  const queryParams = new URLSearchParams({ startDate, endDate, layer });
+  if (excludeExpansion && expansionProject) queryParams.set("excludeProjectId", String(expansionProject.id));
+
   const { data: pnl, isLoading } = useQuery<any>({
-    queryKey: ["/api/firm/reports/pnl", startDate, endDate, layer],
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate, layer, excludeExpansion ? expansionProject?.id : null],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}&layer=${layer}`);
+      const res = await fetch(`/api/firm/reports/pnl?${queryParams.toString()}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
+    enabled: !excludeExpansion || !!projects,
   });
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
@@ -5244,16 +5253,27 @@ function PnLReport({ startDate, endDate }: { startDate: string; endDate: string 
   return (
     <Card data-testid="card-pnl">
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="text-base flex flex-wrap items-center gap-2">
           <BarChart3 className="h-5 w-5" /> Profit & Loss
           <span className="text-xs text-muted-foreground font-normal ml-2">{startDate} to {endDate}</span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 flex-wrap">
             <Button size="sm" variant={layer === "bank" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLayer("bank")} data-testid="button-layer-bank">
               Bank's Truth
             </Button>
             <Button size="sm" variant={layer === "baker" ? "default" : "outline"} className={`h-7 text-xs ${layer === "baker" ? "bg-amber-600 hover:bg-amber-700" : ""}`} onClick={() => setLayer("baker")} data-testid="button-layer-baker">
               Baker's Truth
             </Button>
+            {expansionProject && (
+              <Button
+                size="sm"
+                variant={excludeExpansion ? "default" : "outline"}
+                className={`h-7 text-xs ${excludeExpansion ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                onClick={() => setExcludeExpansion(!excludeExpansion)}
+                data-testid="button-exclude-expansion"
+              >
+                {excludeExpansion ? "Showing Bolton Only" : "Exclude Expansion"}
+              </Button>
+            )}
           </div>
         </CardTitle>
       </CardHeader>

@@ -28,7 +28,7 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **Communication & Collaboration:** Messaging system, global acknowledgment system, task manager, and notes system.
     *   **Customer & Wholesale:** La Carte customer portal, BC Wholesale portal, and JMT for dynamic menu display.
     *   **Tax Intelligence (RAgent):** Tax Profile Engine, Vibe Threshold Monitor, and FICA Tip Credit Calculator.
-    *   **Shadow Ledger:** Dual-layer P&L (Bank's Truth vs Baker's Truth) with Virtual Vault (1010-V) and Cash Labor (6015) tracking. QuickPayout mobile UI at `/quick-payout` for recording off-book cash labor. Vault balance, payout, and history endpoints under `/api/firm/vault/`.
+    *   **Shadow Ledger:** Dual-layer P&L (Bank's Truth vs Baker's Truth) with Virtual Vault (1010-V) and Cash Labor (6015) tracking. QuickPayout mobile UI at `/quick-payout` for recording off-book cash labor with expansion mode for store-launch costs (Pre-Opening Labor 6015-V, CapEx 1500, Startup Amortization 6210). P&L supports "Exclude Expansion Drag" filter via project tagging. Vault balance, payout, and history endpoints under `/api/firm/vault/`.
     *   **Audit Lineage Engine:** Three-layer drill-down system with AI narrative generation for financial tracing.
     *   **Year-End Financial Export:** Comprehensive JSON export engine for CPA/AI Form 1120-S preparation.
     *   **Personalized Greeting System:** Enhances daily Jarvis briefing with user interests, weather, and traffic data.

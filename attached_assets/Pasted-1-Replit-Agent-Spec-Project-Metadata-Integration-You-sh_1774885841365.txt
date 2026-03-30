@@ -1,0 +1,26 @@
+1. Replit Agent Spec: Project Metadata Integration
+You should instruct the Replit Agent to utilize the existing projectMetadata and firm_transactions tables to anchor these store-launch costs.
+
+Agent Instructions:
+
+Create Expansion Project: Utilize the projectMetadata table to create a project titled "Saratoga Launch" with a unique project code (e.g., EXP-SRT-01).
+
+Project Type Assignment: Mark this project as type "capex" if the costs are for fixed assets (ovens, refrigeration) or "opex" if they are for pre-launch labor and supplies.
+
+Transaction Anchor: Every bank transaction or manual entry associated with this store should be linked via the projectId column in the firm_transactions table.
+
+2. High-Accuracy Margin Protection
+To see the "Baker's Truth" regarding your new location without skewing your original store's performance, the agent should implement the following logic in the P&L engine:
+
+Expansion Labor Check: In tax-profile-engine.ts, use the isExpansionLabor check to identify if labor hours logged at the second location should be treated as "startup costs" rather than operational expenses.
+
+Shadow P&L Toggle: When viewing your P&L, Jarvis should provide a toggle to "Exclude Expansion Drag." This will remove all transactions tagged with the Saratoga Launch project ID, showing you the baseline profitability of your established Bolton location while separately tracking the burn rate of the new store.
+
+3. "The Baker’s Truth" Tagging Categories
+For the overnight "Midnight Shift" mobile input, the Replit Agent should offer specific categories for expansion:
+
+CapEx (Account 1500): For equipment that will be capitalized and depreciated, such as the La Marzocco or the retarder proofers.
+
+Pre-Opening Labor (Account 6015-V): Use this for cash labor paid to the team for setting up the new space, linked to your Virtual Vault to maintain the shadow ledger truth.
+
+Startup Amortization (Account 6210): For large one-off costs like consulting or legal fees that should be spread over the first 12–24 months of the new store's life.
