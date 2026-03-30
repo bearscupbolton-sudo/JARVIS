@@ -317,7 +317,9 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
       const lines: Array<{ accountId: number; debit: number; credit: number; memo?: string }> = [];
 
       const processingFees = summary.processingFees || 0;
+      const salesTax = summary.salesTax || 0;
       const cashDeposit = netRevenue - processingFees;
+      const revenueExTax = netRevenue - salesTax;
 
       lines.push({ accountId: cashId, debit: Math.round(cashDeposit * 100) / 100, credit: 0, memo: "Square deposit after fees" });
 
@@ -325,7 +327,11 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
         lines.push({ accountId: merchantFeesId, debit: Math.round(processingFees * 100) / 100, credit: 0, memo: "Square processing fees" });
       }
 
-      lines.push({ accountId: revenueId, debit: 0, credit: Math.round(netRevenue * 100) / 100, memo: `${summary.orderCount} orders` });
+      lines.push({ accountId: revenueId, debit: 0, credit: Math.round(revenueExTax * 100) / 100, memo: `${summary.orderCount} orders` });
+
+      if (salesTax > 0 && salesTaxId) {
+        lines.push({ accountId: salesTaxId, debit: 0, credit: Math.round(salesTax * 100) / 100, memo: "Sales tax collected" });
+      }
 
       await postJournalEntry(
         {
