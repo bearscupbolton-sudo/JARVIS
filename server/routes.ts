@@ -15794,6 +15794,18 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     }
   });
 
+  app.get("/api/firm/reports/equity-basis", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+      const { getEquityBasisInsight } = await import("./accounting-engine");
+      const insight = await getEquityBasisInsight(startDate as string, endDate as string);
+      res.json(insight);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/firm/reports/trial-balance", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { startDate, endDate } = req.query;

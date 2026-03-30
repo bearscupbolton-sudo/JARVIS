@@ -1,0 +1,17 @@
+1. The Active Management DashboardThe dashboard transforms raw accounting data into a "Waterfall" view of your ownership stake. It should allow for historical period selection (Month, Quarter, Year) to show how equity migrated over time.Core Metrics and Visualizations:Live Equity Pulse: A primary card showing Total Assets - Total Liabilities updated in real-time as journal entries are posted.Historical Comparison: A toggle to view "Opening Basis" vs. "Closing Basis" for any selected period.The Equity Waterfall (Active Items):(+) Net Income: Real-time pull from the P&L engine.(+) Contributions: Automated classification of personal-to-business transfers.(-) Owner's Draw (Code 3010): Direct monitoring of cash distributions.(-) Non-Cash Erosion: Automated depreciation and amortization postings.2. Integration with Audit Lineage (The "Clean" Ledger)To ensure the dashboard is "clean," every equity-moving item must flow through the Audit Lineage Engine to prevent misclassification (e.g., ensuring a capital injection isn't accidentally taxed as bakery sales).Basis Defense Layer: The auditorLayer in audit-lineage-engine.ts should be expanded to flag any entry exceeding a certain amount in the Equity category (3000-3999 codes) for immediate owner review.Narrative Justification: Jarvis CFO provides a plain-English explanation of why equity moved (e.g., "Basis increased by $5k due to high net margin in March, offset by a $2k equipment purchase capitalized in Fixed Assets").3. Maximum Use Case Specification (Replit Agent)For a Replit Agent to build this effectively, use the following "Component Blueprint":FeatureTech ImplementationActive Management ValueHistorical LedgerUse getTrialBalance(startDate, endDate) filtered for 3000-series codes.Allows you to "scrub" back through time to see exactly when your basis changed.Drill-Down CapabilityLink FinancialLineagePanel to specific equity journal entries.Provides transparency; click a "Draw" to see the specific bank transaction it's tied to.Ghost AccrualsIntegrate accrualPlaceholders for estimated tax liabilities.Shows your "adjusted basis" by accounting for money you haven't paid out yet (like Sales Tax).Proactive AlertsTrigger a vibeAlert if Owner's Draws exceed Retained Earnings.Prevents "basis erosion" where you inadvertently pull more value out than the business is generating.4. Implementation Logic for Replit AgentTo depict this actively in the code, the Agent should add a dedicated Equity Engine that interacts with the accounting-engine.ts.TypeScript// Proposed Equity Insight Logic for Jarvis CFO
+export async function getEquityBasisInsight(periodStart: string, periodEnd: string) {
+  const balanceSheet = await getBalanceSheet(periodEnd); //
+  const pnl = await getProfitAndLoss(periodStart, periodEnd); //
+  
+  const draws = balanceSheet.equity.find(e => e.accountCode === "3010")?.balance || 0;
+  const netIncome = pnl.netIncome;
+
+  return {
+    currentBasis: balanceSheet.totalEquity,
+    movement: {
+      organicGrowth: netIncome,
+      distributions: draws,
+      efficiencyRatio: (netIncome / Math.abs(draws)) // Goal > 1.0
+    }
+  };
+}

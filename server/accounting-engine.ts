@@ -560,6 +560,56 @@ export function mapUSFoodsToAccount(itemDescription: string): { debitCode: strin
   return { debitCode: "5010", debitName: "COGS - Food & Ingredients" };
 }
 
+export async function getEquityBasisInsight(periodStart: string, periodEnd: string) {
+  const balanceSheet = await getBalanceSheet(periodEnd);
+  const pnl = await getProfitAndLoss(periodStart, periodEnd);
+
+  const openingBS = await getBalanceSheet(periodStart);
+
+  const draws = balanceSheet.equity.find(e => e.accountCode === "3010")?.balance || 0;
+  const openingDraws = openingBS.equity.find(e => e.accountCode === "3010")?.balance || 0;
+  const periodDraws = draws - openingDraws;
+
+  const netIncome = pnl.netIncome;
+  const openingBasis = openingBS.totalEquity;
+  const closingBasis = balanceSheet.totalEquity;
+
+  const waterfallSteps = [
+    { label: "Opening Equity", value: openingBasis, type: "base" as const },
+    { label: "Revenue", value: pnl.totalRevenue, type: "increase" as const },
+    { label: "COGS", value: -pnl.totalCOGS, type: "decrease" as const },
+    { label: "Operating Expenses", value: -pnl.totalOperatingExpenses, type: "decrease" as const },
+    { label: "Owner Draws", value: periodDraws < 0 ? periodDraws : -Math.abs(periodDraws), type: "decrease" as const },
+    { label: "Closing Equity", value: closingBasis, type: "total" as const },
+  ];
+
+  return {
+    period: { startDate: periodStart, endDate: periodEnd },
+    currentBasis: closingBasis,
+    openingBasis,
+    closingBasis,
+    totalAssets: balanceSheet.totalAssets,
+    totalLiabilities: balanceSheet.totalLiabilities,
+    isBalanced: balanceSheet.isBalanced,
+    movement: {
+      organicGrowth: netIncome,
+      distributions: periodDraws,
+      netMovement: closingBasis - openingBasis,
+      efficiencyRatio: Math.abs(periodDraws) > 0 ? netIncome / Math.abs(periodDraws) : null,
+    },
+    pnlSummary: {
+      totalRevenue: pnl.totalRevenue,
+      totalCOGS: pnl.totalCOGS,
+      grossProfit: pnl.grossProfit,
+      grossMargin: pnl.grossMargin,
+      totalOperatingExpenses: pnl.totalOperatingExpenses,
+      netIncome: pnl.netIncome,
+      netMargin: pnl.netMargin,
+    },
+    waterfallSteps,
+  };
+}
+
 export function detectLocationFromAddress(text: string): number | null {
   const lower = text.toLowerCase();
   if (lower.includes("35 henry") || lower.includes("saratoga")) return 1;
