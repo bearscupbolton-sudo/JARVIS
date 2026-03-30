@@ -1123,6 +1123,7 @@ export const squareDailySummary = pgTable("square_daily_summary", {
   cardTender: doublePrecision("card_tender").notNull().default(0),
   otherTender: doublePrecision("other_tender").notNull().default(0),
   tipAmount: doublePrecision("tip_amount").notNull().default(0),
+  salesTax: doublePrecision("sales_tax").notNull().default(0),
   processingFees: doublePrecision("processing_fees").notNull().default(0),
   refundAmount: doublePrecision("refund_amount").notNull().default(0),
   hourlyBreakdown: jsonb("hourly_breakdown").notNull().default([]),
