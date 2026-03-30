@@ -333,7 +333,7 @@ async function doSyncSquareSales(date: string, jarvisLocationId?: number): Promi
         orderCount: 0,
         totalRevenue: 0,
         cashTender: 0, cardTender: 0, otherTender: 0,
-        tipAmount: 0, processingFees: 0, refundAmount: 0,
+        tipAmount: 0, salesTax: 0, processingFees: 0, refundAmount: 0,
         hourlyBreakdown: [],
         lastSyncedAt: new Date(),
       });
