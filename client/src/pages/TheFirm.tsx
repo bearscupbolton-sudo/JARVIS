@@ -5228,10 +5228,11 @@ function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string
 }
 
 function PnLReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const [layer, setLayer] = useState<"bank" | "baker">("bank");
   const { data: pnl, isLoading } = useQuery<any>({
-    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate, layer],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}&layer=${layer}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -5246,6 +5247,14 @@ function PnLReport({ startDate, endDate }: { startDate: string; endDate: string 
         <CardTitle className="text-base flex items-center gap-2">
           <BarChart3 className="h-5 w-5" /> Profit & Loss
           <span className="text-xs text-muted-foreground font-normal ml-2">{startDate} to {endDate}</span>
+          <div className="ml-auto flex items-center gap-1">
+            <Button size="sm" variant={layer === "bank" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLayer("bank")} data-testid="button-layer-bank">
+              Bank's Truth
+            </Button>
+            <Button size="sm" variant={layer === "baker" ? "default" : "outline"} className={`h-7 text-xs ${layer === "baker" ? "bg-amber-600 hover:bg-amber-700" : ""}`} onClick={() => setLayer("baker")} data-testid="button-layer-baker">
+              Baker's Truth
+            </Button>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent>

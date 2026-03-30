@@ -268,6 +268,42 @@ export async function runVibeThresholdCheck(startDate: string, endDate: string) 
     }
   }
 
+  try {
+    const vaultAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010-V")).limit(1);
+    if (vaultAcct.length > 0) {
+      const { ledgerLines } = await import("@shared/schema");
+      const { journalEntries } = await import("@shared/schema");
+      const vaultBal = await db.select({
+        balance: sql<number>`COALESCE(SUM(${ledgerLines.debit}) - SUM(${ledgerLines.credit}), 0)`,
+      }).from(ledgerLines)
+        .innerJoin(journalEntries, eq(ledgerLines.entryId, journalEntries.id))
+        .where(and(
+          eq(ledgerLines.accountId, vaultAcct[0].id),
+          eq(journalEntries.status, "posted"),
+        ));
+      const balance = Number(vaultBal[0]?.balance || 0);
+      if (balance < 0) {
+        alerts.push({
+          alertType: "vault_negative",
+          severity: "critical",
+          title: "Vault Alert: Negative Balance — Possible Theft or Unrecorded Cash",
+          message: `Virtual Vault (1010-V) balance is $${balance.toFixed(2)}. You cannot spend more cash than Square says you took in. Investigate missing cash or unrecorded register transactions.`,
+          metricValue: balance,
+          thresholdValue: 0,
+        });
+      } else if (balance > 5000) {
+        alerts.push({
+          alertType: "vault_lazy_cash",
+          severity: "warning",
+          title: "Vault Alert: Lazy Cash — $" + balance.toFixed(0) + " sitting idle",
+          message: `Virtual Vault (1010-V) has $${balance.toFixed(2)}. This cash isn't working for you — consider a bank drop or moving to a high-yield savings account.`,
+          metricValue: balance,
+          thresholdValue: 5000,
+        });
+      }
+    }
+  } catch {}
+
   for (const alert of alerts) {
     await db.insert(vibeAlerts).values({
       ...alert,
