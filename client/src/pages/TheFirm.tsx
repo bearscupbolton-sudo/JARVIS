@@ -491,6 +491,14 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
     queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
     staleTime: 30 * 60 * 1000,
   });
+  const { data: pnlData } = useQuery<any>({
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
   const { data: compiledPayroll } = useQuery<PayrollCompileResult>({
     queryKey: ["/api/payroll/compile", startDate, endDate],
     queryFn: async () => {
@@ -502,7 +510,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   });
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
   const s = summary || {};
-  const revenue = s.squareRevenue || 0;
+  const revenue = pnlData?.totalRevenue ?? (s.squareRevenue || 0);
   const processingFees = s.squareProcessingFees || 0;
   const NON_PL_CATEGORIES = ["owner_draw", "sales_tax_payment", "prior_period_adjustment", "equipment", "loan_principal", "rent_split"];
   const INCOME_CATEGORIES = ["revenue", "other_income"];
@@ -514,6 +522,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
     .filter(([, v]) => v < 0)
     .reduce((a: number, [, v]) => a + Math.abs(v), 0);
   const ownerDrawTotal = s.manualTransactionsByCategory ? Math.abs((s.manualTransactionsByCategory as Record<string, number>)["owner_draw"] || 0) : 0;
+  const totalExpensesFromPnl = pnlData ? (pnlData.totalCOGS + pnlData.totalOperatingExpenses) : null;
   const compiledLaborCost = compiledPayroll?.totals.grossEstimate || 0;
   const laborCostForPL = compiledLaborCost > 0 ? compiledLaborCost : (s.laborCost || 0);
   const bankFeedHasLabor = s.manualTransactionsByCategory && (
@@ -522,8 +531,9 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   );
   const laborForPL = bankFeedHasLabor ? 0 : laborCostForPL;
   const payrollForPL = bankFeedHasLabor ? 0 : (s.payrollTotal || 0);
-  const expenses = (s.invoiceExpenseTotal || 0) + laborForPL + manualTxnTotal + payrollForPL + processingFees;
-  const netPL = revenue - expenses;
+  const fallbackExpenses = (s.invoiceExpenseTotal || 0) + laborForPL + manualTxnTotal + payrollForPL + processingFees;
+  const expenses = totalExpensesFromPnl ?? fallbackExpenses;
+  const netPL = pnlData?.netIncome ?? (revenue - expenses);
   const cashPosition = accounts.reduce((sum, a) => {
     if (["checking", "savings", "cash", "petty_cash"].includes(a.type)) return sum + a.currentBalance;
     return sum;
@@ -538,7 +548,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
         <Card data-testid="card-revenue" className="cursor-pointer hover:ring-2 hover:ring-green-500/30 transition-all" onClick={() => setLineagePanel({ category: "revenue", label: "Revenue" })}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground font-medium">Revenue (Square Gross)<LearnTooltip term="Revenue" explanation="Total gross sales from Square POS — what customers paid. This is your top line before expenses, processing fees, or loan withholdings." /></span>
+              <span className="text-xs text-muted-foreground font-medium">Revenue{pnlData ? "" : " (Square Gross)"}<LearnTooltip term="Revenue" explanation="Total gross revenue from the general ledger (all journalized revenue including Square POS). This is your accrual-basis top line." /></span>
               <TrendingUp className="w-4 h-4 text-green-600" />
             </div>
             <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(revenue)}</div>
@@ -550,7 +560,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
         <Card data-testid="card-expenses" className="cursor-pointer hover:ring-2 hover:ring-red-500/30 transition-all" onClick={() => setLineagePanel({ category: "expense", label: "Expenses" })}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground font-medium">Expenses<LearnTooltip term="Expenses" explanation="All money going out — ingredients, labor, rent, supplies, loan payments. Lower expenses relative to revenue means higher profit." /></span>
+              <span className="text-xs text-muted-foreground font-medium">Expenses<LearnTooltip term="Expenses" explanation="All operating expenses from the general ledger — includes bank transactions, amortization, and all posted journal entries. Excludes owner draws, CapEx, and tax payments." /></span>
               <TrendingDown className="w-4 h-4 text-red-600" />
             </div>
             <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(expenses)}</div>
