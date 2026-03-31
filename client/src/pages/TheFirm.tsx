@@ -1639,6 +1639,36 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
   const totalIn = filtered.filter(t => t.amount >= 0).reduce((s, t) => s + t.amount, 0);
   const totalOut = filtered.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
 
+  function exportLedgerCsv() {
+    const headers = ["Date", "Description", "Amount", "Category", "Account", "Source", "Reconciled", "COA Code", "Tags", "Notes"];
+    const accountMap = new Map(accounts.map(a => [a.id, a.name]));
+    const categoryMap = new Map(CATEGORIES.map(c => [c.value, c.label]));
+    const csvRows = [headers.join(",")];
+    for (const t of filtered) {
+      const row = [
+        t.date,
+        `"${(t.description || "").replace(/"/g, '""')}"`,
+        t.amount.toFixed(2),
+        categoryMap.get(t.category) || t.category,
+        accountMap.get(t.accountId) || "",
+        t.referenceType || "",
+        t.reconciled ? "Yes" : "No",
+        t.suggestedCoaCode || "",
+        (t.tags || []).join("; "),
+        `"${(t.notes || "").replace(/"/g, '""')}"`,
+      ];
+      csvRows.push(row.join(","));
+    }
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ledger-export-${startDate}-to-${endDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: `${filtered.length} transactions exported to CSV.` });
+  }
+
   function addTag() {
     const tag = tagInput.trim().toLowerCase();
     if (tag && !(form.tags || []).includes(tag)) {
@@ -1748,6 +1778,9 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
           <span className="text-red-700 dark:text-red-400 font-medium">Out: {formatCurrency(Math.abs(totalOut))}</span>
           <span className={`font-bold ${totalIn + totalOut >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>Net: {formatCurrency(totalIn + totalOut)}</span>
         </div>
+        <Button size="sm" variant="outline" onClick={exportLedgerCsv} disabled={filtered.length === 0} data-testid="button-export-csv">
+          <Download className="w-4 h-4 mr-1" /> Export CSV
+        </Button>
         <Dialog open={showForm} onOpenChange={setShowForm}>
           <DialogTrigger asChild><Button size="sm" data-testid="button-add-transaction"><Plus className="w-4 h-4 mr-1" /> Add Transaction</Button></DialogTrigger>
           <DialogContent>
