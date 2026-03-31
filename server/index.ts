@@ -466,48 +466,35 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { db } = await import("./db");
-      const { firmTransactions, journalEntries, ledgerLines, chartOfAccounts } = await import("@shared/schema");
-      const { eq, and, sql, count, inArray } = await import("drizzle-orm");
+      const { journalEntries, ledgerLines, squareDailySummary } = await import("@shared/schema");
+      const { eq, and, gte, lte, count, sql, inArray } = await import("drizzle-orm");
 
-      const existingRevJEs = await db.select({ cnt: count() }).from(journalEntries)
+      const staleJEs = await db.select({ cnt: count() }).from(journalEntries)
         .where(eq(journalEntries.referenceType, "csv-import-2025-revenue"));
-      if ((existingRevJEs[0]?.cnt || 0) > 0) {
-        console.log(`[Revenue Seed] Already have ${existingRevJEs[0].cnt} revenue JEs, skipping.`);
-      } else {
-        const revTxns = await db.select().from(firmTransactions)
-          .where(and(
-            eq(firmTransactions.referenceType, "csv-import-2025"),
-            eq(firmTransactions.category, "revenue")
-          ));
-        if (revTxns.length === 0) {
-          console.log("[Revenue Seed] No revenue transactions found, skipping.");
-        } else {
-          const allAccounts = await db.select().from(chartOfAccounts);
-          const codeToId = new Map(allAccounts.map((a: any) => [a.code, a.id]));
-          const cashId = codeToId.get("1010")!;
-          const salesId = codeToId.get("4010")!;
-          let posted = 0;
-          for (const t of revTxns) {
-            const absAmount = Math.abs(t.amount);
-            if (absAmount === 0) continue;
-            const refId = `rev-${t.referenceId || t.id}`;
-            const [je] = await db.insert(journalEntries).values({
-              transactionDate: t.date,
-              description: t.description || "Square deposit",
-              referenceId: refId,
-              referenceType: "csv-import-2025-revenue",
-              status: "reconciled",
-              createdBy: "csv-import",
-            }).returning();
-            await db.insert(ledgerLines).values({ entryId: je.id, accountId: cashId, debit: absAmount, credit: 0, memo: "Square deposit" });
-            await db.insert(ledgerLines).values({ entryId: je.id, accountId: salesId, debit: 0, credit: absAmount, memo: "Square revenue" });
-            posted++;
-          }
-          console.log(`[Revenue Seed] COMPLETE: ${posted} revenue JEs posted (DR Cash / CR Bakery Sales 4010)`);
+      if ((staleJEs[0]?.cnt || 0) > 0) {
+        const staleRows = await db.select({ id: journalEntries.id }).from(journalEntries)
+          .where(eq(journalEntries.referenceType, "csv-import-2025-revenue"));
+        const ids = staleRows.map(r => r.id);
+        for (let i = 0; i < ids.length; i += 100) {
+          const batch = ids.slice(i, i + 100);
+          await db.delete(ledgerLines).where(inArray(ledgerLines.entryId, batch));
+          await db.delete(journalEntries).where(inArray(journalEntries.id, batch));
         }
+        console.log(`[Revenue Cleanup] Removed ${ids.length} stale csv-import-2025-revenue JEs — revenue comes from Square sync`);
+      }
+
+      const existing2025 = await db.select({ cnt: count() }).from(squareDailySummary)
+        .where(and(gte(squareDailySummary.date, "2025-01-01"), lte(squareDailySummary.date, "2025-12-31")));
+      if ((existing2025[0]?.cnt || 0) > 0) {
+        console.log(`[Square Backfill] Already have ${existing2025[0].cnt} square_daily_summary rows for 2025, checking JEs...`);
+        const { journalizeSquareRevenue } = await import("./accounting-engine");
+        const result = await journalizeSquareRevenue("2025-01-01", "2025-12-31");
+        console.log(`[Square Backfill] Journalized: ${result.journalized} new, ${result.skipped} already existed`);
+      } else {
+        console.log(`[Square Backfill] No 2025 Square data found. Use the "Pull 2025 Revenue" button on The Firm page to backfill from Square.`);
       }
     } catch (e: any) {
-      console.error("[Revenue Seed] Error:", e.message);
+      console.error("[Revenue/Square Startup] Error:", e.message);
     }
   })();
 
