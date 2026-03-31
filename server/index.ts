@@ -463,6 +463,54 @@ app.use((req, res, next) => {
     }
   })();
 
+  (async () => {
+    try {
+      const { db } = await import("./db");
+      const { firmTransactions, journalEntries, ledgerLines, chartOfAccounts } = await import("@shared/schema");
+      const { eq, and, sql, count, inArray } = await import("drizzle-orm");
+
+      const existingRevJEs = await db.select({ cnt: count() }).from(journalEntries)
+        .where(eq(journalEntries.referenceType, "csv-import-2025-revenue"));
+      if ((existingRevJEs[0]?.cnt || 0) > 0) {
+        console.log(`[Revenue Seed] Already have ${existingRevJEs[0].cnt} revenue JEs, skipping.`);
+      } else {
+        const revTxns = await db.select().from(firmTransactions)
+          .where(and(
+            eq(firmTransactions.referenceType, "csv-import-2025"),
+            eq(firmTransactions.category, "revenue")
+          ));
+        if (revTxns.length === 0) {
+          console.log("[Revenue Seed] No revenue transactions found, skipping.");
+        } else {
+          const allAccounts = await db.select().from(chartOfAccounts);
+          const codeToId = new Map(allAccounts.map((a: any) => [a.code, a.id]));
+          const cashId = codeToId.get("1010")!;
+          const salesId = codeToId.get("4010")!;
+          let posted = 0;
+          for (const t of revTxns) {
+            const absAmount = Math.abs(t.amount);
+            if (absAmount === 0) continue;
+            const refId = `rev-${t.referenceId || t.id}`;
+            const [je] = await db.insert(journalEntries).values({
+              transactionDate: t.date,
+              description: t.description || "Square deposit",
+              referenceId: refId,
+              referenceType: "csv-import-2025-revenue",
+              status: "reconciled",
+              createdBy: "csv-import",
+            }).returning();
+            await db.insert(ledgerLines).values({ entryId: je.id, accountId: cashId, debit: absAmount, credit: 0, memo: "Square deposit" });
+            await db.insert(ledgerLines).values({ entryId: je.id, accountId: salesId, debit: 0, credit: absAmount, memo: "Square revenue" });
+            posted++;
+          }
+          console.log(`[Revenue Seed] COMPLETE: ${posted} revenue JEs posted (DR Cash / CR Bakery Sales 4010)`);
+        }
+      }
+    } catch (e: any) {
+      console.error("[Revenue Seed] Error:", e.message);
+    }
+  })();
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
