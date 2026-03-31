@@ -241,6 +241,7 @@ export default function TheFirm() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [locationId, setLocationId] = useState<string>("all");
   const monthOptions = buildMonthOptions();
 
   useEffect(() => {
@@ -259,6 +260,7 @@ export default function TheFirm() {
   }, []);
 
   const { startDate, endDate } = getPeriodDates(period, customStart, customEnd, selectedMonth);
+  const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
 
   const { data: accounts, isLoading: loadingAccounts } = useQuery<FirmAccount[]>({ queryKey: ["/api/firm/accounts"] });
   const { data: transactions, isLoading: loadingTxns } = useQuery<FirmTransaction[]>({
@@ -275,8 +277,8 @@ export default function TheFirm() {
     queryFn: () => fetch(`/api/firm/cash-counts?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
   });
   const { data: summary, isLoading: loadingSummary } = useQuery<any>({
-    queryKey: ["/api/firm/summary", startDate, endDate],
-    queryFn: () => fetch(`/api/firm/summary?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
+    queryKey: ["/api/firm/summary", startDate, endDate, locationId],
+    queryFn: () => fetch(`/api/firm/summary?startDate=${startDate}&endDate=${endDate}${locParam}`).then(r => r.json()),
   });
 
   return (
@@ -291,6 +293,17 @@ export default function TheFirm() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={locationId} onValueChange={setLocationId}>
+            <SelectTrigger className="w-[160px]" data-testid="select-location">
+              <MapPin className="w-3.5 h-3.5 mr-1 shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Locations</SelectItem>
+              <SelectItem value="1">Bolton Landing</SelectItem>
+              <SelectItem value="3">Saratoga Springs</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
             <SelectTrigger className="w-[150px]" data-testid="select-period">
               <SelectValue />
@@ -355,10 +368,10 @@ export default function TheFirm() {
         </div>
 
         <TabsContent value="command-center">
-          <CommandCenterTab startDate={startDate} endDate={endDate} />
+          <CommandCenterTab startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
         <TabsContent value="overview">
-          <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} />
+          <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
         <TabsContent value="accounts">
           <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setLedgerFilterAccountId(String(id)); setActiveTab("ledger"); }} onNavigate={(tab, accountId) => { if (accountId) setLedgerFilterAccountId(String(accountId)); setActiveTab(tab); }} />
@@ -376,7 +389,7 @@ export default function TheFirm() {
           <JournalTab startDate={startDate} endDate={endDate} />
         </TabsContent>
         <TabsContent value="reports">
-          <ReportsTab startDate={startDate} endDate={endDate} />
+          <ReportsTab startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
         <TabsContent value="obligations">
           <ObligationsTab obligations={Array.isArray(obligations) ? obligations : []} accounts={Array.isArray(accounts) ? accounts : []} />
@@ -484,17 +497,18 @@ interface PayrollCompileResult {
   };
 }
 
-function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string }) {
+function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate, locationId = "all" }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string; locationId?: string }) {
   const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
+  const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
   const { data: jarvisInsight, isLoading: loadingInsight } = useQuery<{ insight: string }>({
     queryKey: ["/api/firm/jarvis-insight", startDate, endDate],
     queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
     staleTime: 30 * 60 * 1000,
   });
   const { data: pnlData } = useQuery<any>({
-    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate, locationId],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}${locParam}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -5257,7 +5271,7 @@ function JournalTab({ startDate, endDate }: { startDate: string; endDate: string
 
 type ReportView = "pnl" | "balance-sheet" | "cash-flow" | "trial-balance" | "equity-basis";
 
-function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+function ReportsTab({ startDate, endDate, locationId = "all" }: { startDate: string; endDate: string; locationId?: string }) {
   const [view, setView] = useState<ReportView>("pnl");
 
   return (
@@ -5280,16 +5294,16 @@ function ReportsTab({ startDate, endDate }: { startDate: string; endDate: string
         </Button>
       </div>
 
-      {view === "pnl" && <PnLReport startDate={startDate} endDate={endDate} />}
-      {view === "balance-sheet" && <BalanceSheetReport asOfDate={endDate} />}
+      {view === "pnl" && <PnLReport startDate={startDate} endDate={endDate} locationId={locationId} />}
+      {view === "balance-sheet" && <BalanceSheetReport asOfDate={endDate} locationId={locationId} />}
       {view === "cash-flow" && <CashFlowReport startDate={startDate} endDate={endDate} />}
-      {view === "trial-balance" && <TrialBalanceReport startDate={startDate} endDate={endDate} />}
+      {view === "trial-balance" && <TrialBalanceReport startDate={startDate} endDate={endDate} locationId={locationId} />}
       {view === "equity-basis" && <EquityBasisDashboard startDate={startDate} endDate={endDate} />}
     </div>
   );
 }
 
-function PnLReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+function PnLReport({ startDate, endDate, locationId = "all" }: { startDate: string; endDate: string; locationId?: string }) {
   const [layer, setLayer] = useState<"bank" | "baker">("bank");
   const [excludeExpansion, setExcludeExpansion] = useState(false);
 
@@ -5298,9 +5312,10 @@ function PnLReport({ startDate, endDate }: { startDate: string; endDate: string 
 
   const queryParams = new URLSearchParams({ startDate, endDate, layer });
   if (excludeExpansion && expansionProject) queryParams.set("excludeProjectId", String(expansionProject.id));
+  if (locationId !== "all") queryParams.set("locationId", locationId);
 
   const { data: pnl, isLoading } = useQuery<any>({
-    queryKey: ["/api/firm/reports/pnl", startDate, endDate, layer, excludeExpansion ? expansionProject?.id : null],
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate, layer, excludeExpansion ? expansionProject?.id : null, locationId],
     queryFn: async () => {
       const res = await fetch(`/api/firm/reports/pnl?${queryParams.toString()}`);
       if (!res.ok) throw new Error("Failed");
@@ -5581,11 +5596,12 @@ function EquityBasisDashboard({ startDate, endDate }: { startDate: string; endDa
   );
 }
 
-function BalanceSheetReport({ asOfDate }: { asOfDate: string }) {
+function BalanceSheetReport({ asOfDate, locationId = "all" }: { asOfDate: string; locationId?: string }) {
+  const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
   const { data: bs, isLoading } = useQuery<any>({
-    queryKey: ["/api/firm/reports/balance-sheet", asOfDate],
+    queryKey: ["/api/firm/reports/balance-sheet", asOfDate, locationId],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/balance-sheet?asOfDate=${asOfDate}`);
+      const res = await fetch(`/api/firm/reports/balance-sheet?asOfDate=${asOfDate}${locParam}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -5708,11 +5724,12 @@ function CashFlowReport({ startDate, endDate }: { startDate: string; endDate: st
   );
 }
 
-function TrialBalanceReport({ startDate, endDate }: { startDate: string; endDate: string }) {
+function TrialBalanceReport({ startDate, endDate, locationId = "all" }: { startDate: string; endDate: string; locationId?: string }) {
+  const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
   const { data: tb = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/firm/reports/trial-balance", startDate, endDate],
+    queryKey: ["/api/firm/reports/trial-balance", startDate, endDate, locationId],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/trial-balance?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/firm/reports/trial-balance?startDate=${startDate}&endDate=${endDate}${locParam}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -5797,16 +5814,17 @@ interface Consultation {
   createdAt: string;
 }
 
-function CommandCenterTab({ startDate, endDate }: { startDate: string; endDate: string }) {
+function CommandCenterTab({ startDate, endDate, locationId = "all" }: { startDate: string; endDate: string; locationId?: string }) {
   const { toast } = useToast();
   const [aiClassifyInput, setAiClassifyInput] = useState({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
   const [classifyResult, setClassifyResult] = useState<any>(null);
   const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
+  const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
 
   const { data: pnl, isLoading: pnlLoading } = useQuery<any>({
-    queryKey: ["/api/firm/reports/pnl", startDate, endDate],
+    queryKey: ["/api/firm/reports/pnl", startDate, endDate, locationId],
     queryFn: async () => {
-      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/firm/reports/pnl?startDate=${startDate}&endDate=${endDate}${locParam}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },

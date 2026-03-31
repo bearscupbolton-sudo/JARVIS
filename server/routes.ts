@@ -14148,7 +14148,8 @@ IMPORTANT GUIDELINES:
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
-      const summary = await storage.getFirmSummary(startDate, endDate);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
+      const summary = await storage.getFirmSummary(startDate, endDate, locationId);
       res.json(summary);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -16218,7 +16219,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       const { getProfitAndLoss } = await import("./accounting-engine");
       const layer = (req.query.layer === "baker") ? "baker" : "bank";
       const excludeProjectId = req.query.excludeProjectId ? parseInt(req.query.excludeProjectId as string) : undefined;
-      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer, excludeProjectId ? { excludeProjectId } : undefined);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
+      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer, { excludeProjectId, locationId });
       res.json(pnl);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -16230,7 +16232,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       const { asOfDate } = req.query;
       if (!asOfDate) return res.status(400).json({ message: "asOfDate required" });
       const { getBalanceSheet } = await import("./accounting-engine");
-      const bs = await getBalanceSheet(asOfDate as string);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
+      const bs = await getBalanceSheet(asOfDate as string, locationId ? { locationId } : undefined);
       res.json(bs);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -16265,7 +16268,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
     try {
       const { startDate, endDate } = req.query;
       const { getTrialBalance } = await import("./accounting-engine");
-      const tb = await getTrialBalance(startDate as string | undefined, endDate as string | undefined);
+      const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
+      const tb = await getTrialBalance(startDate as string | undefined, endDate as string | undefined, locationId ? { locationId } : undefined);
       res.json(tb);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
