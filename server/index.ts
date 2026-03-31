@@ -466,6 +466,288 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { db } = await import("./db");
+      const { firmTransactions, journalEntries, ledgerLines, chartOfAccounts } = await import("@shared/schema");
+      const { eq, and, count, inArray } = await import("drizzle-orm");
+      const fs = await import("fs");
+      const pathMod = await import("path");
+
+      const existingAmex = await db.select({ cnt: count() }).from(firmTransactions)
+        .where(eq(firmTransactions.referenceType, "csv-import-2025-amex"));
+      if ((existingAmex[0]?.cnt || 0) > 0) {
+        console.log(`[Amex Seed] Already have ${existingAmex[0].cnt} amex transactions, skipping.`);
+      } else {
+        const csvPath = pathMod.resolve("attached_assets/activity_1774970866703.csv");
+        if (!fs.existsSync(csvPath)) {
+          console.log("[Amex Seed] Amex CSV file not found, skipping.");
+        } else {
+          const raw = fs.readFileSync(csvPath, "utf-8");
+          const lines = raw.split("\n").filter(l => l.trim());
+          const dataLines = lines.slice(1);
+
+          const allAccounts = await db.select().from(chartOfAccounts);
+          const codeToId = new Map(allAccounts.map((a: any) => [a.code, a.id]));
+          const ccLiabilityId = codeToId.get("2020")!;
+          const cashId = codeToId.get("1010")!;
+          const AMEX_ACCOUNT_ID = 14;
+
+          function classifyAmex(desc: string, amount: number): { category: string; coaCode: string; notes: string } {
+            const d = desc.toUpperCase();
+
+            if (d.includes("MOBILE PAYMENT") || d.includes("AUTOPAY PAYMENT")) return { category: "cc_payment", coaCode: "2020", notes: "Amex payment from checking" };
+            if (d.includes("INTEREST CHARGE")) return { category: "interest", coaCode: "6090", notes: "Amex interest charge" };
+            if (d.includes("POINTS FOR AMEX") || d.includes("SHOP WITH POINTS CREDIT")) return { category: "cc_credit", coaCode: "2020", notes: "Amex rewards credit" };
+
+            if (d.includes("HILLCREST FOODS")) return { category: "cogs", coaCode: "5010", notes: "Hillcrest Foods - ingredients" };
+            if (d.includes("PFS - SPRINGFIELD") || d.includes("PFS SPRINGFIELD")) return { category: "cogs", coaCode: "5010", notes: "PFS Springfield - ingredients" };
+            if (d.includes("COPPER HORSE COF")) return { category: "cogs", coaCode: "5010", notes: "Copper Horse Coffee - ingredients" };
+            if (d.includes("NOBLE GAS SOLUTIONS")) return { category: "cogs", coaCode: "5010", notes: "Noble Gas Solutions - CO2/gas" };
+            if (d.includes("SPLASH PACKAGING") || d.includes("NOISSUE")) return { category: "cogs", coaCode: "5020", notes: "Packaging" };
+            if (d.includes("FOUR SEASONS NAT")) return { category: "cogs", coaCode: "5010", notes: "Four Seasons Natural - ingredients" };
+            if (d.includes("SP MOREWINE")) return { category: "cogs", coaCode: "5010", notes: "MoreWine - brewing supplies" };
+            if (d.includes("BEVERAGE FACTORY")) return { category: "cogs", coaCode: "5010", notes: "Beverage Factory" };
+
+            if (d.includes("ACTION PACKAGING")) return { category: "cogs", coaCode: "5020", notes: "Action Packaging" };
+            if (d.includes("CUSTOM CUP SLEEVES")) return { category: "cogs", coaCode: "5020", notes: "Custom cup sleeves" };
+            if (d.includes("WEBSTAURANT STOR")) return { category: "cogs", coaCode: "5020", notes: "Webstaurant Store - supplies" };
+            if (d.includes("USPLASTIC") || d.includes("NEATLY")) return { category: "cogs", coaCode: "5020", notes: "Plastic supplies" };
+            if (d.includes("WAVE - *ECOWARE") || d.includes("ECOWARE")) return { category: "cogs", coaCode: "5020", notes: "Ecoware packaging" };
+
+            if (d.includes("IC* INSTACART")) return { category: "cogs", coaCode: "5010", notes: "Instacart - ingredients/supplies" };
+            if (d.includes("MARKET32") || d.includes("PCHOPPER")) return { category: "cogs", coaCode: "5010", notes: "Price Chopper/Market32 - ingredients" };
+            if (d.includes("WAL-MART") || d.includes("WALMART")) return { category: "cogs", coaCode: "5010", notes: "Walmart - supplies" };
+
+            if (d.includes("RPS HAMLET") || d.includes("RPS THE HAMLET")) return { category: "rent", coaCode: "6030", notes: "Rent - RPS Hamlet at Saratoga" };
+
+            if (d.includes("SPECTRUM")) return { category: "utilities", coaCode: "6040", notes: "Spectrum internet" };
+            if (d.includes("MIRABITO")) return { category: "utilities", coaCode: "6040", notes: "Mirabito - gas/propane" };
+            if (d.includes("TWIN BRIDGES WASTE")) return { category: "utilities", coaCode: "6040", notes: "Twin Bridges Waste" };
+            if (d.includes("NGRID") || d.includes("NATIONAL GRID")) return { category: "utilities", coaCode: "6040", notes: "National Grid" };
+            if (d.includes("SUPPLYHOUSE.COM")) return { category: "utilities", coaCode: "6040", notes: "Plumbing supplies" };
+            if (d.includes("ESP WELL SUPPLY")) return { category: "utilities", coaCode: "6040", notes: "Well supply" };
+
+            if (d.includes("VZWIRELESS") || d.includes("VZWRLSS") || d.includes("VERIZON")) return { category: "technology", coaCode: "6080", notes: "Verizon wireless" };
+            if (d.includes("OPENPHONE")) return { category: "technology", coaCode: "6080", notes: "OpenPhone" };
+            if (d.includes("ADOBE")) return { category: "technology", coaCode: "6080", notes: "Adobe software" };
+            if (d.includes("YODECK")) return { category: "technology", coaCode: "6080", notes: "Yodeck digital signage" };
+            if (d.includes("EERO PLUS")) return { category: "technology", coaCode: "6080", notes: "Eero network" };
+            if (d.includes("GOOGLE *GOOGLE ONE")) return { category: "technology", coaCode: "6080", notes: "Google One storage" };
+            if (d.includes("IMENUPRO")) return { category: "technology", coaCode: "6080", notes: "iMenuPro" };
+            if (d.includes("SQUARE PAID SERVICES")) return { category: "technology", coaCode: "6080", notes: "Square paid services" };
+            if (d.includes("A1010BUSD01") || d.includes("MSBILL")) return { category: "technology", coaCode: "6080", notes: "Microsoft 365" };
+            if (d.includes("BRIGHTSTAR")) return { category: "technology", coaCode: "6080", notes: "Brightstar phone insurance" };
+
+            if (d.includes("CANVA")) return { category: "marketing", coaCode: "6060", notes: "Canva design" };
+            if (d.includes("CUSTOMINK")) return { category: "marketing", coaCode: "6060", notes: "CustomInk branded apparel" };
+            if (d.includes("STICKER MULE")) return { category: "marketing", coaCode: "6060", notes: "Sticker Mule" };
+            if (d.includes("ZAZZLE")) return { category: "marketing", coaCode: "6060", notes: "Zazzle marketing materials" };
+            if (d.includes("LINKTREE")) return { category: "marketing", coaCode: "6060", notes: "Linktree" };
+            if (d.includes("DESIGNCROWD")) return { category: "marketing", coaCode: "6060", notes: "DesignCrowd" };
+            if (d.includes("FASTSIGNS")) return { category: "marketing", coaCode: "6060", notes: "Signage" };
+            if (d.includes("EMILY MACDOUGALL ART")) return { category: "marketing", coaCode: "6060", notes: "Emily MacDougall Art" };
+            if (d.includes("GIMMERSTA WALLPAPER")) return { category: "marketing", coaCode: "6060", notes: "Wallpaper/decor" };
+            if (d.includes("FINISHING TOUCHES")) return { category: "marketing", coaCode: "6060", notes: "Finishing Touches decor" };
+            if (d.includes("JENNY C DESIGN")) return { category: "marketing", coaCode: "6060", notes: "Jenny C Design" };
+            if (d.includes("JOBCASE") || d.includes("POST-STAR")) return { category: "marketing", coaCode: "6060", notes: "Job posting/advertising" };
+
+            if (d.includes("VEVOR")) return { category: "equipment", coaCode: "1500", notes: "Vevor equipment" };
+            if (d.includes("KATOM RESTAURANT")) return { category: "equipment", coaCode: "1500", notes: "KaTom restaurant equipment" };
+            if (d.includes("VOLTAGE COFFEE")) return { category: "equipment", coaCode: "1500", notes: "Voltage Coffee equipment" };
+            if (d.includes("SQUARE HARDWARE")) return { category: "equipment", coaCode: "1500", notes: "Square POS hardware" };
+            if (d.includes("CLARION EVENTS")) return { category: "equipment", coaCode: "1500", notes: "Clarion Events - trade show" };
+            if (d.includes("NORTH COUNTRY JANITO")) return { category: "supplies", coaCode: "5020", notes: "North Country Janitorial" };
+            if (d.includes("STAPLES")) return { category: "supplies", coaCode: "5020", notes: "Staples office supplies" };
+            if (d.includes("ACER AMERICA")) return { category: "equipment", coaCode: "1500", notes: "Acer computer equipment" };
+
+            if (d.includes("K9 BOOKKEEPING")) return { category: "professional_services", coaCode: "6100", notes: "K9 Bookkeeping" };
+            if (d.includes("WHITEMAN OSTERMAN")) return { category: "professional_services", coaCode: "6100", notes: "Legal services - Whiteman Osterman" };
+            if (d.includes("CASSANDRA WEST")) return { category: "professional_services", coaCode: "6100", notes: "Cassandra West LLC" };
+            if (d.includes("EPN*EXPERIAN")) return { category: "professional_services", coaCode: "6100", notes: "Experian business credit" };
+            if (d.includes("WHITTEMORE, DOW")) return { category: "professional_services", coaCode: "6100", notes: "Whittemore Dowen - professional services" };
+
+            if (d.includes("HOME DEPOT") || d.includes("HOMEDEPOT")) return { category: "maintenance", coaCode: "6070", notes: "Home Depot - repairs/maintenance" };
+            if (d.includes("ALBANY FIRE PROT")) return { category: "maintenance", coaCode: "6070", notes: "Albany Fire Protection" };
+            if (d.includes("CYBERWELD") || d.includes("SP CYBERWELD")) return { category: "maintenance", coaCode: "6070", notes: "Cyberweld welding supplies" };
+            if (d.includes("ABOVE & BEYOND")) return { category: "maintenance", coaCode: "6070", notes: "Above & Beyond" };
+
+            if (d.includes("ECARD SYSTEMS")) return { category: "merchant_fees", coaCode: "6110", notes: "eCard Systems - gift cards" };
+
+            if (d.includes("SUNOCO")) return { category: "vehicle", coaCode: "6150", notes: "Gas/fuel" };
+            if (d.includes("NEMER CHRYSLER")) return { category: "vehicle", coaCode: "6150", notes: "Vehicle - Nemer Chrysler" };
+            if (d.includes("LEGACY AUTO DETAIL")) return { category: "vehicle", coaCode: "6150", notes: "Auto detailing" };
+            if (d.includes("DICK'S SPORTING")) return { category: "vehicle", coaCode: "6150", notes: "Sporting goods" };
+
+            if (d.includes("FEDEX") || d.includes("UPS ")) return { category: "shipping", coaCode: "6090", notes: "Shipping" };
+            if (d.includes("USPS")) return { category: "shipping", coaCode: "6090", notes: "USPS postage" };
+
+            if (d.includes("DOORDASH") || d.includes("DD *DOORDASH")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - DoorDash" };
+            if (d.includes("UBER EATS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Uber Eats" };
+            if (d.includes("UBER ONE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Uber One" };
+            if (d.includes("PRIME VIDEO")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Prime Video" };
+            if (d.includes("HBO MAX") || d.includes("MAX NEW YORK")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - HBO/Max" };
+            if (d.includes("ROKU FOR DISNEY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Disney+" };
+            if (d.includes("ROKU FOR HULU")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Hulu" };
+            if (d.includes("SIRIUS XM")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - SiriusXM" };
+            if (d.includes("GOOGLE *YOUTUBE TV")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - YouTube TV" };
+            if (d.includes("ANTHROPOLOGIE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Anthropologie" };
+            if (d.includes("ZARA USA")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Zara" };
+            if (d.includes("REVOLVE ")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Revolve" };
+            if (d.includes("HOMEGOODS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - HomeGoods" };
+            if (d.includes("TARGET")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Target" };
+            if (d.includes("WALGREENS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Walgreens" };
+            if (d.includes("PLANET FITNESS") || d.includes("OTF ") || d.includes("PUREBARRE") || d.includes("CLUBPILATE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - fitness" };
+            if (d.includes("APPLE STORE") || d.includes("APPLE.COM")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Apple" };
+            if (d.includes("IPHONE CITIZENSONELO")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - iPhone loan" };
+            if (d.includes("EXPEDIA")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - travel" };
+            if (d.includes("JETBLUE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - JetBlue travel" };
+            if (d.includes("AMTRAK")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Amtrak travel" };
+            if (d.includes("ARLO MIDTOWN") || d.includes("HOTELTONIGHT") || d.includes("PRICELN")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - hotel/travel" };
+            if (d.includes("HILTON GARDEN")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - hotel" };
+            if (d.includes("SWA INFLIGHT WIFI")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - airline wifi" };
+            if (d.includes("ALLIANZTRAVEL")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - travel insurance" };
+            if (d.includes("AMEXTRAVEL")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - travel" };
+            if (d.includes("AMAZON PRIME") && !d.includes("PRIME VIDEO")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Amazon Prime" };
+            if (d.includes("AMAZON DIGITAL SVCS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Amazon digital" };
+            if (d.includes("STUBHUB")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - StubHub" };
+            if (d.includes("SACRED SPA") || d.includes("BLVD *SACRED")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - spa" };
+            if (d.includes("NAILS BY KASEY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - nails" };
+            if (d.includes("GLISTEN BY MEGHAN")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - personal care" };
+            if (d.includes("BEST CLEANERS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - dry cleaning" };
+            if (d.includes("WARRENSBURG LAUNDRY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - laundry" };
+            if (d.includes("MAXIMUS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Maximus" };
+            if (d.includes("PHYSICIAN MEDICAL")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - medical" };
+            if (d.includes("ALBANY COUNTY AA")) return { category: "owner_draw", coaCode: "3010", notes: "Personal" };
+            if (d.includes("PAI S TAE KWON DO")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - martial arts" };
+            if (d.includes("MICHAELS STORES")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - Michaels" };
+            if (d.includes("ADK WATER SPORTS")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - water sports" };
+            if (d.includes("LS ISLAND WATER")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - water sports" };
+            if (d.includes("CHEDDARUP") || d.includes("LAKEY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal" };
+            if (d.includes("COMM HOSPICE FDN")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - charitable donation" };
+            if (d.includes("GOFNDME")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - GoFundMe" };
+            if (d.includes("KNOT REGISTRY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - gift registry" };
+            if (d.includes("DAISYS KIDS CAFE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal" };
+            if (d.includes("PEERSPA")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - spa" };
+            if (d.includes("MSB*SARATOGACO")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - health" };
+            if (d.includes("SARATOGA COUNTY")) return { category: "owner_draw", coaCode: "3010", notes: "Personal" };
+
+            if (d.includes("FORNO TOSCANO") || d.includes("TST*") || d.includes("NOAH'S ITALIAN") || d.includes("HAMLET AND GHOST") || d.includes("CANTINA") || d.includes("LOCAL PUB") || d.includes("OUTBACK STEAKHOUSE") || d.includes("PASTA PANE") || d.includes("SUPERNATURAL") || d.includes("CARPACCIO") || d.includes("ALLEGNT") || d.includes("AKIRA BACK") || d.includes("ROSEWATER ROOFT") || d.includes("UNCLE LOUIES")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - dining" };
+            if (d.includes("HEALTHY LIVING")) return { category: "owner_draw", coaCode: "3010", notes: "Personal - grocery" };
+
+            if (d.includes("AMAZON")) return { category: "supplies", coaCode: "5020", notes: "Amazon - business supplies" };
+            if (d.includes("ALIBABA")) return { category: "supplies", coaCode: "5020", notes: "Alibaba supplies" };
+            if (d.includes("ETSY")) return { category: "supplies", coaCode: "5020", notes: "Etsy" };
+
+            return { category: "misc", coaCode: "6090", notes: "Uncategorized Amex" };
+          }
+
+          const SKIP_JE_CATEGORIES_AMEX = new Set(["cc_credit"]);
+          const seenRefKeys = new Map<string, number>();
+          let added = 0, jePosted = 0, errors: string[] = [];
+
+          for (const line of dataLines) {
+            try {
+              const parts: string[] = [];
+              let current = "";
+              let inQuotes = false;
+              for (const ch of line) {
+                if (ch === '"') { inQuotes = !inQuotes; continue; }
+                if (ch === ',' && !inQuotes) { parts.push(current.trim()); current = ""; continue; }
+                current += ch;
+              }
+              parts.push(current.trim());
+
+              const [dateStr, , description, , , amountStr] = parts;
+              if (!dateStr || !description || !amountStr) continue;
+
+              const dateParts = dateStr.split("/");
+              if (dateParts.length !== 3) continue;
+              const isoDate = `${dateParts[2]}-${dateParts[0].padStart(2, "0")}-${dateParts[1].padStart(2, "0")}`;
+              const rawAmount = parseFloat(amountStr.replace(/,/g, ""));
+              if (isNaN(rawAmount)) continue;
+
+              const descClean = description.replace(/\s+/g, " ").trim();
+              const { category, coaCode, notes } = classifyAmex(descClean, rawAmount);
+
+              const baseKey = `amex2025-${isoDate}-${descClean.substring(0, 40).replace(/[^a-zA-Z0-9]/g, "")}-${Math.abs(rawAmount).toFixed(2)}`;
+              const seenCount = (seenRefKeys.get(baseKey) || 0) + 1;
+              seenRefKeys.set(baseKey, seenCount);
+              const refId = seenCount > 1 ? `${baseKey}-dup${seenCount}` : baseKey;
+
+              const txnAmount = -rawAmount;
+
+              await db.insert(firmTransactions).values({
+                accountId: AMEX_ACCOUNT_ID,
+                date: isoDate,
+                description: descClean,
+                amount: txnAmount,
+                category,
+                referenceType: "csv-import-2025-amex",
+                referenceId: refId,
+                reconciled: true,
+                notes: notes || null,
+                suggestedCoaCode: coaCode,
+                createdBy: "csv-import-amex",
+              });
+              added++;
+
+              if (SKIP_JE_CATEGORIES_AMEX.has(category)) continue;
+
+              const targetAcctId = codeToId.get(coaCode);
+              if (!targetAcctId) continue;
+
+              const absAmount = Math.abs(rawAmount);
+              if (absAmount === 0) continue;
+
+              let drAcct: number, crAcct: number;
+              let drMemo: string | null = null, crMemo: string | null = null;
+
+              if (category === "cc_payment") {
+                drAcct = ccLiabilityId; crAcct = cashId;
+                drMemo = "Amex payment - reducing CC liability";
+                crMemo = "Payment to Amex";
+              } else if (rawAmount < 0) {
+                drAcct = ccLiabilityId; crAcct = targetAcctId;
+                drMemo = "Refund/credit reduces CC liability";
+                crMemo = notes || descClean;
+              } else {
+                if (coaCode === "1500" || coaCode === "3010" || coaCode === "1200") {
+                  drAcct = targetAcctId; crAcct = ccLiabilityId;
+                  drMemo = notes || descClean;
+                  crMemo = "Amex charge";
+                } else {
+                  drAcct = targetAcctId; crAcct = ccLiabilityId;
+                  drMemo = notes || descClean;
+                  crMemo = "Amex charge";
+                }
+              }
+
+              const [je] = await db.insert(journalEntries).values({
+                transactionDate: isoDate,
+                description: descClean,
+                referenceId: refId,
+                referenceType: "csv-import-2025-amex",
+                status: "reconciled",
+                createdBy: "csv-import-amex",
+              }).returning();
+
+              await db.insert(ledgerLines).values({ entryId: je.id, accountId: drAcct, debit: absAmount, credit: 0, memo: drMemo });
+              await db.insert(ledgerLines).values({ entryId: je.id, accountId: crAcct, debit: 0, credit: absAmount, memo: crMemo });
+              jePosted++;
+            } catch (lineErr: any) {
+              errors.push(lineErr.message);
+            }
+          }
+          console.log(`[Amex Seed] COMPLETE: ${added} transactions, ${jePosted} JEs. ${errors.length} errors.`);
+          if (errors.length > 0) console.log(`[Amex Seed] First few errors: ${errors.slice(0, 5).join("; ")}`);
+        }
+      }
+    } catch (e: any) {
+      console.error("[Amex Seed] Error:", e.message);
+    }
+  })();
+
+  (async () => {
+    try {
+      const { db } = await import("./db");
       const { journalEntries, ledgerLines, squareDailySummary } = await import("@shared/schema");
       const { eq, and, gte, lte, count, sql, inArray } = await import("drizzle-orm");
 
