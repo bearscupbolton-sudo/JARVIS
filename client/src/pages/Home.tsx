@@ -479,30 +479,9 @@ function ClockBar() {
   );
 }
 
-type PersonalizedGreetingData = {
-  greeting: string | null;
-  enabled: boolean;
-  weather?: {
-    temp: number;
-    feelsLike: number;
-    description: string;
-    icon: string;
-    humidity: number;
-    windSpeed: number;
-    location: string;
-  } | null;
-  traffic?: {
-    duration: string;
-    durationInTraffic: string;
-    distance: string;
-    summary: string;
-  } | null;
-};
-
 function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
   data: JarvisBriefingData; onDismiss: () => void; onRefresh: () => void; isRefreshing: boolean;
 }) {
-  const { user } = useAuth();
   const seenMutation = useMutation({ mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/seen"); } });
   const clearMutation = useMutation({
     mutationFn: async () => { await apiRequest("POST", "/api/home/jarvis-briefing/clear"); },
@@ -512,21 +491,9 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
     },
   });
 
-  const isPersonalizedEnabled = user?.personalizedGreetingsEnabled ?? false;
-
-  const { data: greetingData } = useQuery<PersonalizedGreetingData>({
-    queryKey: ["/api/user/greeting"],
-    enabled: isPersonalizedEnabled,
-    staleTime: 10 * 60 * 1000,
-    refetchInterval: 30 * 60 * 1000,
-  });
-
   useEffect(() => { if (data.showWelcome) seenMutation.mutate(); }, [data.showWelcome]);
 
   if (data.disabled || !data.briefingText) return null;
-
-  const weatherIcon = greetingData?.weather?.icon;
-  const weatherIconUrl = weatherIcon ? `https://openweathermap.org/img/wn/${weatherIcon}.png` : null;
 
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4" data-testid="container-jarvis-briefing">
@@ -546,26 +513,6 @@ function JarvisBriefingCard({ data, onDismiss, onRefresh, isRefreshing }: {
           </div>
           {data.showWelcome && data.welcomeMessage && (
             <p className="text-sm font-medium mb-2 text-foreground" data-testid="text-welcome-message">{data.welcomeMessage}</p>
-          )}
-
-          {isPersonalizedEnabled && greetingData?.greeting && (
-            <p className="text-sm text-foreground/90 leading-relaxed mb-1" data-testid="text-personalized-greeting">{greetingData.greeting}</p>
-          )}
-
-          {isPersonalizedEnabled && greetingData?.weather && (
-            <div className="flex items-center gap-3 mb-2 text-xs text-muted-foreground" data-testid="container-weather-details">
-              {weatherIconUrl && (
-                <img src={weatherIconUrl} alt="weather" className="w-5 h-5 flex-shrink-0" data-testid="img-weather-icon" />
-              )}
-              <span>{greetingData.weather.temp}°F</span>
-              <span className="capitalize">{greetingData.weather.description}</span>
-              {greetingData.traffic?.durationInTraffic && greetingData.traffic.durationInTraffic !== "unknown" && (
-                <span className="flex items-center gap-1">
-                  <Truck className="w-3 h-3" />
-                  {greetingData.traffic.durationInTraffic}
-                </span>
-              )}
-            </div>
           )}
 
           <p className="text-sm text-foreground/90 leading-relaxed" data-testid="text-briefing-content">{data.briefingText}</p>
@@ -754,12 +701,10 @@ export default function Home() {
   const { data: allTaskLists = [] } = useQuery<any[]>({ queryKey: ["/api/task-lists"] });
   const { data: todayVendorOrders = [] } = useQuery<any[]>({ queryKey: ["/api/vendors/today-orders"] });
   const { data: inboxMessages = [], isLoading: loadingInbox } = useQuery<InboxMessage[]>({ queryKey: ["/api/messages/inbox"] });
-  const personalizedGreetingsOn = user?.personalizedGreetingsEnabled ?? false;
-  const briefingUrl = personalizedGreetingsOn ? "/api/home/jarvis-briefing?suppressGreeting=true" : "/api/home/jarvis-briefing";
   const { data: briefingData, isLoading: loadingBriefing, refetch: refetchBriefing, isFetching: refreshingBriefing } = useQuery<JarvisBriefingData>({
-    queryKey: ["/api/home/jarvis-briefing", personalizedGreetingsOn ? "suppress" : "full"],
+    queryKey: ["/api/home/jarvis-briefing"],
     queryFn: async () => {
-      const res = await fetch(briefingUrl, { credentials: "include" });
+      const res = await fetch("/api/home/jarvis-briefing", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch briefing");
       return res.json();
     },
