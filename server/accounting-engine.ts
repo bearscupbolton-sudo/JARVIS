@@ -20,6 +20,7 @@ export const DEFAULT_COA = [
   { code: "2020", name: "Credit Card - Business", type: "Liability", category: "Current", laymanDescription: "What you owe on the business credit card. Every swipe here is a short-term loan until you pay the statement." },
   { code: "2030", name: "Sales Tax Payable", type: "Liability", category: "Current", laymanDescription: "Sales tax you collected from customers but haven't sent to New York State yet. This is their money, not yours." },
   { code: "2100", name: "Payroll Liabilities", type: "Liability", category: "Current", laymanDescription: "Taxes and withholdings from paychecks that haven't been remitted to the government yet." },
+  { code: "2110", name: "Tips Payable", type: "Liability", category: "Current", laymanDescription: "Tips collected from customers that haven't been paid out to employees yet. This is their money, held temporarily." },
   { code: "2500", name: "Loans Payable", type: "Liability", category: "Current", laymanDescription: "Outstanding loan balances — SBA, equipment financing, any money borrowed that still needs to be repaid." },
   { code: "3000", name: "Owner's Equity", type: "Equity", category: "Draw", laymanDescription: "Your ownership stake in the bakery. What's left if you sold everything and paid off all debts." },
   { code: "3010", name: "Owner's Draw", type: "Equity", category: "Draw", laymanDescription: "Money you take out of the business for personal use. Not a business expense — it's you paying yourself from your own company." },
@@ -311,6 +312,7 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
         continue;
       }
 
+      const tipAmount = summary.tipAmount || 0;
       const netRevenue = summary.totalRevenue - (summary.refundAmount || 0);
       if (netRevenue <= 0) {
         skipped++;
@@ -322,7 +324,7 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
       const processingFees = summary.processingFees || 0;
       const salesTax = summary.salesTax || 0;
       const cashDeposit = netRevenue - processingFees;
-      const revenueExTax = netRevenue - salesTax;
+      const revenueExTaxAndTips = netRevenue - salesTax - tipAmount;
 
       lines.push({ accountId: cashId, debit: Math.round(cashDeposit * 100) / 100, credit: 0, memo: "Square deposit after fees" });
 
@@ -330,16 +332,23 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
         lines.push({ accountId: merchantFeesId, debit: Math.round(processingFees * 100) / 100, credit: 0, memo: "Square processing fees" });
       }
 
-      lines.push({ accountId: revenueId, debit: 0, credit: Math.round(revenueExTax * 100) / 100, memo: `${summary.orderCount} orders` });
+      lines.push({ accountId: revenueId, debit: 0, credit: Math.round(revenueExTaxAndTips * 100) / 100, memo: `${summary.orderCount} orders (net sales)` });
 
       if (salesTax > 0 && salesTaxId) {
         lines.push({ accountId: salesTaxId, debit: 0, credit: Math.round(salesTax * 100) / 100, memo: "Sales tax collected" });
       }
 
+      if (tipAmount > 0) {
+        const tipsPayableId = codeToId.get("2110") || codeToId.get("2100");
+        if (tipsPayableId) {
+          lines.push({ accountId: tipsPayableId, debit: 0, credit: Math.round(tipAmount * 100) / 100, memo: "Tips collected for employees" });
+        }
+      }
+
       await postJournalEntry(
         {
           transactionDate: summary.date,
-          description: `Square daily revenue: ${summary.date} (${summary.orderCount} orders, $${netRevenue.toFixed(2)})`,
+          description: `Square daily revenue (net sales): ${summary.date} (${summary.orderCount} orders, $${revenueExTaxAndTips.toFixed(2)})`,
           referenceId: refId,
           referenceType: "square-daily",
           status: "posted",
