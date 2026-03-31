@@ -816,15 +816,36 @@ app.use((req, res, next) => {
         console.log(`[Revenue Cleanup] Removed ${ids.length} stale csv-import-2025-revenue JEs — revenue comes from Square sync`);
       }
 
-      const existing2025 = await db.select({ cnt: count() }).from(squareDailySummary)
-        .where(and(gte(squareDailySummary.date, "2025-01-01"), lte(squareDailySummary.date, "2025-12-31")));
-      if ((existing2025[0]?.cnt || 0) > 0) {
-        console.log(`[Square Backfill] Already have ${existing2025[0].cnt} square_daily_summary rows for 2025, checking JEs...`);
+      const { seedChartOfAccounts } = await import("./accounting-engine");
+      await seedChartOfAccounts();
+
+      const { chartOfAccounts: coaTable } = await import("@shared/schema");
+      const revenueAcct = await db.select({ id: coaTable.id }).from(coaTable).where(eq(coaTable.code, "4010"));
+      const oldSquareJEs = await db.select({ id: journalEntries.id, description: journalEntries.description }).from(journalEntries)
+        .where(eq(journalEntries.referenceType, "square-daily"));
+      if (oldSquareJEs.length > 0 && revenueAcct.length > 0) {
+        const sampleJe = oldSquareJEs[0];
+        const needsFix = sampleJe.description && !sampleJe.description.includes("(net sales");
+        if (needsFix) {
+          const ids = oldSquareJEs.map(r => r.id);
+          for (let i = 0; i < ids.length; i += 100) {
+            const batch = ids.slice(i, i + 100);
+            await db.delete(ledgerLines).where(inArray(ledgerLines.entryId, batch));
+            await db.delete(journalEntries).where(inArray(journalEntries.id, batch));
+          }
+          console.log(`[Revenue Fix] Purged ${ids.length} old square-daily JEs to re-journalize with corrected net sales (excl. tax & tips)`);
+        }
+      }
+
+      const allSummaries = await db.select({ cnt: count() }).from(squareDailySummary);
+      if ((allSummaries[0]?.cnt || 0) > 0) {
         const { journalizeSquareRevenue } = await import("./accounting-engine");
-        const result = await journalizeSquareRevenue("2025-01-01", "2025-12-31");
-        console.log(`[Square Backfill] Journalized: ${result.journalized} new, ${result.skipped} already existed`);
+        const result = await journalizeSquareRevenue("2020-01-01", "2099-12-31");
+        if (result.journalized > 0) {
+          console.log(`[Square Backfill] Journalized: ${result.journalized} new, ${result.skipped} already existed`);
+        }
       } else {
-        console.log(`[Square Backfill] No 2025 Square data found. Use the "Pull 2025 Revenue" button on The Firm page to backfill from Square.`);
+        console.log(`[Square Backfill] No Square data found. Use the "Pull Revenue" button on The Firm page to backfill from Square.`);
       }
     } catch (e: any) {
       console.error("[Revenue/Square Startup] Error:", e.message);
