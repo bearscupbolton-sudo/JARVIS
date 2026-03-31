@@ -1,0 +1,100 @@
+[cite_start]Based on the **activity.csv** file provided [cite: 1] and the system's Chart of Accounts, here is the categorization of your 2025 Amex transactions.
+
+### **1. Categorization Summary**
+
+I have grouped the transactions into core business and personal categories to align with your double-entry ledger.
+
+| Category | COA Code | Description/Key Vendors |
+| :--- | :--- | :--- |
+| **COGS - Ingredients** | 5010 | Hillcrest Foods, Copper Horse Coffee, PFS Springfield, Noble Gas Solutions. |
+| **COGS - Packaging** | 5020 | Action Packaging, Webstaurant Store, Custom Cup Sleeves, Splash Packaging. |
+| **Operating - Labor** | 6010 | K9 Bookkeeping (Professional support for labor management). |
+| **Operating - Rent** | 6030 | RPS Hamlet (Hamlet at Saratoga Springs rent). |
+| **Operating - Utilities** | 6040 | Spectrum, Noble Gas, Mirabito (Gas/Electric), Twin Bridges (Waste). |
+| **Fixed Assets** | 1500 | Vevor, Katom Restaurant Supply, Voltage Coffee Equipment, Square Hardware. |
+| **Marketing** | 6060 | Canva, CustomInk, Sticker Mule, Zazzle, Linktree. |
+| **Owner's Draw** | 3010 | Personal DoorDash/Uber Eats, Streaming (HBO, Prime Video), Zara, Anthropologie. |
+
+---
+
+### **2. Replit Agent Seed Script**
+
+This script is formatted for the Replit Agent to process. [cite_start]It includes a sample of the high-value transactions from your file (such as the **$6,321.55 Action Packaging** order [cite: 11] [cite_start]and the monthly **$3,118.52 Rent** payments [cite: 25]) to initialize your ledger.
+
+```typescript
+import { createJournalEntry } from "./server/accounting-engine";
+
+async function seedAmex2025Transactions() {
+  const transactions = [
+    // RENT & OCCUPANCY
+    {
+      date: "2025-12-05",
+      memo: "Rent Payment - RPS The Hamlet",
+      lines: [
+        { accountCode: "6030", debit: 3118.52, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 3118.52 } // Amex Liability
+      ]
+    },
+    // MAJOR INGREDIENT ORDERS
+    {
+      date: "2025-12-29",
+      memo: "Ingredient Supply - PFS Springfield",
+      lines: [
+        { accountCode: "5010", debit: 3475.43, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 3475.43 }
+      ]
+    },
+    {
+      date: "2025-12-23",
+      memo: "Ingredient Supply - Hillcrest Foods",
+      lines: [
+        { accountCode: "5010", debit: 2796.57, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 2796.57 }
+      ]
+    },
+    // PACKAGING & SUPPLIES
+    {
+      date: "2025-12-19",
+      memo: "Packaging Order - Action Packaging",
+      lines: [
+        { accountCode: "5020", debit: 6321.55, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 6321.55 }
+      ]
+    },
+    // CAPITAL EQUIPMENT
+    {
+      date: "2025-10-22",
+      memo: "New Equipment - Voltage Coffee Eq",
+      lines: [
+        { accountCode: "1500", debit: 3199.30, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 3199.30 }
+      ]
+    },
+    // OWNER'S DRAW (Personal Expenses)
+    {
+      date: "2025-12-08",
+      memo: "Owner Personal - Zara USA",
+      lines: [
+        { accountCode: "3010", debit: 637.62, credit: 0 },
+        { accountCode: "2020", debit: 0, credit: 637.62 }
+      ]
+    }
+  ];
+
+  for (const txn of transactions) {
+    await createJournalEntry({
+      ...txn,
+      createdBy: "replit-agent-import"
+    });
+  }
+
+  console.log(`✅ Seeded ${transactions.length} key 2025 Amex transactions into the ledger.`);
+}
+
+seedAmex2025Transactions().catch(console.error);
+```
+
+### **3. Operational Notes for Replit**
+* **Liability Tracking**: All purchases are credited to **2020 (Credit Card - Business)** to reflect the debt before you pay the statement.
+* [cite_start]**Payment Entries**: When you make payments to Amex (e.g., the **$20,000.00 payment** on 12/25/2025 [cite: 7]), the Replit script should debit **2020** and credit **1010 (Operating Cash)** to clear the liability.
+* [cite_start]**Location ID**: For transactions like **Noble Gas Solutions Albany** [cite: 1] [cite_start]or **Hillcrest Foods Saratoga**[cite: 3], the Replit agent can use the `detectLocationFromAddress` function to automatically assign these to Location 1 (Saratoga) or 2 (Bolton).
