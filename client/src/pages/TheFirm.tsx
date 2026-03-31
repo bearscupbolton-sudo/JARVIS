@@ -345,6 +345,7 @@ export default function TheFirm() {
             <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3 text-xs" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
             <TabsTrigger value="compliance" className="whitespace-nowrap px-3 text-xs" data-testid="tab-compliance">Compliance</TabsTrigger>
             <TabsTrigger value="donations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-donations">Donations</TabsTrigger>
+            <TabsTrigger value="prepaids" className="whitespace-nowrap px-3 text-xs" data-testid="tab-prepaids">Prepaids</TabsTrigger>
             <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
             <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
             <TabsTrigger value="tax-dna" className="whitespace-nowrap px-3 text-xs" data-testid="tab-tax-dna">Tax DNA</TabsTrigger>
@@ -394,6 +395,9 @@ export default function TheFirm() {
         </TabsContent>
         <TabsContent value="donations">
           <DonationsTab />
+        </TabsContent>
+        <TabsContent value="prepaids">
+          <PrepaidsTab />
         </TabsContent>
         <TabsContent value="assets">
           <AssetsTab />
@@ -7201,6 +7205,173 @@ function FilingRow({ filing, expanded, onToggle, onMarkComplete, formatCurrency,
               <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Filed
             </Button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrepaidsTab() {
+  const { toast } = useToast();
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data: prepaids = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/firm/prepaids"] });
+
+  const runMonthlyMut = useMutation({
+    mutationFn: async (periodDate: string) => {
+      const res = await apiRequest("POST", "/api/firm/prepaids/run-monthly", { periodDate });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/prepaids"] });
+      toast({ title: "Monthly Amortization Run", description: `${data.posted} entries posted, $${data.totalAmortized?.toFixed(2) || "0.00"} amortized` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Amortization Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const activePrepaids = prepaids.filter((p: any) => p.status === "active");
+  const completedPrepaids = prepaids.filter((p: any) => p.status === "completed");
+  const totalPrepaidBalance = activePrepaids.reduce((s: number, p: any) => s + (p.remainingBalance || 0), 0);
+  const totalOriginal = activePrepaids.reduce((s: number, p: any) => s + (p.totalAmount || 0), 0);
+  const totalAmortized = activePrepaids.reduce((s: number, p: any) => s + (p.amortizedToDate || 0), 0);
+
+  const currentMonth = format(new Date(), "yyyy-MM") + "-01";
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+  }
+
+  return (
+    <div className="space-y-4" data-testid="prepaids-content">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="text-sm"><span className="text-muted-foreground">Active Prepaids:</span> <span className="font-semibold">{activePrepaids.length}</span></div>
+          <div className="text-sm"><span className="text-muted-foreground">Prepaid Balance (1200):</span> <span className="font-semibold text-blue-700 dark:text-blue-400">{formatCurrency(totalPrepaidBalance)}</span></div>
+          <div className="text-sm"><span className="text-muted-foreground">Total Amortized:</span> <span className="font-semibold text-green-700 dark:text-green-400">{formatCurrency(totalAmortized)}</span></div>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => runMonthlyMut.mutate(currentMonth)} disabled={runMonthlyMut.isPending} data-testid="button-run-monthly-amort">
+          {runMonthlyMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <ArrowUpDown className="w-4 h-4 mr-1" />}
+          Run Monthly Amortization
+        </Button>
+      </div>
+
+      {prepaids.length === 0 ? (
+        <Card><CardContent className="p-12 text-center">
+          <Timer className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <h3 className="text-lg font-medium mb-1" data-testid="text-no-prepaids">No prepaid amortizations yet</h3>
+          <p className="text-sm text-muted-foreground">Use the "Amortize" action on any expense transaction in the Ledger tab to create a prepaid amortization schedule.</p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {activePrepaids.length > 0 && (
+            <>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Active</h3>
+              {activePrepaids.map((p: any) => {
+                const pctDone = p.totalAmount > 0 ? Math.round((p.amortizedToDate / p.totalAmount) * 100) : 0;
+                const entries = p.entries || [];
+                const isExpanded = expandedId === p.id;
+                return (
+                  <Card key={p.id} data-testid={`card-prepaid-${p.id}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium" data-testid={`text-prepaid-desc-${p.id}`}>{p.description}</span>
+                            <Badge variant="outline" className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">active</Badge>
+                            <Badge variant="outline" className="text-[10px]">{p.expenseAccountCode}</Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground">{p.vendor || "—"} · {p.startDate} to {p.endDate} · {p.totalMonths} months</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold" data-testid={`text-prepaid-total-${p.id}`}>{formatCurrency(p.totalAmount)}</div>
+                          <div className="text-xs text-muted-foreground">{formatCurrency(p.monthlyAmount)}/mo</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-6 mt-3">
+                        <div>
+                          <div className="text-[10px] text-muted-foreground">Amortized</div>
+                          <div className="font-semibold text-green-700 dark:text-green-400">{formatCurrency(p.amortizedToDate)}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-muted-foreground">Remaining</div>
+                          <div className="font-semibold text-blue-700 dark:text-blue-400">{formatCurrency(p.remainingBalance)}</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
+                          <span>Progress</span>
+                          <span>{pctDone}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-green-600 rounded-full transition-all" style={{ width: `${Math.min(100, pctDone)}%` }} />
+                        </div>
+                      </div>
+
+                      <button onClick={() => setExpandedId(isExpanded ? null : p.id)} className="flex items-center gap-1 text-[10px] text-primary mt-2 hover:underline" data-testid={`button-toggle-schedule-${p.id}`}>
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        {isExpanded ? "Hide" : "Show"} Amortization Schedule
+                      </button>
+
+                      {isExpanded && entries.length > 0 && (
+                        <div className="mt-3 overflow-x-auto border rounded">
+                          <table className="w-full text-xs">
+                            <thead><tr className="bg-muted/30 border-b">
+                              <th className="p-2 text-left">Period</th>
+                              <th className="p-2 text-right">Amount</th>
+                              <th className="p-2 text-right">Accumulated</th>
+                              <th className="p-2 text-right">Remaining</th>
+                              <th className="p-2 text-center">Status</th>
+                            </tr></thead>
+                            <tbody>{entries.map((e: any, idx: number) => (
+                              <tr key={e.id || idx} className={`border-b last:border-0 ${e.posted ? "bg-green-50 dark:bg-green-950/20" : ""}`}>
+                                <td className="p-2">{e.periodDate}</td>
+                                <td className="p-2 text-right">{formatCurrency(e.amount)}</td>
+                                <td className="p-2 text-right text-green-700 dark:text-green-400">{formatCurrency(e.accumulatedAmortization)}</td>
+                                <td className="p-2 text-right font-medium">{formatCurrency(e.remainingBalance)}</td>
+                                <td className="p-2 text-center">
+                                  {e.posted ? (
+                                    <Badge variant="outline" className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">Posted</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">Pending</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </>
+          )}
+
+          {completedPrepaids.length > 0 && (
+            <>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mt-4">Completed</h3>
+              {completedPrepaids.map((p: any) => (
+                <Card key={p.id} className="opacity-70" data-testid={`card-prepaid-completed-${p.id}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{p.description}</span>
+                          <Badge variant="outline" className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">completed</Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{p.vendor || "—"} · {p.startDate} to {p.endDate}</div>
+                      </div>
+                      <div className="text-right font-semibold">{formatCurrency(p.totalAmount)}</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
