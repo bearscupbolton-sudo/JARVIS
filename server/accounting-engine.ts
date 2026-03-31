@@ -366,7 +366,7 @@ export async function journalizeSquareRevenue(startDate: string, endDate: string
   return { journalized, skipped, total: summaries.length, cleaned };
 }
 
-export async function getTrialBalance(startDate?: string, endDate?: string, opts?: { excludeProjectId?: number }) {
+export async function getTrialBalance(startDate?: string, endDate?: string, opts?: { excludeProjectId?: number; locationId?: number }) {
   let query = db
     .select({
       accountId: ledgerLines.accountId,
@@ -385,6 +385,7 @@ export async function getTrialBalance(startDate?: string, endDate?: string, opts
   if (startDate) conditions.push(gte(journalEntries.transactionDate, startDate));
   if (endDate) conditions.push(lte(journalEntries.transactionDate, endDate));
   if (opts?.excludeProjectId) conditions.push(sql`(${journalEntries.projectId} IS NULL OR ${journalEntries.projectId} != ${opts.excludeProjectId})`);
+  if (opts?.locationId) conditions.push(eq(journalEntries.locationId, opts.locationId));
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -408,7 +409,7 @@ export async function getTrialBalance(startDate?: string, endDate?: string, opts
 
 const SHADOW_CODES = new Set(["1010-V", "6015", "6015-V"]);
 
-export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank", opts?: { excludeProjectId?: number }) {
+export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank", opts?: { excludeProjectId?: number; locationId?: number }) {
   const trialBalance = await getTrialBalance(startDate, endDate, opts);
 
   const filtered = layer === "bank"
@@ -449,8 +450,8 @@ export async function getProfitAndLoss(startDate: string, endDate: string, layer
   };
 }
 
-export async function getBalanceSheet(asOfDate: string) {
-  const trialBalance = await getTrialBalance(undefined, asOfDate);
+export async function getBalanceSheet(asOfDate: string, opts?: { locationId?: number }) {
+  const trialBalance = await getTrialBalance(undefined, asOfDate, opts ? { locationId: opts.locationId } : undefined);
 
   const assets = trialBalance
     .filter(r => r.accountType === "Asset")

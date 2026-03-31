@@ -761,7 +761,7 @@ export interface IStorage {
   updateUserAdpOID(userId: string, adpAssociateOID: string | null): Promise<void>;
 
   // The Firm — Summary
-  getFirmSummary(startDate: string, endDate: string): Promise<{
+  getFirmSummary(startDate: string, endDate: string, locationId?: number): Promise<{
     squareRevenue: number;
     squareOrderCount: number;
     squareCashTender: number;
@@ -4648,7 +4648,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // === THE FIRM — Summary ===
-  async getFirmSummary(startDate: string, endDate: string): Promise<{
+  async getFirmSummary(startDate: string, endDate: string, locationId?: number): Promise<{
     squareRevenue: number;
     squareOrderCount: number;
     squareCashTender: number;
@@ -4663,8 +4663,10 @@ export class DatabaseStorage implements IStorage {
     upcomingObligations: FirmRecurringObligation[];
     accountBalances: FirmAccount[];
   }> {
+    const squareDateConditions = [gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate)];
+    if (locationId) squareDateConditions.push(eq(squareDailySummary.locationId, locationId));
     const [summaryRows, invoiceRows, allTimeEntries, manualTxns, payrollRows, cashCountRows, obligations, accounts] = await Promise.all([
-      db.select().from(squareDailySummary).where(and(gte(squareDailySummary.date, startDate), lte(squareDailySummary.date, endDate))),
+      db.select().from(squareDailySummary).where(and(...squareDateConditions)),
       db.select().from(invoices).where(and(gte(invoices.invoiceDate, startDate), lte(invoices.invoiceDate, endDate))),
       db.select().from(timeEntries).where(and(gte(timeEntries.clockIn, new Date(startDate)), lte(timeEntries.clockIn, new Date(endDate + "T23:59:59")))),
       db.select().from(firmTransactions).where(and(gte(firmTransactions.date, startDate), lte(firmTransactions.date, endDate))),
