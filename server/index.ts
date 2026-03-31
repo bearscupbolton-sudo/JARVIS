@@ -748,6 +748,57 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { db } = await import("./db");
+      const { firmTransactions } = await import("@shared/schema");
+      const { eq, sql, inArray } = await import("drizzle-orm");
+
+      const plaidTxns = await db.select({
+        id: firmTransactions.id,
+        date: firmTransactions.date,
+        description: firmTransactions.description,
+        amount: firmTransactions.amount,
+      }).from(firmTransactions)
+        .where(eq(firmTransactions.referenceType, "plaid"))
+        .orderBy(firmTransactions.date, firmTransactions.id);
+
+      const dupeIds: number[] = [];
+      const seen = new Map<string, number>();
+      for (const txn of plaidTxns) {
+        const key = `${txn.date}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
+        const dayBefore = new Date(txn.date);
+        dayBefore.setDate(dayBefore.getDate() - 1);
+        const dayAfter = new Date(txn.date);
+        dayAfter.setDate(dayAfter.getDate() + 1);
+        const fuzzyKey1 = `${dayBefore.toISOString().split("T")[0]}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
+        const fuzzyKey2 = `${dayAfter.toISOString().split("T")[0]}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
+
+        if (seen.has(key)) {
+          dupeIds.push(txn.id);
+        } else if (seen.has(fuzzyKey1)) {
+          dupeIds.push(txn.id);
+        } else if (seen.has(fuzzyKey2)) {
+          dupeIds.push(txn.id);
+        } else {
+          seen.set(key, txn.id);
+        }
+      }
+
+      if (dupeIds.length > 0) {
+        for (let i = 0; i < dupeIds.length; i += 100) {
+          const batch = dupeIds.slice(i, i + 100);
+          await db.delete(firmTransactions).where(inArray(firmTransactions.id, batch));
+        }
+        console.log(`[Plaid Dedup] Removed ${dupeIds.length} duplicate Plaid transactions`);
+      } else if (plaidTxns.length > 0) {
+        console.log(`[Plaid Dedup] ${plaidTxns.length} Plaid transactions, no duplicates found`);
+      }
+    } catch (e: any) {
+      console.error("[Plaid Dedup] Error:", e.message);
+    }
+  })();
+
+  (async () => {
+    try {
+      const { db } = await import("./db");
       const { journalEntries, ledgerLines, squareDailySummary } = await import("@shared/schema");
       const { eq, and, gte, lte, count, sql, inArray } = await import("drizzle-orm");
 

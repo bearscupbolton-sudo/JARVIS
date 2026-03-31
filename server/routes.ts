@@ -13640,11 +13640,21 @@ IMPORTANT GUIDELINES:
             for (const txn of response.data.added) {
               const plaidAcct = await storage.getPlaidAccountByAccountId(txn.account_id);
               const firmAccountId = plaidAcct?.firmAccountId || null;
+              const txnAmount = -(txn.amount || 0);
+              const txnDesc = txn.name || txn.merchant_name || "Plaid Transaction";
 
-              const existing = await storage.getFirmTransactions({ startDate: txn.date, endDate: txn.date });
-              const isDupe = existing.some(e =>
-                e.referenceType === "plaid" &&
-                e.referenceId === txn.transaction_id
+              const dayBefore = new Date(txn.date);
+              dayBefore.setDate(dayBefore.getDate() - 1);
+              const dayAfter = new Date(txn.date);
+              dayAfter.setDate(dayAfter.getDate() + 1);
+              const nearby = await storage.getFirmTransactions({
+                startDate: dayBefore.toISOString().split("T")[0],
+                endDate: dayAfter.toISOString().split("T")[0],
+              });
+
+              const isDupe = nearby.some(e =>
+                (e.referenceType === "plaid" && e.referenceId === txn.transaction_id) ||
+                (e.referenceType === "plaid" && Math.abs(Number(e.amount) - txnAmount) < 0.01 && e.description === txnDesc)
               );
               if (isDupe) continue;
 
@@ -13663,8 +13673,8 @@ IMPORTANT GUIDELINES:
               await storage.createFirmTransaction({
                 accountId: firmAccountId,
                 date: txn.date,
-                description: txn.name || txn.merchant_name || "Plaid Transaction",
-                amount: -(txn.amount || 0),
+                description: txnDesc,
+                amount: txnAmount,
                 category,
                 referenceType: "plaid",
                 referenceId: txn.transaction_id,
@@ -13721,11 +13731,21 @@ IMPORTANT GUIDELINES:
             for (const txn of response.data.transactions) {
               const plaidAcct = await storage.getPlaidAccountByAccountId(txn.account_id);
               const firmAccountId = plaidAcct?.firmAccountId || null;
+              const txnAmount = -(txn.amount || 0);
+              const txnDesc = txn.name || txn.merchant_name || "Plaid Transaction";
 
-              const existing = await storage.getFirmTransactions({ startDate: txn.date, endDate: txn.date });
-              const isDupe = existing.some(e =>
-                e.referenceType === "plaid" &&
-                e.referenceId === txn.transaction_id
+              const dayBefore = new Date(txn.date);
+              dayBefore.setDate(dayBefore.getDate() - 1);
+              const dayAfter = new Date(txn.date);
+              dayAfter.setDate(dayAfter.getDate() + 1);
+              const nearby = await storage.getFirmTransactions({
+                startDate: dayBefore.toISOString().split("T")[0],
+                endDate: dayAfter.toISOString().split("T")[0],
+              });
+
+              const isDupe = nearby.some(e =>
+                (e.referenceType === "plaid" && e.referenceId === txn.transaction_id) ||
+                (e.referenceType === "plaid" && Math.abs(Number(e.amount) - txnAmount) < 0.01 && e.description === txnDesc)
               );
               if (isDupe) { skipped++; continue; }
 
@@ -13750,8 +13770,8 @@ IMPORTANT GUIDELINES:
               await storage.createFirmTransaction({
                 accountId: firmAccountId,
                 date: txn.date,
-                description: txn.name || txn.merchant_name || "Plaid Transaction",
-                amount: -(txn.amount || 0),
+                description: txnDesc,
+                amount: txnAmount,
                 category,
                 referenceType: "plaid",
                 referenceId: txn.transaction_id,
