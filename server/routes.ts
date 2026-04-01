@@ -14766,7 +14766,7 @@ IMPORTANT GUIDELINES:
         const currentWeekGross = currentWeekLabor.totalGross;
 
         let priorWeekUnbanked = prevWeekLabor.totalGross;
-        const lastPayrollTx = await db.select().from(firmTransactions)
+        const payrollOutflows = await db.select().from(firmTransactions)
           .where(
             and(
               eq(firmTransactions.reconciled, true),
@@ -14775,21 +14775,19 @@ IMPORTANT GUIDELINES:
                 eq(firmTransactions.category, "payroll"),
               ),
               gte(firmTransactions.date, prevStartStr),
+              sql`CAST(${firmTransactions.amount} AS numeric) < 0`
             )
-          )
-          .orderBy(sql`date DESC`)
-          .limit(1);
+          );
+        const totalPayrollOutflow = payrollOutflows.reduce((s: number, tx: any) => s + Math.abs(Number(tx.amount)), 0);
 
         let fridayFlushed = false;
-        if (lastPayrollTx.length > 0) {
-          const tx = lastPayrollTx[0];
-          const payrollDate = new Date(tx.date);
-          const isOutflow = Number(tx.amount) < 0;
-          if (payrollDate >= prevWedStart && isOutflow) {
-            priorWeekUnbanked = 0;
-            fridayFlushed = true;
-            console.log(`[LaborDrag] Friday flush: payroll tx #${tx.id} on ${tx.date} ($${tx.amount}) zeroed prior week`);
-          }
+        const FLUSH_THRESHOLD = 0.5;
+        if (priorWeekUnbanked > 0 && totalPayrollOutflow >= priorWeekUnbanked * FLUSH_THRESHOLD) {
+          priorWeekUnbanked = 0;
+          fridayFlushed = true;
+          console.log(`[LaborDrag] Friday flush: $${totalPayrollOutflow.toFixed(2)} in payroll outflows (>= 50% of $${prevWeekLabor.totalGross.toFixed(2)}) zeroed prior week`);
+        } else if (totalPayrollOutflow > 0) {
+          console.log(`[LaborDrag] Payroll outflows $${totalPayrollOutflow.toFixed(2)} below flush threshold (50% of $${priorWeekUnbanked.toFixed(2)}), prior week drag remains`);
         }
 
         pendingLaborCost = Math.round((priorWeekUnbanked + currentWeekGross) * 100) / 100;
@@ -14838,7 +14836,7 @@ IMPORTANT GUIDELINES:
             gross: fridayFlushed ? 0 : priorWeekUnbanked,
             originalGross: prevWeekLabor.totalGross,
             flushed: fridayFlushed,
-            flushTxId: lastPayrollTx.length > 0 ? lastPayrollTx[0].id : null,
+            totalPayrollOutflow,
           },
           totalDrag: pendingLaborCost,
         };

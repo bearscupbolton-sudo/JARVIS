@@ -950,7 +950,7 @@ function NetCashHero({ onNavigate }: { onNavigate: (tab: string, accountId?: num
     { icon: <Building2 className="w-4 h-4 text-blue-600" />, label: "Bank & Cash Balances", amount: breakdown.bankBalance, positive: true, tab: "accounts", testId: "ledger-bank-balance" },
     ...creditCardLines,
     { icon: <Calendar className="w-4 h-4 text-amber-600" />, label: "Upcoming Obligations (Month-End)", amount: -breakdown.upcomingFilings, positive: false, tab: "compliance", testId: "ledger-upcoming-filings" },
-    { icon: <Users className="w-4 h-4 text-indigo-600" />, label: "Accrued W-2 Labor (Gross + Burden)", amount: -breakdown.laborAccrual, positive: false, tab: "payroll", testId: "ledger-labor-accrual" },
+    { icon: <Users className="w-4 h-4 text-indigo-600" />, label: cashData.laborDragDetail?.priorWeek ? `Accrued Labor (Prior Wk${cashData.laborDragDetail.priorWeek.flushed ? " PAID" : ""} + Current Wk)` : "Accrued W-2 Labor", amount: -breakdown.laborAccrual, positive: false, tab: "payroll", testId: "ledger-labor-accrual" },
     { icon: <Receipt className="w-4 h-4 text-rose-600" />, label: "Accrued Sales Tax (Net of Payments)", amount: -breakdown.salesTaxAccrued, positive: false, tab: "sales-tax", testId: "ledger-sales-tax" },
   ];
 
@@ -6594,9 +6594,23 @@ function RealCashWidget() {
               </div>
             )}
             {breakdown.laborAccrual > 0 && (
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground flex items-center gap-1"><Users className="h-3 w-3" /> Labor Accrual (Gross + Burden)</span>
-                <span className="tabular-nums font-medium">{formatCurrency(breakdown.laborAccrual)}</span>
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1"><Users className="h-3 w-3" /> Labor Accrual (2-Week Drag)</span>
+                  <span className="tabular-nums font-medium">{formatCurrency(breakdown.laborAccrual)}</span>
+                </div>
+                {cashData.laborDragDetail?.priorWeek && (
+                  <div className="pl-5 space-y-0.5">
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Prior week ({cashData.laborDragDetail.priorWeek.period}){cashData.laborDragDetail.priorWeek.flushed ? " — PAID" : ""}</span>
+                      <span className="tabular-nums">{formatCurrency(cashData.laborDragDetail.priorWeek.gross)}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Current week ({cashData.laborDragDetail.currentWeek.period})</span>
+                      <span className="tabular-nums">{formatCurrency(cashData.laborDragDetail.currentWeek.gross)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
