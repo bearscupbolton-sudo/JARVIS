@@ -49,6 +49,17 @@ The application is structured as a monorepo, featuring a React 18 frontend built
 *   **ADP RUN API (Optional)**: Payroll and worker management.
 *   **Plaid**: Bank and credit card integration.
 
+## Live Labor Burn & Weekly Cash Flush
+
+Rolling accrual model that calculates real-time labor costs from clock-in/clock-out records:
+
+*   **`compileLiveLabor(startDate, endDate)`** in `server/payroll-compiler.ts`: Lightweight version of `compilePayroll` that treats null clock-outs as "now" (active shift burn). No Square sync overhead.
+*   **Two-Week Cash Drag**: Liquidity route (`/api/firm/liquidity`) calculates prior week (Wed-Tue) + current week (Wed-today) labor liability. Both reduce "True Spendable" cash.
+*   **Friday Flush**: When a reconciled `labor` or `payroll` transaction in `firm_transactions` is detected since the prior Wednesday, the prior week's accrual zeros out — cash "jumps" as the bank balance reflects the actual payroll debit.
+*   **P&L Accrual Injection**: `/api/firm/reports/pnl?includeAccruals=true` dynamically appends live labor cost to the 6010 line, deduplicating against already-posted accrual JEs.
+*   **Live Labor Endpoint**: `GET /api/firm/live-labor` returns the current week's snapshot with per-employee breakdown, active shift count, and real-time gross estimates.
+*   **`laborDragDetail`** in liquidity response: Structured breakdown showing currentWeek/priorWeek gross, flush status, and the payroll transaction that triggered the flush.
+
 ## 2025 Historical Bank Data Import
 
 A bulk CSV import of 869 rows from TD Bank (account 6252167036 → firm_account_id 13) covering Jan–Dec 2025 has been loaded. Key facts:

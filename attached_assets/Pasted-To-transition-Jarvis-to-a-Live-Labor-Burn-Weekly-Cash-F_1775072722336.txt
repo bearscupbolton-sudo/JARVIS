@@ -1,0 +1,60 @@
+To transition Jarvis to a **Live Labor Burn & Weekly Cash Flush** model, the Replit Agent needs to implement a system that calculates labor costs in real-time for active shifts and cumulative liability for the workweek.
+
+### 1. Architectural Strategy
+We will move away from static payroll snapshots. Instead, the system will use a **Rolling Accrual Method**:
+* **The Daily P&L:** Injects "Ghost Labor" entries for any given date based on actual clock-ins (finished) and active shifts (live burn).
+* **The Cash Drag:** Cumulative liability (Wednesday to today) is deducted from "True Spendable".
+* **The Friday Flush:** When a transaction from Plaid with the category `labor` or `payroll` is reconciled, the system "flushes" the previous week's accrual from the cash drag.
+
+---
+
+### 2. Schema Updates (`shared/schema.ts`)
+No major table changes are required, but we must ensure `accrual_placeholders` can track specific pay periods.
+* **Accrual Statuses:** Add a `finalized` status to `accrual_placeholders` to indicate the period has been pushed to ADP but hasn't cleared the bank.
+
+---
+
+### 3. Engine Implementation Details
+
+#### A. The Live Burn Helper (`server/payroll-compiler.ts`)
+Create a function `getLiveLaborBurn(date: string)`:
+1.  **Finished Entries:** Calculate costs for all `timeEntries` where `clockOut` is not null for that date.
+2.  **Active Shifts:** For entries where `clockOut` is null, calculate: `(Now - clockIn - currentBreakTime) * hourlyRate`.
+3.  **Owner Logic:** Salaried owners are distributed as a daily flat rate (Annual / 365) to ensure daily P&L accuracy.
+
+#### B. The P&L Injector (`server/accounting-engine.ts`)
+Update `getProfitAndLoss(startDate, endDate)`:
+1.  **Fetch Actuals:** Get all `ledgerLines` for the period.
+2.  **Inject Accruals:** If the period is current or recent, call `getLiveLaborBurn`.
+3.  **Deduplicate:** Ensure that if a `payroll` batch has already been `posted` to the ledger, the system doesn't double-count the accrual.
+
+#### C. The Friday Flush (`server/liquidity-engine.ts`)
+Update `getLiquiditySnapshot`:
+1.  **Identify the Anchor:** Find the most recent reconciled transaction in `firm_transactions` with `category: 'labor'`.
+2.  **Cumulative Drag Calculation:**
+    * **Prior Week Liability:** If it's Monday–Thursday, sum the total labor cost from the previous Wednesday–Tuesday that hasn't cleared.
+    * **Current Week Accrual:** Sum `getLiveLaborBurn` from this Wednesday to "Now".
+3.  **The Flush:** If "Today" is Friday AND a new reconciled payroll transaction exists, reset the Prior Week Liability to $0.
+
+---
+
+### 4. Implementation Steps for Replit Agent
+
+1.  **Modify `server/payroll-compiler.ts`**:
+    * Export a new function `compileLiveLabor(startDate, endDate)` that treats `null` clock-outs as `new Date()` for calculation purposes.
+
+2.  **Update `server/liquidity-engine.ts`**:
+    * Redefine `pendingLaborCost` calculation.
+    * Logic: `const totalDrag = unbankedPreviousWeekTotal + currentWeekLiveAccrual`.
+
+3.  **Update `server/accounting-engine.ts`**:
+    * Modify `getProfitAndLoss` to accept an `includeAccruals: boolean` flag.
+    * When `true`, it should dynamically append labor lines calculated from `compileLiveLabor`.
+
+4.  **Route Integration (`server/routes.ts`)**:
+    * Ensure the `/api/firm/liquidity` and `/api/firm/reports/pnl` endpoints pass the current server time to the engines to ensure "Live" data is truly up-to-the-minute.
+
+### 5. Expected Outcome
+* **On Tuesday:** Available cash is reduced by last week's payroll (waiting for Friday) + current Monday/Tuesday labor.
+* **On Friday:** Available cash "jumps" as the previous week's accrual is replaced by the actual bank balance reflection.
+* **Daily View:** Any single day in the P&L report shows a realistic labor cost based on who was actually clocked in.

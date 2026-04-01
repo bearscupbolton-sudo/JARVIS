@@ -409,7 +409,7 @@ export async function getTrialBalance(startDate?: string, endDate?: string, opts
 
 const SHADOW_CODES = new Set(["1010-V", "6015", "6015-V"]);
 
-export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank", opts?: { excludeProjectId?: number; locationId?: number }) {
+export async function getProfitAndLoss(startDate: string, endDate: string, layer: "bank" | "baker" = "bank", opts?: { excludeProjectId?: number; locationId?: number; includeAccruals?: boolean }) {
   const trialBalance = await getTrialBalance(startDate, endDate, opts);
 
   const filtered = layer === "bank"
@@ -427,6 +427,78 @@ export async function getProfitAndLoss(startDate: string, endDate: string, layer
   const operatingExpenses = filtered
     .filter(r => r.accountType === "Expense" && r.accountCategory !== "COGS")
     .map(r => ({ ...r, amount: r.totalDebit - r.totalCredit }));
+
+  let laborAccrual: { amount: number; employees: any[]; activeShifts: number; asOf: string } | null = null;
+
+  if (opts?.includeAccruals) {
+    try {
+      const today = new Date();
+      const todayStr = today.toISOString().split("T")[0];
+      const periodEndDate = new Date(endDate);
+      const daysDiff = Math.abs(today.getTime() - periodEndDate.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysDiff <= 14) {
+        const { compileLiveLabor } = await import("./payroll-compiler");
+        const liveLabor = await compileLiveLabor(startDate, endDate > todayStr ? todayStr : endDate);
+
+        if (liveLabor.totalGross > 0) {
+          const { db } = await import("./db");
+          const { journalEntries, ledgerLines: ll, chartOfAccounts: coa } = await import("@shared/schema");
+          const { eq, and, gte, lte, sql: sqlFn } = await import("drizzle-orm");
+
+          const accrualJEs = await db.select({ id: journalEntries.id })
+            .from(journalEntries)
+            .where(
+              and(
+                eq(journalEntries.referenceType, "labor_accrual"),
+                gte(journalEntries.transactionDate, startDate),
+                lte(journalEntries.transactionDate, endDate),
+              )
+            );
+
+          let postedAccrualAmount = 0;
+          if (accrualJEs.length > 0) {
+            const accrualIds = accrualJEs.map(j => j.id);
+            const laborAcctRow = await db.select({ id: coa.id }).from(coa).where(eq(coa.code, "6010")).limit(1);
+            if (laborAcctRow.length > 0) {
+              const accrualLines = await db.select().from(ll)
+                .where(
+                  and(
+                    eq(ll.accountId, laborAcctRow[0].id),
+                    sqlFn`${ll.entryId} = ANY(${accrualIds})`
+                  )
+                );
+              postedAccrualAmount = accrualLines.reduce((s, l) => s + (Number(l.debit) - Number(l.credit)), 0);
+            }
+          }
+
+          const liveAmount = liveLabor.totalGross;
+          const additionalAccrual = Math.max(0, liveAmount - postedAccrualAmount);
+          const laborCode = "6010";
+          const existingLabor = operatingExpenses.find(e => e.accountCode === laborCode);
+
+          if (additionalAccrual > 0.01 && existingLabor) {
+            existingLabor.amount += additionalAccrual;
+            existingLabor.totalDebit += additionalAccrual;
+          }
+
+          laborAccrual = {
+            amount: Math.round(liveAmount * 100) / 100,
+            employees: liveLabor.employees.map(e => ({
+              name: `${e.firstName} ${e.lastName}`.trim(),
+              gross: e.grossEstimate,
+              hours: e.hoursWorked,
+              isOnShift: e.isOnShift,
+            })),
+            activeShifts: liveLabor.activeShiftCount,
+            asOf: liveLabor.asOf,
+          };
+        }
+      }
+    } catch (err: any) {
+      console.warn("[P&L] Live labor accrual injection failed (non-fatal):", err.message);
+    }
+  }
 
   const totalRevenue = revenue.reduce((s, r) => s + r.amount, 0);
   const totalCOGS = cogs.reduce((s, r) => s + r.amount, 0);
@@ -447,6 +519,7 @@ export async function getProfitAndLoss(startDate: string, endDate: string, layer
     totalOperatingExpenses: totalOperating,
     netIncome,
     netMargin: totalRevenue > 0 ? (netIncome / totalRevenue) * 100 : 0,
+    ...(laborAccrual ? { laborAccrual } : {}),
   };
 }
 
