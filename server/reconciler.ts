@@ -368,31 +368,62 @@ export async function getAdjustedCashPosition(): Promise<{
   const upcomingFilingIds = upcomingFilingsRows.map(r => r.id);
 
   let laborAccrual = 0;
+  let laborDragDetail: any = {};
   try {
-    const { compilePayrollPreview } = await import("./payroll-compiler");
+    const { compileLiveLabor } = await import("./payroll-compiler");
     const today = new Date();
     const dow = today.getDay();
-    const wednesdayOffset = (dow >= 3) ? dow - 3 : dow + 4;
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - wednesdayOffset);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const preview = await compilePayrollPreview(
-      weekStart.toISOString().split("T")[0],
-      weekEnd.toISOString().split("T")[0]
-    );
-    const grossLabor = preview.totals.grossEstimate || 0;
 
-    let burdenRate = 0.1245;
-    try {
-      const rateRow = await db.select().from(appSettings).where(eq(appSettings.key, "payroll_tax_rates")).limit(1);
-      if (rateRow.length > 0) {
-        const rates = JSON.parse(rateRow[0].value);
-        burdenRate = ((rates.socialSecurity || 6.2) + (rates.medicare || 1.45) + (rates.federalUnemployment || 0.6) + (rates.stateUnemployment || 2.7) + (rates.workersComp || 1.5)) / 100;
-      }
-    } catch {}
+    const currentWedOffset = (dow >= 3) ? dow - 3 : dow + 4;
+    const currentWedStart = new Date(today);
+    currentWedStart.setDate(today.getDate() - currentWedOffset);
+    const currentWeekEnd = new Date(currentWedStart);
+    currentWeekEnd.setDate(currentWedStart.getDate() + 6);
+    const currentStartStr = currentWedStart.toISOString().split("T")[0];
+    const todayStr = today.toISOString().split("T")[0];
 
-    laborAccrual = Math.round(grossLabor * (1 + burdenRate) * 100) / 100;
+    const prevWedStart = new Date(currentWedStart);
+    prevWedStart.setDate(prevWedStart.getDate() - 7);
+    const prevWeekEnd = new Date(prevWedStart);
+    prevWeekEnd.setDate(prevWedStart.getDate() + 6);
+    const prevStartStr = prevWedStart.toISOString().split("T")[0];
+    const prevEndStr = prevWeekEnd.toISOString().split("T")[0];
+
+    const [currentWeekLabor, prevWeekLabor] = await Promise.all([
+      compileLiveLabor(currentStartStr, todayStr),
+      compileLiveLabor(prevStartStr, prevEndStr),
+    ]);
+
+    const currentWeekGross = currentWeekLabor.totalGross;
+    let priorWeekUnbanked = prevWeekLabor.totalGross;
+
+    const payrollOutflows = await db.select().from(firmTransactions)
+      .where(
+        and(
+          eq(firmTransactions.reconciled, true),
+          or(
+            eq(firmTransactions.category, "labor"),
+            eq(firmTransactions.category, "payroll"),
+          ),
+          gte(firmTransactions.date, prevStartStr),
+          sql`CAST(${firmTransactions.amount} AS numeric) < 0`
+        )
+      );
+    const totalPayrollOutflow = payrollOutflows.reduce((s, tx) => s + Math.abs(Number(tx.amount)), 0);
+
+    let fridayFlushed = false;
+    const FLUSH_THRESHOLD = 0.5;
+    if (priorWeekUnbanked > 0 && totalPayrollOutflow >= priorWeekUnbanked * FLUSH_THRESHOLD) {
+      priorWeekUnbanked = 0;
+      fridayFlushed = true;
+    }
+
+    laborAccrual = Math.round((priorWeekUnbanked + currentWeekGross) * 100) / 100;
+    laborDragDetail = {
+      currentWeek: { period: `${currentStartStr} to ${todayStr}`, gross: currentWeekGross },
+      priorWeek: { period: `${prevStartStr} to ${prevEndStr}`, gross: fridayFlushed ? 0 : priorWeekUnbanked, originalGross: prevWeekLabor.totalGross, flushed: fridayFlushed, totalPayrollOutflow },
+      totalDrag: laborAccrual,
+    };
   } catch {}
 
   const obligated = salesTaxAccrued + openPlaceholders + upcomingFilings + laborAccrual;
@@ -412,6 +443,7 @@ export async function getAdjustedCashPosition(): Promise<{
       upcomingFilings,
       laborAccrual,
     },
+    laborDragDetail,
     sources: {
       bankAccountIds,
       creditCardAccountIds,
