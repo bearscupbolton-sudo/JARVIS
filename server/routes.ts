@@ -14774,7 +14774,7 @@ IMPORTANT GUIDELINES:
                 eq(firmTransactions.category, "labor"),
                 eq(firmTransactions.category, "payroll"),
               ),
-              gte(firmTransactions.date, prevStartStr),
+              gte(firmTransactions.date, currentStartStr),
               sql`CAST(${firmTransactions.amount} AS numeric) < 0`
             )
           );
@@ -14785,9 +14785,11 @@ IMPORTANT GUIDELINES:
         if (priorWeekUnbanked > 0 && totalPayrollOutflow >= priorWeekUnbanked * FLUSH_THRESHOLD) {
           priorWeekUnbanked = 0;
           fridayFlushed = true;
-          console.log(`[LaborDrag] Friday flush: $${totalPayrollOutflow.toFixed(2)} in payroll outflows (>= 50% of $${prevWeekLabor.totalGross.toFixed(2)}) zeroed prior week`);
+          console.log(`[LaborDrag] Friday flush: $${totalPayrollOutflow.toFixed(2)} in payroll outflows this week (>= 50% of $${prevWeekLabor.totalGross.toFixed(2)}) zeroed prior week`);
         } else if (totalPayrollOutflow > 0) {
-          console.log(`[LaborDrag] Payroll outflows $${totalPayrollOutflow.toFixed(2)} below flush threshold (50% of $${priorWeekUnbanked.toFixed(2)}), prior week drag remains`);
+          console.log(`[LaborDrag] Payroll outflows $${totalPayrollOutflow.toFixed(2)} this week below flush threshold (50% of $${priorWeekUnbanked.toFixed(2)}), prior week drag remains`);
+        } else {
+          console.log(`[LaborDrag] No payroll outflows this week yet, prior week drag $${priorWeekUnbanked.toFixed(2)} remains`);
         }
 
         pendingLaborCost = Math.round((priorWeekUnbanked + currentWeekGross) * 100) / 100;

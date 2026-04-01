@@ -405,7 +405,7 @@ export async function getAdjustedCashPosition(): Promise<{
             eq(firmTransactions.category, "labor"),
             eq(firmTransactions.category, "payroll"),
           ),
-          gte(firmTransactions.date, prevStartStr),
+          gte(firmTransactions.date, currentStartStr),
           sql`CAST(${firmTransactions.amount} AS numeric) < 0`
         )
       );
