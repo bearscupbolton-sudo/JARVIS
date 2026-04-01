@@ -14737,25 +14737,65 @@ IMPORTANT GUIDELINES:
 
       let pendingLaborCost = 0;
       let laborDragBreakdown: Record<string, number> = {};
+      let laborDragDetail: any = {};
       try {
-        const { compilePayroll } = await import("./payroll-compiler");
+        const { compileLiveLabor } = await import("./payroll-compiler");
         const today = new Date();
         const dow = today.getDay();
-        const wednesdayOffset = (dow >= 3) ? dow - 3 : dow + 4;
-        const periodStart = new Date(today);
-        periodStart.setDate(today.getDate() - wednesdayOffset);
-        const periodEnd = new Date(periodStart);
-        periodEnd.setDate(periodStart.getDate() + 6);
-        const periodStartStr = periodStart.toISOString().split("T")[0];
-        const periodEndStr = periodEnd.toISOString().split("T")[0];
 
-        const payroll = await compilePayroll(periodStartStr, periodEndStr);
-        pendingLaborCost = payroll.totals.grossEstimate || 0;
+        const currentWedOffset = (dow >= 3) ? dow - 3 : dow + 4;
+        const currentWedStart = new Date(today);
+        currentWedStart.setDate(today.getDate() - currentWedOffset);
+        const currentWeekEnd = new Date(currentWedStart);
+        currentWeekEnd.setDate(currentWedStart.getDate() + 6);
+        const currentStartStr = currentWedStart.toISOString().split("T")[0];
+        const todayStr = today.toISOString().split("T")[0];
+
+        const prevWedStart = new Date(currentWedStart);
+        prevWedStart.setDate(prevWedStart.getDate() - 7);
+        const prevWeekEnd = new Date(prevWedStart);
+        prevWeekEnd.setDate(prevWedStart.getDate() + 6);
+        const prevStartStr = prevWedStart.toISOString().split("T")[0];
+        const prevEndStr = prevWeekEnd.toISOString().split("T")[0];
+
+        const [currentWeekLabor, prevWeekLabor] = await Promise.all([
+          compileLiveLabor(currentStartStr, todayStr),
+          compileLiveLabor(prevStartStr, prevEndStr),
+        ]);
+
+        const currentWeekGross = currentWeekLabor.totalGross;
+
+        let priorWeekUnbanked = prevWeekLabor.totalGross;
+        const lastPayrollTx = await db.select().from(firmTransactions)
+          .where(
+            and(
+              eq(firmTransactions.reconciled, true),
+              or(
+                eq(firmTransactions.category, "labor"),
+                eq(firmTransactions.category, "payroll"),
+              ),
+              gte(firmTransactions.date, prevStartStr),
+            )
+          )
+          .orderBy(sql`date DESC`)
+          .limit(1);
+
+        let fridayFlushed = false;
+        if (lastPayrollTx.length > 0) {
+          const tx = lastPayrollTx[0];
+          const payrollDate = new Date(tx.date);
+          const isOutflow = Number(tx.amount) < 0;
+          if (payrollDate >= prevWedStart && isOutflow) {
+            priorWeekUnbanked = 0;
+            fridayFlushed = true;
+            console.log(`[LaborDrag] Friday flush: payroll tx #${tx.id} on ${tx.date} ($${tx.amount}) zeroed prior week`);
+          }
+        }
+
+        pendingLaborCost = Math.round((priorWeekUnbanked + currentWeekGross) * 100) / 100;
 
         const { userLocations } = await import("@shared/schema");
-        const { db: payrollDb } = await import("./db");
-        const { eq: payrollEq } = await import("drizzle-orm");
-        const allUserLocs = await payrollDb.select().from(userLocations);
+        const allUserLocs = await db.select().from(userLocations);
         const userLocationMap = new Map<string, number>();
         for (const ul of allUserLocs) {
           if (ul.isPrimary || !userLocationMap.has(ul.userId)) {
@@ -14766,12 +14806,19 @@ IMPORTANT GUIDELINES:
         const saratogaLocationId = 3;
         let boltonLabor = 0;
         let saratogaLabor = 0;
-        for (const emp of payroll.employees) {
+        const allEmps = [...currentWeekLabor.employees, ...prevWeekLabor.employees];
+        const seenUsers = new Set<string>();
+        for (const emp of allEmps) {
+          if (seenUsers.has(emp.userId)) continue;
+          seenUsers.add(emp.userId);
+          const currentEmp = currentWeekLabor.employees.find(e => e.userId === emp.userId);
+          const prevEmp = prevWeekLabor.employees.find(e => e.userId === emp.userId);
+          const totalEmpCost = (currentEmp?.grossEstimate || 0) + (fridayFlushed ? 0 : (prevEmp?.grossEstimate || 0));
           const locId = userLocationMap.get(emp.userId);
           if (locId === saratogaLocationId) {
-            saratogaLabor += emp.grossEstimate;
+            saratogaLabor += totalEmpCost;
           } else {
-            boltonLabor += emp.grossEstimate;
+            boltonLabor += totalEmpCost;
           }
         }
         laborDragBreakdown = {
@@ -14779,31 +14826,64 @@ IMPORTANT GUIDELINES:
           "Saratoga Springs": Math.round(saratogaLabor * 100) / 100,
         };
 
+        laborDragDetail = {
+          currentWeek: {
+            period: `${currentStartStr} to ${todayStr}`,
+            gross: currentWeekGross,
+            activeShifts: currentWeekLabor.activeShiftCount,
+            asOf: currentWeekLabor.asOf,
+          },
+          priorWeek: {
+            period: `${prevStartStr} to ${prevEndStr}`,
+            gross: fridayFlushed ? 0 : priorWeekUnbanked,
+            originalGross: prevWeekLabor.totalGross,
+            flushed: fridayFlushed,
+            flushTxId: lastPayrollTx.length > 0 ? lastPayrollTx[0].id : null,
+          },
+          totalDrag: pendingLaborCost,
+        };
+
         if (pendingLaborCost > 0) {
-          const refId = `labor-accrual-${periodStartStr}-${periodEndStr}`;
+          const currentWeekEndStr = currentWeekEnd.toISOString().split("T")[0];
+          const refId = `labor-accrual-${currentStartStr}-${currentWeekEndStr}`;
+          const staleAccruals = await db.select().from(journalEntries)
+            .where(
+              and(
+                eq(journalEntries.referenceType, "labor_accrual"),
+                sql`${journalEntries.referenceId} != ${refId}`
+              )
+            );
+          for (const stale of staleAccruals) {
+            await db.delete(ledgerLines).where(eq(ledgerLines.entryId, stale.id));
+            await db.delete(journalEntries).where(eq(journalEntries.id, stale.id));
+            console.log(`[LaborAccrual] Cleaned stale accrual JE #${stale.id} (${stale.referenceId})`);
+          }
+
           const existingAccrualJE = await db.select().from(journalEntries)
             .where(eq(journalEntries.referenceId, refId)).limit(1);
 
-          if (existingAccrualJE.length > 0) {
-            const oldLines = await db.select().from(ledgerLines)
-              .where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
-            const oldDebit = oldLines.find(l => Number(l.debit) > 0);
-            const oldAmount = oldDebit ? Number(oldDebit.debit) : 0;
+          const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+          const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
 
-            if (Math.abs(oldAmount - pendingLaborCost) > 0.01) {
-              await db.delete(ledgerLines).where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
-              await db.delete(journalEntries).where(eq(journalEntries.id, existingAccrualJE[0].id));
-              console.log(`[LaborAccrual] Removed stale accrual JE #${existingAccrualJE[0].id} ($${oldAmount} → $${pendingLaborCost})`);
+          if (laborAcct.length > 0 && payrollLiab.length > 0) {
+            if (existingAccrualJE.length > 0) {
+              const oldLines = await db.select().from(ledgerLines)
+                .where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
+              const oldDebit = oldLines.find(l => Number(l.debit) > 0);
+              const oldAmount = oldDebit ? Number(oldDebit.debit) : 0;
 
-              const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
-              const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
-              if (laborAcct.length > 0 && payrollLiab.length > 0) {
+              if (Math.abs(oldAmount - pendingLaborCost) > 0.01) {
+                await db.delete(ledgerLines).where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
+                await db.delete(journalEntries).where(eq(journalEntries.id, existingAccrualJE[0].id));
+                console.log(`[LaborAccrual] Removed stale accrual JE #${existingAccrualJE[0].id} ($${oldAmount} → $${pendingLaborCost})`);
+
                 const { postJournalEntry } = await import("./accounting-engine");
                 const rounded = Math.round(pendingLaborCost * 100) / 100;
+                const empCount = currentWeekLabor.employees.length;
                 await postJournalEntry(
                   {
-                    transactionDate: periodEndStr,
-                    description: `Labor accrual: ${periodStartStr} to ${periodEndStr} (${payroll.totals.employeeCount} employees)`,
+                    transactionDate: todayStr,
+                    description: `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`,
                     referenceId: refId,
                     referenceType: "labor_accrual",
                     status: "posted",
@@ -14811,24 +14891,21 @@ IMPORTANT GUIDELINES:
                     createdBy: "payroll-compiler",
                   },
                   [
-                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${payroll.totals.employeeCount} employees` },
+                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees (live burn)` },
                     { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
                   ]
                 );
-                console.log(`[LaborAccrual] Posted updated accrual: $${rounded} for ${periodStartStr} to ${periodEndStr}`);
+                console.log(`[LaborAccrual] Posted updated live accrual: $${rounded}`);
               }
-            }
-          } else {
-            const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
-            const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
-            if (laborAcct.length > 0 && payrollLiab.length > 0) {
+            } else {
               try {
                 const { postJournalEntry } = await import("./accounting-engine");
                 const rounded = Math.round(pendingLaborCost * 100) / 100;
+                const empCount = currentWeekLabor.employees.length;
                 await postJournalEntry(
                   {
-                    transactionDate: periodEndStr,
-                    description: `Labor accrual: ${periodStartStr} to ${periodEndStr} (${payroll.totals.employeeCount} employees)`,
+                    transactionDate: todayStr,
+                    description: `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`,
                     referenceId: refId,
                     referenceType: "labor_accrual",
                     status: "posted",
@@ -14836,11 +14913,11 @@ IMPORTANT GUIDELINES:
                     createdBy: "payroll-compiler",
                   },
                   [
-                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${payroll.totals.employeeCount} employees` },
+                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees (live burn)` },
                     { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
                   ]
                 );
-                console.log(`[LaborAccrual] Posted new accrual: $${rounded} for ${periodStartStr} to ${periodEndStr}`);
+                console.log(`[LaborAccrual] Posted new live accrual: $${rounded}`);
               } catch (jeErr: any) {
                 console.warn("[LaborAccrual] JE post error (non-fatal):", jeErr.message);
               }
@@ -14848,7 +14925,7 @@ IMPORTANT GUIDELINES:
           }
         }
       } catch (payrollErr: any) {
-        console.warn("[Liquidity] Payroll compilation failed (non-fatal), labor drag = 0:", payrollErr.message);
+        console.warn("[Liquidity] Live labor compilation failed (non-fatal), labor drag = 0:", payrollErr.message);
       }
 
       const { getLiquiditySnapshot } = await import("./liquidity-engine");
@@ -14860,9 +14937,27 @@ IMPORTANT GUIDELINES:
         pendingLaborCost,
         laborDragBreakdown
       );
-      res.json(snapshot);
+      res.json({ ...snapshot, laborDragDetail });
     } catch (err: any) {
       console.error("[Liquidity] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/firm/live-labor", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { compileLiveLabor } = await import("./payroll-compiler");
+      const today = new Date();
+      const dow = today.getDay();
+      const wedOffset = (dow >= 3) ? dow - 3 : dow + 4;
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - wedOffset);
+      const startStr = req.query.startDate || weekStart.toISOString().split("T")[0];
+      const endStr = req.query.endDate || today.toISOString().split("T")[0];
+      const snapshot = await compileLiveLabor(startStr as string, endStr as string);
+      res.json(snapshot);
+    } catch (err: any) {
+      console.error("[LiveLabor] Error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
@@ -16224,7 +16319,8 @@ Keep it conversational but data-driven. Use actual numbers from the data. If dat
       const layer = (req.query.layer === "baker") ? "baker" : "bank";
       const excludeProjectId = req.query.excludeProjectId ? parseInt(req.query.excludeProjectId as string) : undefined;
       const locationId = req.query.locationId ? parseInt(req.query.locationId as string) : undefined;
-      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer, { excludeProjectId, locationId });
+      const includeAccruals = req.query.includeAccruals === "true";
+      const pnl = await getProfitAndLoss(startDate as string, endDate as string, layer, { excludeProjectId, locationId, includeAccruals });
       res.json(pnl);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

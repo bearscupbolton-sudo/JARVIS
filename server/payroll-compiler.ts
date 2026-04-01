@@ -538,3 +538,156 @@ export async function compilePayroll(
     totals,
   };
 }
+
+export interface LiveLaborLine {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  hourlyRate: number;
+  annualSalary: number | null;
+  payType: "hourly" | "salary";
+  hoursWorked: number;
+  activeShiftHours: number;
+  completedShiftHours: number;
+  grossEstimate: number;
+  isOwner: boolean;
+  isOnShift: boolean;
+}
+
+export interface LiveLaborSnapshot {
+  date: string;
+  asOf: string;
+  employees: LiveLaborLine[];
+  totalGross: number;
+  activeShiftCount: number;
+}
+
+export async function compileLiveLabor(
+  startDate: string,
+  endDate: string,
+): Promise<LiveLaborSnapshot> {
+  const periodStart = easternDayStart(startDate);
+  const periodEnd = easternDayEnd(endDate);
+  const now = new Date();
+
+  const allUsers = await db
+    .select()
+    .from(users)
+    .where(eq(users.locked, false));
+
+  const rawEntries = await db
+    .select()
+    .from(timeEntries)
+    .where(
+      and(
+        lte(timeEntries.clockIn, periodEnd),
+        or(isNull(timeEntries.clockOut), gte(timeEntries.clockOut, periodStart)),
+      ),
+    );
+
+  const MIN_VALID = new Date("2020-01-01").getTime();
+  const MAX_VALID = new Date("2030-12-31").getTime();
+  const validEntries = rawEntries.filter((te) => {
+    const ci = new Date(te.clockIn).getTime();
+    if (isNaN(ci) || ci < MIN_VALID || ci > MAX_VALID) return false;
+    if (te.clockOut) {
+      const co = new Date(te.clockOut).getTime();
+      if (isNaN(co) || co < MIN_VALID || co > MAX_VALID) return false;
+      if (co - ci > 24 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  });
+
+  const entryIds = validEntries.map(te => te.id);
+  let allBreaks: Array<typeof breakEntries.$inferSelect> = [];
+  if (entryIds.length > 0) {
+    allBreaks = (await db.select().from(breakEntries))
+      .filter(b => entryIds.includes(b.timeEntryId));
+  }
+
+  const employees: LiveLaborLine[] = [];
+  let activeShiftCount = 0;
+
+  for (const user of allUsers) {
+    if (!user.firstName) continue;
+
+    const userEntries = validEntries.filter(te => te.userId === user.id);
+    if (userEntries.length === 0 && user.payType !== "salary") continue;
+
+    const isSalaried = user.payType === "salary";
+    const rate = user.hourlyRate || 0;
+    const isOwner = user.role === "owner";
+
+    let completedMs = 0;
+    let activeMs = 0;
+    let isOnShift = false;
+
+    for (const entry of userEntries) {
+      const clockIn = new Date(entry.clockIn);
+      const effectiveEnd = entry.clockOut ? new Date(entry.clockOut) : now;
+      const clippedStart = Math.max(clockIn.getTime(), periodStart.getTime());
+      const clippedEnd = Math.min(effectiveEnd.getTime(), periodEnd.getTime());
+      let entryMs = Math.max(0, clippedEnd - clippedStart);
+
+      const entryBreaks = allBreaks.filter(b => b.timeEntryId === entry.id);
+      for (const brk of entryBreaks) {
+        if (brk.endAt) {
+          const bStart = Math.max(new Date(brk.startAt).getTime(), clippedStart);
+          const bEnd = Math.min(new Date(brk.endAt).getTime(), clippedEnd);
+          if (bEnd > bStart) entryMs -= (bEnd - bStart);
+        } else {
+          const bStart = Math.max(new Date(brk.startAt).getTime(), clippedStart);
+          const bEnd = Math.min(now.getTime(), clippedEnd);
+          if (bEnd > bStart) entryMs -= (bEnd - bStart);
+        }
+      }
+
+      if (!entry.clockOut) {
+        activeMs += Math.max(0, entryMs);
+        isOnShift = true;
+        activeShiftCount++;
+      } else {
+        completedMs += Math.max(0, entryMs);
+      }
+    }
+
+    const completedHours = hoursFromMs(completedMs);
+    const activeHours = hoursFromMs(activeMs);
+    const totalHours = completedHours + activeHours;
+
+    let grossEstimate: number;
+    if (isSalaried && user.annualSalary) {
+      const periodDays = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      grossEstimate = Math.round((user.annualSalary / 365) * periodDays * 100) / 100;
+    } else if (rate > 0) {
+      const regular = Math.min(totalHours, 40);
+      const overtime = Math.max(0, totalHours - 40);
+      grossEstimate = Math.round((regular * rate + overtime * rate * 1.5) * 100) / 100;
+    } else {
+      continue;
+    }
+
+    employees.push({
+      userId: user.id,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      hourlyRate: rate,
+      annualSalary: user.annualSalary || null,
+      payType: isSalaried ? "salary" : "hourly",
+      hoursWorked: Math.round(totalHours * 100) / 100,
+      activeShiftHours: Math.round(activeHours * 100) / 100,
+      completedShiftHours: Math.round(completedHours * 100) / 100,
+      grossEstimate,
+      isOwner,
+      isOnShift,
+    });
+  }
+
+  return {
+    date: endDate,
+    asOf: now.toISOString(),
+    employees,
+    totalGross: Math.round(employees.reduce((s, e) => s + e.grossEstimate, 0) * 100) / 100,
+    activeShiftCount,
+  };
+}
