@@ -497,6 +497,56 @@ interface PayrollCompileResult {
   };
 }
 
+function OverviewNetCashCard({ accounts }: { accounts: FirmAccount[] }) {
+  const { data: cashData, isLoading } = useQuery<any>({
+    queryKey: ["/api/firm/adjusted-cash"],
+    queryFn: () => fetch("/api/firm/adjusted-cash", { credentials: "include" }).then(r => {
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    }),
+  });
+
+  const rawCash = accounts.reduce((sum, a) => {
+    if (["checking", "savings", "cash", "petty_cash"].includes(a.type)) return sum + a.currentBalance;
+    return sum;
+  }, 0);
+
+  const netCash = cashData?.spendable;
+  const hasData = !isLoading && netCash != null;
+  const displayValue = hasData ? netCash : rawCash;
+  const laborDrag = cashData?.breakdown?.laborAccrual || 0;
+  const detail = cashData?.laborDragDetail;
+
+  return (
+    <Card data-testid="card-cash-position">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-muted-foreground font-medium">
+            {hasData ? "Net Cash" : "Cash Position"}
+            <LearnTooltip term="Net Cash" explanation="Bank balance minus credit card debt, accrued labor (prior + current week), sales tax, and upcoming obligations. This is what you can actually spend." />
+          </span>
+          <Wallet className="w-4 h-4 text-primary" />
+        </div>
+        <div className={`text-2xl font-bold ${displayValue >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`} data-testid="text-overview-net-cash">
+          {displayValue < 0 ? "-" : ""}${Math.abs(displayValue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+        {hasData && laborDrag > 0 && (
+          <div className="text-[10px] text-muted-foreground mt-1">
+            Incl. ${laborDrag.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} labor drag
+            {detail?.priorWeek && !detail.priorWeek.flushed ? " (prior wk unpaid)" : ""}
+          </div>
+        )}
+        {!hasData && !isLoading && (
+          <div className="text-[10px] text-muted-foreground mt-1">{accounts.filter(a => a.isActive).length} active accounts</div>
+        )}
+        {isLoading && (
+          <div className="text-[10px] text-muted-foreground mt-1">Loading adjusted position...</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate, locationId = "all" }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string; locationId?: string }) {
   const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
   const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
@@ -591,16 +641,7 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
             <div className="text-[10px] text-muted-foreground mt-1">{netPL >= 0 ? "Profitable" : "Operating at a loss"} · Click to drill down</div>
           </CardContent>
         </Card>
-        <Card data-testid="card-cash-position">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground font-medium">Cash Position<LearnTooltip term="Cash Position" explanation="Total cash available across all your bank accounts and cash drawers. This is your liquidity — how much you can spend right now." /></span>
-              <Wallet className="w-4 h-4 text-primary" />
-            </div>
-            <div className="text-2xl font-bold">{formatCurrency(cashPosition)}</div>
-            <div className="text-[10px] text-muted-foreground mt-1">{accounts.filter(a => a.isActive).length} active accounts</div>
-          </CardContent>
-        </Card>
+        <OverviewNetCashCard accounts={accounts} />
         {ownerDrawTotal > 0 && (
           <Card className="col-span-2 md:col-span-4 border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20" data-testid="card-owner-draw">
             <CardContent className="p-3 flex items-center justify-between">
