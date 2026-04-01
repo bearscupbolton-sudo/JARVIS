@@ -7508,7 +7508,7 @@ function AssetsTab() {
   if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>;
 
   const pendingAssets = assets?.filter(a => a.status === "pending") || [];
-  const capitalizedAssets = assets?.filter(a => a.status === "capitalized") || [];
+  const capitalizedAssets = assets?.filter(a => a.status === "capitalized" || a.status === "placed_in_service") || [];
   const legacyAssets = assets?.filter(a => a.status === "fully_depreciated") || [];
   const currentPeriod = format(new Date(), "yyyy-MM-dd");
 
