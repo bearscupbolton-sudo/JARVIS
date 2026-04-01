@@ -13653,8 +13653,10 @@ IMPORTANT GUIDELINES:
               });
 
               const isDupe = nearby.some(e =>
-                (e.referenceType === "plaid" && e.referenceId === txn.transaction_id) ||
-                (e.referenceType === "plaid" && Math.abs(Number(e.amount) - txnAmount) < 0.01 && e.description === txnDesc)
+                e.referenceType === "plaid" && (
+                  e.referenceId === txn.transaction_id ||
+                  (e.accountId === firmAccountId && Math.abs(Number(e.amount) - txnAmount) < 0.01)
+                )
               );
               if (isDupe) continue;
 
@@ -13744,8 +13746,10 @@ IMPORTANT GUIDELINES:
               });
 
               const isDupe = nearby.some(e =>
-                (e.referenceType === "plaid" && e.referenceId === txn.transaction_id) ||
-                (e.referenceType === "plaid" && Math.abs(Number(e.amount) - txnAmount) < 0.01 && e.description === txnDesc)
+                e.referenceType === "plaid" && (
+                  e.referenceId === txn.transaction_id ||
+                  (e.accountId === firmAccountId && Math.abs(Number(e.amount) - txnAmount) < 0.01)
+                )
               );
               if (isDupe) { skipped++; continue; }
 

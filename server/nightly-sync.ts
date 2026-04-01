@@ -64,10 +64,20 @@ async function runPlaidTransactionSync(): Promise<number> {
           const plaidAcct = await storage.getPlaidAccountByAccountId(txn.account_id);
           const firmAccountId = plaidAcct?.firmAccountId || null;
 
-          const existing = await storage.getFirmTransactions({ startDate: txn.date, endDate: txn.date });
+          const dayBefore = new Date(txn.date);
+          dayBefore.setDate(dayBefore.getDate() - 1);
+          const dayAfter = new Date(txn.date);
+          dayAfter.setDate(dayAfter.getDate() + 1);
+          const existing = await storage.getFirmTransactions({
+            startDate: dayBefore.toISOString().split("T")[0],
+            endDate: dayAfter.toISOString().split("T")[0],
+          });
+          const txnAmount = -(txn.amount || 0);
           const isDupe = existing.some(e =>
-            e.referenceType === "plaid" &&
-            e.referenceId === txn.transaction_id
+            e.referenceType === "plaid" && (
+              e.referenceId === txn.transaction_id ||
+              (e.accountId === firmAccountId && Math.abs(Number(e.amount) - txnAmount) < 0.01)
+            )
           );
           if (isDupe) continue;
 

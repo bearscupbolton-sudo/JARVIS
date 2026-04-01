@@ -748,14 +748,16 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { db } = await import("./db");
-      const { firmTransactions } = await import("@shared/schema");
-      const { eq, sql, inArray } = await import("drizzle-orm");
+      const { firmTransactions, journalEntries, ledgerLines } = await import("@shared/schema");
+      const { eq, and, sql, inArray } = await import("drizzle-orm");
 
       const plaidTxns = await db.select({
         id: firmTransactions.id,
         date: firmTransactions.date,
         description: firmTransactions.description,
         amount: firmTransactions.amount,
+        accountId: firmTransactions.accountId,
+        referenceId: firmTransactions.referenceId,
       }).from(firmTransactions)
         .where(eq(firmTransactions.referenceType, "plaid"))
         .orderBy(firmTransactions.date, firmTransactions.id);
@@ -763,13 +765,15 @@ app.use((req, res, next) => {
       const dupeIds: number[] = [];
       const seen = new Map<string, number>();
       for (const txn of plaidTxns) {
-        const key = `${txn.date}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
+        const amt = Number(txn.amount).toFixed(2);
+        const acct = txn.accountId ?? 0;
+        const key = `${txn.date}|${acct}|${amt}`;
         const dayBefore = new Date(txn.date);
         dayBefore.setDate(dayBefore.getDate() - 1);
         const dayAfter = new Date(txn.date);
         dayAfter.setDate(dayAfter.getDate() + 1);
-        const fuzzyKey1 = `${dayBefore.toISOString().split("T")[0]}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
-        const fuzzyKey2 = `${dayAfter.toISOString().split("T")[0]}|${txn.description}|${Number(txn.amount).toFixed(2)}`;
+        const fuzzyKey1 = `${dayBefore.toISOString().split("T")[0]}|${acct}|${amt}`;
+        const fuzzyKey2 = `${dayAfter.toISOString().split("T")[0]}|${acct}|${amt}`;
 
         if (seen.has(key)) {
           dupeIds.push(txn.id);
@@ -783,9 +787,23 @@ app.use((req, res, next) => {
       }
 
       if (dupeIds.length > 0) {
+        const dupeRefIds = plaidTxns.filter(t => dupeIds.includes(t.id)).map(t => t.referenceId).filter(Boolean) as string[];
         for (let i = 0; i < dupeIds.length; i += 100) {
           const batch = dupeIds.slice(i, i + 100);
           await db.delete(firmTransactions).where(inArray(firmTransactions.id, batch));
+        }
+        if (dupeRefIds.length > 0) {
+          const orphanJEs = await db.select({ id: journalEntries.id }).from(journalEntries)
+            .where(and(eq(journalEntries.referenceType, "plaid"), inArray(journalEntries.referenceId, dupeRefIds)));
+          if (orphanJEs.length > 0) {
+            const jeIds = orphanJEs.map(j => j.id);
+            for (let i = 0; i < jeIds.length; i += 100) {
+              const batch = jeIds.slice(i, i + 100);
+              await db.delete(ledgerLines).where(inArray(ledgerLines.entryId, batch));
+              await db.delete(journalEntries).where(inArray(journalEntries.id, batch));
+            }
+            console.log(`[Plaid Dedup] Also removed ${jeIds.length} orphaned journal entries`);
+          }
         }
         console.log(`[Plaid Dedup] Removed ${dupeIds.length} duplicate Plaid transactions`);
       } else if (plaidTxns.length > 0) {
