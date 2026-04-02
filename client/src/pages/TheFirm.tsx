@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,6 +42,21 @@ import type {
 } from "@shared/schema";
 
 type PeriodKey = "this_week" | "this_month" | "last_month" | "ytd" | "last_year" | "all_time" | "month" | "custom";
+
+interface Consultation {
+  id: number;
+  category: string;
+  title: string;
+  messageBody: string;
+  suggestedAction: any;
+  impactEstimate: number | null;
+  severity: string | null;
+  locationId: number | null;
+  status: string;
+  dismissedBy: string | null;
+  implementedAt: string | null;
+  createdAt: string;
+}
 
 function getPeriodDates(period: PeriodKey, customStart?: string, customEnd?: string, selectedMonthStr?: string) {
   const today = new Date();
@@ -235,9 +253,24 @@ function LearnTooltip({ term, explanation }: { term: string; explanation: string
 export default function TheFirm() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTabRaw] = useState("overview");
   const [cfoOpen, setCfoOpen] = useState(false);
   const [ledgerFilterAccountId, setLedgerFilterAccountId] = useState<string | null>(null);
+  const [ledgerViewOverride, setLedgerViewOverride] = useState<"transactions" | "journal" | null>(null);
+
+  const setActiveTab = useCallback((tab: string) => {
+    if (tab === "journal") {
+      setActiveTabRaw("ledger");
+      setLedgerViewOverride("journal");
+      return;
+    }
+    if (tab === "command-center") {
+      setActiveTabRaw("overview");
+      return;
+    }
+    setLedgerViewOverride(null);
+    setActiveTabRaw(tab);
+  }, []);
   const [period, setPeriod] = useState<PeriodKey>("this_month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -343,54 +376,60 @@ export default function TheFirm() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-thin">
-          <TabsList className="inline-flex w-max gap-1 flex-nowrap" data-testid="tabs-firm">
-            <TabsTrigger value="command-center" className="whitespace-nowrap px-3 text-xs" data-testid="tab-command-center">Command Center</TabsTrigger>
+        <div className="flex items-center gap-2">
+          <TabsList className="inline-flex gap-1" data-testid="tabs-firm">
             <TabsTrigger value="overview" className="whitespace-nowrap px-3 text-xs" data-testid="tab-overview">Overview</TabsTrigger>
-            <TabsTrigger value="accounts" className="whitespace-nowrap px-3 text-xs" data-testid="tab-accounts">Accounts</TabsTrigger>
+            <TabsTrigger value="reports" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reports">Reports</TabsTrigger>
             <TabsTrigger value="ledger" className="whitespace-nowrap px-3 text-xs" data-testid="tab-ledger">Ledger</TabsTrigger>
             <TabsTrigger value="reconcile" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reconcile">Reconcile</TabsTrigger>
-            <TabsTrigger value="coa" className="whitespace-nowrap px-3 text-xs" data-testid="tab-coa">COA</TabsTrigger>
-            <TabsTrigger value="journal" className="whitespace-nowrap px-3 text-xs" data-testid="tab-journal">Journal</TabsTrigger>
-            <TabsTrigger value="reports" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reports">Reports</TabsTrigger>
-            <TabsTrigger value="obligations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-obligations">Obligations</TabsTrigger>
-            <TabsTrigger value="payroll" className="whitespace-nowrap px-3 text-xs" data-testid="tab-payroll">Payroll</TabsTrigger>
-            <TabsTrigger value="cash" className="whitespace-nowrap px-3 text-xs" data-testid="tab-cash">Cash</TabsTrigger>
-            <TabsTrigger value="sales-tax" className="whitespace-nowrap px-3 text-xs" data-testid="tab-sales-tax">Sales Tax</TabsTrigger>
-            <TabsTrigger value="compliance" className="whitespace-nowrap px-3 text-xs" data-testid="tab-compliance">Compliance</TabsTrigger>
-            <TabsTrigger value="donations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-donations">Donations</TabsTrigger>
-            <TabsTrigger value="prepaids" className="whitespace-nowrap px-3 text-xs" data-testid="tab-prepaids">Prepaids</TabsTrigger>
-            <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
-            <TabsTrigger value="reimbursements" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reimbursements">Reimbursements</TabsTrigger>
-            <TabsTrigger value="tax-dna" className="whitespace-nowrap px-3 text-xs" data-testid="tab-tax-dna">Tax DNA</TabsTrigger>
-            <TabsTrigger value="vendors" className="whitespace-nowrap px-3 text-xs" data-testid="tab-vendors">Vendors</TabsTrigger>
-            <TabsTrigger value="transfers" className="whitespace-nowrap px-3 text-xs" data-testid="tab-transfers">Transfers</TabsTrigger>
           </TabsList>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={["coa","accounts","vendors","transfers","compliance","obligations","payroll","cash","sales-tax","donations","prepaids","assets","reimbursements","tax-dna"].includes(activeTab) ? "default" : "outline"}
+                size="sm"
+                className="text-xs gap-1"
+                data-testid="tab-setup-dropdown"
+              >
+                <Settings className="w-3.5 h-3.5" /> Setup <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48" data-testid="setup-dropdown-content">
+              <DropdownMenuItem onClick={() => setActiveTab("coa")} data-testid="setup-item-coa">Chart of Accounts</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("accounts")} data-testid="setup-item-accounts">Accounts</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("vendors")} data-testid="setup-item-vendors">Vendors</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("transfers")} data-testid="setup-item-transfers">Transfers</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("compliance")} data-testid="setup-item-compliance">Compliance</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("obligations")} data-testid="setup-item-obligations">Obligations</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("payroll")} data-testid="setup-item-payroll">Payroll</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("cash")} data-testid="setup-item-cash">Cash</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("sales-tax")} data-testid="setup-item-sales-tax">Sales Tax</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("donations")} data-testid="setup-item-donations">Donations</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("prepaids")} data-testid="setup-item-prepaids">Prepaids</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("assets")} data-testid="setup-item-assets">Assets</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("reimbursements")} data-testid="setup-item-reimbursements">Reimbursements</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActiveTab("tax-dna")} data-testid="setup-item-tax-dna">Tax DNA</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-        <TabsContent value="command-center">
-          <CommandCenterTab startDate={startDate} endDate={endDate} locationId={locationId} />
-        </TabsContent>
         <TabsContent value="overview">
           <OverviewTab summary={summary} loading={loadingSummary} transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} obligations={Array.isArray(obligations) ? obligations : []} startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
-        <TabsContent value="accounts">
-          <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setLedgerFilterAccountId(String(id)); setActiveTab("ledger"); }} onNavigate={(tab, accountId) => { if (accountId) setLedgerFilterAccountId(String(accountId)); setActiveTab(tab); }} />
+        <TabsContent value="reports">
+          <ReportsTab startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
         <TabsContent value="ledger">
-          <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} initialFilterAccountId={ledgerFilterAccountId} onFilterApplied={() => setLedgerFilterAccountId(null)} />
+          <LedgerTab transactions={Array.isArray(transactions) ? transactions : []} accounts={Array.isArray(accounts) ? accounts : []} loading={loadingTxns} startDate={startDate} endDate={endDate} initialFilterAccountId={ledgerFilterAccountId} onFilterApplied={() => setLedgerFilterAccountId(null)} initialView={ledgerViewOverride} />
         </TabsContent>
         <TabsContent value="reconcile">
           <ReconciliationTab startDate={startDate} endDate={endDate} />
         </TabsContent>
+        <TabsContent value="accounts">
+          <AccountsTab accounts={Array.isArray(accounts) ? accounts : []} loading={loadingAccounts} onSwitchToLedger={(id) => { setLedgerFilterAccountId(String(id)); setActiveTab("ledger"); }} onNavigate={(tab, accountId) => { if (accountId) setLedgerFilterAccountId(String(accountId)); setActiveTab(tab); }} />
+        </TabsContent>
         <TabsContent value="coa">
           <ChartOfAccountsTab />
-        </TabsContent>
-        <TabsContent value="journal">
-          <JournalTab startDate={startDate} endDate={endDate} />
-        </TabsContent>
-        <TabsContent value="reports">
-          <ReportsTab startDate={startDate} endDate={endDate} locationId={locationId} />
         </TabsContent>
         <TabsContent value="obligations">
           <ObligationsTab obligations={Array.isArray(obligations) ? obligations : []} accounts={Array.isArray(accounts) ? accounts : []} />
@@ -549,8 +588,14 @@ function OverviewNetCashCard({ accounts }: { accounts: FirmAccount[] }) {
 }
 
 function OverviewTab({ summary, loading, transactions, accounts, obligations, startDate, endDate, locationId = "all" }: { summary: any; loading: boolean; transactions: FirmTransaction[]; accounts: FirmAccount[]; obligations: FirmRecurringObligation[]; startDate: string; endDate: string; locationId?: string }) {
+  const { toast } = useToast();
   const [lineagePanel, setLineagePanel] = useState<{ category: string; label: string } | null>(null);
+  const [jarvisOpen, setJarvisOpen] = useState(true);
+  const [classifierOpen, setClassifierOpen] = useState(false);
+  const [aiClassifyInput, setAiClassifyInput] = useState({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
+  const [classifyResult, setClassifyResult] = useState<any>(null);
   const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
+
   const { data: jarvisInsight, isLoading: loadingInsight } = useQuery<{ insight: string }>({
     queryKey: ["/api/firm/jarvis-insight", startDate, endDate],
     queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
@@ -573,7 +618,154 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
     },
     staleTime: 60000,
   });
+
+  const { data: consultations = [], isLoading: consultLoading } = useQuery<Consultation[]>({
+    queryKey: ["/api/firm/ai/consultations"],
+  });
+
+  const { data: summaryData, isLoading: summaryLoading, refetch: refetchSummary } = useQuery<{ summary: string }>({
+    queryKey: ["/api/firm/ai/summary", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/ai/summary?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: false,
+  });
+
+  const { data: auditTrail = [] } = useQuery<any[]>({
+    queryKey: ["/api/firm/ai/audit-trail"],
+  });
+
+  const [fullSyncRunning, setFullSyncRunning] = useState(false);
+  const fullRevenueSyncMut = useMutation({
+    mutationFn: async () => {
+      setFullSyncRunning(true);
+      const ytdStart = `${new Date().getFullYear()}-01-01`;
+      const today = new Date().toISOString().slice(0, 10);
+      const backfillRes = await apiRequest("POST", "/api/square/backfill", { startDate: ytdStart, endDate: today });
+      const backfillData = await backfillRes.json();
+      const waitMs = Math.min((backfillData.daysQueued || 90) * 250, 30000);
+      await new Promise(r => setTimeout(r, waitMs));
+      const rebuildRes = await apiRequest("POST", "/api/firm/rebuild-revenue");
+      return rebuildRes.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/summary"] });
+      setFullSyncRunning(false);
+      toast({ title: "Full Revenue Sync Complete", description: `Rebuilt: ${data.deletedOldJes} old JEs removed, ${data.journalized} new JEs created from corrected data` });
+    },
+    onError: (err: any) => {
+      setFullSyncRunning(false);
+      toast({ title: "Revenue Sync Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/backfill-journal-entries");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/pnl"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/reports/trial-balance"] });
+      toast({ title: "Expense Backfill Complete", description: `${data.posted} journal entries created, ${data.skipped} already existed, ${data.errors} errors` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Backfill Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/firm/ai/analyze", { startDate, endDate });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/consultations"] });
+      toast({ title: "Analysis Complete", description: `${data.newInsights.length} new insight(s) generated` });
+    },
+    onError: (err: any) => toast({ title: "Analysis Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const classifyMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/ai/classify", data);
+      return res.json();
+    },
+    onSuccess: (data) => setClassifyResult(data),
+    onError: (err: any) => toast({ title: "Classification Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const inferPostMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/firm/ai/infer-and-post", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/journal"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/audit-trail"] });
+      toast({
+        title: data.autoCommitted ? "Auto-committed to Ledger" : "Pending Review",
+        description: `Classified as ${data.classification.coaName} (${(data.classification.confidence * 100).toFixed(0)}% confidence)`,
+      });
+      setClassifyResult(null);
+      setAiClassifyInput({ description: "", amount: "", date: format(new Date(), "yyyy-MM-dd") });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const dismissMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/firm/ai/consultations/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/firm/ai/consultations"] }),
+  });
+
+  const openConsultations = consultations.filter(c => c.status === "OPEN");
+  const implementedConsultations = consultations.filter(c => c.status === "IMPLEMENTED");
+
+  const severityIcon = (sev: string | null) => {
+    switch (sev) {
+      case "critical": return <ShieldAlert className="h-5 w-5 text-red-500" />;
+      case "warning": return <AlertTriangle className="h-5 w-5 text-amber-500" />;
+      default: return <Lightbulb className="h-5 w-5 text-blue-500" />;
+    }
+  };
+
+  const severityBg = (sev: string | null) => {
+    switch (sev) {
+      case "critical": return "border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/10";
+      case "warning": return "border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/10";
+      default: return "border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/10";
+    }
+  };
+
+  const categoryLabel = (cat: string) => {
+    switch (cat) {
+      case "TAX_STRATEGY": return { label: "Tax Strategy", color: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300" };
+      case "MARGIN_OPTIMIZATION": return { label: "Margin", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" };
+      case "CASH_FLOW_PREDICTION": return { label: "Cash Flow", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" };
+      default: return { label: cat, color: "bg-gray-100 text-gray-800" };
+    }
+  };
+
+  const { data: trialBalance } = useQuery<any>({
+    queryKey: ["/api/firm/reports/trial-balance", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/firm/reports/trial-balance?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
   if (loading) return <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-28" />)}</div>;
+
   const s = summary || {};
   const revenue = pnlData?.totalRevenue ?? (s.squareRevenue || 0);
   const processingFees = s.squareProcessingFees || 0;
@@ -607,8 +799,45 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   const recentTxns = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
   const cashVariance = s.cashVarianceTotal || 0;
 
+  const equityRows = (trialBalance?.accounts || []).filter((a: any) => String(a.code).startsWith("3"));
+  const totalEquity = equityRows.reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
+  const drawRows = equityRows.filter((a: any) => a.code === "3010" || a.code === "3020");
+  const totalDraws = drawRows.reduce((sum: number, a: any) => sum + Math.abs(a.balance || 0), 0);
+  const ytdNetPosition = totalEquity - totalDraws;
+  const earningsRow = equityRows.find((a: any) => a.code === "3099");
+  const liveEarnings = earningsRow ? (earningsRow.balance || 0) : 0;
+
   return (
     <div className="space-y-4" data-testid="overview-content">
+      <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/30 rounded-lg border" data-testid="live-pulse-actions">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-2">Live Pulse</span>
+        <Button size="sm" variant="default" className="bg-green-600 hover:bg-green-700 text-xs" onClick={() => fullRevenueSyncMut.mutate()} disabled={fullSyncRunning || fullRevenueSyncMut.isPending} data-testid="button-sync-revenue">
+          {fullSyncRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+          {fullSyncRunning ? "Syncing..." : "Sync Revenue"}
+        </Button>
+        <Button size="sm" variant="outline" className="text-xs" onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending} data-testid="button-post-expenses">
+          {backfillMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <ArrowUpDown className="h-3.5 w-3.5 mr-1" />}
+          Post Expenses
+        </Button>
+        <Button size="sm" variant="outline" className="text-xs" onClick={() => refetchSummary()} disabled={summaryLoading} data-testid="button-ai-summary">
+          {summaryLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
+          AI Summary
+        </Button>
+        <Button size="sm" className="text-xs" onClick={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending} data-testid="button-run-analysis">
+          {analyzeMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+          Run Analysis
+        </Button>
+      </div>
+
+      {summaryData?.summary && (
+        <div className="p-3 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20" data-testid="text-ai-summary">
+          <div className="flex items-start gap-2">
+            <Brain className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+            <p className="text-sm">{summaryData.summary}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card data-testid="card-revenue" className="cursor-pointer hover:ring-2 hover:ring-green-500/30 transition-all" onClick={() => setLineagePanel({ category: "revenue", label: "Revenue" })}>
           <CardContent className="p-4">
@@ -746,9 +975,36 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
         </CardContent>
       </Card>
 
-      <RealCashWidget />
+      {equityRows.length > 0 && (
+        <Card className="border-indigo-300 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20" data-testid="card-equity">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Scale className="w-4 h-4 text-indigo-600" /> Owner Equity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Total Owner Equity</p>
+                <p className="text-xl font-bold tabular-nums text-indigo-700 dark:text-indigo-400" data-testid="text-total-equity">{formatCurrency(totalEquity)}</p>
+                <p className="text-[10px] text-muted-foreground">All 3000-series accounts</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">YTD Net Position</p>
+                <p className={`text-xl font-bold tabular-nums ${ytdNetPosition >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`} data-testid="text-ytd-net-position">{formatCurrency(ytdNetPosition)}</p>
+                <p className="text-[10px] text-muted-foreground">Equity minus Owner Draws</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Live Earnings</p>
+                <p className={`text-xl font-bold tabular-nums ${liveEarnings >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`} data-testid="text-live-earnings">{formatCurrency(liveEarnings)}</p>
+                <p className="text-[10px] text-muted-foreground">3099 Current Year Earnings</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      <LiquidityWidget startDate={startDate} endDate={endDate} />
+      <RealCashWidget />
 
       <UndepositedCashWidget startDate={startDate} endDate={endDate} />
 
@@ -886,6 +1142,145 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
           ) : <p className="text-sm text-muted-foreground italic">No transactions yet. Start by adding accounts and recording transactions.</p>}
         </CardContent>
       </Card>
+
+      <Collapsible open={jarvisOpen} onOpenChange={setJarvisOpen}>
+        <Card data-testid="card-jarvis-recommendations">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Target className="w-4 h-4 text-primary" /> Jarvis Recommendations
+                {openConsultations.length > 0 && (
+                  <Badge variant="destructive" className="text-xs">{openConsultations.length}</Badge>
+                )}
+                <span className="ml-auto">{jarvisOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</span>
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent>
+              {consultLoading ? (
+                <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full" />)}</div>
+              ) : openConsultations.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Sparkles className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p className="font-medium text-sm">No open recommendations</p>
+                  <p className="text-xs">Click "Run Analysis" to generate insights</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {openConsultations.map(c => {
+                    const cat = categoryLabel(c.category);
+                    return (
+                      <div key={c.id} className={`p-3 rounded-lg ${severityBg(c.severity)}`} data-testid={`card-consult-${c.id}`}>
+                        <div className="flex items-start gap-2">
+                          {severityIcon(c.severity)}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-sm">{c.title}</span>
+                              <Badge className={`text-[10px] ${cat.color}`}>{cat.label}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground line-clamp-2">{c.messageBody}</p>
+                            {c.impactEstimate && (
+                              <p className="text-xs font-medium mt-1 text-green-600">Potential impact: {formatCurrency(c.impactEstimate)}</p>
+                            )}
+                            <div className="flex gap-1 mt-2">
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => dismissMutation.mutate({ id: c.id, status: "IMPLEMENTED" })} data-testid={`button-implement-${c.id}`}>
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Implemented
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => dismissMutation.mutate({ id: c.id, status: "DISMISSED" })} data-testid={`button-dismiss-${c.id}`}>
+                                <XCircle className="h-3 w-3 mr-1" /> Dismiss
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {implementedConsultations.length > 0 && (
+                <div className="mt-4 border-t pt-3">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Implemented ({implementedConsultations.length})</div>
+                  {implementedConsultations.slice(0, 5).map(c => (
+                    <div key={c.id} className="flex items-center gap-2 text-xs py-1 text-muted-foreground">
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      <span className="truncate">{c.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      <Collapsible open={classifierOpen} onOpenChange={setClassifierOpen}>
+        <Card data-testid="card-ai-classifier">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-500" /> AI Transaction Classifier
+                <span className="ml-auto">{classifierOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</span>
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input placeholder="Transaction description" value={aiClassifyInput.description} onChange={e => setAiClassifyInput({...aiClassifyInput, description: e.target.value})} data-testid="input-ai-description" />
+                <Input type="number" step="0.01" placeholder="Amount (negative = expense)" value={aiClassifyInput.amount} onChange={e => setAiClassifyInput({...aiClassifyInput, amount: e.target.value})} data-testid="input-ai-amount" />
+                <Input type="date" value={aiClassifyInput.date} onChange={e => setAiClassifyInput({...aiClassifyInput, date: e.target.value})} data-testid="input-ai-date" />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => classifyMutation.mutate({ description: aiClassifyInput.description, amount: Number(aiClassifyInput.amount), date: aiClassifyInput.date })} disabled={classifyMutation.isPending || !aiClassifyInput.description || !aiClassifyInput.amount} data-testid="button-ai-classify">
+                  {classifyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Brain className="h-4 w-4 mr-1" />}
+                  Classify Only
+                </Button>
+                <Button size="sm" onClick={() => inferPostMutation.mutate({ description: aiClassifyInput.description, amount: Number(aiClassifyInput.amount), date: aiClassifyInput.date })} disabled={inferPostMutation.isPending || !aiClassifyInput.description || !aiClassifyInput.amount} data-testid="button-ai-post">
+                  {inferPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+                  Classify & Post
+                </Button>
+              </div>
+              {classifyResult && (
+                <div className="p-3 rounded-lg border bg-muted/30" data-testid="card-classify-result">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Badge className="text-xs">{classifyResult.coaCode}</Badge>
+                    <span className="font-medium text-sm">{classifyResult.coaName}</span>
+                    <Badge variant={classifyResult.confidence > 0.8 ? "default" : "secondary"} className="text-xs ml-auto">
+                      {(classifyResult.confidence * 100).toFixed(0)}% confidence
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{classifyResult.logicSummary}</p>
+                  {classifyResult.anomalyScore >= 0.1 && (
+                    <div className="mt-2 flex items-center gap-1 text-xs text-amber-600">
+                      <AlertTriangle className="h-3 w-3" /> Anomaly Score: {(classifyResult.anomalyScore * 100).toFixed(0)}%
+                    </div>
+                  )}
+                </div>
+              )}
+              {auditTrail.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Recent AI Classifications</div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {auditTrail.slice(0, 10).map((log: any) => (
+                      <div key={log.id} className="flex items-center justify-between text-xs p-2 rounded border bg-background" data-testid={`row-audit-${log.id}`}>
+                        <div className="flex items-center gap-2 truncate flex-1 mr-2">
+                          {log.anomalyFlag ? <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" /> : <Check className="h-3 w-3 text-green-500 shrink-0" />}
+                          <span className="truncate">{log.rawInput}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-[10px]">{log.appliedCoaCode}</Badge>
+                          <span className="tabular-nums">{(log.confidenceScore * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {lineagePanel && (
         <FinancialLineagePanel
@@ -1416,9 +1811,15 @@ function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { acco
   );
 }
 
-function LedgerTab({ transactions, accounts, loading, startDate, endDate, initialFilterAccountId, onFilterApplied }: { transactions: FirmTransaction[]; accounts: FirmAccount[]; loading: boolean; startDate: string; endDate: string; initialFilterAccountId?: string | null; onFilterApplied?: () => void }) {
+function LedgerTab({ transactions, accounts, loading, startDate, endDate, initialFilterAccountId, onFilterApplied, initialView }: { transactions: FirmTransaction[]; accounts: FirmAccount[]; loading: boolean; startDate: string; endDate: string; initialFilterAccountId?: string | null; onFilterApplied?: () => void; initialView?: "transactions" | "journal" | null }) {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
+  const [ledgerView, setLedgerView] = useState<"transactions" | "journal">(initialView || "transactions");
+  const [liquiditySheetOpen, setLiquiditySheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialView) setLedgerView(initialView);
+  }, [initialView]);
   const [filterAccount, setFilterAccount] = useState("all");
 
   useEffect(() => {
@@ -1752,6 +2153,30 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
 
   return (
     <div className="space-y-4" data-testid="ledger-content">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center bg-muted rounded-lg p-0.5">
+          <Button
+            size="sm"
+            variant={ledgerView === "transactions" ? "default" : "ghost"}
+            className="text-xs h-7 px-3"
+            onClick={() => setLedgerView("transactions")}
+            data-testid="toggle-transactions-view"
+          >
+            Transactions
+          </Button>
+          <Button
+            size="sm"
+            variant={ledgerView === "journal" ? "default" : "ghost"}
+            className="text-xs h-7 px-3"
+            onClick={() => setLedgerView("journal")}
+            data-testid="toggle-journal-view"
+          >
+            Journal
+          </Button>
+        </div>
+      </div>
+      {ledgerView === "transactions" ? (
+      <>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={filterAccount} onValueChange={setFilterAccount}>
           <SelectTrigger className="w-[160px]" data-testid="filter-account"><SelectValue placeholder="All Accounts" /></SelectTrigger>
@@ -1851,6 +2276,23 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
         <Button size="sm" variant="outline" onClick={exportLedgerCsv} disabled={filtered.length === 0} data-testid="button-export-csv">
           <Download className="w-4 h-4 mr-1" /> Export CSV
         </Button>
+        <Sheet open={liquiditySheetOpen} onOpenChange={setLiquiditySheetOpen}>
+          <SheetTrigger asChild>
+            <Button size="sm" variant="ghost" className="text-xs gap-1" data-testid="button-liquidity">
+              <Landmark className="w-3.5 h-3.5" /> Liquidity
+            </Button>
+          </SheetTrigger>
+          <SheetContent className="w-[500px] sm:w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle className="flex items-center gap-2">
+                <Landmark className="w-5 h-5 text-amber-600" /> Liquidity Controller
+              </SheetTitle>
+            </SheetHeader>
+            <div className="mt-4 space-y-4">
+              <LiquidityWidget startDate={startDate} endDate={endDate} />
+            </div>
+          </SheetContent>
+        </Sheet>
         <Dialog open={showForm} onOpenChange={setShowForm}>
           <DialogTrigger asChild><Button size="sm" data-testid="button-add-transaction"><Plus className="w-4 h-4 mr-1" /> Add Transaction</Button></DialogTrigger>
           <DialogContent>
@@ -2739,6 +3181,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
           )}
         </DialogContent>
       </Dialog>
+      </>
+      ) : (
+        <JournalTab startDate={startDate} endDate={endDate} />
+      )}
     </div>
   );
 }
@@ -5839,21 +6285,6 @@ function TrialBalanceReport({ startDate, endDate, locationId = "all" }: { startD
       </CardContent>
     </Card>
   );
-}
-
-interface Consultation {
-  id: number;
-  category: string;
-  title: string;
-  messageBody: string;
-  suggestedAction: any;
-  impactEstimate: number | null;
-  severity: string | null;
-  locationId: number | null;
-  status: string;
-  dismissedBy: string | null;
-  implementedAt: string | null;
-  createdAt: string;
 }
 
 function CommandCenterTab({ startDate, endDate, locationId = "all" }: { startDate: string; endDate: string; locationId?: string }) {
