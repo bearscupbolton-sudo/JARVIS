@@ -2278,6 +2278,7 @@ export const fixedAssets = pgTable("fixed_assets", {
   disposedAt: timestamp("disposed_at"),
   disposalMethod: text("disposal_method"),
   disposalProceeds: doublePrecision("disposal_proceeds"),
+  assetType: text("asset_type").notNull().default("equipment"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });

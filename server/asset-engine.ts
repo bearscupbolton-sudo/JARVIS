@@ -210,6 +210,7 @@ export class AssetAssessor {
       salvageValue: 0,
       locationId: tx.locationId || 1,
       locationTag,
+      assetType: isLeasehold ? "leasehold" : "equipment",
       status: "capitalized",
       capitalizedBy: createdBy,
       capitalizedAt: new Date(),
