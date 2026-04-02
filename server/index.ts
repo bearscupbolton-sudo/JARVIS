@@ -104,11 +104,16 @@ app.use((req, res, next) => {
     });
   });
 
-  import("./asset-engine").then(async ({ seedTurboChefFinancing }) => {
+  import("./asset-engine").then(async ({ seedTurboChefFinancing, seedLoanProfiles }) => {
     try {
       await seedTurboChefFinancing("System");
     } catch (err: any) {
       console.error("[TurboChef Seed] Failed:", err.message);
+    }
+    try {
+      await seedLoanProfiles("System");
+    } catch (err: any) {
+      console.error("[Loan Seed] Failed:", err.message);
     }
   });
 
