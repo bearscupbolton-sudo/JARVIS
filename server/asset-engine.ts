@@ -914,6 +914,277 @@ export async function seedTurboChefFinancing(createdBy: string) {
   return { seeded: true, assetId: asset.id };
 }
 
+export async function seedLoanProfiles(createdBy: string) {
+  const { firmRecurringObligations } = await import("@shared/schema");
+  const existing = await db.select().from(firmRecurringObligations);
+  const existingNames = new Set(existing.map(o => o.name.toLowerCase()));
+  let seeded = 0;
+
+  // --- 1. SBA 7(a) Loan — $400K via City National Bank ---
+  if (!existingNames.has("sba 7(a) loan — city national bank")) {
+    await db.insert(firmRecurringObligations).values({
+      name: "SBA 7(a) Loan — City National Bank",
+      type: "loan",
+      creditor: "City National Bank / Windsor Servicing",
+      originalAmount: 400000.00,
+      currentBalance: 400000.00,
+      monthlyPayment: 5453.55,
+      interestRate: 10.75,
+      paymentDueDay: 1,
+      frequency: "monthly",
+      startDate: "2024-11-19",
+      endDate: "2034-12-01",
+      nextPaymentDate: "2026-05-01",
+      autopay: true,
+      category: "debt_payment",
+      notes: "SBA 7(a) variable rate (Prime + 2.75%). Initial rate 10.75%. Maturity 12/1/2034. " +
+        "Windsor services the loan — notices sent to Gmail. Monthly payment split: principal reduces 2500, interest to 6260.",
+      isActive: true,
+    });
+
+    const loansAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
+    const cashAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+    if (loansAcct.length > 0 && cashAcct.length > 0) {
+      const existingJE = await db.select().from(journalEntries)
+        .where(eq(journalEntries.referenceId, "sba-loan-origination-2024")).limit(1);
+      if (existingJE.length === 0) {
+        const [je] = await db.insert(journalEntries).values({
+          transactionDate: "2024-11-19",
+          description: "SBA 7(a) Loan origination — $400,000 via City National Bank",
+          referenceType: "loan_origination",
+          referenceId: "sba-loan-origination-2024",
+          createdBy,
+          status: "posted",
+        }).returning();
+        if (je) {
+          const { ledgerLines } = await import("@shared/schema");
+          await db.insert(ledgerLines).values([
+            { entryId: je.id, accountId: cashAcct[0].id, debit: 400000, credit: 0, memo: "SBA 7(a) loan proceeds" },
+            { entryId: je.id, accountId: loansAcct[0].id, debit: 0, credit: 400000, memo: "SBA 7(a) loan liability" },
+          ]);
+        }
+      }
+    }
+    seeded++;
+    console.log("[Loan Seed] SBA 7(a) — $400K loan obligation created");
+  }
+
+  // --- 2. Navitas Equipment Finance — Mytico Due espresso machine ---
+  if (!existingNames.has("navitas equipment finance — mytico due")) {
+    const purchasePrice = 40799.05;
+    const monthlyPayment = 895.77;
+    const termMonths = 60;
+    const totalPayments = monthlyPayment * termMonths;
+    const totalInterest = totalPayments - purchasePrice;
+    const monthlyInterest = totalInterest / termMonths;
+    const monthlyPrincipal = monthlyPayment - monthlyInterest;
+
+    await db.insert(firmRecurringObligations).values({
+      name: "Navitas Equipment Finance — Mytico Due",
+      type: "equipment_finance",
+      creditor: "Navitas Credit Corp",
+      originalAmount: purchasePrice,
+      currentBalance: purchasePrice,
+      monthlyPayment,
+      interestRate: null,
+      paymentDueDay: 18,
+      frequency: "monthly",
+      startDate: "2025-09-18",
+      endDate: "2030-09-18",
+      nextPaymentDate: "2026-05-18",
+      autopay: true,
+      category: "debt_payment",
+      notes: `Equipment Finance Agreement #41511478. Mytico Due two-step espresso machine from Liemco Ltd. ` +
+        `Amount financed: $${purchasePrice.toLocaleString()}. 60 payments @ $${monthlyPayment}/mo. ` +
+        `Processing fee: $275. ACH from TD Bank (Bolton). Guarantor: Louis DeSantis.`,
+      isActive: true,
+    });
+
+    const existingAsset = await db.select().from(fixedAssets)
+      .where(eq(fixedAssets.name, "Mytico Due Espresso Machine"));
+    if (existingAsset.length === 0) {
+      const [asset] = await db.insert(fixedAssets).values({
+        name: "Mytico Due Espresso Machine",
+        description: "Mytico Due two-step machine, four coffee hoppers with dedicated grinders, 8\" touch screen. " +
+          "Financed via Navitas Credit Corp (#41511478) from Liemco Ltd. 60mo @ $895.77/mo.",
+        vendor: "Liemco Ltd",
+        purchasePrice,
+        placedInServiceDate: "2025-09-18",
+        usefulLifeMonths: termMonths,
+        salvageValue: 0,
+        locationId: 1,
+        locationTag: "SARATOGA_01",
+        status: "capitalized",
+        section179Eligible: true,
+        section179Elected: false,
+        bookDepreciationMethod: "straight_line",
+        taxDepreciationMethod: "straight_line",
+        capitalizedBy: createdBy,
+        capitalizedAt: new Date(),
+        createdBy,
+      }).returning();
+
+      const equipmentAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
+      const loansAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
+
+      if (equipmentAcct.length > 0 && loansAcct.length > 0) {
+        const existingJE = await db.select().from(journalEntries)
+          .where(eq(journalEntries.referenceId, `navitas-capitalize-${asset.id}`)).limit(1);
+        if (existingJE.length === 0) {
+          const [je] = await db.insert(journalEntries).values({
+            transactionDate: "2025-09-18",
+            description: "Capitalize Mytico Due Espresso Machine — financed via Navitas Credit Corp",
+            referenceType: "capex",
+            referenceId: `navitas-capitalize-${asset.id}`,
+            createdBy,
+            status: "posted",
+          }).returning();
+          if (je) {
+            const { ledgerLines } = await import("@shared/schema");
+            await db.insert(ledgerLines).values([
+              { entryId: je.id, accountId: equipmentAcct[0].id, debit: purchasePrice, credit: 0, memo: "Capitalize Mytico Due (Navitas financing)" },
+              { entryId: je.id, accountId: loansAcct[0].id, debit: 0, credit: purchasePrice, memo: "Navitas equipment finance liability" },
+            ]);
+          }
+        }
+      }
+
+      const bookSchedule = calculateStraightLineSchedule(purchasePrice, 0, termMonths, "2025-09-18");
+      const [bookSched] = await db.insert(depreciationSchedules).values({
+        assetId: asset.id,
+        ledgerType: "book",
+        method: "straight_line",
+        totalAmount: bookSchedule.totalAmount,
+        monthlyAmount: bookSchedule.monthlyAmount,
+        startDate: "2025-09-18",
+        endDate: bookSchedule.entries[bookSchedule.entries.length - 1]?.periodDate,
+        totalMonths: bookSchedule.totalMonths,
+        yearOneDeduction: null,
+      }).returning();
+
+      for (const e of bookSchedule.entries) {
+        await db.insert(depreciationEntries).values({
+          scheduleId: bookSched.id,
+          assetId: asset.id,
+          periodDate: e.periodDate,
+          amount: e.amount,
+          accumulatedDepreciation: e.accumulatedDepreciation,
+          netBookValue: e.netBookValue,
+          posted: false,
+        });
+      }
+
+      const taxSchedule = calculateSection179Schedule(purchasePrice, "2025-09-18");
+      const [taxSched] = await db.insert(depreciationSchedules).values({
+        assetId: asset.id,
+        ledgerType: "tax",
+        method: "section_179",
+        totalAmount: taxSchedule.totalAmount,
+        monthlyAmount: null,
+        startDate: "2025-09-18",
+        endDate: taxSchedule.entries[0]?.periodDate,
+        totalMonths: 1,
+        yearOneDeduction: taxSchedule.yearOneDeduction,
+      }).returning();
+
+      for (const e of taxSchedule.entries) {
+        await db.insert(depreciationEntries).values({
+          scheduleId: taxSched.id,
+          assetId: asset.id,
+          periodDate: e.periodDate,
+          amount: e.amount,
+          accumulatedDepreciation: e.accumulatedDepreciation,
+          netBookValue: e.netBookValue,
+          posted: false,
+        });
+      }
+
+      await logAssetAudit(
+        asset.id,
+        "FINANCED_ASSET_SEED",
+        `Mytico Due Espresso Machine seeded. Purchase: $${purchasePrice.toLocaleString()}, ` +
+        `Financed via Navitas #41511478 (60mo @ $${monthlyPayment}/mo). Vendor: Liemco Ltd. Location: Saratoga.`,
+        createdBy
+      );
+
+      console.log(`[Loan Seed] Navitas — Mytico Due asset #${asset.id} created with depreciation schedules`);
+    }
+    seeded++;
+    console.log("[Loan Seed] Navitas Equipment Finance — $40.8K obligation created");
+  }
+
+  // --- 3. Square Capital Loan — $50K ($58.3K payback) ---
+  if (!existingNames.has("square capital loan — bolton landing")) {
+    await db.insert(firmRecurringObligations).values({
+      name: "Square Capital Loan — Bolton Landing",
+      type: "revenue_based",
+      creditor: "Square Financial Services",
+      originalAmount: 50000.00,
+      currentBalance: 58300.00,
+      monthlyPayment: 3238.88,
+      interestRate: null,
+      paymentDueDay: null,
+      frequency: "daily",
+      startDate: "2025-10-17",
+      endDate: "2027-04-17",
+      nextPaymentDate: null,
+      autopay: true,
+      category: "debt_payment",
+      notes: "Square Capital loan. Loan Amount: $50,000. Loan Fee: $8,300 (flat). Loan Balance: $58,300. " +
+        "Repayment: 10% of daily Square sales at Bolton Landing (Location XFS6DD0Z4HHKJ). " +
+        "Minimum payment: $3,238.88 every 60 days. Maturity: 4/17/2027. " +
+        "Repayments auto-deducted from Square deposits — already reflected in net deposit amounts.",
+      isActive: true,
+    });
+
+    const loansAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
+    const cashAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+    if (loansAcct.length > 0 && cashAcct.length > 0) {
+      const existingJE = await db.select().from(journalEntries)
+        .where(eq(journalEntries.referenceId, "square-capital-origination-2025")).limit(1);
+      if (existingJE.length === 0) {
+        const [je] = await db.insert(journalEntries).values({
+          transactionDate: "2025-10-17",
+          description: "Square Capital loan origination — $50,000 (fee: $8,300, total payback: $58,300)",
+          referenceType: "loan_origination",
+          referenceId: "square-capital-origination-2025",
+          createdBy,
+          status: "posted",
+        }).returning();
+        if (je) {
+          const { ledgerLines } = await import("@shared/schema");
+          const interestAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6260")).limit(1);
+          await db.insert(ledgerLines).values([
+            { entryId: je.id, accountId: cashAcct[0].id, debit: 50000, credit: 0, memo: "Square Capital loan proceeds" },
+            { entryId: je.id, accountId: loansAcct[0].id, debit: 0, credit: 50000, memo: "Square Capital loan liability" },
+          ]);
+          if (interestAcct.length > 0) {
+            const [feeJE] = await db.insert(journalEntries).values({
+              transactionDate: "2025-10-17",
+              description: "Square Capital loan fee — $8,300 (amortized over loan term as interest expense)",
+              referenceType: "loan_fee",
+              referenceId: "square-capital-fee-2025",
+              createdBy,
+              status: "posted",
+            }).returning();
+            if (feeJE) {
+              await db.insert(ledgerLines).values([
+                { entryId: feeJE.id, accountId: interestAcct[0].id, debit: 8300, credit: 0, memo: "Square Capital loan fee" },
+                { entryId: feeJE.id, accountId: loansAcct[0].id, debit: 0, credit: 8300, memo: "Square Capital fee added to loan balance" },
+              ]);
+            }
+          }
+        }
+      }
+    }
+    seeded++;
+    console.log("[Loan Seed] Square Capital — $50K loan obligation created");
+  }
+
+  console.log(`[Loan Seed] Complete: ${seeded} new loan(s) seeded`);
+  return { seeded };
+}
+
 /**
  * INTERCOMPANY RENT & S-CORP BASIS ENGINE
  *
