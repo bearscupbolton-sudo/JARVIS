@@ -760,6 +760,160 @@ export async function seedLegacyAssets(createdBy: string) {
   return { seeded, skipped, total: LEGACY_ASSETS_2024.length };
 }
 
+export async function seedTurboChefFinancing(createdBy: string) {
+  const existing = await db.select().from(fixedAssets)
+    .where(eq(fixedAssets.name, "TurboChef Speed Oven"));
+  if (existing.length > 0) {
+    console.log("[TurboChef Seed] Already exists, skipping");
+    return { seeded: false, assetId: existing[0].id };
+  }
+
+  const purchasePrice = 17914.03;
+  const interestTotal = 313.50;
+  const loanAmount = 18227.53;
+  const disbursementDate = "2025-11-27";
+  const usefulLifeMonths = 84;
+
+  const [asset] = await db.insert(fixedAssets).values({
+    name: "TurboChef Speed Oven",
+    description: "Financed via Eleven36 (CK-ICJ5757, Order FSX10769000). Loan: $18,227.53 (1.75% interest). 2 payments.",
+    vendor: "Eleven36",
+    purchasePrice,
+    placedInServiceDate: disbursementDate,
+    usefulLifeMonths,
+    salvageValue: 0,
+    locationId: 1,
+    locationTag: "SARATOGA_01",
+    status: "capitalized",
+    section179Eligible: true,
+    section179Elected: false,
+    bookDepreciationMethod: "straight_line",
+    taxDepreciationMethod: "straight_line",
+    capitalizedBy: createdBy,
+    capitalizedAt: new Date(),
+    createdBy,
+  }).returning();
+
+  const equipmentAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1500")).limit(1);
+  const loansAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2500")).limit(1);
+  const cashAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "1010")).limit(1);
+  const interestAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6260")).limit(1);
+
+  if (equipmentAcct.length > 0 && loansAcct.length > 0) {
+    const [capitalizeJE] = await db.insert(journalEntries).values({
+      transactionDate: disbursementDate,
+      description: "Capitalize TurboChef Speed Oven — financed via Eleven36",
+      referenceType: "capex",
+      referenceId: `turbochef-capitalize-${asset.id}`,
+      createdBy,
+      status: "posted",
+    }).returning();
+
+    if (capitalizeJE) {
+      const { ledgerLines } = await import("@shared/schema");
+      await db.insert(ledgerLines).values([
+        { entryId: capitalizeJE.id, accountId: equipmentAcct[0].id, debit: purchasePrice, credit: 0, memo: "Capitalize TurboChef Speed Oven" },
+        { entryId: capitalizeJE.id, accountId: loansAcct[0].id, debit: 0, credit: purchasePrice, memo: "Eleven36 equipment financing" },
+      ]);
+
+      await db.update(fixedAssets).set({ journalEntryId: capitalizeJE.id }).where(eq(fixedAssets.id, asset.id));
+    }
+  }
+
+  const payments = [
+    { date: "2025-12-29", total: 9113.77, principal: 8957.02, interest: 156.75 },
+    { date: "2026-01-27", total: 9113.76, principal: 8957.01, interest: 156.75 },
+  ];
+
+  for (const pmt of payments) {
+    const existingJE = await db.select().from(journalEntries)
+      .where(eq(journalEntries.referenceId, `turbochef-pmt-${pmt.date}`)).limit(1);
+    if (existingJE.length > 0) continue;
+
+    if (loansAcct.length > 0 && cashAcct.length > 0 && interestAcct.length > 0) {
+      const [pmtJE] = await db.insert(journalEntries).values({
+        transactionDate: pmt.date,
+        description: `Eleven36 TurboChef payment — $${pmt.total.toFixed(2)} (principal $${pmt.principal.toFixed(2)} + interest $${pmt.interest.toFixed(2)})`,
+        referenceType: "loan_payment",
+        referenceId: `turbochef-pmt-${pmt.date}`,
+        createdBy,
+        status: "posted",
+      }).returning();
+
+      if (pmtJE) {
+        const { ledgerLines } = await import("@shared/schema");
+        await db.insert(ledgerLines).values([
+          { entryId: pmtJE.id, accountId: loansAcct[0].id, debit: pmt.principal, credit: 0, memo: `Eleven36 principal: TurboChef` },
+          { entryId: pmtJE.id, accountId: interestAcct[0].id, debit: pmt.interest, credit: 0, memo: `Eleven36 interest (1.75%): TurboChef` },
+          { entryId: pmtJE.id, accountId: cashAcct[0].id, debit: 0, credit: pmt.total, memo: `Eleven36 payment: TurboChef` },
+        ]);
+      }
+    }
+  }
+
+  const bookSchedule = calculateStraightLineSchedule(purchasePrice, 0, usefulLifeMonths, disbursementDate);
+
+  const [bookSched] = await db.insert(depreciationSchedules).values({
+    assetId: asset.id,
+    ledgerType: "book",
+    method: "straight_line",
+    totalAmount: bookSchedule.totalAmount,
+    monthlyAmount: bookSchedule.monthlyAmount,
+    startDate: disbursementDate,
+    endDate: bookSchedule.entries[bookSchedule.entries.length - 1]?.periodDate,
+    totalMonths: bookSchedule.totalMonths,
+    yearOneDeduction: null,
+  }).returning();
+
+  for (const e of bookSchedule.entries) {
+    await db.insert(depreciationEntries).values({
+      scheduleId: bookSched.id,
+      assetId: asset.id,
+      periodDate: e.periodDate,
+      amount: e.amount,
+      accumulatedDepreciation: e.accumulatedDepreciation,
+      netBookValue: e.netBookValue,
+      posted: false,
+    });
+  }
+
+  const taxSchedule = calculateSection179Schedule(purchasePrice, disbursementDate);
+  const [taxSched] = await db.insert(depreciationSchedules).values({
+    assetId: asset.id,
+    ledgerType: "tax",
+    method: "section_179",
+    totalAmount: taxSchedule.totalAmount,
+    monthlyAmount: null,
+    startDate: disbursementDate,
+    endDate: taxSchedule.entries[0]?.periodDate,
+    totalMonths: 1,
+    yearOneDeduction: taxSchedule.yearOneDeduction,
+  }).returning();
+
+  for (const e of taxSchedule.entries) {
+    await db.insert(depreciationEntries).values({
+      scheduleId: taxSched.id,
+      assetId: asset.id,
+      periodDate: e.periodDate,
+      amount: e.amount,
+      accumulatedDepreciation: e.accumulatedDepreciation,
+      netBookValue: e.netBookValue,
+      posted: false,
+    });
+  }
+
+  await logAssetAudit(
+    asset.id,
+    "FINANCED_ASSET_SEED",
+    `TurboChef Speed Oven seeded. Purchase: $${purchasePrice.toLocaleString()}, Financed: $${loanAmount.toLocaleString()} via Eleven36 (1.75%). ` +
+    `2 payments: 12/29/2025 ($9,113.77) + 01/27/2026 ($9,113.76). Book: straight-line ${usefulLifeMonths}mo ($${bookSchedule.monthlyAmount.toFixed(2)}/mo). Tax: §179 eligible.`,
+    createdBy
+  );
+
+  console.log(`[TurboChef Seed] Created asset #${asset.id}, capitalization JE, 2 payment JEs, book + tax depreciation schedules`);
+  return { seeded: true, assetId: asset.id };
+}
+
 /**
  * INTERCOMPANY RENT & S-CORP BASIS ENGINE
  *
