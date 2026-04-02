@@ -12364,7 +12364,7 @@ IMPORTANT GUIDELINES:
         date: z.string().min(1),
         description: z.string().min(1),
         amount: z.number(),
-        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_principal", "loan_interest", "equipment", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment", "prior_period_adjustment"]),
+        category: z.enum(["revenue", "cogs", "labor", "supplies", "utilities", "rent", "insurance", "marketing", "debt_payment", "loan_principal", "loan_interest", "equipment", "leasehold", "taxes", "other_income", "travel_lodging", "repairs", "misc", "advertising", "car_mileage", "commissions", "contract_labor", "employee_benefits", "professional_services", "licenses_permits", "bank_charges", "amortization", "pension_plans", "llc_fee", "meals_deductible", "interest_mortgage", "interest_other", "technology", "owner_draw", "sales_tax_payment", "prior_period_adjustment"]),
         subcategory: z.string().optional().nullable(),
         referenceType: z.enum(["square", "invoice", "payroll", "tip", "obligation", "plaid", "manual"]).default("manual"),
         referenceId: z.string().optional().nullable(),
@@ -12542,7 +12542,7 @@ IMPORTANT GUIDELINES:
         }
       }
 
-      if (updates.category === "equipment") {
+      if (updates.category === "equipment" || updates.category === "leasehold") {
         const priorJEs = await db.select().from(journalEntries).where(
           and(eq(journalEntries.referenceId, String(txnId)), eq(journalEntries.referenceType, "firm-txn"))
         );
@@ -12552,7 +12552,7 @@ IMPORTANT GUIDELINES:
         }
         try {
           const { assetAssessor } = await import("./asset-engine");
-          await assetAssessor.capitalizeSingleAsset(txnId, req.appUser?.username || req.appUser?.firstName || "System");
+          await assetAssessor.capitalizeSingleAsset(txnId, req.appUser?.username || req.appUser?.firstName || "System", updates.category);
         } catch (assetErr: any) {
           console.error("[CapEx] Auto-asset creation failed:", assetErr.message);
         }
@@ -13034,7 +13034,7 @@ IMPORTANT GUIDELINES:
               const categoryToCoaMap: Record<string, string> = {
                 cogs: "5010", revenue: "4010", labor: "6010", rent: "6030", utilities: "6040",
                 insurance: "6050", supplies: "6090", marketing: "6060", technology: "6080",
-                professional_services: "6100", misc: "6090", equipment: "1500",
+                professional_services: "6100", misc: "6090", equipment: "1500", leasehold: "1520",
                 travel_lodging: "6140", repairs: "6070", bank_charges: "6200",
               };
               const coaCode = categoryToCoaMap[category] || "6090";
@@ -13819,9 +13819,9 @@ IMPORTANT GUIDELINES:
         "1030": { category: "prepaid_expense", coaCode: "1200", notes: "Prepaid rent - amortize $8,750/mo Jan-Jul to 6030 Rent" },
         "1031": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Phinney Architectural Design" },
         "1032": { category: "owner_draw", coaCode: "3010", notes: "Owner's Draw - reduces Equity Basis" },
-        "2188": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Lance Plumbing build-out" },
-        "2192": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: Phinney Architectural" },
-        "2109": { category: "equipment", coaCode: "1500", notes: "Saratoga CapEx: JME Electric" },
+        "2188": { category: "leasehold", coaCode: "1520", notes: "Saratoga Leasehold: Lance Plumbing build-out" },
+        "2192": { category: "leasehold", coaCode: "1520", notes: "Saratoga Leasehold: Phinney Architectural" },
+        "2109": { category: "leasehold", coaCode: "1520", notes: "Saratoga Leasehold: JME Electric" },
         "2119": { category: "rent", coaCode: "6030", notes: "Standard Monthly Rent" },
       };
 
@@ -13875,18 +13875,18 @@ IMPORTANT GUIDELINES:
         }
 
         if (d.includes("HOME DEPOT") || d.includes("HOMEDEPOT") || d.includes("HARBOR FREIGHT") || d.includes("LOWE")) return { category: "supplies", coaCode: "5020", notes: "Hardware/supplies" };
-        if (d.includes("ALLERDICE GLASS")) return { category: "equipment", coaCode: "1500", notes: "Allerdice glass/mirror" };
+        if (d.includes("ALLERDICE GLASS")) return { category: "leasehold", coaCode: "1520", notes: "Allerdice glass/mirror - Saratoga buildout" };
         if (d.includes("WOLBERG ELECTRICAL")) return { category: "supplies", coaCode: "5020", notes: "Electrical supplies" };
         if (d.includes("FASTSIGNS")) return { category: "marketing", coaCode: "6060", notes: "Signage" };
         if (d.includes("STICKER MULE")) return { category: "marketing", coaCode: "6060", notes: "Sticker Mule marketing" };
 
-        if (d.includes("JME ELECTRIC")) return { category: "equipment", coaCode: "1500", notes: "JME Electric - Saratoga buildout" };
+        if (d.includes("JME ELECTRIC")) return { category: "leasehold", coaCode: "1520", notes: "JME Electric - Saratoga buildout" };
         if (d.includes("SUNOCO")) return { category: "supplies", coaCode: "6150", notes: "Gas/fuel" };
         if (d.includes("FEDEX")) return { category: "supplies", coaCode: "6120", notes: "Shipping" };
 
         if (d.includes("WHITEMAN OSTERMAN")) return { category: "professional_services", coaCode: "6100", notes: "Legal services" };
-        if (d.includes("PHINNEY")) return { category: "equipment", coaCode: "1500", notes: "Architectural services - CapEx" };
-        if (d.includes("ALBANY FIRE PROTECTI")) return { category: "equipment", coaCode: "1500", notes: "Fire protection - buildout" };
+        if (d.includes("PHINNEY")) return { category: "leasehold", coaCode: "1520", notes: "Architectural services - Saratoga buildout" };
+        if (d.includes("ALBANY FIRE PROTECTI")) return { category: "leasehold", coaCode: "1520", notes: "Fire protection - Saratoga buildout" };
         if (d.includes("MEERKAT PEST")) return { category: "maintenance", coaCode: "6070", notes: "Pest control" };
 
         if (d.includes("ETSY")) return { category: "supplies", coaCode: "5020", notes: "Etsy purchase" };
@@ -13894,7 +13894,7 @@ IMPORTANT GUIDELINES:
         if (d.includes("ANTHROPOLOGIE")) return { category: "owner_draw", coaCode: "3010", notes: "Personal expense - owner draw" };
         if (d.includes("CASALE CUSTOM")) return { category: "marketing", coaCode: "6060", notes: "Custom apparel/branding" };
 
-        if (d.includes("INTERIOR DESIGNS ATELI")) return { category: "equipment", coaCode: "1500", notes: "Interior design - Saratoga buildout" };
+        if (d.includes("INTERIOR DESIGNS ATELI")) return { category: "leasehold", coaCode: "1520", notes: "Interior design - Saratoga buildout" };
         if (d.includes("F W  WEBB") || d.includes("FW WEBB")) return { category: "supplies", coaCode: "5020", notes: "Plumbing supplies" };
         if (d.includes("GENNAROS PIZZA")) return { category: "supplies", coaCode: "6090", notes: "Meals/miscellaneous" };
         if (d.includes("TARGET")) return { category: "supplies", coaCode: "5020", notes: "Target supplies" };
@@ -13927,7 +13927,7 @@ IMPORTANT GUIDELINES:
         if (d.includes("ADP PAY-BY-PAY") && credit && credit > 0) return { category: "other_income", coaCode: "4090", notes: "ADP credit/refund" };
 
         if (d.includes("ZAZZLE")) return { category: "marketing", coaCode: "6060", notes: "Zazzle marketing" };
-        if (d.includes("LANCE PLUMBING")) return { category: "equipment", coaCode: "1500", notes: "Lance Plumbing - Saratoga buildout" };
+        if (d.includes("LANCE PLUMBING")) return { category: "leasehold", coaCode: "1520", notes: "Lance Plumbing - Saratoga buildout" };
         if (d.includes("PAYPAL")) return { category: "misc", coaCode: "6090", notes: "PayPal payment" };
 
         return { category: "misc", coaCode: "6090", notes: "Uncategorized" };
@@ -14009,7 +14009,7 @@ IMPORTANT GUIDELINES:
               { accountId: targetAcctId, debit: absAmount, credit: 0, memo: `Sales tax payment: ${description}` },
               { accountId: cashId, debit: 0, credit: absAmount },
             ];
-          } else if (coaCode === "1200" || coaCode === "1500" || coaCode === "3010") {
+          } else if (coaCode === "1200" || coaCode === "1500" || coaCode === "1520" || coaCode === "3010") {
             jeLines = [
               { accountId: targetAcctId, debit: absAmount, credit: 0, memo: notes || description },
               { accountId: cashId, debit: 0, credit: absAmount },

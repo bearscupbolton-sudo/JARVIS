@@ -109,6 +109,7 @@ const CATEGORIES = [
   { value: "loan_principal", label: "Loan Principal (Balance Sheet)" },
   { value: "loan_interest", label: "Loan Interest (P&L Expense)" },
   { value: "equipment", label: "Equipment (CapEx — Balance Sheet)" },
+  { value: "leasehold", label: "Leasehold Improvements (CapEx — Balance Sheet)" },
   { value: "taxes", label: "Taxes" },
   { value: "other_income", label: "Other Income" },
   { value: "travel_lodging", label: "Travel & Lodging" },
@@ -761,8 +762,8 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
               .filter(([cat, total]) => !INCOME_CATEGORIES.includes(cat) && total < 0)
               .sort(([, a], [, b]) => a - b)
               .map(([cat, total]) => (
-              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : cat === "rent_split" ? "text-orange-700 dark:text-orange-400 font-medium" : ""}`}>
-                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat === "rent_split" ? "Rent — Home Office Split" : cat.replace(/_/g, " ")}</span>
+              <div key={cat} className={`flex items-center justify-between text-sm ${cat === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-medium" : cat === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-medium" : cat === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-medium" : cat === "equipment" || cat === "leasehold" ? "text-emerald-700 dark:text-emerald-400 font-medium" : cat === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-medium" : cat === "rent_split" ? "text-orange-700 dark:text-orange-400 font-medium" : ""}`}>
+                <span className="capitalize">{cat === "owner_draw" ? "Owner's Draw (Personal)" : cat === "sales_tax_payment" ? "Sales Tax Payment (Trust)" : cat === "prior_period_adjustment" ? "Prior Period Adj. (Back-Year)" : cat === "equipment" ? "CapEx — Fixed Asset" : cat === "leasehold" ? "CapEx — Leasehold Improvement" : cat === "loan_principal" ? "Loan Principal (Bal. Sheet)" : cat === "rent_split" ? "Rent — Home Office Split" : cat.replace(/_/g, " ")}</span>
                 <span className="font-medium">{formatCurrency(Math.abs(total))}</span>
               </div>
             )) : <p className="text-sm text-muted-foreground italic">No manual transactions recorded yet</p>}
@@ -1997,10 +1998,10 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                       ) : (
                         <button
                           onClick={() => setEditingCategoryId(txn.id)}
-                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-semibold" : txn.category === "rent_split" ? "text-orange-700 dark:text-orange-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
+                          className={`text-xs capitalize cursor-pointer hover:underline ${txn.category === "owner_draw" ? "text-purple-600 dark:text-purple-400 font-semibold" : txn.category === "sales_tax_payment" ? "text-blue-600 dark:text-blue-400 font-semibold" : txn.category === "prior_period_adjustment" ? "text-amber-700 dark:text-amber-400 font-semibold" : txn.category === "equipment" || txn.category === "leasehold" ? "text-emerald-700 dark:text-emerald-400 font-semibold" : txn.category === "loan_principal" ? "text-cyan-700 dark:text-cyan-400 font-semibold" : txn.category === "rent_split" ? "text-orange-700 dark:text-orange-400 font-semibold" : txn.category === "misc" ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}
                           data-testid={`button-reclassify-${txn.id}`}
                         >
-                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category === "loan_principal" ? "Loan Principal" : txn.category === "rent_split" ? "Rent — Home Office" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
+                          {txn.category === "owner_draw" ? "Owner's Draw" : txn.category === "sales_tax_payment" ? "Sales Tax Payment" : txn.category === "prior_period_adjustment" ? "Prior Period Adj." : txn.category === "equipment" ? "CapEx — Fixed Asset" : txn.category === "leasehold" ? "CapEx — Leasehold" : txn.category === "loan_principal" ? "Loan Principal" : txn.category === "rent_split" ? "Rent — Home Office" : txn.category.replace(/_/g, " ")} {txn.category === "misc" && <Pencil className="inline w-3 h-3 ml-0.5" />}
                         </button>
                       )}
                     </td>
