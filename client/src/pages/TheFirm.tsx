@@ -8012,6 +8012,7 @@ function AssetsTab() {
   const [usefulLife, setUsefulLife] = useState("120");
   const [salvageValue, setSalvageValue] = useState("0");
   const [locationId, setLocationId] = useState("1");
+  const [newAssetType, setNewAssetType] = useState("equipment");
   const [section179, setSection179] = useState(true);
 
   const { data: assets, isLoading, refetch } = useQuery<any[]>({
@@ -8069,6 +8070,7 @@ function AssetsTab() {
   });
 
   const [editingAsset, setEditingAsset] = useState<any | null>(null);
+  const [assetTypeFilter, setAssetTypeFilter] = useState<"all" | "equipment" | "leasehold">("all");
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) => apiRequest("PATCH", `/api/firm/assets/${id}`, data),
@@ -8107,14 +8109,18 @@ function AssetsTab() {
       salvageValue: parseFloat(salvageValue) || 0,
       locationId: parseInt(locationId) || 1,
       section179Eligible: section179,
+      assetType: newAssetType,
     });
   };
 
   if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>;
 
   const pendingAssets = assets?.filter(a => a.status === "pending") || [];
-  const capitalizedAssets = assets?.filter(a => a.status === "capitalized" || a.status === "placed_in_service") || [];
+  const allCapitalizedAssets = assets?.filter(a => a.status === "capitalized" || a.status === "placed_in_service") || [];
+  const capitalizedAssets = assetTypeFilter === "all" ? allCapitalizedAssets : allCapitalizedAssets.filter(a => (a.assetType || "equipment") === assetTypeFilter);
   const legacyAssets = assets?.filter(a => a.status === "fully_depreciated") || [];
+  const equipmentCount = allCapitalizedAssets.filter(a => (a.assetType || "equipment") === "equipment").length;
+  const leaseholdCount = allCapitalizedAssets.filter(a => a.assetType === "leasehold").length;
   const currentPeriod = format(new Date(), "yyyy-MM-dd");
 
   return (
@@ -8238,6 +8244,16 @@ function AssetsTab() {
                 </Select>
               </div>
               <div className="space-y-2">
+                <Label>Asset Type</Label>
+                <Select value={newAssetType} onValueChange={(v) => { setNewAssetType(v); if (v === "leasehold") setUsefulLife("120"); else setUsefulLife("84"); }}>
+                  <SelectTrigger data-testid="select-asset-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="equipment">Equipment (1500)</SelectItem>
+                    <SelectItem value="leasehold">Leasehold Improvement (1520)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Description</Label>
                 <Input placeholder="Optional description" value={description} onChange={e => setDescription(e.target.value)} data-testid="input-asset-description" />
               </div>
@@ -8251,7 +8267,7 @@ function AssetsTab() {
                 <p className="font-semibold">Preview:</p>
                 <p>Book P&L Impact: <strong>${((parseFloat(purchasePrice) - (parseFloat(salvageValue) || 0)) / (parseInt(usefulLife) || 120)).toFixed(2)}/mo</strong> depreciation expense for {usefulLife} months</p>
                 {section179 && <p>Tax Deduction: <strong>${parseFloat(purchasePrice).toLocaleString()}</strong> Section 179 deduction in Year 1</p>}
-                <p>Balance Sheet: DR Fixed Assets (1500) / CR Cash (1010) for ${parseFloat(purchasePrice).toLocaleString()}</p>
+                <p>Balance Sheet: DR {newAssetType === "leasehold" ? "Leasehold Improvements (1520)" : "Fixed Assets (1500)"} / CR Cash (1010) for ${parseFloat(purchasePrice).toLocaleString()}</p>
               </div>
             )}
             <div className="flex gap-2">
@@ -8307,9 +8323,26 @@ function AssetsTab() {
       </Dialog>
 
       <div className="space-y-2">
-        <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
-          <Factory className="h-4 w-4 text-green-500" /> Capitalized Assets ({capitalizedAssets.length})
-        </h4>
+        <div className="flex items-center justify-between">
+          <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
+            <Factory className="h-4 w-4 text-green-500" /> Capitalized Assets ({capitalizedAssets.length})
+          </h4>
+          {(equipmentCount > 0 || leaseholdCount > 0) && (
+            <div className="flex gap-1" data-testid="asset-type-filter">
+              <Button variant={assetTypeFilter === "all" ? "default" : "outline"} size="sm" className="h-7 text-xs px-3" onClick={() => setAssetTypeFilter("all")} data-testid="filter-all-assets">
+                All ({allCapitalizedAssets.length})
+              </Button>
+              <Button variant={assetTypeFilter === "equipment" ? "default" : "outline"} size="sm" className="h-7 text-xs px-3" onClick={() => setAssetTypeFilter("equipment")} data-testid="filter-equipment">
+                <Package className="h-3 w-3 mr-1" /> Equipment ({equipmentCount})
+              </Button>
+              {leaseholdCount > 0 && (
+                <Button variant={assetTypeFilter === "leasehold" ? "default" : "outline"} size="sm" className="h-7 text-xs px-3" onClick={() => setAssetTypeFilter("leasehold")} data-testid="filter-leasehold">
+                  <Building2 className="h-3 w-3 mr-1" /> Leasehold ({leaseholdCount})
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
         {capitalizedAssets.length === 0 ? (
           <Card><CardContent className="p-6 text-center text-muted-foreground">No capitalized assets yet. Register and capitalize equipment above.</CardContent></Card>
         ) : (
@@ -8324,6 +8357,9 @@ function AssetsTab() {
                       <div className="flex items-center gap-2">
                         <Package className="h-4 w-4 text-primary" />
                         <p className="font-semibold">{asset.name}</p>
+                        <Badge variant="outline" className={`text-xs ${asset.assetType === "leasehold" ? "border-emerald-300 text-emerald-700 dark:text-emerald-400" : ""}`}>
+                          {asset.assetType === "leasehold" ? "Leasehold" : "Equipment"}
+                        </Badge>
                         <Badge variant="outline" className="text-xs">{asset.locationTag}</Badge>
                         {asset.section179Elected && <Badge className="bg-orange-100 text-orange-700 text-xs">§179</Badge>}
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setEditingAsset(asset); }} data-testid={`button-edit-asset-${asset.id}`}>
