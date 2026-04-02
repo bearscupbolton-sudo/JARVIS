@@ -13928,6 +13928,7 @@ IMPORTANT GUIDELINES:
 
         if (d.includes("ZAZZLE")) return { category: "marketing", coaCode: "6060", notes: "Zazzle marketing" };
         if (d.includes("LANCE PLUMBING")) return { category: "leasehold", coaCode: "1520", notes: "Lance Plumbing - Saratoga buildout" };
+        if (d.includes("ELEVEN36") || d.includes("ELEVEN 36")) return { category: "debt_payment", coaCode: "2500", notes: "Eleven36 equipment financing (TurboChef)" };
         if (d.includes("PAYPAL")) return { category: "misc", coaCode: "6090", notes: "PayPal payment" };
 
         return { category: "misc", coaCode: "6090", notes: "Uncategorized" };

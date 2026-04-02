@@ -104,6 +104,14 @@ app.use((req, res, next) => {
     });
   });
 
+  import("./asset-engine").then(async ({ seedTurboChefFinancing }) => {
+    try {
+      await seedTurboChefFinancing("System");
+    } catch (err: any) {
+      console.error("[TurboChef Seed] Failed:", err.message);
+    }
+  });
+
   import("./compliance-engine").then(({ seedSalesTaxJurisdictions, seedComplianceCalendar2026, startComplianceScheduler }) => {
     seedSalesTaxJurisdictions().catch(err => console.error("[Compliance] Jurisdiction seed failed:", err));
     seedComplianceCalendar2026().catch(err => console.error("[Compliance] Calendar seed failed:", err));
@@ -281,6 +289,7 @@ app.use((req, res, next) => {
             if (d.includes("ALLY ALLY PAYMT")) return { category: "debt_payment", coaCode: "2500", notes: "Ally loan" };
             if (d.includes("HOME DEPOT AUTO PYMT") || d.includes("HOME DEPOT ONLINE PMT")) return { category: "debt_payment", coaCode: "2500", notes: "Home Depot credit" };
             if (d.includes("NAVITAS CREDIT")) return { category: "debt_payment", coaCode: "2500", notes: "Navitas financing" };
+            if (d.includes("ELEVEN36") || d.includes("ELEVEN 36")) return { category: "debt_payment", coaCode: "2500", notes: "Eleven36 equipment financing (TurboChef)" };
             if (d.includes("BEST BUY PAYMENT")) return { category: "debt_payment", coaCode: "2500", notes: "Best Buy credit" };
             if (d.includes("NYS DTF SALES TAX")) return { category: "sales_tax_payment", coaCode: "2030", notes: "NY sales tax remittance" };
             if (d.includes("NYS DTF PIT TAX") || d.includes("NYS DTF CT TAX")) return { category: "tax_payment", coaCode: "6090", notes: "NYS income/corp tax" };
