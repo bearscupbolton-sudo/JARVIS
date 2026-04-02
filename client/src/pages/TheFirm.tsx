@@ -7903,6 +7903,7 @@ function AssetEditForm({ asset, onSave, saving }: { asset: any; onSave: (data: a
   const [editUsefulLife, setEditUsefulLife] = useState(String(asset.usefulLifeMonths || 120));
   const [editSalvage, setEditSalvage] = useState(String(asset.salvageValue || 0));
   const [editLocationId, setEditLocationId] = useState(String(asset.locationId || 1));
+  const [editAssetType, setEditAssetType] = useState(asset.assetType || "equipment");
   const [edit179, setEdit179] = useState(asset.section179Elected || false);
 
   const handleSave = () => {
@@ -7916,6 +7917,7 @@ function AssetEditForm({ asset, onSave, saving }: { asset: any; onSave: (data: a
       usefulLifeMonths: parseInt(editUsefulLife) || 120,
       salvageValue: parseFloat(editSalvage) || 0,
       locationId: parseInt(editLocationId) || 1,
+      assetType: editAssetType,
       section179Elected: edit179,
     });
   };
@@ -7971,6 +7973,16 @@ function AssetEditForm({ asset, onSave, saving }: { asset: any; onSave: (data: a
             <SelectContent>
               <SelectItem value="1">Saratoga</SelectItem>
               <SelectItem value="2">Bolton</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Asset Type</Label>
+          <Select value={editAssetType} onValueChange={(v) => { setEditAssetType(v); if (v === "leasehold") setEditUsefulLife("120"); else if (editUsefulLife === "120") setEditUsefulLife("84"); }}>
+            <SelectTrigger data-testid="select-edit-asset-type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="equipment">Equipment (1500)</SelectItem>
+              <SelectItem value="leasehold">Leasehold Improvement (1520)</SelectItem>
             </SelectContent>
           </Select>
         </div>
