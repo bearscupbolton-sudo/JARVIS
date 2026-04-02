@@ -7461,6 +7461,111 @@ function PrepaidsTab() {
   );
 }
 
+function AssetEditForm({ asset, onSave, saving }: { asset: any; onSave: (data: any) => void; saving: boolean }) {
+  const [editName, setEditName] = useState(asset.name || "");
+  const [editDescription, setEditDescription] = useState(asset.description || "");
+  const [editVendor, setEditVendor] = useState(asset.vendor || "");
+  const [editSerial, setEditSerial] = useState(asset.serialNumber || "");
+  const [editWarranty, setEditWarranty] = useState(asset.warrantyExpiration || "");
+  const [editPlacedDate, setEditPlacedDate] = useState(asset.placedInServiceDate || "");
+  const [editUsefulLife, setEditUsefulLife] = useState(String(asset.usefulLifeMonths || 120));
+  const [editSalvage, setEditSalvage] = useState(String(asset.salvageValue || 0));
+  const [editLocationId, setEditLocationId] = useState(String(asset.locationId || 1));
+  const [edit179, setEdit179] = useState(asset.section179Elected || false);
+
+  const handleSave = () => {
+    onSave({
+      name: editName,
+      description: editDescription || null,
+      vendor: editVendor || null,
+      serialNumber: editSerial || null,
+      warrantyExpiration: editWarranty || null,
+      placedInServiceDate: editPlacedDate,
+      usefulLifeMonths: parseInt(editUsefulLife) || 120,
+      salvageValue: parseFloat(editSalvage) || 0,
+      locationId: parseInt(editLocationId) || 1,
+      section179Elected: edit179,
+    });
+  };
+
+  const monthlyDepr = ((asset.purchasePrice - (parseFloat(editSalvage) || 0)) / (parseInt(editUsefulLife) || 120));
+  const isIncomplete = !editSerial || !editVendor || !editDescription;
+
+  return (
+    <div className="space-y-4" data-testid="form-edit-asset">
+      {isIncomplete && (
+        <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-amber-700 dark:text-amber-400">This asset profile is incomplete. Fill in the missing fields below to complete registration.</p>
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Asset Name *</Label>
+          <Input value={editName} onChange={e => setEditName(e.target.value)} data-testid="input-edit-asset-name" />
+        </div>
+        <div className="space-y-2">
+          <Label>Vendor {!editVendor && <span className="text-amber-600 text-xs">(missing)</span>}</Label>
+          <Input placeholder="e.g., BakeMark, WebstaurantStore" value={editVendor} onChange={e => setEditVendor(e.target.value)} data-testid="input-edit-asset-vendor" />
+        </div>
+        <div className="space-y-2">
+          <Label>Serial Number {!editSerial && <span className="text-amber-600 text-xs">(missing)</span>}</Label>
+          <Input placeholder="SN-12345" value={editSerial} onChange={e => setEditSerial(e.target.value)} data-testid="input-edit-asset-serial" />
+        </div>
+        <div className="space-y-2">
+          <Label>Warranty Expiration</Label>
+          <Input type="date" value={editWarranty} onChange={e => setEditWarranty(e.target.value)} data-testid="input-edit-asset-warranty" />
+        </div>
+        <div className="space-y-2">
+          <Label>Placed in Service Date *</Label>
+          <Input type="date" value={editPlacedDate} onChange={e => setEditPlacedDate(e.target.value)} data-testid="input-edit-asset-placed" />
+        </div>
+        <div className="space-y-2">
+          <Label>Purchase Price</Label>
+          <Input value={`$${asset.purchasePrice.toLocaleString()}`} disabled className="bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <Label>Useful Life (months)</Label>
+          <Input type="number" value={editUsefulLife} onChange={e => setEditUsefulLife(e.target.value)} data-testid="input-edit-asset-life" />
+        </div>
+        <div className="space-y-2">
+          <Label>Salvage Value</Label>
+          <Input type="number" step="0.01" value={editSalvage} onChange={e => setEditSalvage(e.target.value)} data-testid="input-edit-asset-salvage" />
+        </div>
+        <div className="space-y-2">
+          <Label>Location</Label>
+          <Select value={editLocationId} onValueChange={setEditLocationId}>
+            <SelectTrigger data-testid="select-edit-asset-location"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Saratoga</SelectItem>
+              <SelectItem value="2">Bolton</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label>Description {!editDescription && <span className="text-amber-600 text-xs">(missing)</span>}</Label>
+          <Textarea placeholder="What is this asset? Make, model, capacity, etc." value={editDescription} onChange={e => setEditDescription(e.target.value)} data-testid="input-edit-asset-desc" />
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Switch checked={edit179} onCheckedChange={setEdit179} data-testid="switch-edit-section179" />
+        <Label>Section 179 Elected (100% Year 1 Tax Deduction)</Label>
+      </div>
+      <div className="bg-muted/50 rounded p-3 text-sm space-y-1">
+        <p className="font-semibold">Depreciation Preview:</p>
+        <p>Monthly P&L Impact: <strong>${monthlyDepr.toFixed(2)}/mo</strong> for {editUsefulLife} months</p>
+        {edit179 && <p>Tax Deduction: <strong>${asset.purchasePrice.toLocaleString()}</strong> Section 179 in Year 1</p>}
+      </div>
+      <DialogFooter>
+        <Button onClick={handleSave} disabled={saving || !editName || !editPlacedDate} data-testid="button-save-asset">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}
+          Save Asset Profile
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
 function AssetsTab() {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
@@ -7527,6 +7632,19 @@ function AssetsTab() {
       refetch();
       queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
       toast({ title: "Monthly depreciation posted to ledger" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const [editingAsset, setEditingAsset] = useState<any | null>(null);
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) => apiRequest("PATCH", `/api/firm/assets/${id}`, data),
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/firm/assets/summary"] });
+      setEditingAsset(null);
+      toast({ title: "Asset profile updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -7747,6 +7865,15 @@ function AssetsTab() {
         </div>
       )}
 
+      <Dialog open={!!editingAsset} onOpenChange={(open) => { if (!open) setEditingAsset(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Register Asset Profile</DialogTitle>
+          </DialogHeader>
+          {editingAsset && <AssetEditForm asset={editingAsset} onSave={(data: any) => updateMut.mutate({ id: editingAsset.id, data })} saving={updateMut.isPending} />}
+        </DialogContent>
+      </Dialog>
+
       <div className="space-y-2">
         <h4 className="font-medium text-sm text-muted-foreground flex items-center gap-2">
           <Factory className="h-4 w-4 text-green-500" /> Capitalized Assets ({capitalizedAssets.length})
@@ -7767,6 +7894,9 @@ function AssetsTab() {
                         <p className="font-semibold">{asset.name}</p>
                         <Badge variant="outline" className="text-xs">{asset.locationTag}</Badge>
                         {asset.section179Elected && <Badge className="bg-orange-100 text-orange-700 text-xs">§179</Badge>}
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setEditingAsset(asset); }} data-testid={`button-edit-asset-${asset.id}`}>
+                          <Pencil className="h-3 w-3 mr-1" /> Edit
+                        </Button>
                       </div>
                       <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
                         <span>Cost: ${asset.purchasePrice.toLocaleString()}</span>
