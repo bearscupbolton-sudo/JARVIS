@@ -14682,6 +14682,34 @@ IMPORTANT GUIDELINES:
     }
   });
 
+  app.patch("/api/firm/assets/:id", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = await getUserFromReq(req);
+      const [existing] = await db.select().from(fixedAssets).where(eq(fixedAssets.id, id));
+      if (!existing) return res.status(404).json({ message: "Asset not found" });
+
+      const allowed: Record<string, any> = {};
+      const fields = ["name", "description", "vendor", "serialNumber", "warrantyExpiration", "placedInServiceDate", "usefulLifeMonths", "salvageValue", "locationId", "section179Eligible", "section179Elected"];
+      for (const f of fields) {
+        if (req.body[f] !== undefined) allowed[f] = req.body[f];
+      }
+      if (allowed.locationId) {
+        const { getLocationTag } = await import("./asset-engine");
+        allowed.locationTag = getLocationTag(allowed.locationId);
+      }
+      if (Object.keys(allowed).length === 0) return res.status(400).json({ message: "No updatable fields provided" });
+
+      const [updated] = await db.update(fixedAssets).set(allowed).where(eq(fixedAssets.id, id)).returning();
+      const { logAssetAudit } = await import("./asset-engine");
+      const changedFields = Object.keys(allowed).join(", ");
+      await logAssetAudit(id, "UPDATED", `Asset profile updated: ${changedFields}`, user?.username || "Unknown");
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/firm/assets/:id/capitalize", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const id = Number(req.params.id);
