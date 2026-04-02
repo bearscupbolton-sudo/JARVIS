@@ -49,9 +49,14 @@ const ADJUSTMENT_TYPE_COA: Record<string, string> = {
 
 export class AssetAssessor {
   private ASSET_ACCOUNT = "1500";
+  private LEASEHOLD_ACCOUNT = "1520";
   private CASH_ACCOUNT = "1010";
   private ACCUM_DEPREC_ACCOUNT = "1510";
   private DEPREC_EXPENSE_ACCOUNT = "6130";
+
+  private resolveAssetAccount(category?: string): string {
+    return category === "leasehold" ? this.LEASEHOLD_ACCOUNT : this.ASSET_ACCOUNT;
+  }
 
   /**
    * Transforms a single bank debit into multiple discrete capital assets.
@@ -181,7 +186,7 @@ export class AssetAssessor {
    * Single-asset shortcut: one transaction = one piece of equipment.
    * Idempotent — returns existing asset if already linked.
    */
-  async capitalizeSingleAsset(transactionId: number, createdBy: string) {
+  async capitalizeSingleAsset(transactionId: number, createdBy: string, assetCategory?: string) {
     const tx = await storage.getFirmTransaction(transactionId);
     if (!tx) throw new Error(`Transaction #${transactionId} not found`);
 
@@ -191,14 +196,17 @@ export class AssetAssessor {
 
     const absAmount = Math.abs(Number(tx.amount));
     const locationTag = getLocationTag(tx.locationId);
+    const isLeasehold = assetCategory === "leasehold";
+    const defaultUsefulLife = isLeasehold ? 120 : 84;
+    const defaultName = isLeasehold ? "Leasehold Improvement" : "Equipment Purchase";
 
     const [newAsset] = await db.insert(fixedAssets).values({
-      name: tx.description || "Equipment Purchase",
+      name: tx.description || defaultName,
       description: `Auto-created from transaction #${transactionId}`,
       vendor: (tx as any).vendor || "Unknown",
       purchasePrice: absAmount,
       placedInServiceDate: tx.date,
-      usefulLifeMonths: 84,
+      usefulLifeMonths: defaultUsefulLife,
       salvageValue: 0,
       locationId: tx.locationId || 1,
       locationTag,
@@ -220,12 +228,13 @@ export class AssetAssessor {
       createdBy
     );
 
-    const assetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.ASSET_ACCOUNT)).limit(1);
+    const resolvedAccountCode = this.resolveAssetAccount(assetCategory);
+    const assetAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, resolvedAccountCode)).limit(1);
     const cashAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, this.CASH_ACCOUNT)).limit(1);
     if (assetAccount.length > 0 && cashAccount.length > 0) {
       const [je] = await db.insert(journalEntries).values({
         transactionDate: tx.date,
-        description: `CapEx — ${tx.description}`,
+        description: `${isLeasehold ? "Leasehold Improvement" : "CapEx"} — ${tx.description}`,
         referenceType: "capex",
         referenceId: String(transactionId),
         createdBy: createdBy || null,
