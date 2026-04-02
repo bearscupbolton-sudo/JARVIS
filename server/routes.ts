@@ -14691,7 +14691,7 @@ IMPORTANT GUIDELINES:
       if (!existing) return res.status(404).json({ message: "Asset not found" });
 
       const allowed: Record<string, any> = {};
-      const fields = ["name", "description", "vendor", "serialNumber", "warrantyExpiration", "placedInServiceDate", "usefulLifeMonths", "salvageValue", "locationId", "section179Eligible", "section179Elected"];
+      const fields = ["name", "description", "vendor", "serialNumber", "warrantyExpiration", "placedInServiceDate", "usefulLifeMonths", "salvageValue", "locationId", "section179Eligible", "section179Elected", "assetType"];
       for (const f of fields) {
         if (req.body[f] !== undefined) allowed[f] = req.body[f];
       }

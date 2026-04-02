@@ -468,11 +468,12 @@ export async function capitalizeAsset(assetId: number, createdBy: string) {
   if (!asset) throw new Error("Asset not found");
   if (asset.status === "capitalized") throw new Error("Asset already capitalized");
 
+  const assetAccountCode = asset.assetType === "leasehold" ? "1520" : "1500";
   const entry = await createJournalEntry({
     date: asset.placedInServiceDate,
     memo: `Capitalize fixed asset: ${asset.name}${asset.vendor ? ` from ${asset.vendor}` : ""}`,
     lines: [
-      { accountCode: "1500", debit: asset.purchasePrice, credit: 0 },
+      { accountCode: assetAccountCode, debit: asset.purchasePrice, credit: 0 },
       { accountCode: "1010", debit: 0, credit: asset.purchasePrice },
     ],
     createdBy,
