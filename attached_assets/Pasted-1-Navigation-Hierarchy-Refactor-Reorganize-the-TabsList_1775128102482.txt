@@ -1,0 +1,60 @@
+1. Navigation Hierarchy Refactor
+Reorganize the TabsList to prioritize operational significance. Bury structural tools (COA, Vendors, Transfers) into a "Setup" category or a secondary menu.
+
+New Tab Order:
+
+Overview: (Merged with Command Center)
+
+Reports: (P&L, Balance Sheet, Trial Balance)
+
+Ledger: (Unified Transactions and Journal)
+
+Reconcile: (Matching and Batch Review)
+
+Setup: (Dropdown containing COA, Vendors, Compliance, and Transfers)
+
+2. Overview & Command Center Consolidation
+Merge the logic from CommandCenterTab into OverviewTab to create a single "Live Pulse" dashboard.
+
+Quick Actions Row: Place "Sync Revenue," "Post Expenses," and "AI Summary" buttons as a small horizontal action bar at the top of the Overview page.
+
+Analysis Integration: Move the Jarvis Recommendations and AI Transaction Classifier into the Overview dashboard as sidebar elements or collapsible cards.
+
+3. Live Equity Tracking implementation
+Enhance the OverviewTab to show your real-time stake in the business.
+
+Equity Card: Add a new summary card under the "Owner's Draw" section.
+
+Data Logic: Aggregate all accounts from the 3000-series (Equity type).
+
+Display Requirements:
+
+Total Owner Equity: Sum of all Equity accounts.
+
+YTD Net Position: Display Equity - Owner Draws to show the net remaining value.
+
+Live Earnings: Link to the 3099 - Current Year Earnings account to show real-time profit retention.
+
+4. Contextual Liquidity Tooling
+Remove "Liquidity" from the top-level tabs and integrate it as a tool within the Ledger page.
+
+Trigger: Add a small button (e.g., <Button variant="ghost" size="sm"><Landmark className="w-4 h-4 mr-1"/> Liquidity</Button>) next to the "Add Transaction" button on the Ledger page.
+
+Behavior: Clicking this button should trigger a Sheet or a Dialog containing the LiquidityWidget and DebtTracker. This keeps debt and cash-drag data contextual while you are reviewing individual transactions.
+
+5. Replit Agent Task List
+Modify TheFirm.tsx TabsList: Reorder values to overview, reports, ledger, reconcile, and a new setup value.
+
+Refactor OverviewTab Component:
+
+Inject the action buttons from CommandCenterTab into the header.
+
+Implement the EquityCard component using the accounts query data.
+
+Update LedgerTab UI:
+
+Add the "Liquidity" trigger button to the action bar.
+
+Wrap the LiquidityWidget logic in a Sheet component controlled by this button.
+
+Create SetupTab Dropdown: Consolidate coa, vendors, transfers, and compliance into this sub-navigation layer.
