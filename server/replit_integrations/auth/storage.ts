@@ -1,4 +1,5 @@
 import { users, type User, type UpsertUser } from "@shared/models/auth";
+import { devFeedback, employeeSkills, userLocations } from "@shared/schema";
 import { db } from "../../db";
 import { eq, isNotNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -145,6 +146,9 @@ class AuthStorage implements IAuthStorage {
   }
 
   async deleteUser(id: string): Promise<void> {
+    await db.update(devFeedback).set({ userId: null }).where(eq(devFeedback.userId, id));
+    await db.delete(employeeSkills).where(eq(employeeSkills.userId, id));
+    await db.delete(userLocations).where(eq(userLocations.userId, id));
     await db.delete(users).where(eq(users.id, id));
   }
 
