@@ -985,6 +985,9 @@ export const laminationDoughs = pgTable("lamination_doughs", {
   trashReason: text("trash_reason"),
   trashedAt: timestamp("trashed_at"),
   trashedBy: text("trashed_by"),
+  retarderBox: text("retarder_box"),
+  boxProgramConfirmed: boolean("box_program_confirmed").notNull().default(false),
+  boxReadyAt: timestamp("box_ready_at"),
 });
 
 export const insertLaminationDoughSchema = createInsertSchema(laminationDoughs).omit({ id: true, createdAt: true });

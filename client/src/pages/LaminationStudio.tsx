@@ -185,6 +185,14 @@ export default function LaminationStudio() {
   const [trashDough, setTrashDough] = useState<LaminationDough | null>(null);
   const [trashReason, setTrashReason] = useState("");
 
+  const [moveToBoxPastry, setMoveToBoxPastry] = useState<string | null>(null);
+  const [moveToBoxCount, setMoveToBoxCount] = useState("");
+  const [moveToBoxTarget, setMoveToBoxTarget] = useState<"box1" | "box2">("box1");
+  const [moveToBoxHold, setMoveToBoxHold] = useState<"standard" | "48hr">("standard");
+  const [bakeFromBox, setBakeFromBox] = useState<"box1" | "box2" | null>(null);
+  const [bakeBoxPastry, setBakeBoxPastry] = useState<string | null>(null);
+  const [bakeBoxCount, setBakeBoxCount] = useState("");
+
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogItem, setQuickLogItem] = useState("");
   const [quickLogQty, setQuickLogQty] = useState("");
@@ -913,6 +921,146 @@ export default function LaminationStudio() {
     );
   };
 
+  const handleMoveToRetarderBox = () => {
+    if (!moveToBoxPastry || !moveToBoxCount) return;
+    const count = parseInt(moveToBoxCount);
+    if (isNaN(count) || count <= 0) return;
+
+    const inv = freezerInventory[moveToBoxPastry];
+    if (!inv || inv.totalPieces < count) {
+      toast({ title: "Not enough in freezer", variant: "destructive" });
+      return;
+    }
+
+    const now = new Date();
+    const readyAt = new Date(now);
+    if (moveToBoxHold === "48hr") {
+      readyAt.setDate(readyAt.getDate() + 2);
+    } else {
+      readyAt.setDate(readyAt.getDate() + 1);
+    }
+    readyAt.setHours(5, 30, 0, 0);
+
+    let remaining = count;
+    const sortedDoughs = frozenDoughs
+      .filter(d => {
+        const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+        if (shapings) return shapings.some(s => s.pastryType === moveToBoxPastry);
+        return (d.pastryType || d.doughType) === moveToBoxPastry;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const updates: Promise<any>[] = [];
+    for (const dough of sortedDoughs) {
+      if (remaining <= 0) break;
+      const doughPieces = dough.shapings
+        ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).reduce((sum, s) => s.pastryType === moveToBoxPastry ? sum + s.pieces : sum, 0)
+        : (dough.proofPieces ?? dough.totalPieces ?? 0);
+
+      if (doughPieces <= remaining) {
+        updates.push(
+          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            status: moveToBoxTarget,
+            retarderBox: moveToBoxTarget,
+            boxProgramConfirmed: false,
+            boxReadyAt: readyAt.toISOString(),
+            proofStartedAt: now.toISOString(),
+          })
+        );
+        remaining -= doughPieces;
+      } else {
+        updates.push(
+          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            status: moveToBoxTarget,
+            retarderBox: moveToBoxTarget,
+            boxProgramConfirmed: false,
+            boxReadyAt: readyAt.toISOString(),
+            proofStartedAt: now.toISOString(),
+          })
+        );
+        remaining = 0;
+      }
+    }
+
+    Promise.all(updates).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+      toast({
+        title: `Moved to ${moveToBoxTarget === "box1" ? "Box 1" : "Box 2"}`,
+        description: `${count} ${moveToBoxPastry} — Ready ${format(readyAt, "EEE h:mm a")}`,
+      });
+      setMoveToBoxPastry(null);
+      setMoveToBoxCount("");
+      setMoveToBoxHold("standard");
+    });
+  };
+
+  const handleConfirmBoxProgram = (box: "box1" | "box2") => {
+    const boxDoughs = box === "box1" ? box1Doughs : box2Doughs;
+    const updates = boxDoughs.map(d =>
+      apiRequest("PATCH", `/api/lamination/${d.id}`, { boxProgramConfirmed: true })
+    );
+    Promise.all(updates).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+      toast({ title: `${box === "box1" ? "Box 1" : "Box 2"} program confirmed` });
+    });
+  };
+
+  const handleBakeFromBox = () => {
+    if (!bakeFromBox || !bakeBoxPastry || !bakeBoxCount) return;
+    const count = parseInt(bakeBoxCount);
+    if (isNaN(count) || count <= 0) return;
+    const now = new Date().toISOString();
+    const boxDoughs = bakeFromBox === "box1" ? box1Doughs : box2Doughs;
+    const relevantDoughs = boxDoughs.filter(d => {
+      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+      if (shapings) return shapings.some(s => s.pastryType === bakeBoxPastry);
+      return (d.pastryType || d.doughType) === bakeBoxPastry;
+    });
+
+    let remaining = count;
+    const updates: Promise<any>[] = [];
+    for (const dough of relevantDoughs) {
+      if (remaining <= 0) break;
+      const doughPieces = dough.shapings
+        ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).reduce((sum, s) => s.pastryType === bakeBoxPastry ? sum + s.pieces : sum, 0)
+        : (dough.proofPieces ?? dough.totalPieces ?? 0);
+
+      if (doughPieces <= remaining) {
+        updates.push(
+          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            status: "baked",
+            bakedAt: now,
+            bakedBy: user?.id || null,
+          })
+        );
+        remaining -= doughPieces;
+      } else {
+        updates.push(
+          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            status: "baked",
+            bakedAt: now,
+            bakedBy: user?.id || null,
+          })
+        );
+        remaining = 0;
+      }
+    }
+
+    Promise.all(updates).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+      toast({
+        title: "Baked Off",
+        description: `${count} ${bakeBoxPastry} from ${bakeFromBox === "box1" ? "Box 1" : "Box 2"}`,
+      });
+      setBakeFromBox(null);
+      setBakeBoxPastry(null);
+      setBakeBoxCount("");
+    });
+  };
+
   const handleTrashDough = () => {
     if (!trashDough || !trashReason.trim()) return;
     const now = new Date().toISOString();
@@ -993,7 +1141,48 @@ export default function LaminationStudio() {
   const proofingDoughs = doughs?.filter(d => d.status === "proofing") || [];
   const frozenDoughs = doughs?.filter(d => d.status === "frozen") || [];
   const fridgeDoughs = doughs?.filter(d => d.status === "fridge") || [];
+  const box1Doughs = doughs?.filter(d => d.status === "box1") || [];
+  const box2Doughs = doughs?.filter(d => d.status === "box2") || [];
+  const box3Doughs = doughs?.filter(d => d.status === "box3") || [];
   const bakedDoughs = todayDoughs?.filter(d => d.status === "baked") || [];
+
+  const freezerInventory = useMemo(() => {
+    const inv: Record<string, { totalPieces: number; ids: number[]; oldestDate: string }> = {};
+    frozenDoughs.forEach(d => {
+      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+      if (shapings && shapings.length > 0) {
+        shapings.forEach(s => {
+          if (!inv[s.pastryType]) inv[s.pastryType] = { totalPieces: 0, ids: [], oldestDate: d.date };
+          inv[s.pastryType].totalPieces += s.pieces;
+          inv[s.pastryType].ids.push(d.id);
+          if (d.date < inv[s.pastryType].oldestDate) inv[s.pastryType].oldestDate = d.date;
+        });
+      } else {
+        const type = d.pastryType || d.doughType || "Unknown";
+        const pieces = d.proofPieces ?? d.totalPieces ?? 0;
+        if (!inv[type]) inv[type] = { totalPieces: 0, ids: [], oldestDate: d.date };
+        inv[type].totalPieces += pieces;
+        inv[type].ids.push(d.id);
+        if (d.date < inv[type].oldestDate) inv[type].oldestDate = d.date;
+      }
+    });
+    return inv;
+  }, [frozenDoughs]);
+
+  const aggregateBoxPastries = (boxDoughs: LaminationDough[]) => {
+    const agg: Record<string, number> = {};
+    boxDoughs.forEach(d => {
+      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+      if (shapings && shapings.length > 0) {
+        shapings.forEach(s => { agg[s.pastryType] = (agg[s.pastryType] || 0) + s.pieces; });
+      } else {
+        const type = d.pastryType || d.doughType || "Unknown";
+        const pieces = d.proofPieces ?? d.totalPieces ?? 0;
+        agg[type] = (agg[type] || 0) + pieces;
+      }
+    });
+    return agg;
+  };
 
   const rackDoughs = [...restingDoughs, ...chillingDoughs]
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -1613,19 +1802,111 @@ export default function LaminationStudio() {
         )}
       </div>
 
-      {proofingDoughs.length > 0 && (
+      {(box1Doughs.length > 0 || box2Doughs.length > 0 || proofingDoughs.length > 0) && (
+        <div>
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+            <Thermometer className="w-5 h-5 text-amber-600" />
+            Retarder Proofers
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(["box1", "box2", "box3"] as const).map(boxKey => {
+              const boxDoughs = boxKey === "box1" ? [...box1Doughs, ...proofingDoughs.filter(d => !d.retarderBox)] : boxKey === "box2" ? box2Doughs : box3Doughs;
+              const boxNum = boxKey === "box1" ? 1 : boxKey === "box2" ? 2 : 3;
+              const isGrayedOut = boxKey === "box3";
+              const isConfirmed = boxDoughs.length > 0 && boxDoughs.every(d => d.boxProgramConfirmed);
+              const agg = aggregateBoxPastries(boxDoughs);
+              const totalPcs = Object.values(agg).reduce((s, v) => s + v, 0);
+              const readyAt = boxDoughs.find(d => d.boxReadyAt)?.boxReadyAt;
+
+              return (
+                <Card key={boxKey} className={isGrayedOut ? "opacity-40 grayscale pointer-events-none" : ""} data-testid={`retarder-${boxKey}`}>
+                  <CardHeader className="pb-2 bg-slate-50 dark:bg-slate-900/50 rounded-t-lg">
+                    <CardTitle className="text-base font-display flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Thermometer className="w-4 h-4 text-amber-600" />
+                        BOX {boxNum}
+                      </span>
+                      {isGrayedOut ? (
+                        <Badge variant="secondary">Coming Soon</Badge>
+                      ) : boxDoughs.length > 0 ? (
+                        <Badge variant={isConfirmed ? "default" : "destructive"} className={isConfirmed ? "bg-green-600" : ""}>
+                          {isConfirmed ? "Program Set" : "Action Required"}
+                        </Badge>
+                      ) : null}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    {boxDoughs.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-6 text-sm">Box Empty</p>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          {Object.entries(agg).map(([name, qty]) => (
+                            <div key={name} className="flex justify-between font-mono text-sm">
+                              <span>{name}</span>
+                              <span className="font-bold">{qty} pcs</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between font-mono text-sm border-t pt-1.5 font-bold">
+                            <span>Total</span>
+                            <span>{totalPcs} pcs</span>
+                          </div>
+                        </div>
+
+                        {readyAt && (
+                          <div className="text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1.5 text-center">
+                            READY: {format(new Date(readyAt), "EEE MMM d, h:mm a")}
+                          </div>
+                        )}
+
+                        {!isConfirmed && !isGrayedOut && (
+                          <Button
+                            className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                            size="sm"
+                            onClick={() => handleConfirmBoxProgram(boxKey as "box1" | "box2")}
+                            data-testid={`button-confirm-program-${boxKey}`}
+                          >
+                            <CheckCircle2 className="w-4 h-4 mr-1" />
+                            I CONFIRM THE PROOF PROGRAM IS SET
+                          </Button>
+                        )}
+
+                        {!isGrayedOut && (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            size="sm"
+                            onClick={() => { setBakeFromBox(boxKey as "box1" | "box2"); setBakeBoxPastry(null); setBakeBoxCount(""); }}
+                            data-testid={`button-bakeoff-${boxKey}`}
+                          >
+                            <Flame className="w-4 h-4 mr-1 text-orange-600" />
+                            Bake Off
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Legacy Proof Box — items not yet assigned to a retarder box */}
+      {proofingDoughs.filter(d => d.retarderBox).length > 0 && (
         <div>
           <Card data-testid="proof-box-card">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-display flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-amber-600" />
-                Proof Box
-                <Badge variant="secondary" className="ml-auto">{proofingDoughs.length}</Badge>
+                Proof Box (Legacy)
+                <Badge variant="secondary" className="ml-auto">{proofingDoughs.filter(d => d.retarderBox).length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {proofingDoughs.map(dough => {
+                {proofingDoughs.filter(d => d.retarderBox).map(dough => {
                   const proof = getProofState(dough);
                   const roomTemp = getRoomTempState(dough.roomTempAt);
                   const isAtRoomTemp = !!dough.roomTempAt && !dough.roomTempReturnedAt;
@@ -1845,167 +2126,40 @@ export default function LaminationStudio() {
         </div>
       )}
 
-      {frozenDoughs.length > 0 && (
+      {Object.keys(freezerInventory).length > 0 && (
         <div>
           <Card data-testid="freezer-card">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-display flex items-center gap-2">
                 <Snowflake className="w-4 h-4 text-blue-500" />
-                Freezer
-                <Badge variant="secondary" className="ml-auto">{frozenDoughs.length}</Badge>
+                Freezer Inventory
+                <Badge variant="secondary" className="ml-auto">
+                  {Object.values(freezerInventory).reduce((s, v) => s + v.totalPieces, 0)} pcs
+                </Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {frozenDoughs.map(dough => {
-                  const isExpanded = expandedFreezerDoughId === dough.id;
-                  const totalPieces = dough.shapings
-                    ? (dough.shapings as Array<{ pieces: number }>).reduce((sum, s) => sum + s.pieces, 0)
-                    : (dough.proofPieces ?? dough.totalPieces ?? 0);
-                  const pastryLabel = dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number }>).length > 1
-                    ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).map(s => `${s.pastryType}(${s.pieces})`).join(", ")
-                    : (dough.pastryType || "");
-                  const isFromToday = dough.date === today;
-
-                  return (
-                    <div key={dough.id} data-testid={`freezer-dough-${dough.id}`}>
-                      <button
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left bg-blue-500/5"
-                        onClick={() => setExpandedFreezerDoughId(isExpanded ? null : dough.id)}
-                        data-testid={`freezer-line-item-${dough.id}`}
-                      >
-                        <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-bold font-mono text-blue-600" data-testid={`freezer-dough-number-${dough.id}`}>#{dough.doughNumber || "—"}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-display font-semibold text-sm">{dough.doughType}</span>
-                            {pastryLabel && (
-                              <span className="text-xs text-muted-foreground truncate">{pastryLabel}</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="font-medium text-blue-600 flex items-center gap-0.5">
-                              <Snowflake className="w-3 h-3" />
-                              Frozen
-                            </span>
-                            <span className="text-muted-foreground">{totalPieces}pc</span>
-                            {dough.foldSequence && <span className="text-muted-foreground font-mono">{dough.foldSequence}</span>}
-                            {dough.doughWeightG && <span className="text-muted-foreground">{dough.doughWeightG}g</span>}
-                            {!isFromToday && (
-                              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                                <CalendarDays className="w-3 h-3" />
-                                {format(new Date(dough.date + "T12:00:00"), "MMM d")}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                      </button>
-
-                      {isExpanded && (
-                        <div className="px-4 pb-3 space-y-3 bg-muted/30">
-                          <div className="grid grid-cols-3 gap-2 text-sm pt-2">
-                            <div>
-                              <p className="text-muted-foreground text-xs">Pieces</p>
-                              <p className="font-mono font-semibold">{totalPieces || "—"}</p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground text-xs">Fold</p>
-                              <p className="font-mono font-semibold">{dough.foldSequence || "—"}</p>
-                              {dough.foldSubtype && (
-                                <Badge variant="secondary" className="mt-1 text-xs capitalize">{dough.foldSubtype}</Badge>
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground text-xs">Weight</p>
-                              <p className="font-mono font-semibold">{dough.doughWeightG ? `${dough.doughWeightG}g` : "—"}</p>
-                            </div>
-                          </div>
-
-                          {dough.shapings && (dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).length > 0 && (
-                            <div className="space-y-1" data-testid={`freezer-pastry-type-${dough.id}`}>
-                              {(dough.shapings as Array<{ pastryType: string; pieces: number; weightPerPieceG?: number }>).map((s, i) => {
-                                const pp = getPassportForPastryName(s.pastryType);
-                                return (
-                                  <div key={i} className="flex items-center gap-1 text-xs">
-                                    <span className="font-medium">{s.pastryType} ({s.pieces}pc){s.weightPerPieceG ? ` ${s.weightPerPieceG}g/pc` : ""}</span>
-                                    {pp && (
-                                      <Link href={`/pastry-passports/${pp.id}`}>
-                                        <Stamp className="w-3 h-3 text-primary cursor-pointer hover:scale-110 transition-transform" data-testid={`freezer-passport-link-${dough.id}-${i}`} />
-                                      </Link>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {dough.intendedPastry && dough.intendedPastry !== "None" && dough.intendedPastry !== dough.pastryType && (
-                            <p className="text-xs text-muted-foreground line-through" data-testid={`freezer-intended-pastry-${dough.id}`}>
-                              Intended: {dough.intendedPastry}
-                            </p>
-                          )}
-
-                          {!isFromToday && (
-                            <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-2 py-1.5">
-                              <CalendarDays className="w-3.5 h-3.5" />
-                              <span>Frozen {format(new Date(dough.date + "T12:00:00"), "EEEE, MMM d")} — {formatDistanceToNow(new Date(dough.date + "T12:00:00"), { addSuffix: true })}</span>
-                            </div>
-                          )}
-
-                          <div className="text-xs space-y-1 border-t pt-2">
-                            {dough.shapedAt && (
-                              <div className="flex items-center gap-1 text-muted-foreground">
-                                <Scissors className="w-3 h-3" />
-                                <span>Shaped by {getUserName(dough.shapedBy)}</span>
-                                <span className="ml-auto">{formatTimestamp(dough.shapedAt)}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5 text-xs"
-                              disabled={updateMutation.isPending}
-                              onClick={() => handleMoveToFridge(dough)}
-                              data-testid={`button-move-to-fridge-${dough.id}`}
-                            >
-                              <Layers className="w-3 h-3" />
-                              Fridge
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 gap-1.5 text-xs"
-                              disabled={updateMutation.isPending}
-                              onClick={() => handleMoveToProofBox(dough)}
-                              data-testid={`button-move-to-proof-${dough.id}`}
-                            >
-                              <Thermometer className="w-3 h-3" />
-                              Proof
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-freezer-${dough.id}`}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => { setTrashDough(dough); setTrashReason(""); }}
-                              data-testid={`button-trash-freezer-${dough.id}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
+            <CardContent className="p-4">
+              <div className="space-y-2">
+                {Object.entries(freezerInventory).sort(([a], [b]) => a.localeCompare(b)).map(([pastryType, inv]) => (
+                  <button
+                    key={pastryType}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/30 transition-colors text-left"
+                    onClick={() => { setMoveToBoxPastry(pastryType); setMoveToBoxCount(String(inv.totalPieces)); setMoveToBoxTarget("box1"); }}
+                    data-testid={`freezer-item-${pastryType.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Snowflake className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="font-display font-semibold text-sm">{pastryType}</span>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-sm">{inv.totalPieces} pcs</span>
+                      <span className="text-xs text-muted-foreground">{inv.ids.length} batch{inv.ids.length !== 1 ? "es" : ""}</span>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </button>
+                ))}
               </div>
+              <p className="text-xs text-muted-foreground text-center mt-3">Tap a pastry to move to a retarder box</p>
             </CardContent>
           </Card>
         </div>
@@ -3111,6 +3265,122 @@ export default function LaminationStudio() {
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!moveToBoxPastry} onOpenChange={(open) => { if (!open) { setMoveToBoxPastry(null); setMoveToBoxCount(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              Move {moveToBoxPastry} to Retarder
+            </DialogTitle>
+            <DialogDescription>
+              {moveToBoxPastry && freezerInventory[moveToBoxPastry] ? `${freezerInventory[moveToBoxPastry].totalPieces} pieces available in freezer` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">How many pieces?</label>
+              <Input
+                type="number"
+                min="1"
+                max={moveToBoxPastry && freezerInventory[moveToBoxPastry] ? freezerInventory[moveToBoxPastry].totalPieces : 999}
+                value={moveToBoxCount}
+                onChange={(e) => setMoveToBoxCount(e.target.value)}
+                data-testid="input-move-to-box-count"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Which box?</label>
+              <div className="flex gap-2">
+                <Button variant={moveToBoxTarget === "box1" ? "default" : "outline"} className="flex-1" onClick={() => setMoveToBoxTarget("box1")} data-testid="button-target-box1">
+                  Box 1
+                </Button>
+                <Button variant={moveToBoxTarget === "box2" ? "default" : "outline"} className="flex-1" onClick={() => setMoveToBoxTarget("box2")} data-testid="button-target-box2">
+                  Box 2
+                </Button>
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Proof hold</label>
+              <div className="flex gap-2">
+                <Button variant={moveToBoxHold === "standard" ? "default" : "outline"} className="flex-1" onClick={() => setMoveToBoxHold("standard")} data-testid="button-hold-standard">
+                  Standard (Next Day)
+                </Button>
+                <Button variant={moveToBoxHold === "48hr" ? "default" : "outline"} className="flex-1" onClick={() => setMoveToBoxHold("48hr")} data-testid="button-hold-48hr">
+                  48-Hour Hold
+                </Button>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setMoveToBoxPastry(null); setMoveToBoxCount(""); }}>Cancel</Button>
+              <Button onClick={handleMoveToRetarderBox} disabled={!moveToBoxCount || parseInt(moveToBoxCount) <= 0} data-testid="button-confirm-move-to-box">
+                <Thermometer className="w-4 h-4 mr-1" />
+                Move to {moveToBoxTarget === "box1" ? "Box 1" : "Box 2"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bakeFromBox} onOpenChange={(open) => { if (!open) { setBakeFromBox(null); setBakeBoxPastry(null); setBakeBoxCount(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              Bake Off — {bakeFromBox === "box1" ? "Box 1" : "Box 2"}
+            </DialogTitle>
+            <DialogDescription>
+              Select a pastry and enter how many to bake
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {bakeFromBox && (() => {
+              const boxDoughs = bakeFromBox === "box1" ? [...box1Doughs, ...proofingDoughs.filter(d => !d.retarderBox)] : box2Doughs;
+              const agg = aggregateBoxPastries(boxDoughs);
+              return (
+                <>
+                  <div className="space-y-2">
+                    {Object.entries(agg).map(([name, qty]) => (
+                      <button
+                        key={name}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-left ${bakeBoxPastry === name ? "bg-orange-100 dark:bg-orange-950/30 ring-2 ring-orange-500" : "bg-muted/50 hover:bg-muted"}`}
+                        onClick={() => { setBakeBoxPastry(name); setBakeBoxCount(String(qty)); }}
+                        data-testid={`bake-select-${name.replace(/\s+/g, "-").toLowerCase()}`}
+                      >
+                        <span className="font-display font-semibold text-sm">{name}</span>
+                        <span className="font-mono font-bold text-sm">{qty} pcs</span>
+                      </button>
+                    ))}
+                  </div>
+                  {bakeBoxPastry && (
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">How many to bake?</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max={agg[bakeBoxPastry] || 999}
+                        value={bakeBoxCount}
+                        onChange={(e) => setBakeBoxCount(e.target.value)}
+                        data-testid="input-bake-count"
+                      />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setBakeFromBox(null); setBakeBoxPastry(null); setBakeBoxCount(""); }}>Cancel</Button>
+              <Button
+                onClick={handleBakeFromBox}
+                disabled={!bakeBoxPastry || !bakeBoxCount || parseInt(bakeBoxCount) <= 0}
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+                data-testid="button-confirm-bake"
+              >
+                <Flame className="w-4 h-4 mr-1" />
+                Bake Off
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

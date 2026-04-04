@@ -7399,7 +7399,7 @@ ${sopsHtml}
         turn3Fold: z.string().nullable().optional(),
         foldSequence: z.string().optional(),
         foldSubtype: z.string().nullable().optional(),
-        status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge", "trashed"]).optional(),
+        status: z.enum(["turning", "resting", "completed", "proofing", "frozen", "baked", "chilling", "fridge", "trashed", "box1", "box2", "box3"]).optional(),
         restStartedAt: z.string().nullable().optional(),
         pastryType: z.string().optional(),
         totalPieces: z.number().int().positive().optional(),
@@ -7423,6 +7423,9 @@ ${sopsHtml}
         roomTempAt: z.string().nullable().optional(),
         roomTempReturnedAt: z.string().nullable().optional(),
         adjustedProofStartedAt: z.string().nullable().optional(),
+        retarderBox: z.enum(["box1", "box2", "box3"]).nullable().optional(),
+        boxProgramConfirmed: z.boolean().optional(),
+        boxReadyAt: z.string().nullable().optional(),
       });
       const parsed = schema.parse(req.body);
       const updates: Record<string, any> = { ...parsed };
@@ -7438,6 +7441,7 @@ ${sopsHtml}
       if (parsed.roomTempAt) updates.roomTempAt = new Date(parsed.roomTempAt);
       if (parsed.roomTempReturnedAt) updates.roomTempReturnedAt = new Date(parsed.roomTempReturnedAt);
       if (parsed.adjustedProofStartedAt) updates.adjustedProofStartedAt = new Date(parsed.adjustedProofStartedAt);
+      if (parsed.boxReadyAt) updates.boxReadyAt = new Date(parsed.boxReadyAt);
       const dough = await storage.updateLaminationDough(id, updates);
       storage.clearAllBriefingCaches().catch(() => {});
       res.json(dough);
