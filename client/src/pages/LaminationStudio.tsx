@@ -65,6 +65,22 @@ const PROOF_RED_MS = 2 * 60 * 60 * 1000;
 const PROOF_YELLOW_MS = 3 * 60 * 60 * 1000;
 const PROOF_GREEN_MS = 4 * 60 * 60 * 1000;
 const ROOM_TEMP_MIN_MS = 5 * 60 * 60 * 1000;
+const BOX_MORNING_TIMER_MS = 3 * 60 * 60 * 1000;
+
+function isMorningLoad(proofStartedAt: string | Date | null): boolean {
+  if (!proofStartedAt) return false;
+  const d = new Date(proofStartedAt);
+  const hour = d.getHours();
+  return hour >= 3 && hour < 9;
+}
+
+function getBoxMorningTimer(proofStartedAt: string | Date | null): { elapsed: number; remaining: number; isComplete: boolean } | null {
+  if (!proofStartedAt || !isMorningLoad(proofStartedAt)) return null;
+  const start = new Date(proofStartedAt).getTime();
+  const elapsed = Date.now() - start;
+  const remaining = Math.max(0, BOX_MORNING_TIMER_MS - elapsed);
+  return { elapsed, remaining, isComplete: remaining <= 0 };
+}
 
 function getRestProgress(restStartedAt: string | Date | null): { elapsed: number; remaining: number; percent: number; isResting: boolean } {
   if (!restStartedAt) return { elapsed: 0, remaining: REST_DURATION_MS, percent: 0, isResting: false };
@@ -1880,12 +1896,41 @@ export default function LaminationStudio() {
                     ) : (
                       <div className="space-y-3">
                         <div className="space-y-1.5">
-                          {Object.entries(agg).map(([name, qty]) => (
-                            <div key={name} className="flex justify-between font-mono text-sm">
-                              <span>{name}</span>
-                              <span className="font-bold">{qty} pcs</span>
-                            </div>
-                          ))}
+                          {Object.entries(agg).map(([name, qty]) => {
+                            const morningDoughs = boxDoughs.filter(d => {
+                              const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+                              const matches = shapings ? shapings.some(s => s.pastryType === name) : (d.pastryType || d.doughType) === name;
+                              return matches && isMorningLoad(d.proofStartedAt);
+                            });
+                            const activeTimer = morningDoughs.length > 0
+                              ? morningDoughs.reduce((best, d) => {
+                                  const t = getBoxMorningTimer(d.proofStartedAt);
+                                  if (!t) return best;
+                                  if (!best || t.remaining > best.remaining) return t;
+                                  return best;
+                                }, null as ReturnType<typeof getBoxMorningTimer>)
+                              : null;
+
+                            return (
+                              <div key={name} className="flex items-center justify-between font-mono text-sm gap-2">
+                                <span>{name}</span>
+                                <div className="flex items-center gap-2">
+                                  {activeTimer && !activeTimer.isComplete && (
+                                    <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5" data-testid={`box-timer-${name.replace(/\s+/g, "-").toLowerCase()}`}>
+                                      <Timer className="w-3 h-3" />
+                                      {formatTime(activeTimer.remaining)}
+                                    </span>
+                                  )}
+                                  {activeTimer && activeTimer.isComplete && (
+                                    <span className="text-xs font-bold text-green-600 dark:text-green-400" data-testid={`box-timer-done-${name.replace(/\s+/g, "-").toLowerCase()}`}>
+                                      ✓ Ready
+                                    </span>
+                                  )}
+                                  <span className="font-bold">{qty} pcs</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                           <div className="flex justify-between font-mono text-sm border-t pt-1.5 font-bold">
                             <span>Total</span>
                             <span>{totalPcs} pcs</span>
