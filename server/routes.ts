@@ -14873,69 +14873,68 @@ IMPORTANT GUIDELINES:
           totalDrag: pendingLaborCost,
         };
 
-        if (pendingLaborCost > 0) {
+        {
           const currentWeekEndStr = currentWeekEnd.toISOString().split("T")[0];
           const refId = `labor-accrual-${currentStartStr}-${currentWeekEndStr}`;
-          const staleAccruals = await db.select().from(journalEntries)
-            .where(
-              and(
-                eq(journalEntries.referenceType, "labor_accrual"),
-                sql`${journalEntries.referenceId} != ${refId}`
-              )
-            );
-          for (const stale of staleAccruals) {
-            await db.delete(ledgerLines).where(eq(ledgerLines.entryId, stale.id));
-            await db.delete(journalEntries).where(eq(journalEntries.id, stale.id));
-            console.log(`[LaborAccrual] Cleaned stale accrual JE #${stale.id} (${stale.referenceId})`);
+
+          const allAccruals = await db.select().from(journalEntries)
+            .where(eq(journalEntries.referenceType, "labor_accrual"));
+
+          if (fridayFlushed) {
+            for (const accrual of allAccruals) {
+              if (accrual.referenceId === refId) continue;
+
+              const hasMatchingReversal = await db.select({ id: journalEntries.id }).from(journalEntries)
+                .where(
+                  and(
+                    eq(journalEntries.referenceType, "firm-txn"),
+                    sql`${journalEntries.description} ILIKE '%accrual reversal%'`,
+                    sql`${journalEntries.transactionDate} >= ${accrual.transactionDate}`
+                  )
+                ).limit(1);
+
+              if (hasMatchingReversal.length > 0) {
+                console.log(`[LaborAccrual] Payroll flushed — keeping accrual JE #${accrual.id} (has matching reversal, 6010 debit preserved)`);
+              } else {
+                await db.delete(ledgerLines).where(eq(ledgerLines.entryId, accrual.id));
+                await db.delete(journalEntries).where(eq(journalEntries.id, accrual.id));
+                console.log(`[LaborAccrual] Payroll flushed — removed orphan accrual JE #${accrual.id} (no reversal found)`);
+              }
+            }
+          } else {
+            const staleAccruals = allAccruals.filter(a => a.referenceId !== refId);
+            for (const stale of staleAccruals) {
+              await db.delete(ledgerLines).where(eq(ledgerLines.entryId, stale.id));
+              await db.delete(journalEntries).where(eq(journalEntries.id, stale.id));
+              console.log(`[LaborAccrual] Cleaned stale accrual JE #${stale.id} (${stale.referenceId})`);
+            }
           }
 
-          const existingAccrualJE = await db.select().from(journalEntries)
-            .where(eq(journalEntries.referenceId, refId)).limit(1);
+          if (pendingLaborCost > 0) {
+            const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+            const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
 
-          const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
-          const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
+            if (laborAcct.length > 0 && payrollLiab.length > 0) {
+              const existingAccrualJE = await db.select().from(journalEntries)
+                .where(eq(journalEntries.referenceId, refId)).limit(1);
 
-          if (laborAcct.length > 0 && payrollLiab.length > 0) {
-            if (existingAccrualJE.length > 0) {
-              const oldLines = await db.select().from(ledgerLines)
-                .where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
-              const oldDebit = oldLines.find(l => Number(l.debit) > 0);
-              const oldAmount = oldDebit ? Number(oldDebit.debit) : 0;
-
-              if (Math.abs(oldAmount - pendingLaborCost) > 0.01) {
+              if (existingAccrualJE.length > 0) {
                 await db.delete(ledgerLines).where(eq(ledgerLines.entryId, existingAccrualJE[0].id));
                 await db.delete(journalEntries).where(eq(journalEntries.id, existingAccrualJE[0].id));
-                console.log(`[LaborAccrual] Removed stale accrual JE #${existingAccrualJE[0].id} ($${oldAmount} → $${pendingLaborCost})`);
-
-                const { postJournalEntry } = await import("./accounting-engine");
-                const rounded = Math.round(pendingLaborCost * 100) / 100;
-                const empCount = currentWeekLabor.employees.length;
-                await postJournalEntry(
-                  {
-                    transactionDate: todayStr,
-                    description: `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`,
-                    referenceId: refId,
-                    referenceType: "labor_accrual",
-                    status: "posted",
-                    isNonCash: true,
-                    createdBy: "payroll-compiler",
-                  },
-                  [
-                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees (live burn)` },
-                    { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
-                  ]
-                );
-                console.log(`[LaborAccrual] Posted updated live accrual: $${rounded}`);
+                console.log(`[LaborAccrual] Replaced accrual JE #${existingAccrualJE[0].id}`);
               }
-            } else {
+
               try {
                 const { postJournalEntry } = await import("./accounting-engine");
                 const rounded = Math.round(pendingLaborCost * 100) / 100;
                 const empCount = currentWeekLabor.employees.length;
+                const desc = fridayFlushed
+                  ? `Labor accrual (post-payroll): ${currentStartStr} to ${todayStr} (${empCount} employees, current week only)`
+                  : `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`;
                 await postJournalEntry(
                   {
                     transactionDate: todayStr,
-                    description: `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`,
+                    description: desc,
                     referenceId: refId,
                     referenceType: "labor_accrual",
                     status: "posted",
@@ -14943,11 +14942,11 @@ IMPORTANT GUIDELINES:
                     createdBy: "payroll-compiler",
                   },
                   [
-                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees (live burn)` },
+                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees` },
                     { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
                   ]
                 );
-                console.log(`[LaborAccrual] Posted new live accrual: $${rounded}`);
+                console.log(`[LaborAccrual] Posted ${fridayFlushed ? "post-flush" : "live"} accrual: $${rounded}`);
               } catch (jeErr: any) {
                 console.warn("[LaborAccrual] JE post error (non-fatal):", jeErr.message);
               }
