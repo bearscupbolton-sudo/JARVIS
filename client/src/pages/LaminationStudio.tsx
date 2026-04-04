@@ -1802,6 +1802,45 @@ export default function LaminationStudio() {
         )}
       </div>
 
+      {Object.keys(freezerInventory).length > 0 && (
+        <div>
+          <Card data-testid="freezer-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                <Snowflake className="w-4 h-4 text-blue-500" />
+                Freezer Inventory
+                <Badge variant="secondary" className="ml-auto">
+                  {Object.values(freezerInventory).reduce((s, v) => s + v.totalPieces, 0)} pcs
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="space-y-2">
+                {Object.entries(freezerInventory).sort(([a], [b]) => a.localeCompare(b)).map(([pastryType, inv]) => (
+                  <button
+                    key={pastryType}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/30 transition-colors text-left"
+                    onClick={() => { setMoveToBoxPastry(pastryType); setMoveToBoxCount(String(inv.totalPieces)); setMoveToBoxTarget("box1"); }}
+                    data-testid={`freezer-item-${pastryType.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Snowflake className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="font-display font-semibold text-sm">{pastryType}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-sm">{inv.totalPieces} pcs</span>
+                      <span className="text-xs text-muted-foreground">{inv.ids.length} batch{inv.ids.length !== 1 ? "es" : ""}</span>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground text-center mt-3">Tap a pastry to move to a retarder box</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {(box1Doughs.length > 0 || box2Doughs.length > 0 || proofingDoughs.length > 0) && (
         <div>
           <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
@@ -2121,45 +2160,6 @@ export default function LaminationStudio() {
                   );
                 })}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {Object.keys(freezerInventory).length > 0 && (
-        <div>
-          <Card data-testid="freezer-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2">
-                <Snowflake className="w-4 h-4 text-blue-500" />
-                Freezer Inventory
-                <Badge variant="secondary" className="ml-auto">
-                  {Object.values(freezerInventory).reduce((s, v) => s + v.totalPieces, 0)} pcs
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="space-y-2">
-                {Object.entries(freezerInventory).sort(([a], [b]) => a.localeCompare(b)).map(([pastryType, inv]) => (
-                  <button
-                    key={pastryType}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/30 transition-colors text-left"
-                    onClick={() => { setMoveToBoxPastry(pastryType); setMoveToBoxCount(String(inv.totalPieces)); setMoveToBoxTarget("box1"); }}
-                    data-testid={`freezer-item-${pastryType.replace(/\s+/g, "-").toLowerCase()}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Snowflake className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-display font-semibold text-sm">{pastryType}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-bold text-sm">{inv.totalPieces} pcs</span>
-                      <span className="text-xs text-muted-foreground">{inv.ids.length} batch{inv.ids.length !== 1 ? "es" : ""}</span>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground text-center mt-3">Tap a pastry to move to a retarder box</p>
             </CardContent>
           </Card>
         </div>
