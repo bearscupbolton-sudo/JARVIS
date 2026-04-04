@@ -49,6 +49,7 @@ import {
   RotateCcw,
   Stamp,
   SplitSquareVertical,
+  BookOpen,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
@@ -208,6 +209,8 @@ export default function LaminationStudio() {
   const [bakeFromBox, setBakeFromBox] = useState<"box1" | "box2" | null>(null);
   const [bakeBoxPastry, setBakeBoxPastry] = useState<string | null>(null);
   const [bakeBoxCount, setBakeBoxCount] = useState("");
+  const [showPastryGuide, setShowPastryGuide] = useState(false);
+  const [guideSection, setGuideSection] = useState<"dough" | "butter" | "lamination" | "shaping" | "bakeoff">("dough");
 
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogItem, setQuickLogItem] = useState("");
@@ -1224,6 +1227,15 @@ export default function LaminationStudio() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => setShowPastryGuide(true)}
+            className="gap-2"
+            data-testid="button-pastry-guide"
+          >
+            <BookOpen className="w-4 h-4" />
+            Master Sheet
+          </Button>
           {(activeOvenTimers.length > 0 || expiredOvenTimers.length > 0) && (
             <div className="relative" ref={ovenTimerRef}>
               <Button
@@ -3310,6 +3322,256 @@ export default function LaminationStudio() {
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPastryGuide} onOpenChange={setShowPastryGuide}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl flex items-center gap-2">
+              <BookOpen className="w-5 h-5" />
+              Pastry Master Sheet
+            </DialogTitle>
+            <DialogDescription>Quick reference for lamination, shaping, and bake-off</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-1 flex-wrap pb-2 border-b">
+            {([
+              { key: "dough" as const, label: "Scaling Dough" },
+              { key: "butter" as const, label: "Butter" },
+              { key: "lamination" as const, label: "Lamination" },
+              { key: "shaping" as const, label: "Shaping" },
+              { key: "bakeoff" as const, label: "Bake Off" },
+            ]).map(tab => (
+              <Button
+                key={tab.key}
+                variant={guideSection === tab.key ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setGuideSection(tab.key)}
+                data-testid={`guide-tab-${tab.key}`}
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </div>
+          <div className="space-y-4 text-sm">
+            {guideSection === "dough" && (
+              <div className="space-y-4">
+                <h3 className="font-display font-bold text-base">Scaling Dough</h3>
+                <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
+                  <li>Combine all ingredients into big mixer <span className="font-semibold text-foreground">except scraps</span>. Left knob pointed left, timer for <span className="font-mono font-bold text-foreground">14 min</span>. Add scraps at the <span className="font-mono font-bold text-foreground">7 min</span> mark.</li>
+                  <li>Check temperature (must not exceed <span className="font-mono font-bold text-foreground">75°F</span>) and window pane test.</li>
+                  <li>Scale at <span className="font-mono font-bold text-foreground">7,400g</span> per ball. Round, two per bag, rest <span className="font-mono font-bold text-foreground">20–30 min</span> (closer to 30 if passes window pane but still cold).</li>
+                  <li>Place on sheeter, flour both sides, press down creating corners, sheet from <span className="font-mono font-bold text-foreground">40 → 13</span>. Stop periodically to square edges.</li>
+                  <li>Stretch to wooden board size, accentuate corners. Cover with dough bag, <span className="font-semibold text-foreground">freeze ≥1 hr</span>, then transfer to fridge.</li>
+                </ol>
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-1.5">
+                  <p className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1"><AlertTriangle className="w-4 h-4" /> Important</p>
+                  <ul className="list-disc list-inside space-y-1 text-amber-700 dark:text-amber-400 text-xs">
+                    <li>Salt and yeast must not touch. Measure yeast separately.</li>
+                    <li>All ingredients directly from fridge — avoid dough temp getting too high.</li>
+                    <li>Pull dough from bowl immediately after mixing to avoid warming.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {guideSection === "butter" && (
+              <div className="space-y-4">
+                <h3 className="font-display font-bold text-base">Butter Sheeting</h3>
+                <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
+                  <li>Pull all butters to soften while you laminate.</li>
+                  <li>Place butter block on sheeter — long side <span className="font-semibold text-foreground">perpendicular</span> to sheeter, flour both sides.</li>
+                  <li>Roll from <span className="font-mono font-bold text-foreground">19 → 15</span>, rotate, roll to <span className="font-mono font-bold text-foreground">12</span>.</li>
+                  <li>Goal length: ~<span className="font-mono font-bold text-foreground">20 inches</span>. Can go to 10 if necessary.</li>
+                </ol>
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                  <p className="font-bold text-blue-800 dark:text-blue-300 text-xs">Temperature Rule</p>
+                  <p className="text-blue-700 dark:text-blue-400 text-xs mt-1">Dough: max <span className="font-mono font-bold">2°C</span>. Butter: <span className="font-mono font-bold">1–2°C warmer</span> than dough. Butter must be pliable without breaking.</p>
+                </div>
+              </div>
+            )}
+
+            {guideSection === "lamination" && (
+              <div className="space-y-4">
+                <h3 className="font-display font-bold text-base">Lamination Base Steps</h3>
+                <ol className="list-decimal list-inside space-y-2 text-muted-foreground">
+                  <li>Flour both sides, place dough on sheeter — short side <span className="font-semibold text-foreground">perpendicular</span> to sheeter.</li>
+                  <li>Roll from <span className="font-mono font-bold text-foreground">40 → 13</span> slowly (avoid bursting bubbles).</li>
+                  <li>Place butter directly in the middle. Stretch dough edges to meet butter or trim excess.</li>
+                  <li>Cut dough using butter edges as guide. Flip dough over middle, cut excess, press and dimple.</li>
+                  <li>Pass "wrong way" twice at <span className="font-mono font-bold text-foreground">36 & 29</span>.</li>
+                  <li>Rotate "correct way", flour if needed, roll to <span className="font-mono font-bold text-foreground">8</span>. Trim edges minimally.</li>
+                </ol>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Plain Croissant <Badge variant="secondary">3×3</Badge></h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Thirds & spine. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Thirds & spine</li>
+                      <li>Skin: Roll to <span className="font-mono font-bold text-foreground">0.6</span>. Spray water, spread skin pulling from middle</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Chocolate Croissant <Badge variant="secondary">4×3</Badge></h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Edges meet middle (¼" gap), fold in half, cut spines. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Thirds & spine</li>
+                      <li>Skin: Roll to <span className="font-mono font-bold text-foreground">0.6</span>. Spray water, spread from middle</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Cross Lamination <Badge variant="secondary">4×4</Badge></h4>
+                    <p className="text-xs text-muted-foreground italic">Spinach Feta, Apple Nests, Banana Nutella</p>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Edges meet middle (¼" gap), fold in half, cut spines. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Same as 1st. <span className="font-semibold text-foreground">No skin.</span></li>
+                      <li>Cut ¼"–½" strips, place butter layers face up along top</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Bearclaws <Badge variant="secondary">4×3</Badge></h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Edges meet middle (¼" gap), fold in half, cut spines. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Same as 1st, cut spines</li>
+                      <li>Skin: Roll to <span className="font-mono font-bold text-foreground">0.6</span>. Spray water, spread from middle</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Cinnamon Rolls <Badge variant="secondary">3×3</Badge></h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Thirds & spine. Cuts <span className="font-semibold text-foreground">parallel</span> to sheeter. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Thirds & spine</li>
+                      <li>Skin: Roll to <span className="font-mono font-bold text-foreground">0.6</span>. Spray water, spread from middle</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <h4 className="font-display font-bold text-sm">Cheese Danish <Badge variant="secondary">3×3×3</Badge></h4>
+                    <p className="text-xs text-muted-foreground italic">Also used for Banoffee</p>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>1st fold: Thirds & spine. Cuts <span className="font-semibold text-foreground">parallel</span>. Roll to <span className="font-mono font-bold text-foreground">8</span></li>
+                      <li>2nd fold: Thirds & spine</li>
+                      <li>3rd fold: Thirds & spine</li>
+                      <li>Skin: Roll to <span className="font-mono font-bold text-foreground">0.6</span>. Spray water, spread from middle</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guideSection === "shaping" && (
+              <div className="space-y-3">
+                <h3 className="font-display font-bold text-base">Shaping Reference</h3>
+                <div className="space-y-3">
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-1.5">Plain Croissants</h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>Width: <span className="font-mono font-bold text-foreground">15"</span></li>
+                      <li>Roll to <span className="font-mono font-bold text-foreground">5 mm</span> (twice if same-day dough)</li>
+                      <li>Mark <span className="font-mono font-bold text-foreground">3.75"</span> bottom, halfway on top (~1.9"), cut diagonally</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-1.5">Chocolate Croissants</h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>Width: <span className="font-mono font-bold text-foreground">22"</span>, roll to <span className="font-mono font-bold text-foreground">5 mm</span></li>
+                      <li>Cut horizontally at <span className="font-mono font-bold text-foreground">11" & 22"</span>, vertically at <span className="font-mono font-bold text-foreground">2.75"</span></li>
+                      <li>Flatten bottom edge. Measure 1" from top, place 2 batons, fold over, add 3rd baton on overlap, roll to end (lands in middle)</li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-1.5">Bearclaws</h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>Width: <span className="font-mono font-bold text-foreground">18"</span>, roll to <span className="font-mono font-bold text-foreground">4.4 mm</span></li>
+                      <li>Cut horizontally at <span className="font-mono font-bold text-foreground">6", 12", 18"</span></li>
+                      <li>Roll out middles (+1–2"). Pipe almond paste + mini choc chips, fold top over, press firmly</li>
+                      <li>Spread almond paste on tops, cover with almond/choc chip mixture</li>
+                      <li>Yellow cutter for length, benchscraper for <span className="font-mono font-bold text-foreground">5 toes</span></li>
+                    </ul>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-1.5">Cinnamon Rolls</h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                      <li>Width: <span className="font-mono font-bold text-foreground">~22"</span> (as wide as possible), roll to <span className="font-mono font-bold text-foreground">4.4 mm</span></li>
+                      <li>Trim jagged edges minimally. Mist with water, sift "cinnards" (cinnamon + brown sugar)</li>
+                    </ul>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <h4 className="font-display font-bold text-sm mb-1.5">Apple Nest</h4>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                        <li>Roll to <span className="font-mono font-bold text-foreground">4.4 mm</span></li>
+                        <li><span className="font-mono font-bold text-foreground">9.5" × 1.75"</span></li>
+                        <li>Roll up each strip, flush so it sits flat</li>
+                      </ul>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <h4 className="font-display font-bold text-sm mb-1.5">Spinach Feta / Banana Nutella</h4>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                        <li>Roll to <span className="font-mono font-bold text-foreground">4.4 mm</span>, <span className="font-mono font-bold text-foreground">9.5" × 2.5"</span></li>
+                        <li>Spinach: 3 scoops filling, fold edges to middle (~1 cm overlap)</li>
+                        <li>Banana: Pipe nutella on each end, add ⅛ banana, roll edges to meet in middle</li>
+                      </ul>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <h4 className="font-display font-bold text-sm mb-1.5">Banoffee</h4>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                        <li>Roll to <span className="font-mono font-bold text-foreground">7.5 mm</span></li>
+                        <li><span className="font-mono font-bold text-foreground">6" × 2"</span></li>
+                      </ul>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <h4 className="font-display font-bold text-sm mb-1.5">Cheese Danish</h4>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
+                        <li>Roll to <span className="font-mono font-bold text-foreground">9 mm</span></li>
+                        <li><span className="font-mono font-bold text-foreground">3.75" × 3.75"</span> squares</li>
+                        <li>Circle cutter indent halfway into dough</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guideSection === "bakeoff" && (
+              <div className="space-y-4">
+                <h3 className="font-display font-bold text-base">Bake Off Reference</h3>
+                <div className="space-y-3">
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-2 flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                      Egg Wash
+                    </h4>
+                    <p className="text-xs text-muted-foreground">Croissants, Chocolate Croissants, Bearclaws, Spinach Feta, Banana Nutella</p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-2 flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-amber-300" />
+                      Simple Syrup Wash
+                    </h4>
+                    <p className="text-xs text-muted-foreground">Cheese Danish, Cinnamon Rolls</p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <h4 className="font-display font-bold text-sm mb-2">Oven Programs</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">POO Bake</span>
+                        <span className="text-muted-foreground">All croissants, Danishes, Cinnamon Rolls, Cookies</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">Bearclaws Bake</span>
+                        <span className="text-muted-foreground">Bearclaws (full bake if rack full, pull ~2 min early if spaced out)</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">BB Bake</span>
+                        <span className="text-muted-foreground">Banana Bread</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
