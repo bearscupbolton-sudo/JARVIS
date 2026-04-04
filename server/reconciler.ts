@@ -618,6 +618,7 @@ export async function seedLaborLearningRules(): Promise<void> {
     { vendor: "futa", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
     { vendor: "suta", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
     { vendor: "fica", code: "6020", name: "Labor - Payroll Tax", cat: "labor" },
+    { vendor: "NORTH COUNTRY JANITO", code: "6070", name: "Repairs & Maintenance", cat: "repairs_maintenance" },
   ];
 
   for (const rule of laborRules) {
@@ -645,4 +646,66 @@ export async function seedLaborLearningRules(): Promise<void> {
     }
   }
   console.log("[LaborFix] Labor learning rules seeded/updated");
+}
+
+export async function reclassifyJanitorialExpenses(): Promise<number> {
+  const alreadyRan = await db.select().from(aiInferenceLogs)
+    .where(eq(aiInferenceLogs.promptVersion, "janitorial_reclassification_v1"));
+  if (alreadyRan.length > 0) return 0;
+
+  const repairAccount = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6070"));
+  if (!repairAccount[0]) return 0;
+
+  const janitorialTxns = await db.select().from(firmTransactions)
+    .where(ilike(firmTransactions.description, "%NORTH COUNTRY JANITO%"));
+
+  let count = 0;
+  for (const txn of janitorialTxns) {
+    if (txn.category !== "repairs_maintenance" || txn.suggestedCoaCode !== "6070") {
+      await db.update(firmTransactions)
+        .set({
+          category: "repairs_maintenance",
+          suggestedCoaCode: "6070",
+          suggestedCategory: "repairs_maintenance",
+          notes: `Reclassified to Repairs & Maintenance (6070) — janitorial service, not supplies or professional fees`,
+        })
+        .where(eq(firmTransactions.id, txn.id));
+      count++;
+    }
+  }
+
+  const miscLedgerLines2 = await db.select({
+    lineId: ledgerLines.id,
+    memo: ledgerLines.memo,
+    entryId: ledgerLines.entryId,
+  }).from(ledgerLines);
+
+  const entryIds = [...new Set(miscLedgerLines2.map(l => l.entryId))];
+  let entries2: Array<{ id: number; description: string }> = [];
+  if (entryIds.length > 0) {
+    entries2 = await db.select({ id: journalEntries.id, description: journalEntries.description })
+      .from(journalEntries)
+      .where(inArray(journalEntries.id, entryIds));
+  }
+  const entryMap2 = new Map(entries2.map(e => [e.id, e.description]));
+
+  for (const line of miscLedgerLines2) {
+    const desc = (line.memo || entryMap2.get(line.entryId) || "").toLowerCase();
+    if (desc.includes("north country janito")) {
+      await db.update(ledgerLines)
+        .set({ accountId: repairAccount[0].id })
+        .where(eq(ledgerLines.id, line.lineId));
+    }
+  }
+
+  await db.insert(aiInferenceLogs).values({
+    promptVersion: "janitorial_reclassification_v1",
+    rawInput: `Reclassified ${count} North Country Janitorial transactions from misc/supplies to Repairs & Maintenance (6070)`,
+    logicSummary: `Completed. ${count} janitorial txns → 6070`,
+    confidenceScore: 1.0,
+    anomalyFlag: false,
+  });
+
+  console.log(`[JanitorialFix] Reclassified ${count} janitorial transactions to 6070 Repairs & Maintenance`);
+  return count;
 }

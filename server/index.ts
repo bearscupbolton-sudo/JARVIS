@@ -89,7 +89,7 @@ app.use((req, res, next) => {
       console.error("[Accounting] COA seed failed:", err);
     }
 
-    import("./reconciler").then(async ({ startPlaceholderTTLWorker, reclassifyLaborExpenses, seedLaborLearningRules }) => {
+    import("./reconciler").then(async ({ startPlaceholderTTLWorker, reclassifyLaborExpenses, seedLaborLearningRules, reclassifyJanitorialExpenses }) => {
       startPlaceholderTTLWorker();
       try {
         await seedLaborLearningRules();
@@ -100,6 +100,11 @@ app.use((req, res, next) => {
         await reclassifyLaborExpenses();
       } catch (err) {
         console.error("[LaborFix] Reclassification failed:", err);
+      }
+      try {
+        await reclassifyJanitorialExpenses();
+      } catch (err) {
+        console.error("[JanitorialFix] Reclassification failed:", err);
       }
     });
   });
