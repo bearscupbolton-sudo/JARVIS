@@ -377,36 +377,36 @@ export default function TheFirm() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex items-center gap-2">
-          <TabsList className="inline-flex gap-1" data-testid="tabs-firm">
+          <TabsList className="inline-flex gap-1 flex-wrap" data-testid="tabs-firm">
             <TabsTrigger value="overview" className="whitespace-nowrap px-3 text-xs" data-testid="tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="compliance" className="whitespace-nowrap px-3 text-xs" data-testid="tab-compliance">Compliance</TabsTrigger>
             <TabsTrigger value="reports" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reports">Reports</TabsTrigger>
             <TabsTrigger value="ledger" className="whitespace-nowrap px-3 text-xs" data-testid="tab-ledger">Ledger</TabsTrigger>
-            <TabsTrigger value="reconcile" className="whitespace-nowrap px-3 text-xs" data-testid="tab-reconcile">Reconcile</TabsTrigger>
+            <TabsTrigger value="assets" className="whitespace-nowrap px-3 text-xs" data-testid="tab-assets">Assets</TabsTrigger>
+            <TabsTrigger value="obligations" className="whitespace-nowrap px-3 text-xs" data-testid="tab-obligations">Obligations</TabsTrigger>
+            <TabsTrigger value="prepaids" className="whitespace-nowrap px-3 text-xs" data-testid="tab-prepaids">Prepaids</TabsTrigger>
           </TabsList>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant={["coa","accounts","vendors","transfers","compliance","obligations","payroll","cash","sales-tax","donations","prepaids","assets","reimbursements","tax-dna"].includes(activeTab) ? "default" : "outline"}
+                variant={["coa","accounts","vendors","transfers","reconcile","payroll","cash","sales-tax","donations","reimbursements","tax-dna"].includes(activeTab) ? "default" : "outline"}
                 size="sm"
                 className="text-xs gap-1"
                 data-testid="tab-setup-dropdown"
               >
-                <Settings className="w-3.5 h-3.5" /> Setup <ChevronDown className="w-3 h-3" />
+                <Settings className="w-3.5 h-3.5" /> More <ChevronDown className="w-3 h-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48" data-testid="setup-dropdown-content">
+              <DropdownMenuItem onClick={() => setActiveTab("reconcile")} data-testid="setup-item-reconcile">Reconcile</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("coa")} data-testid="setup-item-coa">Chart of Accounts</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("accounts")} data-testid="setup-item-accounts">Accounts</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("vendors")} data-testid="setup-item-vendors">Vendors</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("transfers")} data-testid="setup-item-transfers">Transfers</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setActiveTab("compliance")} data-testid="setup-item-compliance">Compliance</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setActiveTab("obligations")} data-testid="setup-item-obligations">Obligations</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("payroll")} data-testid="setup-item-payroll">Payroll</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("cash")} data-testid="setup-item-cash">Cash</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("sales-tax")} data-testid="setup-item-sales-tax">Sales Tax</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("donations")} data-testid="setup-item-donations">Donations</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setActiveTab("prepaids")} data-testid="setup-item-prepaids">Prepaids</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setActiveTab("assets")} data-testid="setup-item-assets">Assets</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("reimbursements")} data-testid="setup-item-reimbursements">Reimbursements</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveTab("tax-dna")} data-testid="setup-item-tax-dna">Tax DNA</DropdownMenuItem>
             </DropdownMenuContent>
