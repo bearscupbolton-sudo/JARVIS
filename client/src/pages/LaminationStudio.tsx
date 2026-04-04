@@ -211,6 +211,9 @@ export default function LaminationStudio() {
   const [bakeBoxCount, setBakeBoxCount] = useState("");
   const [showPastryGuide, setShowPastryGuide] = useState(false);
   const [guideSection, setGuideSection] = useState<"dough" | "butter" | "lamination" | "shaping" | "bakeoff">("dough");
+  const [quickAddBox, setQuickAddBox] = useState<"box1" | "box2" | null>(null);
+  const [quickAddPastry, setQuickAddPastry] = useState("");
+  const [quickAddPieces, setQuickAddPieces] = useState("");
 
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogItem, setQuickLogItem] = useState("");
@@ -1080,6 +1083,41 @@ export default function LaminationStudio() {
     });
   };
 
+  const handleQuickAddToBox = () => {
+    if (!quickAddBox || !quickAddPastry.trim() || !quickAddPieces) return;
+    const pieces = parseInt(quickAddPieces);
+    if (isNaN(pieces) || pieces <= 0) return;
+
+    const now = new Date();
+    const readyAt = new Date(now);
+    readyAt.setDate(readyAt.getDate() + 1);
+    readyAt.setHours(5, 30, 0, 0);
+
+    apiRequest("POST", "/api/lamination", {
+      date: now.toISOString().split("T")[0],
+      doughType: "Direct Add",
+      pastryType: quickAddPastry.trim(),
+      status: quickAddBox,
+      retarderBox: quickAddBox,
+      boxProgramConfirmed: false,
+      boxReadyAt: readyAt.toISOString(),
+      proofStartedAt: now.toISOString(),
+      proofPieces: pieces,
+      totalPieces: pieces,
+      shapings: [{ pastryType: quickAddPastry.trim(), pieces }],
+    }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+      toast({
+        title: `Added to ${quickAddBox === "box1" ? "Box 1" : "Box 2"}`,
+        description: `${pieces} ${quickAddPastry.trim()} — Ready ${format(readyAt, "EEE h:mm a")}`,
+      });
+      setQuickAddBox(null);
+      setQuickAddPastry("");
+      setQuickAddPieces("");
+    });
+  };
+
   const handleTrashDough = () => {
     if (!trashDough || !trashReason.trim()) return;
     const now = new Date().toISOString();
@@ -1869,11 +1907,10 @@ export default function LaminationStudio() {
         </div>
       )}
 
-      {(box1Doughs.length > 0 || box2Doughs.length > 0 || proofingDoughs.length > 0) && (
-        <div>
-          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
-            <Thermometer className="w-5 h-5 text-amber-600" />
-            Retarder Proofers
+      <div>
+        <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
+          <Thermometer className="w-5 h-5 text-amber-600" />
+          Retarder Proofers
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {(["box1", "box2", "box3"] as const).map(boxKey => {
@@ -1904,7 +1941,20 @@ export default function LaminationStudio() {
                   </CardHeader>
                   <CardContent className="p-4">
                     {boxDoughs.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-6 text-sm">Box Empty</p>
+                      <div className="text-center py-4 space-y-2">
+                        <p className="text-muted-foreground text-sm">Box Empty</p>
+                        {!isGrayedOut && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => { setQuickAddBox(boxKey as "box1" | "box2"); setQuickAddPastry(""); setQuickAddPieces(""); }}
+                            data-testid={`button-quickadd-empty-${boxKey}`}
+                          >
+                            <Plus className="w-4 h-4 mr-1" />
+                            Add Items
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <div className="space-y-3">
                         <div className="space-y-1.5">
@@ -1968,16 +2018,28 @@ export default function LaminationStudio() {
                         )}
 
                         {!isGrayedOut && (
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            size="sm"
-                            onClick={() => { setBakeFromBox(boxKey as "box1" | "box2"); setBakeBoxPastry(null); setBakeBoxCount(""); }}
-                            data-testid={`button-bakeoff-${boxKey}`}
-                          >
-                            <Flame className="w-4 h-4 mr-1 text-orange-600" />
-                            Bake Off
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              size="sm"
+                              onClick={() => { setQuickAddBox(boxKey as "box1" | "box2"); setQuickAddPastry(""); setQuickAddPieces(""); }}
+                              data-testid={`button-quickadd-${boxKey}`}
+                            >
+                              <Plus className="w-4 h-4 mr-1" />
+                              Add
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              size="sm"
+                              onClick={() => { setBakeFromBox(boxKey as "box1" | "box2"); setBakeBoxPastry(null); setBakeBoxCount(""); }}
+                              data-testid={`button-bakeoff-${boxKey}`}
+                            >
+                              <Flame className="w-4 h-4 mr-1 text-orange-600" />
+                              Bake Off
+                            </Button>
+                          </div>
                         )}
                       </div>
                     )}
@@ -1986,8 +2048,7 @@ export default function LaminationStudio() {
               );
             })}
           </div>
-        </div>
-      )}
+      </div>
 
       {/* Legacy Proof Box — items not yet assigned to a retarder box */}
       {proofingDoughs.filter(d => d.retarderBox).length > 0 && (
@@ -3571,6 +3632,64 @@ export default function LaminationStudio() {
                 </div>
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!quickAddBox} onOpenChange={(open) => { if (!open) { setQuickAddBox(null); setQuickAddPastry(""); setQuickAddPieces(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              Add to {quickAddBox === "box1" ? "Box 1" : "Box 2"}
+            </DialogTitle>
+            <DialogDescription>Add items directly — no freezer dough required</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Pastry type</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {["Plain Croissant", "Chocolate Croissant", "Bearclaw", "Cinnamon Roll", "Cheese Danish", "Apple Nest", "Spinach Feta", "Banana Nutella", "Banoffee"].map(p => (
+                  <Button
+                    key={p}
+                    variant={quickAddPastry === p ? "default" : "outline"}
+                    size="sm"
+                    className="text-xs h-7"
+                    onClick={() => setQuickAddPastry(p)}
+                    data-testid={`quickadd-type-${p.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    {p}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                placeholder="Or type a custom name..."
+                value={quickAddPastry}
+                onChange={(e) => setQuickAddPastry(e.target.value)}
+                data-testid="input-quickadd-pastry"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">How many pieces?</label>
+              <Input
+                type="number"
+                min="1"
+                value={quickAddPieces}
+                onChange={(e) => setQuickAddPieces(e.target.value)}
+                placeholder="e.g. 12"
+                data-testid="input-quickadd-pieces"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setQuickAddBox(null); setQuickAddPastry(""); setQuickAddPieces(""); }}>Cancel</Button>
+              <Button
+                onClick={handleQuickAddToBox}
+                disabled={!quickAddPastry.trim() || !quickAddPieces || parseInt(quickAddPieces) <= 0}
+                data-testid="button-confirm-quickadd"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add to {quickAddBox === "box1" ? "Box 1" : "Box 2"}
+              </Button>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
