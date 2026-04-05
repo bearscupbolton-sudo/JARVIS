@@ -185,7 +185,15 @@ export async function searchAcrossAccounts(query: string, maxPerAccount: number 
 
       return accountResults;
     } catch (e: any) {
-      console.warn(`[GmailMulti] Failed to search ${cred.email}:`, e.message);
+      const isGrantError = e.message?.includes("invalid_grant") || e.response?.data?.error === "invalid_grant";
+      if (isGrantError) {
+        console.error(`[GmailMulti] Token expired for ${cred.email} — marking as needs re-auth`);
+        await db.update(gmailCredentials)
+          .set({ isActive: false })
+          .where(eq(gmailCredentials.id, cred.id));
+      } else {
+        console.warn(`[GmailMulti] Failed to search ${cred.email}:`, e.message);
+      }
       failedAccounts.push(cred.email);
       return [];
     }
@@ -225,13 +233,16 @@ export async function getMessageAttachmentDetails(
   return findAttachments(detail.data.payload);
 }
 
-export async function getConnectedAccounts(): Promise<{ email: string; isActive: boolean; lastSyncedAt: Date | null }[]> {
+export async function getConnectedAccounts(): Promise<{ email: string; isActive: boolean; lastSyncedAt: Date | null; needsReauth: boolean }[]> {
   const creds = await db.select({
     email: gmailCredentials.email,
     isActive: gmailCredentials.isActive,
     lastSyncedAt: gmailCredentials.lastSyncedAt,
   }).from(gmailCredentials);
-  return creds;
+  return creds.map(c => ({
+    ...c,
+    needsReauth: !c.isActive,
+  }));
 }
 
 export async function removeAccount(email: string): Promise<void> {

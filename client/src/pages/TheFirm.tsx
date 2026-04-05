@@ -1463,7 +1463,7 @@ function NetCashHero({ onNavigate }: { onNavigate: (tab: string, accountId?: num
 function GmailAccountsSection() {
   const { toast } = useToast();
 
-  const { data: gmailAccounts, isLoading } = useQuery<{ email: string }[]>({
+  const { data: gmailAccounts, isLoading } = useQuery<{ email: string; isActive: boolean; needsReauth: boolean; lastSyncedAt: string | null }[]>({
     queryKey: ["/api/firm/gmail/accounts"],
   });
 
@@ -1511,23 +1511,43 @@ function GmailAccountsSection() {
       {!isLoading && Array.isArray(gmailAccounts) && gmailAccounts.length > 0 && (
         <div className="space-y-2">
           {gmailAccounts.map((acct) => (
-            <Card key={acct.email} data-testid={`card-gmail-${acct.email}`}>
+            <Card key={acct.email} data-testid={`card-gmail-${acct.email}`} className={acct.needsReauth ? "border-destructive/50 bg-destructive/5" : ""}>
               <CardContent className="p-3 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-red-500" />
-                  <span className="font-medium text-sm" data-testid={`text-gmail-email-${acct.email}`}>{acct.email}</span>
+                  <Mail className={`w-4 h-4 ${acct.needsReauth ? "text-destructive" : "text-red-500"}`} />
+                  <div>
+                    <span className="font-medium text-sm" data-testid={`text-gmail-email-${acct.email}`}>{acct.email}</span>
+                    {acct.needsReauth && (
+                      <p className="text-xs text-destructive font-medium" data-testid={`text-gmail-reauth-${acct.email}`}>Token expired — needs reconnection</p>
+                    )}
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive h-7"
-                  onClick={() => disconnectMut.mutate(acct.email)}
-                  disabled={disconnectMut.isPending}
-                  data-testid={`button-disconnect-gmail-${acct.email}`}
-                >
-                  {disconnectMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Unlink className="w-3 h-3 mr-1" />}
-                  Disconnect
-                </Button>
+                <div className="flex items-center gap-1">
+                  {acct.needsReauth && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-amber-500 text-amber-700 hover:bg-amber-50"
+                      onClick={() => connectMut.mutate()}
+                      disabled={connectMut.isPending}
+                      data-testid={`button-reauth-gmail-${acct.email}`}
+                    >
+                      {connectMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                      Reconnect
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive h-7"
+                    onClick={() => disconnectMut.mutate(acct.email)}
+                    disabled={disconnectMut.isPending}
+                    data-testid={`button-disconnect-gmail-${acct.email}`}
+                  >
+                    {disconnectMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Unlink className="w-3 h-3 mr-1" />}
+                    Disconnect
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -3031,7 +3051,7 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                 ))}
                 {jarvisResults.failedAccounts?.map((acc: string) => (
                   <Badge key={acc} variant="destructive" className="text-[10px]" data-testid={`badge-failed-${acc}`}>
-                    <AlertTriangle className="w-3 h-3 mr-1" /> {acc}
+                    <AlertTriangle className="w-3 h-3 mr-1" /> {acc} (token expired)
                   </Badge>
                 ))}
               </div>
