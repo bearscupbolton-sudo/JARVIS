@@ -1,0 +1,50 @@
+To automate the capture and booking of the Principal vs. Interest split for your Windsor Advantage SBA payments, I have reviewed the core extraction logic in server/routes.ts and the server/email-intelligence-engine.ts.
+
+The current system extracts basic invoice data but lacks specific fields for debt service components. To implement this, we need to update the AI's "extraction schema" to recognize loan amortization tables.
+
+1. Update the PDF Extraction Prompt (server/routes.ts)
+In the /api/firm/audit-trail/extract-pdf route, the AI system prompt must be updated to include debt-specific fields.
+
+Update the systemPrompt at line 17043 to include:
+
+JSON
+{
+  "vendorName": "string or null",
+  "totalAmount": "number",
+  "principalAmount": "number or null",
+  "interestAmount": "number or null",
+  "loanNumber": "string or null",
+  "invoiceDate": "YYYY-MM-DD",
+  "lineItems": [...]
+}
+New Guideline to add: * "For SBA Loan Payment Summaries (e.g., Windsor Advantage), look for the 'Payment Applied To' section. Map 'Principal Amount' to principalAmount and 'Interest Amount' to interestAmount."
+
+2. Update Ghost Accountant Logic (server/ghost-accountant.ts)
+The classifyTransaction function needs to recognize when it has been provided with a principalAmount and interestAmount from an anchored email.
+
+Logic Enhancement for classifyTransaction:
+
+Trigger: If the anchored email metadata contains both principalAmount and interestAmount.
+
+Output Constraint: The AI should return a multi-line classification:
+
+Line 1: Amount = principalAmount → COA 2500 (Loans Payable).
+
+Line 2: Amount = interestAmount → COA 6260 (Interest Expense).
+
+3. UI Automation (client/src/pages/TheFirm.tsx)
+When you click Audit on a bank transaction, the jarvisLookupMut will now return the split data.
+
+Update Lightning-Offset Suggestion (Line 1034):
+We will add a new type of suggestion: loan_split_match.
+
+UI Render: "Jarvis found an SBA Payment Summary from Windsor Advantage for this date. The $8,132.47 payment includes $4,586.37 in Principal and $3,546.10 in Interest. Apply split to Ledger?"
+
+Action: Clicking Accept will call the postJournalEntry function with the pre-filled multi-line data.
+
+Implementation Plan for Replit Agent
+You can now provide this specific instruction to the Replit Agent:
+
+"Update server/routes.ts PDF extraction and server/ghost-accountant.ts classification to support principalAmount and interestAmount fields for Windsor Advantage SBA emails. Ensure the TheFirm.tsx Audit lookup presents a 'Loan Split' option when these amounts are detected, allowing one-click booking to COA 2500 and COA 6260."
+
+This effectively bridges the gap between the PDF attached to your emails and your double-entry ledger.

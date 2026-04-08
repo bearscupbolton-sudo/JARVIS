@@ -4361,6 +4361,8 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
   const [lightningSuggestion, setLightningSuggestion] = useState<any>(null);
   const [lightningTxnId, setLightningTxnId] = useState<number | null>(null);
   const [lightningLoading, setLightningLoading] = useState<number | null>(null);
+  const [loanPrincipal, setLoanPrincipal] = useState("");
+  const [loanInterest, setLoanInterest] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [unpinnedIds, setUnpinnedIds] = useState<Set<number>>(new Set());
   const [auditLogTxnId, setAuditLogTxnId] = useState<number | null>(null);
@@ -4448,6 +4450,8 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
       if (data.type !== "none") {
         setLightningSuggestion(data);
         setLightningTxnId(txnId);
+        setLoanPrincipal("");
+        setLoanInterest("");
       } else {
         toast({ title: "No template match", description: "No vendor pattern found for this transaction" });
       }
@@ -4836,7 +4840,124 @@ function ReconciliationTab({ startDate, endDate }: { startDate: string; endDate:
                     </div>
                   </div>
                 )}
-                {lightningSuggestion.type !== "project_tag_required" && (
+                {lightningSuggestion.type === "loan_split_match" && (
+                  <div className="space-y-3">
+                    <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800 rounded p-3 text-sm text-violet-700 dark:text-violet-400">
+                      <div className="flex items-start gap-2">
+                        <DollarSign className="w-4 h-4 mt-0.5 shrink-0" />
+                        <div>
+                          <strong>SBA Loan Payment Detected</strong>
+                          <p className="mt-1">{lightningSuggestion.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Principal (→ 2500 Loans Payable)</label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={loanPrincipal}
+                          onChange={(e) => {
+                            setLoanPrincipal(e.target.value);
+                            if (e.target.value && lightningSuggestion.totalAmount) {
+                              const remaining = (lightningSuggestion.totalAmount - parseFloat(e.target.value)).toFixed(2);
+                              if (parseFloat(remaining) >= 0) setLoanInterest(remaining);
+                            }
+                          }}
+                          data-testid="input-loan-principal"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Interest (→ 6260 Interest Expense)</label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={loanInterest}
+                          onChange={(e) => {
+                            setLoanInterest(e.target.value);
+                            if (e.target.value && lightningSuggestion.totalAmount) {
+                              const remaining = (lightningSuggestion.totalAmount - parseFloat(e.target.value)).toFixed(2);
+                              if (parseFloat(remaining) >= 0) setLoanPrincipal(remaining);
+                            }
+                          }}
+                          data-testid="input-loan-interest"
+                        />
+                      </div>
+                    </div>
+                    {loanPrincipal && loanInterest && (
+                      <div className="text-xs text-muted-foreground">
+                        Split total: ${(parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")).toFixed(2)} of ${lightningSuggestion.totalAmount?.toFixed(2)} payment
+                        {Math.abs((parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")) - (lightningSuggestion.totalAmount || 0)) > 0.01 && (
+                          <span className="text-red-500 ml-2">⚠ Does not match total</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={!loanPrincipal || !loanInterest || Math.abs((parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")) - (lightningSuggestion.totalAmount || 0)) > 0.01}
+                        data-testid="button-accept-loan-split"
+                        onClick={async () => {
+                          try {
+                            const bankTxn = unreconciledBank?.find((t: any) => t.id === lightningTxnId);
+                            const txnDate = bankTxn?.date || new Date().toISOString().slice(0, 10);
+                            const principalAmt = parseFloat(loanPrincipal) || 0;
+                            const interestAmt = parseFloat(loanInterest) || 0;
+                            if (principalAmt <= 0 && interestAmt <= 0) {
+                              toast({ title: "Invalid amounts", description: "Enter valid principal and/or interest amounts", variant: "destructive" });
+                              return;
+                            }
+                            const allAccts = await fetch("/api/firm/coa").then(r => r.json());
+                            const acctMap = new Map(allAccts.map((a: any) => [a.code, a.id]));
+                            const loansPayableId = acctMap.get("2500");
+                            const interestExpId = acctMap.get("6260");
+                            const cashId = acctMap.get("1010");
+                            if (!loansPayableId || !interestExpId || !cashId) {
+                              toast({ title: "Missing COA accounts", description: "Ensure accounts 2500, 6260, and 1010 exist", variant: "destructive" });
+                              return;
+                            }
+                            const lines: any[] = [];
+                            if (principalAmt > 0) {
+                              lines.push({ accountId: loansPayableId, debit: principalAmt, credit: 0, memo: `SBA Loan Principal: ${bankTxn?.description || ""}` });
+                            }
+                            if (interestAmt > 0) {
+                              lines.push({ accountId: interestExpId, debit: interestAmt, credit: 0, memo: `SBA Loan Interest: ${bankTxn?.description || ""}` });
+                            }
+                            lines.push({ accountId: cashId, debit: 0, credit: principalAmt + interestAmt, memo: null });
+                            if (lines.length < 2) {
+                              toast({ title: "Invalid split", description: "At least one of principal or interest must be greater than zero", variant: "destructive" });
+                              return;
+                            }
+                            await apiRequest("POST", "/api/firm/journal", {
+                              transactionDate: txnDate,
+                              description: `SBA Loan Payment — Principal $${principalAmt.toFixed(2)} / Interest $${interestAmt.toFixed(2)}`,
+                              referenceType: "bank_txn",
+                              referenceId: String(lightningTxnId),
+                              lines,
+                              skipInference: true,
+                            });
+                            markBankReconciled(lightningTxnId);
+                            setLightningSuggestion(null);
+                            setLightningTxnId(null);
+                            setLoanPrincipal("");
+                            setLoanInterest("");
+                            queryClient.invalidateQueries({ queryKey: ["/api/firm/journal/entries"] });
+                            toast({ title: "SBA Loan Split Booked", description: `Principal $${principalAmt.toFixed(2)} → 2500 | Interest $${interestAmt.toFixed(2)} → 6260` });
+                          } catch (err: any) {
+                            toast({ title: "Failed to post split JE", description: err.message, variant: "destructive" });
+                          }
+                        }}
+                      >
+                        <Check className="w-3.5 h-3.5 mr-1" /> Book Split & Reconcile
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setLightningSuggestion(null); setLightningTxnId(null); setLoanPrincipal(""); setLoanInterest(""); }} data-testid="button-dismiss-loan-split">Dismiss</Button>
+                    </div>
+                  </div>
+                )}
+                {lightningSuggestion.type !== "project_tag_required" && lightningSuggestion.type !== "loan_split_match" && (
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => { markBankReconciled(lightningTxnId); setLightningSuggestion(null); setLightningTxnId(null); }} data-testid="button-accept-lightning">
                     <Check className="w-3.5 h-3.5 mr-1" /> Accept & Reconcile

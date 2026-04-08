@@ -51,6 +51,11 @@ CRITICAL LABOR CLASSIFICATION RULES:
 - Tax deposits to IRS (EFTPS), state tax agencies, FUTA, SUTA, FICA, withholding → 6020 (Labor - Payroll Tax).
 - Do NOT classify labor/payroll transactions under 6090 (Miscellaneous) or 6100 (Professional Services).
 
+SBA LOAN / DEBT SERVICE RULES:
+- Windsor Advantage, SBA, CDC loan payments → classify as 2500 (Loans Payable) for principal reduction.
+- If the description clearly references interest (e.g., "interest", "int pmt"), classify as 6260 (Other Interest Expense).
+- For combined loan payments where principal/interest split is unknown, classify the total as 2500 and set logicSummary to note that a principal/interest split should be applied via the audit trail.
+
 Chart of Accounts:
 ${coaList}
 

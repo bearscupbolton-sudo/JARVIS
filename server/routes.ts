@@ -14710,6 +14710,23 @@ IMPORTANT GUIDELINES:
         placeholderMatch = await findPlaceholderMatch(description, Math.abs(amount || 0));
       }
 
+      const loanPatterns = /windsor\s*advantage|sba\s*(loan|pmt|payment)|cdc.*504|504.*loan/i;
+      if (loanPatterns.test(description) && (amount || 0) < 0) {
+        res.json({
+          type: "loan_split_match",
+          debitCode: "2500",
+          debitName: "Loans Payable (Principal)",
+          creditCode: "1010",
+          creditName: "Operating Cash",
+          interestCode: "6260",
+          interestName: "Other Interest Expense",
+          confidence: 0.9,
+          message: `Jarvis detected an SBA loan payment ($${Math.abs(amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}). Enter the principal/interest split from your Windsor Advantage statement to book correctly.`,
+          totalAmount: Math.abs(amount || 0),
+        });
+        return;
+      }
+
       const { isCapExCandidate } = await import("./asset-engine");
       const capExFlag = isCapExCandidate(description, Math.abs(amount || 0));
 
@@ -15626,10 +15643,14 @@ Return JSON:
   "invoiceDate": "YYYY-MM-DD" or null,
   "invoiceNumber": string or null,
   "orderNumber": string or null,
+  "principalAmount": number or null,
+  "interestAmount": number or null,
+  "loanNumber": string or null,
   "lineItems": [{"description": string, "quantity": number, "unitPrice": number, "total": number}] or [],
   "confidence": number (0-1)
 }
-Focus on the final total, not subtotals or tax lines. Date format must be YYYY-MM-DD.`,
+Focus on the final total, not subtotals or tax lines. Date format must be YYYY-MM-DD.
+For SBA Loan Payment Summaries (e.g., Windsor Advantage, SBA, CDC), look for the "Payment Applied To" section or amortization breakdown. Map "Principal Amount" or "Principal" to principalAmount and "Interest Amount" or "Interest" to interestAmount. The loanNumber field should capture any loan/note reference number.`,
             },
             { role: "user", content: `Extracted Text:\n${extractedText.substring(0, 8000)}` },
           ],
