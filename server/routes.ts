@@ -1415,9 +1415,16 @@ FORMAT RULES for the content field:
       }
       if (photoUrls.length > 0) (input as any).photos = photoUrls;
 
+      const user = await getUserFromReq(req);
+      if (user) {
+        (input as any).reportedById = user.id;
+        if (!input.reportedBy) {
+          (input as any).reportedBy = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
+        }
+      }
+
       const problem = await storage.createProblem(input);
 
-      const user = await getUserFromReq(req);
       const authorName = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username : (input.reportedBy || "System");
       try {
         await storage.createProblemNote({
@@ -1491,6 +1498,41 @@ FORMAT RULES for the content field:
       }
 
       const problem = await storage.updateProblem(Number(req.params.id), input);
+
+      if (input.status === "resolved" && existing.status !== "resolved" && existing.reportedById) {
+        const user = await getUserFromReq(req);
+        const closedByName = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username : "Someone";
+        if (!user || user.id !== existing.reportedById) {
+          try {
+            const [msg] = await db.insert(directMessages).values({
+              senderId: user?.id || "system",
+              subject: "Problem Resolved",
+              body: `Your problem **"${existing.title}"** has been marked as resolved by ${closedByName}.\n\nCheck the Maintenance hub for details.`,
+              priority: "normal",
+              requiresAck: false,
+            }).returning();
+            await db.insert(messageRecipients).values({
+              messageId: msg.id,
+              userId: existing.reportedById,
+              read: false,
+              acknowledged: false,
+              pinned: false,
+              archived: false,
+            });
+            try {
+              const { sendPushToUser } = await import("./push");
+              await sendPushToUser(existing.reportedById, {
+                title: "Problem Resolved",
+                body: `"${existing.title}" has been resolved`,
+                url: "/maintenance",
+              });
+            } catch {}
+          } catch (notifErr) {
+            console.error("Failed to notify reporter of resolution:", notifErr);
+          }
+        }
+      }
+
       res.json(problem);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -1533,11 +1575,42 @@ FORMAT RULES for the content field:
       photos: photoUrls.length > 0 ? photoUrls : undefined,
     });
 
-    if (photoUrls.length > 0) {
-      const existing = await storage.getProblem(Number(req.params.id));
-      if (existing) {
-        const allPhotos = [...(existing.photos || []), ...photoUrls];
+    const problem = await storage.getProblem(Number(req.params.id));
+    if (problem) {
+      if (photoUrls.length > 0) {
+        const allPhotos = [...(problem.photos || []), ...photoUrls];
         await storage.updateProblem(Number(req.params.id), { photos: allPhotos } as any);
+      }
+
+      if (problem.reportedById && problem.reportedById !== user.id) {
+        const authorDisplayName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
+        try {
+          const [msg] = await db.insert(directMessages).values({
+            senderId: user.id,
+            subject: "Problem Updated",
+            body: `**${authorDisplayName}** added a note to your problem **"${problem.title}"**:\n\n${(req.body.content || "").substring(0, 200)}${photoUrls.length > 0 ? `\n\n(${photoUrls.length} photo${photoUrls.length > 1 ? "s" : ""} attached)` : ""}\n\nCheck the Maintenance hub for details.`,
+            priority: "normal",
+            requiresAck: false,
+          }).returning();
+          await db.insert(messageRecipients).values({
+            messageId: msg.id,
+            userId: problem.reportedById,
+            read: false,
+            acknowledged: false,
+            pinned: false,
+            archived: false,
+          });
+          try {
+            const { sendPushToUser } = await import("./push");
+            await sendPushToUser(problem.reportedById, {
+              title: "Problem Updated",
+              body: `Note added to "${problem.title}"`,
+              url: "/maintenance",
+            });
+          } catch {}
+        } catch (notifErr) {
+          console.error("Failed to notify reporter of note:", notifErr);
+        }
       }
     }
 

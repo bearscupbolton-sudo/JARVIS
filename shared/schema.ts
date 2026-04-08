@@ -95,6 +95,7 @@ export const problems = pgTable("problems", {
   severity: text("severity").notNull(),
   location: text("location"),
   reportedBy: text("reported_by"),
+  reportedById: text("reported_by_id"),
   notes: text("notes"),
   completed: boolean("completed").default(false).notNull(),
   status: text("status").default("open").notNull(),
