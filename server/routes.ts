@@ -14710,7 +14710,7 @@ IMPORTANT GUIDELINES:
         placeholderMatch = await findPlaceholderMatch(description, Math.abs(amount || 0));
       }
 
-      const loanPatterns = /windsor\s*advantage|sba\s*(loan|pmt|payment)|cdc.*504|504.*loan/i;
+      const loanPatterns = /windsor\s*advantage|sba\s*(loan|pmt|payment)|cdc.*504|504.*loan|city\s*national\s*ba/i;
       if (loanPatterns.test(description) && (amount || 0) < 0) {
         res.json({
           type: "loan_split_match",
