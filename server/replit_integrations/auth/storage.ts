@@ -17,7 +17,7 @@ export interface IAuthStorage {
   updateUserProfile(id: string, updates: Partial<User>): Promise<User>;
   updateShiftManager(id: string, isShiftManager: boolean): Promise<User>;
   updateHourlyRate(id: string, hourlyRate: number | null): Promise<User>;
-  updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean): Promise<User>;
+  updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean, laborType?: string): Promise<User>;
   updateUserPin(id: string, pin: string): Promise<void>;
   verifyPin(userId: string, pin: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
@@ -125,10 +125,13 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
-  async updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean): Promise<User> {
+  async updatePayInfo(id: string, payType: string, hourlyRate: number | null, annualSalary: number | null, isCashEmployee?: boolean, laborType?: string): Promise<User> {
     const updates: Partial<typeof users.$inferInsert> = { payType, hourlyRate, annualSalary, updatedAt: new Date() };
     if (isCashEmployee !== undefined) {
       updates.isCashEmployee = isCashEmployee;
+    }
+    if (laborType === "direct" || laborType === "indirect") {
+      updates.laborType = laborType;
     }
     const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     return user;

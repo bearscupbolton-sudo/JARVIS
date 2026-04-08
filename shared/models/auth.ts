@@ -58,6 +58,7 @@ export const users = pgTable("users", {
   demoMode: boolean("demo_mode").default(false).notNull(),
   seenJarvisIntro: boolean("seen_jarvis_intro").default(false).notNull(),
   isCashEmployee: boolean("is_cash_employee").default(false).notNull(),
+  laborType: varchar("labor_type").default("indirect").notNull(),
   globalAckRequired: boolean("global_ack_required").default(false).notNull(),
   globalAckMessage: text("global_ack_message"),
   interests: jsonb("interests").$type<string[]>().default([]),

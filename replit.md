@@ -54,7 +54,8 @@ The application is structured as a monorepo, featuring a React 18 frontend built
 
 Rolling accrual model that calculates real-time labor costs from clock-in/clock-out records:
 
-*   **`compileLiveLabor(startDate, endDate)`** in `server/payroll-compiler.ts`: Lightweight version of `compilePayroll` that treats null clock-outs as "now" (active shift burn). No Square sync overhead.
+*   **Direct vs Indirect Labor**: Each employee has a `laborType` field ("direct" or "indirect", default "indirect"). Direct employees' wages accrue to COGS account `5040` (COGS - Direct Labor), indirect to `6010` (Labor - Wages). Set via Team → Compensation → Labor Classification toggle. Payroll tax split uses `5050` (COGS - Direct Labor Tax) vs `6020` (Labor - Payroll Tax).
+*   **`compileLiveLabor(startDate, endDate)`** in `server/payroll-compiler.ts`: Lightweight version of `compilePayroll` that treats null clock-outs as "now" (active shift burn). No Square sync overhead. Returns `laborType` per employee for COGS/OpEx split.
 *   **Two-Week Cash Drag**: Liquidity route (`/api/firm/liquidity`) calculates prior week (Wed-Tue) + current week (Wed-today) labor liability. Both reduce "True Spendable" cash.
 *   **Friday Flush**: When a reconciled `labor` or `payroll` transaction in `firm_transactions` is detected since the prior Wednesday, the prior week's accrual zeros out — cash "jumps" as the bank balance reflects the actual payroll debit.
 *   **P&L Accrual Injection**: `/api/firm/reports/pnl?includeAccruals=true` dynamically appends live labor cost to the 6010 line, deduplicating against already-posted accrual JEs.

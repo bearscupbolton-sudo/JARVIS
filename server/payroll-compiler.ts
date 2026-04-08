@@ -22,6 +22,7 @@ export interface EmployeePayLine {
   departmentBreakdown: Record<string, number>;
   grossEstimate: number;
   isCashEmployee: boolean;
+  laborType: "direct" | "indirect";
   flags: PayrollFlag[];
   isOwner: boolean;
 }
@@ -409,6 +410,7 @@ export async function compilePayroll(
       departmentBreakdown: departmentHours,
       grossEstimate: Math.round(grossEstimate * 100) / 100,
       isCashEmployee: user.isCashEmployee,
+      laborType: (user.laborType === "direct" ? "direct" : "indirect") as "direct" | "indirect",
       flags,
       isOwner: user.role === "owner",
     });
@@ -508,6 +510,7 @@ export async function compilePayroll(
       departmentBreakdown: {},
       grossEstimate: tipAmount,
       isCashEmployee: tipUser.isCashEmployee,
+      laborType: (tipUser.laborType === "direct" ? "direct" : "indirect") as "direct" | "indirect",
       flags: [],
       isOwner: tipUser.role === "owner",
     });
@@ -552,6 +555,7 @@ export interface LiveLaborLine {
   grossEstimate: number;
   isOwner: boolean;
   isOnShift: boolean;
+  laborType: "direct" | "indirect";
 }
 
 export interface LiveLaborSnapshot {
@@ -680,6 +684,7 @@ export async function compileLiveLabor(
       grossEstimate,
       isOwner,
       isOnShift,
+      laborType: (user.laborType === "direct" ? "direct" : "indirect") as "direct" | "indirect",
     });
   }
 

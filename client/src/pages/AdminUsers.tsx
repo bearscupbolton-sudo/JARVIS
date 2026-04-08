@@ -571,6 +571,7 @@ function UserDetailDialog({
   const [hourlyRate, setHourlyRate] = useState((u as any).hourlyRate?.toString() || "");
   const [annualSalary, setAnnualSalary] = useState((u as any).annualSalary?.toString() || "");
   const [isCashEmployee, setIsCashEmployee] = useState<boolean>((u as any).isCashEmployee || false);
+  const [laborType, setLaborType] = useState<"direct" | "indirect">((u as any).laborType || "indirect");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const currentPerms: string[] | null = (u as any).sidebarPermissions ?? null;
@@ -618,6 +619,7 @@ function UserDetailDialog({
         hourlyRate: hourlyRate === "" ? null : parseFloat(hourlyRate),
         annualSalary: annualSalary === "" ? null : parseFloat(annualSalary),
         isCashEmployee,
+        laborType,
       });
     },
     onSuccess: () => {
@@ -1100,6 +1102,30 @@ function UserDetailDialog({
                     />
                   </div>
                 )}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-muted-foreground">Labor Classification</span>
+                    <p className="text-[10px] text-muted-foreground/70">Direct = COGS, Indirect = Operating Expense</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${laborType === "direct" ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                      onClick={() => setLaborType("direct")}
+                      data-testid={`button-labor-direct-${u.id}`}
+                    >
+                      Direct
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${laborType === "indirect" ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                      onClick={() => setLaborType("indirect")}
+                      data-testid={`button-labor-indirect-${u.id}`}
+                    >
+                      Indirect
+                    </button>
+                  </div>
+                </div>
                 {payType === "hourly" ? (
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground w-16">$/hour</span>

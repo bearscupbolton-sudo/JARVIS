@@ -36,6 +36,8 @@ export const DEFAULT_COA = [
   { code: "5010", name: "COGS - Food & Ingredients", type: "Expense", category: "COGS", laymanDescription: "Money spent on flour, butter, yeast, and other ingredients to make our products. This is your ingredient burn rate." },
   { code: "5020", name: "COGS - Packaging & Supplies", type: "Expense", category: "COGS", laymanDescription: "Boxes, bags, tissue paper, stickers — everything that wraps and presents your baked goods to the customer." },
   { code: "5030", name: "COGS - Beverages", type: "Expense", category: "COGS", laymanDescription: "Coffee beans, milk, syrups, tea — the raw materials for every drink you pour." },
+  { code: "5040", name: "COGS - Direct Labor", type: "Expense", category: "COGS", laymanDescription: "Wages for production employees who directly make the products — bakers, shapers, lamination. Their labor is a direct cost of goods sold." },
+  { code: "5050", name: "COGS - Direct Labor Tax", type: "Expense", category: "COGS", laymanDescription: "Payroll taxes on direct labor employees — the government's cut on top of production wages. Approximately 10-12% of direct labor wages." },
   { code: "6000", name: "Operating Expenses", type: "Expense", category: "Operating", laymanDescription: "All the costs of running the bakery that aren't ingredients. Rent, labor, insurance — the overhead that keeps the lights on." },
   { code: "6010", name: "Labor - Wages", type: "Expense", category: "Operating", laymanDescription: "Straight pay for our team's hours worked, as recorded in the time-clock. The single biggest controllable cost." },
   { code: "6015", name: "Labor - Cash/Off-book", type: "Expense", category: "Operating", laymanDescription: "Cash payroll paid from the register — the Baker's Truth layer. Shows real labor cost before it hits the bank. Only visible in the internal P&L." },
@@ -445,7 +447,7 @@ export async function getProfitAndLoss(startDate: string, endDate: string, layer
         if (liveLabor.totalGross > 0) {
           const { db } = await import("./db");
           const { journalEntries, ledgerLines: ll, chartOfAccounts: coa } = await import("@shared/schema");
-          const { eq, and, gte, lte, sql: sqlFn } = await import("drizzle-orm");
+          const { eq, and, gte, lte, sql: sqlFn, inArray: inArrayFn } = await import("drizzle-orm");
 
           const accrualJEs = await db.select({ id: journalEntries.id })
             .from(journalEntries)
@@ -457,39 +459,81 @@ export async function getProfitAndLoss(startDate: string, endDate: string, layer
               )
             );
 
-          let postedAccrualAmount = 0;
+          let postedIndirectAmount = 0;
+          let postedDirectAmount = 0;
           if (accrualJEs.length > 0) {
             const accrualIds = accrualJEs.map(j => j.id);
-            const laborAcctRow = await db.select({ id: coa.id }).from(coa).where(eq(coa.code, "6010")).limit(1);
-            if (laborAcctRow.length > 0) {
+            const laborAccts = await db.select({ id: coa.id, code: coa.code }).from(coa)
+              .where(inArrayFn(coa.code, ["6010", "5040"]));
+            const indirectAcctId = laborAccts.find(a => a.code === "6010")?.id;
+            const directAcctId = laborAccts.find(a => a.code === "5040")?.id;
+
+            for (const acct of [{ id: indirectAcctId, target: "indirect" }, { id: directAcctId, target: "direct" }]) {
+              if (!acct.id) continue;
               const accrualLines = await db.select().from(ll)
                 .where(
                   and(
-                    eq(ll.accountId, laborAcctRow[0].id),
+                    eq(ll.accountId, acct.id),
                     sqlFn`${ll.entryId} = ANY(${accrualIds})`
                   )
                 );
-              postedAccrualAmount = accrualLines.reduce((s, l) => s + (Number(l.debit) - Number(l.credit)), 0);
+              const total = accrualLines.reduce((s, l) => s + (Number(l.debit) - Number(l.credit)), 0);
+              if (acct.target === "indirect") postedIndirectAmount = total;
+              else postedDirectAmount = total;
             }
           }
 
-          const liveAmount = liveLabor.totalGross;
-          const additionalAccrual = Math.max(0, liveAmount - postedAccrualAmount);
-          const laborCode = "6010";
-          const existingLabor = operatingExpenses.find(e => e.accountCode === laborCode);
+          const directGross = liveLabor.employees
+            .filter(e => e.laborType === "direct")
+            .reduce((s, e) => s + e.grossEstimate, 0);
+          const indirectGross = liveLabor.totalGross - directGross;
 
-          if (additionalAccrual > 0.01 && existingLabor) {
-            existingLabor.amount += additionalAccrual;
-            existingLabor.totalDebit += additionalAccrual;
+          const additionalIndirect = Math.max(0, indirectGross - postedIndirectAmount);
+          const additionalDirect = Math.max(0, directGross - postedDirectAmount);
+
+          if (additionalIndirect > 0.01) {
+            const existingLabor = operatingExpenses.find(e => e.accountCode === "6010");
+            if (existingLabor) {
+              existingLabor.amount += additionalIndirect;
+              existingLabor.totalDebit += additionalIndirect;
+            } else {
+              operatingExpenses.push({
+                accountCode: "6010",
+                accountName: "Labor - Wages",
+                accountType: "Expense",
+                accountCategory: "Operating",
+                totalDebit: additionalIndirect,
+                totalCredit: 0,
+                amount: additionalIndirect,
+              } as any);
+            }
+          }
+          if (additionalDirect > 0.01) {
+            const existingDirectLabor = cogs.find(e => e.accountCode === "5040");
+            if (existingDirectLabor) {
+              existingDirectLabor.amount += additionalDirect;
+              existingDirectLabor.totalDebit += additionalDirect;
+            } else {
+              cogs.push({
+                accountCode: "5040",
+                accountName: "COGS - Direct Labor",
+                accountType: "Expense",
+                accountCategory: "COGS",
+                totalDebit: additionalDirect,
+                totalCredit: 0,
+                amount: additionalDirect,
+              } as any);
+            }
           }
 
           laborAccrual = {
-            amount: Math.round(liveAmount * 100) / 100,
+            amount: Math.round(liveLabor.totalGross * 100) / 100,
             employees: liveLabor.employees.map(e => ({
               name: `${e.firstName} ${e.lastName}`.trim(),
               gross: e.grossEstimate,
               hours: e.hoursWorked,
               isOnShift: e.isOnShift,
+              laborType: e.laborType,
             })),
             activeShifts: liveLabor.activeShiftCount,
             asOf: liveLabor.asOf,

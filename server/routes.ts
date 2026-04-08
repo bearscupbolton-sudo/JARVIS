@@ -15102,10 +15102,11 @@ IMPORTANT GUIDELINES:
           }
 
           if (pendingLaborCost > 0) {
-            const laborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+            const indirectLaborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "6010")).limit(1);
+            const directLaborAcct = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "5040")).limit(1);
             const payrollLiab = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.code, "2100")).limit(1);
 
-            if (laborAcct.length > 0 && payrollLiab.length > 0) {
+            if (indirectLaborAcct.length > 0 && payrollLiab.length > 0) {
               const existingAccrualJE = await db.select().from(journalEntries)
                 .where(eq(journalEntries.referenceId, refId)).limit(1);
 
@@ -15117,11 +15118,30 @@ IMPORTANT GUIDELINES:
 
               try {
                 const { postJournalEntry } = await import("./accounting-engine");
+                const allEmpsForAccrual = [...currentWeekLabor.employees, ...(fridayFlushed ? [] : prevWeekLabor.employees)];
+                const directGross = allEmpsForAccrual
+                  .filter(e => e.laborType === "direct")
+                  .reduce((s, e) => s + e.grossEstimate, 0);
+                const indirectGross = pendingLaborCost - Math.min(directGross, pendingLaborCost);
+                const directAmount = Math.round(Math.min(directGross, pendingLaborCost) * 100) / 100;
+                const indirectAmount = Math.round(indirectGross * 100) / 100;
                 const rounded = Math.round(pendingLaborCost * 100) / 100;
                 const empCount = currentWeekLabor.employees.length;
                 const desc = fridayFlushed
                   ? `Labor accrual (post-payroll): ${currentStartStr} to ${todayStr} (${empCount} employees, current week only)`
                   : `Labor accrual: ${currentStartStr} to ${todayStr} (${empCount} employees, live burn)`;
+
+                const lines: Array<{ accountId: number; debit: number; credit: number; memo: string }> = [];
+                if (indirectAmount > 0) {
+                  lines.push({ accountId: indirectLaborAcct[0].id, debit: indirectAmount, credit: 0, memo: `Accrued indirect wages` });
+                }
+                if (directAmount > 0 && directLaborAcct.length > 0) {
+                  lines.push({ accountId: directLaborAcct[0].id, debit: directAmount, credit: 0, memo: `Accrued direct labor (COGS)` });
+                } else if (directAmount > 0) {
+                  lines.push({ accountId: indirectLaborAcct[0].id, debit: directAmount, credit: 0, memo: `Accrued direct wages (no 5040 acct)` });
+                }
+                lines.push({ accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` });
+
                 await postJournalEntry(
                   {
                     transactionDate: todayStr,
@@ -15132,12 +15152,9 @@ IMPORTANT GUIDELINES:
                     isNonCash: true,
                     createdBy: "payroll-compiler",
                   },
-                  [
-                    { accountId: laborAcct[0].id, debit: rounded, credit: 0, memo: `Accrued wages: ${empCount} employees` },
-                    { accountId: payrollLiab[0].id, debit: 0, credit: rounded, memo: `Payroll liability accrual` },
-                  ]
+                  lines
                 );
-                console.log(`[LaborAccrual] Posted ${fridayFlushed ? "post-flush" : "live"} accrual: $${rounded}`);
+                console.log(`[LaborAccrual] Posted ${fridayFlushed ? "post-flush" : "live"} accrual: $${rounded} (direct: $${directAmount}, indirect: $${indirectAmount})`);
               } catch (jeErr: any) {
                 console.warn("[LaborAccrual] JE post error (non-fatal):", jeErr.message);
               }
