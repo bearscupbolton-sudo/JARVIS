@@ -1,0 +1,47 @@
+1. Refactor GET /api/firm/jarvis-insight (Backend)
+The current endpoint in server/routes.ts relies on storage.getFirmSummary, which buckets all invoices together. You will replace this with getProfitAndLoss from the accounting engine.
+
+Data Accuracy: Refactor the route to call getProfitAndLoss(startDate, endDate, "bank").
+
+Use pnl.totalRevenue as the absolute denominator for ratios.
+
+Explicitly separate pnl.totalCOGS (5000-series) from pnl.totalOperatingExpenses (6000-series).
+
+Data Prompt Update: Update the dataPrompt string to provide these granular buckets.
+
+New Line Items: Revenue, True COGS (Ingredients/Supplies), Operating Expenses (Rent/Utilities), Labor, and Recorded Off-system Payroll.
+
+Cache Bypass: Update the cache check logic. If req.query.refresh === 'true', skip the cache lookup and overwrite the existing _firmInsightCache for that date-range key after the new analysis is generated.
+
+2. Frontend Jarvis Card Enhancements (TheFirm.tsx)
+The current Jarvis Insight card is a simple display component. It needs to be upgraded to a dynamic query controller.
+
+Display Date Range: Add a subtitle or header span next to "Jarvis Financial Analysis" that displays the analysis window.
+
+Implementation: ({format(new Date(startDate), "MMM dd")} - {format(new Date(endDate), "MMM dd")}).
+
+Refresh Mechanism:
+
+Add a Button with the RefreshCw icon to the CardHeader.
+
+Connect the button to a function that calls refetch() from the useQuery hook.
+
+Modify the useQuery fetch function for jarvis-insight to append ?refresh=true if triggered via the refresh button.
+
+Loading State: Use the isFetching boolean from the useQuery hook.
+
+Animate the RefreshCw icon with className={isFetching ? "animate-spin" : ""}.
+
+While isFetching is true, wrap the insight text in an opacity layer or show a pulse animation to indicate recalculation.
+
+3. Logic Validation in ghost-accountant.ts
+While changing the personality is out of scope, the prompt logic must be verified to ensure it respects the new data structure.
+
+Ensure the AI is instructed that "Total Expenses" is now provided as separate "COGS" and "OpEx" totals so it can calculate the Gross Margin vs. Net Margin independently.
+
+Relevant File Map for Implementation:
+server/routes.ts: refactor lines ~16213-16300 to import and use getProfitAndLoss.
+
+client/src/pages/TheFirm.tsx: Update OverviewTab (lines ~590-606) for UI elements and the query hook definition (lines ~1090-1106) to handle the refresh parameter.
+
+server/accounting-engine.ts: Ensure the getProfitAndLoss return object (lines ~372-432) includes the necessary sub-totals required by the new Jarvis prompt.

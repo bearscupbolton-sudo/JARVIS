@@ -1,0 +1,43 @@
+1. Refactor GET /api/firm/jarvis-insight (Backend)
+Currently, the route in server/routes.ts relies on storage.getFirmSummary, which buckets all invoices together. You will replace this with the more granular getProfitAndLoss from the accounting engine.
+
+Task 1.1: Data Sourcing Update. Import getProfitAndLoss and call it using the bank layer.
+
+Task 1.2: Precision Prompting. Update the dataPrompt to present granular line items.
+
+Revenue: Use pnl.totalRevenue (exclusively 4000-series accounts).
+
+COGS: Use pnl.totalCOGS (5000-series accounts).
+
+OpEx: Use pnl.totalOperatingExpenses (6000-series accounts).
+
+Labor & Payroll: Continue pulling specific labor and payroll totals to ensure accurate labor-to-revenue ratios.
+
+Task 1.3: System Prompt Refinement. Clarify in the system prompt that expenses are now provided in distinct categories (COGS vs. OpEx) so the AI can calculate Gross Margin and Net Margin independently.
+
+Task 1.4: Cache Bypass. Modify the cache check to look for req.query.refresh === "true". If present, ignore the _firmInsightCache and regenerate the response.
+
+2. Frontend Jarvis Card Enhancements (client/src/pages/TheFirm.tsx)
+The Jarvis Insight card needs to be transformed into a dynamic controller for the user.
+
+Task 2.1: Header Metadata. Update the CardTitle within the OverviewTab to show the active date range:
+
+Implementation: ({format(new Date(startDate), "MMM dd")} - {format(new Date(endDate), "MMM dd")}).
+
+Task 2.2: Refresh Action.
+
+Add a Button with the RefreshCw icon to the CardHeader.
+
+Update the useQuery hook for jarvis-insight to accept a refresh flag that appends &refresh=true to the URL.
+
+Task 2.3: Visual Feedback.
+
+Use the isFetching state from the query hook to apply an animate-spin class to the refresh icon.
+
+Apply an opacity layer or a pulse animation to the insight text area during active fetches to indicate recalculation.
+
+3. Support Logic in ghost-accountant.ts
+Task 3.1: Instruction Alignment. Verify that the generateExecutiveSummary logic or similar prompts in this file are updated to expect the new categorized input format, preventing the AI from hallucinating a combined expense total.
+
+Impact Analysis
+By decoupling COGS from general OpEx, Jarvis will be able to identify specifically if food costs are rising (inventory issues) versus if utilities or rent are over benchmark (overhead issues). Providing the date range on the card resolves user ambiguity when toggling between "This Month" and "YTD" views.

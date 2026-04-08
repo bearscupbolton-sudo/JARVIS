@@ -1,0 +1,85 @@
+
+Gemini said
+Establishing a high-fidelity financial bridge between bank-truth and operation-truth requires precise data separation. Plan #29 addresses the current conflation of COGS and operating expenses, which currently muddies the AI's ability to provide accurate benchmark analysis (e.g., distinguishing high food costs from high utility costs).
+
+Based on the provided codebase, here is the enhanced plan to fix the Jarvis Financial Analysis.
+
+Updated Plan #29: Jarvis Financial Intelligence Refactor
+1. Backend: Data Prompt & Cache Logic
+The current logic in server/routes.ts (lines ~16213-16300) simply sums invoiceExpenseTotal and manual categories. We need to leverage the accounting-engine to pull categorized COA data.
+
+Task 1.1: Precision Prompting. Update the GET /api/firm/jarvis-insight route to pull the Trial Balance or P&L for the period instead of the high-level summary. This allows the prompt to separate:
+
+True COGS: Accounts in the 5000-5999 range.
+
+Operating Expenses (OpEx): Accounts in the 6000-6999 range.
+
+Non-Operating/Taxes: Accounts in 7000+.
+
+Task 1.2: Cache Bypass. Add a refresh=true query parameter to the route. If true, delete the existing entry in _firmInsightCache for that key before generation.
+
+2. Backend: ghost-accountant.ts Alignment
+Task 2.1: Ratio Logic. Ensure the prompt explicitly defines the "Total Revenue" denominator using only 4000-series accounts so the "Labor % of Revenue" and "COGS % of Revenue" calculations are mathematically sound.
+
+3. Frontend: TheFirm.tsx UI Enhancements
+The Jarvis card in the OverviewTab needs to transition from a static display to an interactive controller.
+
+Task 3.1: Date Range Visibility. Update the CardTitle within OverviewTab (lines ~590-606) to include the formatted startDate and endDate.
+
+Example: Jarvis Financial Analysis (Apr 01 - Apr 30).
+
+Task 3.2: Refresh Action. Add a Button to the card header with the RefreshCw icon.
+
+Task 3.3: Loading States. Use the isFetching state from the useQuery hook to show a spinner or skeleton specifically inside the Jarvis card when a refresh is triggered.
+
+Task 3.4: Query Invalidation. Implement a handleRefresh function that calls queryClient.invalidateQueries({ queryKey: ["/api/firm/jarvis-insight", startDate, endDate] }) and triggers the fetch with the refresh=true param.
+
+Implementation Guide (Code Snippets)
+In server/routes.ts (Refining the prompt):
+
+TypeScript
+// Proposed change to data gathering for Jarvis
+const trialBalance = await storage.getTrialBalance(startDate, endDate);
+const cogs = trialBalance.filter(a => a.accountCode.startsWith('5')).reduce((s, a) => s + a.balance, 0);
+const opex = trialBalance.filter(a => a.accountCode.startsWith('6')).reduce((s, a) => s + a.balance, 0);
+
+const dataPrompt = `
+...
+- True COGS (Ingredients/Supplies): ${formatCurrency(cogs)}
+- Total OpEx (Utilities/Rent/Misc): ${formatCurrency(opex)}
+...`;
+In client/src/pages/TheFirm.tsx (Updating the Card):
+
+TypeScript
+<CardHeader className="pb-2">
+  <CardTitle className="text-sm flex items-center justify-between">
+    <div className="flex items-center gap-2">
+      <CircleDollarSign className="w-4 h-4 text-primary" />
+      Jarvis Financial Analysis
+      <span className="text-[10px] text-muted-foreground font-normal">
+        ({format(new Date(startDate), "MMM d")} - {format(new Date(endDate), "MMM d")})
+      </span>
+    </div>
+    <Button 
+      variant="ghost" 
+      size="icon" 
+      className="h-6 w-6" 
+      onClick={() => refetchInsight()} // Triggers invalidation + refresh param
+      disabled={isFetchingInsight}
+    >
+      <RefreshCw className={`h-3 w-3 ${isFetchingInsight ? 'animate-spin' : ''}`} />
+    </Button>
+  </CardTitle>
+</CardHeader>
+Why this fixes the issue:
+Correct Ratios: By pulling directly from the 5000 (COGS) and 6000 (OpEx) COA ranges, the AI will no longer flag a high "COGS" just because a rent payment (OpEx) was included in the invoice total.
+
+User Confidence: Displaying the date range ensures the user knows they are looking at "March" data even if the global filter just changed to "April" but the cache hasn't updated yet.
+
+Real-time Accuracy: The refresh button allows the owner to post a big US Foods invoice and immediately see how it impacts their "Burnable Cash" and margin analysis.
+
+
+
+
+
+Gemini is AI 
