@@ -102,6 +102,7 @@ export const problems = pgTable("problems", {
   assignedTo: text("assigned_to"),
   equipmentId: integer("equipment_id"),
   locationId: integer("location_id"),
+  photos: text("photos").array().default([]),
   resolvedAt: timestamp("resolved_at"),
   updatedAt: timestamp("updated_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -174,6 +175,7 @@ export const problemNotes = pgTable("problem_notes", {
   content: text("content").notNull(),
   authorId: text("author_id").notNull(),
   authorName: text("author_name").notNull(),
+  photos: text("photos").array().default([]),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

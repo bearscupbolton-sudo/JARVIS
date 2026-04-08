@@ -17,6 +17,7 @@ The application is structured as a monorepo, featuring a React 18 frontend built
     *   **Recipe & Production:** Advanced recipe system with inline scaling, production views, lamination studio with FIFO tracking, and integrated production data flow. Includes a "Lamination Pulse Card" dashboard widget for real-time dough status.
     *   **Inventory Management:** Department-aware inventory with live real-time sync with Square sales data.
     *   **Financial Hub (The Firm):** Forensic-level financial reconciliation, double-entry accounting (Chart of Accounts, Journal Entries, Ledger), payroll review, and autonomous AI financial analysis. Features an auto-reconciliation engine, batch approval UI, vendor integrity checks (invoice-to-bank-ledger matching), and Fixed Asset Management (ARA) with twin-track depreciation.
+    *   **Maintenance & Problem Tracking:** Problem reporting with photo evidence (up to 5 photos per report/note), client-side image compression (1200px max, JPEG 70% quality), cloud object storage for photos, photo galleries with full-size lightbox viewer. Photos supported on both initial problem reports and follow-up notes.
     *   **Compliance & Statutory Reporting (CSRL):** Event-driven compliance engine.
     *   **Invoice Capture:** AI vision model for processing invoices, including US Foods integration for shorts detection, substitution tracking, and price variance alerts.
     *   **Team Management:** Schedule and shift management, PIN-based time card system with Square Labor Sync, HR onboarding, and employee reimbursements.

@@ -1401,7 +1401,20 @@ FORMAT RULES for the content field:
 
   app.post(api.problems.create.path, isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
-      const input = api.problems.create.input.parse(req.body);
+      const { pendingPhotos, ...rest } = req.body;
+      const input = api.problems.create.input.parse(rest);
+
+      let photoUrls: string[] = [];
+      if (pendingPhotos && Array.isArray(pendingPhotos) && pendingPhotos.length > 0) {
+        const { uploadMediaWithThumbnail } = await import("./media");
+        const crypto = await import("crypto");
+        const results = await Promise.all(
+          pendingPhotos.slice(0, 5).map((b64: string) => uploadMediaWithThumbnail(b64, "problem", crypto.randomUUID()))
+        );
+        photoUrls = results.map(r => r.url);
+      }
+      if (photoUrls.length > 0) (input as any).photos = photoUrls;
+
       const problem = await storage.createProblem(input);
 
       const user = await getUserFromReq(req);
@@ -1412,6 +1425,7 @@ FORMAT RULES for the content field:
           content: `Problem reported: "${problem.title}"${problem.severity ? ` — Severity: ${problem.severity}` : ""}${problem.description ? `\n\n${problem.description}` : ""}`,
           authorId: user?.id || "system",
           authorName,
+          photos: photoUrls,
         });
       } catch (noteErr) {
         console.error("Failed to create initial problem note:", noteErr);
@@ -1500,12 +1514,33 @@ FORMAT RULES for the content field:
   app.post("/api/problems/:id/notes", isAuthenticated, isUnlocked, async (req: any, res) => {
     const user = await getUserFromReq(req);
     if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+    let photoUrls: string[] = [];
+    if (req.body.pendingPhotos && Array.isArray(req.body.pendingPhotos) && req.body.pendingPhotos.length > 0) {
+      const { uploadMediaWithThumbnail } = await import("./media");
+      const crypto = await import("crypto");
+      const results = await Promise.all(
+        req.body.pendingPhotos.slice(0, 5).map((b64: string) => uploadMediaWithThumbnail(b64, "problem-note", crypto.randomUUID()))
+      );
+      photoUrls = results.map(r => r.url);
+    }
+
     const note = await storage.createProblemNote({
       problemId: Number(req.params.id),
-      content: req.body.content,
+      content: req.body.content || "",
       authorId: user.id,
       authorName: user.username || user.firstName || "Unknown",
+      photos: photoUrls.length > 0 ? photoUrls : undefined,
     });
+
+    if (photoUrls.length > 0) {
+      const existing = await storage.getProblem(Number(req.params.id));
+      if (existing) {
+        const allPhotos = [...(existing.photos || []), ...photoUrls];
+        await storage.updateProblem(Number(req.params.id), { photos: allPhotos } as any);
+      }
+    }
+
     res.status(201).json(note);
   });
 

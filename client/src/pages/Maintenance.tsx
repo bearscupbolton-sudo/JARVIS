@@ -17,8 +17,165 @@ import { Label } from "@/components/ui/label";
 import {
   Wrench, Plus, Search, Phone, Mail, Tag, AlertTriangle, CheckCircle2,
   Clock, Circle, ChevronDown, ChevronUp, MessageSquare, Link2, Trash2,
-  Calendar, Settings, X, User, Building2, Zap, Filter
+  Calendar, Settings, X, User, Building2, Zap, Filter, Camera, Image as ImageIcon, Loader2
 } from "lucide-react";
+
+async function compressImage(file: File, maxDim = 1200, quality = 0.7): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function PhotoPicker({ photos, onAdd, onRemove, maxPhotos = 5 }: {
+  photos: string[];
+  onAdd: (b64: string) => void;
+  onRemove: (idx: number) => void;
+  maxPhotos?: number;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [compressing, setCompressing] = useState(false);
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files) return;
+    setCompressing(true);
+    try {
+      for (let i = 0; i < Math.min(files.length, maxPhotos - photos.length); i++) {
+        const b64 = await compressImage(files[i]);
+        onAdd(b64);
+      }
+    } catch {}
+    setCompressing(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      {photos.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {photos.map((p, i) => (
+            <div key={i} className="relative group">
+              <img
+                src={p}
+                alt={`Photo ${i + 1}`}
+                className="h-16 w-16 object-cover rounded border"
+                data-testid={`img-preview-${i}`}
+              />
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                data-testid={`button-remove-photo-${i}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {photos.length < maxPhotos && (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            capture="environment"
+            className="hidden"
+            onChange={e => handleFiles(e.target.files)}
+            data-testid="input-photo-file"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={compressing}
+            onClick={() => inputRef.current?.click()}
+            data-testid="button-add-photo"
+          >
+            {compressing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Camera className="h-4 w-4 mr-1" />}
+            {compressing ? "Compressing..." : "Add Photo"}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PhotoGallery({ photos }: { photos: string[] }) {
+  const [viewIdx, setViewIdx] = useState<number | null>(null);
+  if (!photos || photos.length === 0) return null;
+  return (
+    <>
+      <div className="flex flex-wrap gap-2 mt-1">
+        {photos.map((url, i) => (
+          <img
+            key={i}
+            src={url}
+            alt={`Photo ${i + 1}`}
+            className="h-16 w-16 object-cover rounded border cursor-pointer hover:ring-2 hover:ring-primary transition-all"
+            onClick={() => setViewIdx(i)}
+            loading="lazy"
+            data-testid={`img-gallery-${i}`}
+          />
+        ))}
+      </div>
+      {viewIdx !== null && (
+        <Dialog open onOpenChange={() => setViewIdx(null)}>
+          <DialogContent className="max-w-2xl p-2">
+            <img
+              src={photos[viewIdx]}
+              alt="Full size"
+              className="w-full h-auto rounded"
+              data-testid="img-fullsize"
+            />
+            {photos.length > 1 && (
+              <div className="flex justify-center gap-2 mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={viewIdx === 0}
+                  onClick={() => setViewIdx(viewIdx - 1)}
+                  data-testid="button-photo-prev"
+                >
+                  Prev
+                </Button>
+                <span className="text-sm text-muted-foreground self-center">{viewIdx + 1} / {photos.length}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={viewIdx === photos.length - 1}
+                  onClick={() => setViewIdx(viewIdx + 1)}
+                  data-testid="button-photo-next"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
 
 const STATUS_OPTIONS = [
   { value: "open", label: "Open", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
@@ -348,6 +505,7 @@ function ProblemCard({
               {priorityBadge(problem.priority)}
               {equip && <Badge variant="outline" className="text-xs"><Settings className="h-3 w-3 mr-1" />{equip.name}</Badge>}
               {assignedUser && <Badge variant="outline" className="text-xs"><User className="h-3 w-3 mr-1" />{assignedUser.firstName || assignedUser.username}</Badge>}
+              {problem.photos && problem.photos.length > 0 && <Badge variant="outline" className="text-xs"><Camera className="h-3 w-3 mr-1" />{problem.photos.length}</Badge>}
               {problem.createdAt && <span>{timeAgo(problem.createdAt)}</span>}
             </div>
           </div>
@@ -386,6 +544,7 @@ function ProblemDetail({
 }) {
   const { toast } = useToast();
   const [noteText, setNoteText] = useState("");
+  const [notePhotos, setNotePhotos] = useState<string[]>([]);
   const [linkRole, setLinkRole] = useState("Called");
 
   const { data: notes = [] } = useQuery<ProblemNote[]>({
@@ -400,11 +559,16 @@ function ProblemDetail({
 
   const addNoteMut = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", `/api/problems/${problem.id}/notes`, { content: noteText });
+      await apiRequest("POST", `/api/problems/${problem.id}/notes`, {
+        content: noteText || (notePhotos.length > 0 ? "Photo update" : ""),
+        pendingPhotos: notePhotos.length > 0 ? notePhotos : undefined,
+      });
     },
     onSuccess: () => {
       setNoteText("");
+      setNotePhotos([]);
       queryClient.invalidateQueries({ queryKey: ["/api/problems", problem.id, "notes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/problems"] });
       toast({ title: "Note added" });
     },
   });
@@ -493,33 +657,50 @@ function ProblemDetail({
         </div>
       </div>
 
+      {problem.photos && problem.photos.length > 0 && (
+        <div>
+          <h4 className="text-sm font-medium flex items-center gap-1 mb-2"><ImageIcon className="h-4 w-4" /> Photos</h4>
+          <PhotoGallery photos={problem.photos} />
+        </div>
+      )}
+
       {/* Notes Section */}
       <div>
         <h4 className="text-sm font-medium flex items-center gap-1 mb-2"><MessageSquare className="h-4 w-4" /> Notes</h4>
         {notes.length > 0 && (
-          <div className="space-y-2 mb-2 max-h-48 overflow-y-auto">
+          <div className="space-y-2 mb-2 max-h-64 overflow-y-auto">
             {notes.map(n => (
               <div key={n.id} data-testid={`note-${n.id}`} className="text-sm bg-muted/50 rounded p-2">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
                   <span className="font-medium">{n.authorName}</span>
                   <span>{n.createdAt ? timeAgo(n.createdAt) : ""}</span>
                 </div>
-                <p>{n.content}</p>
+                {n.content && <p>{n.content}</p>}
+                {(n as any).photos && (n as any).photos.length > 0 && (
+                  <PhotoGallery photos={(n as any).photos} />
+                )}
               </div>
             ))}
           </div>
         )}
-        <div className="flex gap-2">
-          <Input
-            data-testid={`input-note-${problem.id}`}
-            placeholder="Add a note..."
-            value={noteText}
-            onChange={e => setNoteText(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && noteText.trim() && addNoteMut.mutate()}
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              data-testid={`input-note-${problem.id}`}
+              placeholder="Add a note..."
+              value={noteText}
+              onChange={e => setNoteText(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !e.shiftKey && (noteText.trim() || notePhotos.length > 0) && addNoteMut.mutate()}
+            />
+            <Button data-testid={`button-add-note-${problem.id}`} size="sm" disabled={(!noteText.trim() && notePhotos.length === 0) || addNoteMut.isPending} onClick={() => addNoteMut.mutate()}>
+              {addNoteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+            </Button>
+          </div>
+          <PhotoPicker
+            photos={notePhotos}
+            onAdd={b64 => setNotePhotos(p => [...p, b64])}
+            onRemove={idx => setNotePhotos(p => p.filter((_, i) => i !== idx))}
           />
-          <Button data-testid={`button-add-note-${problem.id}`} size="sm" disabled={!noteText.trim() || addNoteMut.isPending} onClick={() => addNoteMut.mutate()}>
-            Add
-          </Button>
         </div>
       </div>
 
@@ -584,6 +765,7 @@ function NewProblemDialog({ onClose, equipmentList, teamMembers }: { onClose: ()
     title: "", description: "", priority: "medium", severity: "medium",
     locationId: selectedLocationId?.toString() || "", equipmentId: "", assignedTo: "",
   });
+  const [pendingPhotos, setPendingPhotos] = useState<string[]>([]);
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -596,6 +778,7 @@ function NewProblemDialog({ onClose, equipmentList, teamMembers }: { onClose: ()
         locationId: form.locationId ? Number(form.locationId) : undefined,
         equipmentId: form.equipmentId ? Number(form.equipmentId) : undefined,
         assignedTo: form.assignedTo || undefined,
+        pendingPhotos: pendingPhotos.length > 0 ? pendingPhotos : undefined,
       };
       await apiRequest("POST", "/api/problems", payload);
     },
@@ -620,6 +803,14 @@ function NewProblemDialog({ onClose, equipmentList, teamMembers }: { onClose: ()
           <div>
             <Label>Description</Label>
             <Textarea data-testid="input-problem-description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} />
+          </div>
+          <div>
+            <Label>Photos</Label>
+            <PhotoPicker
+              photos={pendingPhotos}
+              onAdd={b64 => setPendingPhotos(p => [...p, b64])}
+              onRemove={idx => setPendingPhotos(p => p.filter((_, i) => i !== idx))}
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -668,7 +859,7 @@ function NewProblemDialog({ onClose, equipmentList, teamMembers }: { onClose: ()
         <DialogFooter>
           <Button data-testid="button-cancel-problem" variant="outline" onClick={onClose}>Cancel</Button>
           <Button data-testid="button-save-problem" onClick={() => createMut.mutate()} disabled={!form.title || createMut.isPending}>
-            {createMut.isPending ? "Creating..." : "Create Problem"}
+            {createMut.isPending ? (pendingPhotos.length > 0 ? "Uploading..." : "Creating...") : "Create Problem"}
           </Button>
         </DialogFooter>
       </DialogContent>
