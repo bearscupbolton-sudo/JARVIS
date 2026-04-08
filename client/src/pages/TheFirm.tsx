@@ -1968,6 +1968,37 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
   const [amortizeTxn, setAmortizeTxn] = useState<any | null>(null);
   const [amortizeCategory, setAmortizeCategory] = useState("professional_services");
 
+  const [lightningSuggestion, setLightningSuggestion] = useState<any>(null);
+  const [lightningTxnId, setLightningTxnId] = useState<number | null>(null);
+  const [lightningLoading, setLightningLoading] = useState<number | null>(null);
+  const [loanPrincipal, setLoanPrincipal] = useState("");
+  const [loanInterest, setLoanInterest] = useState("");
+
+  const fetchLightningSuggestion = async (txnId: number, description: string, amount: number) => {
+    setLightningLoading(txnId);
+    try {
+      const res = await fetch("/api/firm/reconcile/suggest", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description, amount }),
+      });
+      const data = await res.json();
+      if (data.type !== "none") {
+        setLightningSuggestion(data);
+        setLightningTxnId(txnId);
+        setLoanPrincipal("");
+        setLoanInterest("");
+      } else {
+        toast({ title: "No suggestion", description: "No vendor pattern or template found for this transaction" });
+      }
+    } catch { toast({ title: "Error fetching suggestion", variant: "destructive" }); }
+    setLightningLoading(null);
+  };
+
+  const markLedgerReconciled = (txnId: number) => {
+    toggleReconciled.mutate({ id: txnId, reconciled: true });
+  };
+
   const handleAmortizeCategory = (txn: any) => {
     setEditingCategoryId(null);
     setAmortizeTxn(txn);
@@ -2414,6 +2445,232 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
         </Dialog>
       </div>
 
+      {lightningSuggestion && lightningTxnId && (
+        <Card className="border-yellow-300/50 bg-gradient-to-r from-yellow-50/50 to-transparent dark:from-yellow-900/10">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Zap className="w-4 h-4 text-yellow-500" /> Lightning Suggestion
+              <Badge variant="outline" className="text-[10px] ml-auto">{Math.round(lightningSuggestion.confidence * 100)}% confidence</Badge>
+              <span className="text-xs text-muted-foreground ml-2">Txn #{lightningTxnId}</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-muted/30 rounded p-2.5">
+                <p className="text-xs text-muted-foreground">Suggested Debit</p>
+                <p className="text-sm font-medium">{lightningSuggestion.debitCode} — {lightningSuggestion.debitName}</p>
+              </div>
+              <div className="bg-muted/30 rounded p-2.5">
+                <p className="text-xs text-muted-foreground">Suggested Credit</p>
+                <p className="text-sm font-medium">{lightningSuggestion.creditCode} — {lightningSuggestion.creditName}</p>
+              </div>
+            </div>
+            {lightningSuggestion.type === "accrual_offset" && (
+              <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded p-2.5 text-xs text-blue-700 dark:text-blue-400">
+                <strong>Accrual Match Found:</strong> This transaction matches an open placeholder for "{lightningSuggestion.placeholder?.placeholder?.vendorName}" ({formatCurrency(lightningSuggestion.placeholder?.placeholder?.amount || 0)}).
+              </div>
+            )}
+            {lightningSuggestion.type === "vendor_template" && (
+              <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded p-2.5 text-xs text-green-700 dark:text-green-400">
+                <strong>Vendor Template:</strong> Recognized vendor pattern → auto-classifying as {lightningSuggestion.vendor?.category} (COA {lightningSuggestion.debitCode}).
+              </div>
+            )}
+            {lightningSuggestion.type === "project_tag_required" && (
+              <div className="space-y-3">
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded p-3 text-sm text-amber-700 dark:text-amber-400">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div>
+                      <strong>Jarvis detected a lodging charge.</strong>
+                      <p className="mt-1">{lightningSuggestion.message}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">What was this stay for?</p>
+                  {lightningSuggestion.defaultOptions?.map((opt: any, i: number) => (
+                    <Button
+                      key={i}
+                      size="sm"
+                      variant={opt.type === "personal" ? "destructive" : "outline"}
+                      className="mr-2 mb-1"
+                      data-testid={`button-ledger-project-opt-${i}`}
+                      onClick={() => {
+                        if (opt.type === "personal") {
+                          setLightningSuggestion(null);
+                          setLightningTxnId(null);
+                          toast({ title: "Marked as personal — not booked to the business" });
+                        } else {
+                          if (lightningTxnId) {
+                            apiRequest("PATCH", `/api/firm/transactions/${lightningTxnId}`, { category: opt.category || "misc" });
+                            markLedgerReconciled(lightningTxnId);
+                          }
+                          setLightningSuggestion(null);
+                          setLightningTxnId(null);
+                          toast({ title: `Booked as ${opt.label}`, description: `COA ${opt.coaCode}` });
+                        }
+                      }}
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                  {lightningSuggestion.projects?.length > 0 && (
+                    <>
+                      <p className="text-xs font-medium text-muted-foreground mt-2">Or tag to a project:</p>
+                      {lightningSuggestion.projects.map((p: any) => (
+                        <Button
+                          key={p.id}
+                          size="sm"
+                          variant="outline"
+                          className="mr-2 mb-1 border-primary/40"
+                          data-testid={`button-ledger-project-tag-${p.id}`}
+                          onClick={() => {
+                            if (lightningTxnId) {
+                              apiRequest("POST", `/api/firm/transactions/${lightningTxnId}/tag-project`, { projectId: p.id });
+                              markLedgerReconciled(lightningTxnId);
+                            }
+                            setLightningSuggestion(null);
+                            setLightningTxnId(null);
+                            toast({ title: `Tagged to project: ${p.name}`, description: `${p.type.toUpperCase()} — COA ${p.coaCode}` });
+                          }}
+                        >
+                          <Target className="w-3 h-3 mr-1" /> {p.name} ({p.type.toUpperCase()})
+                        </Button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            {lightningSuggestion.type === "loan_split_match" && (
+              <div className="space-y-3">
+                <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800 rounded p-3 text-sm text-violet-700 dark:text-violet-400">
+                  <div className="flex items-start gap-2">
+                    <DollarSign className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div>
+                      <strong>SBA Loan Payment Detected</strong>
+                      <p className="mt-1">{lightningSuggestion.message}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Principal (→ 2500 Loans Payable)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={loanPrincipal}
+                      onChange={(e) => {
+                        setLoanPrincipal(e.target.value);
+                        if (e.target.value && lightningSuggestion.totalAmount) {
+                          const remaining = (lightningSuggestion.totalAmount - parseFloat(e.target.value)).toFixed(2);
+                          if (parseFloat(remaining) >= 0) setLoanInterest(remaining);
+                        }
+                      }}
+                      data-testid="input-ledger-loan-principal"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Interest (→ 6260 Interest Expense)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={loanInterest}
+                      onChange={(e) => {
+                        setLoanInterest(e.target.value);
+                        if (e.target.value && lightningSuggestion.totalAmount) {
+                          const remaining = (lightningSuggestion.totalAmount - parseFloat(e.target.value)).toFixed(2);
+                          if (parseFloat(remaining) >= 0) setLoanPrincipal(remaining);
+                        }
+                      }}
+                      data-testid="input-ledger-loan-interest"
+                    />
+                  </div>
+                </div>
+                {loanPrincipal && loanInterest && (
+                  <div className="text-xs text-muted-foreground">
+                    Split total: ${(parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")).toFixed(2)} of ${lightningSuggestion.totalAmount?.toFixed(2)} payment
+                    {Math.abs((parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")) - (lightningSuggestion.totalAmount || 0)) > 0.01 && (
+                      <span className="text-red-500 ml-2">Does not match total</span>
+                    )}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!loanPrincipal || !loanInterest || Math.abs((parseFloat(loanPrincipal || "0") + parseFloat(loanInterest || "0")) - (lightningSuggestion.totalAmount || 0)) > 0.01}
+                    data-testid="button-ledger-accept-loan-split"
+                    onClick={async () => {
+                      try {
+                        const txn = transactions.find((t: any) => t.id === lightningTxnId);
+                        const txnDate = txn?.date || new Date().toISOString().slice(0, 10);
+                        const principalAmt = parseFloat(loanPrincipal) || 0;
+                        const interestAmt = parseFloat(loanInterest) || 0;
+                        if (principalAmt <= 0 && interestAmt <= 0) {
+                          toast({ title: "Invalid amounts", description: "Enter valid principal and/or interest amounts", variant: "destructive" });
+                          return;
+                        }
+                        const allAccts = await fetch("/api/firm/coa").then(r => r.json());
+                        const acctMap = new Map(allAccts.map((a: any) => [a.code, a.id]));
+                        const loansPayableId = acctMap.get("2500");
+                        const interestExpId = acctMap.get("6260");
+                        const cashId = acctMap.get("1010");
+                        if (!loansPayableId || !interestExpId || !cashId) {
+                          toast({ title: "Missing COA accounts", description: "Ensure accounts 2500, 6260, and 1010 exist", variant: "destructive" });
+                          return;
+                        }
+                        const lines: any[] = [];
+                        if (principalAmt > 0) {
+                          lines.push({ accountId: loansPayableId, debit: principalAmt, credit: 0, memo: `SBA Loan Principal: ${txn?.description || ""}` });
+                        }
+                        if (interestAmt > 0) {
+                          lines.push({ accountId: interestExpId, debit: interestAmt, credit: 0, memo: `SBA Loan Interest: ${txn?.description || ""}` });
+                        }
+                        lines.push({ accountId: cashId, debit: 0, credit: principalAmt + interestAmt, memo: null });
+                        if (lines.length < 2) {
+                          toast({ title: "Invalid split", description: "At least one of principal or interest must be greater than zero", variant: "destructive" });
+                          return;
+                        }
+                        await apiRequest("POST", "/api/firm/journal", {
+                          transactionDate: txnDate,
+                          description: `SBA Loan Payment — Principal $${principalAmt.toFixed(2)} / Interest $${interestAmt.toFixed(2)}`,
+                          referenceType: "bank_txn",
+                          referenceId: String(lightningTxnId),
+                          lines,
+                          skipInference: true,
+                        });
+                        markLedgerReconciled(lightningTxnId);
+                        setLightningSuggestion(null);
+                        setLightningTxnId(null);
+                        setLoanPrincipal("");
+                        setLoanInterest("");
+                        queryClient.invalidateQueries({ queryKey: ["/api/firm/journal/entries"] });
+                        toast({ title: "SBA Loan Split Booked", description: `Principal $${principalAmt.toFixed(2)} → 2500 | Interest $${interestAmt.toFixed(2)} → 6260` });
+                      } catch (err: any) {
+                        toast({ title: "Failed to post split JE", description: err.message, variant: "destructive" });
+                      }
+                    }}
+                  >
+                    <Check className="w-3.5 h-3.5 mr-1" /> Book Split & Reconcile
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setLightningSuggestion(null); setLightningTxnId(null); setLoanPrincipal(""); setLoanInterest(""); }} data-testid="button-ledger-dismiss-loan-split">Dismiss</Button>
+                </div>
+              </div>
+            )}
+            {lightningSuggestion.type !== "project_tag_required" && lightningSuggestion.type !== "loan_split_match" && (
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => { markLedgerReconciled(lightningTxnId); setLightningSuggestion(null); setLightningTxnId(null); }} data-testid="button-ledger-accept-lightning">
+                  <Check className="w-3.5 h-3.5 mr-1" /> Accept & Reconcile
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setLightningSuggestion(null); setLightningTxnId(null); }}>Dismiss</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -2532,6 +2789,19 @@ function LedgerTab({ transactions, accounts, loading, startDate, endDate, initia
                         >
                           {jarvisSearchingId === txn.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : txn.isAuditVerified ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
                         </Button>
+                        {!txn.reconciled && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-xs text-yellow-500 hover:text-yellow-700 dark:text-yellow-400"
+                            onClick={() => fetchLightningSuggestion(txn.id, txn.description, txn.amount)}
+                            disabled={lightningLoading === txn.id}
+                            data-testid={`button-lightning-${txn.id}`}
+                            title="Lightning Suggestion"
+                          >
+                            {lightningLoading === txn.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
                         <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={() => { setSplitTxn(txn); setSplitRows([{ description: txn.description || "", amount: String(Math.abs(txn.amount)), category: txn.category || "misc" }, { description: "", amount: "", category: "misc" }]); }} data-testid={`button-split-txn-${txn.id}`} title="Split Transaction"><ArrowLeftRight className="w-3 h-3" /></Button>
                         {txn.referenceType === "manual" && <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteMut.mutate(txn.id)} data-testid={`button-delete-txn-${txn.id}`}><Trash2 className="w-3 h-3" /></Button>}
                       </div>
