@@ -16220,55 +16220,71 @@ Focus on the final total, not subtotals or tax lines. Date format must be YYYY-M
 
       const cacheKey = `${startDate}_${endDate}`;
       const now = Date.now();
-      if (_firmInsightCache && _firmInsightCache.key === cacheKey && (now - _firmInsightCache.generatedAt) < 30 * 60 * 1000) {
+      const forceRefresh = req.query.refresh === "true";
+      if (!forceRefresh && _firmInsightCache && _firmInsightCache.key === cacheKey && (now - _firmInsightCache.generatedAt) < 30 * 60 * 1000) {
         return res.json({ insight: _firmInsightCache.text });
       }
 
-      const summary = await storage.getFirmSummary(startDate, endDate);
-      const obligations = await storage.getFirmObligations();
-      const accounts = await storage.getFirmAccounts();
+      const { getProfitAndLoss } = await import("./accounting-engine");
+      const [pnl, summary, obligations, accounts] = await Promise.all([
+        getProfitAndLoss(startDate, endDate, "bank"),
+        storage.getFirmSummary(startDate, endDate),
+        storage.getFirmObligations(),
+        storage.getFirmAccounts(),
+      ]);
 
       const activeAccounts = accounts.filter(a => a.isActive);
       const totalAssets = activeAccounts.filter(a => ["checking", "savings", "cash", "petty_cash"].includes(a.type)).reduce((s, a) => s + a.currentBalance, 0);
       const totalLiabilities = activeAccounts.filter(a => ["credit_card", "loan", "line_of_credit"].includes(a.type)).reduce((s, a) => s + Math.abs(a.currentBalance), 0);
 
-      const revenue = summary.squareRevenue || 0;
-      const invoiceExpenses = summary.invoiceExpenseTotal || 0;
-      const laborCost = summary.laborCost || 0;
-      const payrollTotal = summary.payrollTotal || 0;
-      const manualCats = summary.manualTransactionsByCategory || {};
-      const manualExpenses = Object.values(manualCats).reduce((s: number, v: any) => s + Math.abs(v as number), 0);
-      const totalExpenses = invoiceExpenses + laborCost + payrollTotal + manualExpenses;
-      const netPL = revenue - totalExpenses;
+      const revenue = pnl.totalRevenue;
+      const totalCOGS = pnl.totalCOGS;
+      const totalOpEx = pnl.totalOperatingExpenses;
+      const grossProfit = pnl.grossProfit;
+      const netIncome = pnl.netIncome;
       const cashVariance = summary.cashVarianceTotal || 0;
+      const payrollTotal = summary.payrollTotal || 0;
+
+      const laborAccounts = pnl.operatingExpenses.filter((e: any) => e.accountCode?.startsWith("601"));
+      const laborFromPnl = laborAccounts.reduce((s: number, e: any) => s + e.amount, 0);
+
+      const cogsBreakdown = pnl.cogs.map((c: any) => `${c.accountName}: $${c.amount.toFixed(2)}`).join(", ") || "None";
+      const opExBreakdown = pnl.operatingExpenses.map((e: any) => `${e.accountName}: $${e.amount.toFixed(2)}`).join(", ") || "None";
 
       const upcomingObs = obligations.filter(o => o.isActive && o.nextPaymentDate).sort((a, b) => (a.nextPaymentDate || "").localeCompare(b.nextPaymentDate || ""));
 
       const dataPrompt = `Financial Data for ${startDate} to ${endDate}:
-- Revenue (Square POS): ${revenue.toFixed(2)} from ${summary.squareOrderCount || 0} orders
-- Invoice/COGS Expenses: ${invoiceExpenses.toFixed(2)}
-- Labor Cost (clocked hours): ${laborCost.toFixed(2)}
-- Off-system Payroll: ${payrollTotal.toFixed(2)}
-- Manual Transaction Expenses: ${manualExpenses.toFixed(2)}
-- Total Expenses: ${totalExpenses.toFixed(2)}
-- Net Profit/Loss: ${netPL.toFixed(2)}
-- Cash Position (assets): ${totalAssets.toFixed(2)}
-- Total Liabilities: ${totalLiabilities.toFixed(2)}
-- Net Worth: ${(totalAssets - totalLiabilities).toFixed(2)}
-- Cash Drawer Variance: ${cashVariance.toFixed(2)}
-${revenue > 0 ? `- Labor % of Revenue: ${((laborCost / revenue) * 100).toFixed(1)}%` : ""}
-${revenue > 0 ? `- COGS % of Revenue: ${((invoiceExpenses / revenue) * 100).toFixed(1)}%` : ""}
-- Upcoming Obligations (next 30 days): ${upcomingObs.slice(0, 5).map(o => `${o.name}: $${o.monthlyPayment} due ${o.nextPaymentDate}`).join("; ") || "None"}
-- Expense breakdown by category: ${Object.entries(manualCats).map(([cat, total]) => `${cat}: $${Math.abs(total as number).toFixed(2)}`).join(", ") || "None recorded"}`;
+- Revenue (4000-series accounts): $${revenue.toFixed(2)}
+- True COGS / Ingredients & Supplies (5000-series): $${totalCOGS.toFixed(2)}
+  Breakdown: ${cogsBreakdown}
+- Gross Profit: $${grossProfit.toFixed(2)} (${pnl.grossMargin.toFixed(1)}% gross margin)
+- Operating Expenses (6000-series): $${totalOpEx.toFixed(2)}
+  Breakdown: ${opExBreakdown}
+- Labor (from operating expenses): $${laborFromPnl.toFixed(2)}
+- Recorded Off-system Payroll: $${payrollTotal.toFixed(2)}
+- Net Income: $${netIncome.toFixed(2)} (${pnl.netMargin.toFixed(1)}% net margin)
+- Cash Drawer Variance: $${cashVariance.toFixed(2)}
+- Cash Position (assets): $${totalAssets.toFixed(2)}
+- Total Liabilities: $${totalLiabilities.toFixed(2)}
+- Net Worth: $${(totalAssets - totalLiabilities).toFixed(2)}
+${revenue > 0 ? `- Labor % of Revenue: ${((laborFromPnl / revenue) * 100).toFixed(1)}%` : ""}
+${revenue > 0 ? `- COGS % of Revenue: ${((totalCOGS / revenue) * 100).toFixed(1)}%` : ""}
+${revenue > 0 ? `- OpEx % of Revenue: ${((totalOpEx / revenue) * 100).toFixed(1)}%` : ""}
+- Upcoming Obligations (next 30 days): ${upcomingObs.slice(0, 5).map(o => `${o.name}: $${o.monthlyPayment} due ${o.nextPaymentDate}`).join("; ") || "None"}`;
 
       const systemPrompt = `You are Jarvis, the AI financial advisor for Bear's Cup Bakehouse — a small artisan bakery. You provide clear, actionable financial insights in plain English. Your tone is warm but professional, like a trusted accountant who actually cares about the business.
+
+IMPORTANT: The financial data separates expenses into two categories:
+- COGS (Cost of Goods Sold, 5000-series) = ingredients, supplies, direct labor — these affect Gross Margin
+- Operating Expenses (OpEx, 6000-series) = rent, utilities, indirect labor, misc — these affect Net Margin
+Calculate Gross Margin and Net Margin independently using these separated figures. Cash Drawer Variance is NOT an expense — it indicates cash-handling discrepancies (positive = overage, negative = shortage).
 
 Your analysis should include:
 1. A plain-English P&L summary (are we making or losing money?)
 2. The biggest expense drivers and whether they're in healthy ranges
-3. Industry benchmarks for context (bakery labor should be 25-35% of revenue, COGS 25-35%, rent under 10%)
+3. Industry benchmarks for context (bakery COGS should be 25-35% of revenue, total labor 25-35%, rent under 10%)
 4. Cash flow health — can we cover upcoming obligations?
-5. Any red flags or things that need attention
+5. Any red flags or things that need attention (if cash variance is significant, flag it as a cash-handling SOP issue, not a cost problem)
 6. One actionable suggestion for improving profitability
 
 Keep it conversational but data-driven. Use actual numbers from the data. If data is sparse (zeros everywhere), acknowledge that we're just getting started and encourage logging transactions. Never make up data you don't have. Keep it under 200 words.`;

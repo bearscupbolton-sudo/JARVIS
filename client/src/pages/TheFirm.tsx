@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -596,9 +596,14 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
   const [classifyResult, setClassifyResult] = useState<any>(null);
   const locParam = locationId !== "all" ? `&locationId=${locationId}` : "";
 
-  const { data: jarvisInsight, isLoading: loadingInsight } = useQuery<{ insight: string }>({
+  const jarvisRefreshRef = useRef(false);
+  const { data: jarvisInsight, isLoading: loadingInsight, isFetching: fetchingInsight, refetch: refetchJarvis } = useQuery<{ insight: string }>({
     queryKey: ["/api/firm/jarvis-insight", startDate, endDate],
-    queryFn: () => fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}`).then(r => r.json()),
+    queryFn: () => {
+      const refreshParam = jarvisRefreshRef.current ? "&refresh=true" : "";
+      jarvisRefreshRef.current = false;
+      return fetch(`/api/firm/jarvis-insight?startDate=${startDate}&endDate=${endDate}${refreshParam}`).then(r => r.json());
+    },
     staleTime: 30 * 60 * 1000,
   });
   const { data: pnlData } = useQuery<any>({
@@ -1089,16 +1094,36 @@ function OverviewTab({ summary, loading, transactions, accounts, obligations, st
 
       <Card className="border-primary/30 bg-primary/5" data-testid="card-jarvis-insight">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <CircleDollarSign className="w-4 h-4 text-primary" />
-            Jarvis Financial Analysis
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CircleDollarSign className="w-4 h-4 text-primary" />
+                Jarvis Financial Analysis
+              </CardTitle>
+              <span className="text-xs text-muted-foreground mt-1 block" data-testid="text-jarvis-date-range">
+                {format(new Date(startDate), "MMM dd")} – {format(new Date(endDate), "MMM dd")}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              data-testid="button-jarvis-refresh"
+              disabled={fetchingInsight}
+              onClick={() => {
+                jarvisRefreshRef.current = true;
+                refetchJarvis();
+              }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${fetchingInsight ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {loadingInsight ? (
             <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-5/6" /></div>
           ) : (
-            <div className="text-sm leading-relaxed whitespace-pre-line" data-testid="text-jarvis-insight">
+            <div className={`text-sm leading-relaxed whitespace-pre-line transition-opacity ${fetchingInsight ? "opacity-50 animate-pulse" : ""}`} data-testid="text-jarvis-insight">
               {jarvisInsight?.insight || "Analyzing your financial data..."}
             </div>
           )}
