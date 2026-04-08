@@ -13613,13 +13613,18 @@ IMPORTANT GUIDELINES:
   app.post("/api/plaid/create-link-token", isAuthenticated, isOwner, async (req: any, res) => {
     try {
       const { plaidClient, Products, CountryCode } = await import("./plaid");
+      const proto = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const webhookUrl = process.env.PLAID_WEBHOOK_URL || `${proto}://${host}/api/plaid/webhook`;
       const request = {
         user: { client_user_id: req.appUser.id },
         client_name: "Bear's Cup Bakehouse",
         products: [Products.Transactions],
         country_codes: [CountryCode.Us],
         language: "en",
+        webhook: webhookUrl,
       };
+      console.log(`[Plaid] Creating link token with webhook: ${webhookUrl}`);
       const response = await plaidClient.linkTokenCreate(request);
       res.json({ link_token: response.data.link_token });
     } catch (err: any) {
@@ -13909,6 +13914,84 @@ IMPORTANT GUIDELINES:
       res.json({ added, skipped, itemCount: items.length, period: `${startDate} to ${endDate}` });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/plaid/update-webhooks", isAuthenticated, isOwner, async (req: any, res) => {
+    try {
+      const { plaidClient } = await import("./plaid");
+      const items = await storage.getPlaidItems();
+      const proto = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const webhookUrl = process.env.PLAID_WEBHOOK_URL || `${proto}://${host}/api/plaid/webhook`;
+      let updated = 0;
+
+      for (const item of items) {
+        if (item.status !== "active") continue;
+        try {
+          await plaidClient.itemWebhookUpdate({
+            access_token: item.accessToken,
+            webhook: webhookUrl,
+          });
+          updated++;
+        } catch (err: any) {
+          console.error(`[Plaid] Webhook update failed for item ${item.id}:`, err.response?.data || err.message);
+        }
+      }
+      console.log(`[Plaid] Updated webhook URL for ${updated}/${items.length} items → ${webhookUrl}`);
+      res.json({ updated, total: items.length, webhookUrl });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/plaid/webhook", async (req: any, res) => {
+    try {
+      const webhookType = req.body.webhook_type;
+      const webhookCode = req.body.webhook_code;
+      const itemId = req.body.item_id;
+
+      console.log(`[Plaid Webhook] ${webhookType}/${webhookCode} for item ${itemId}`);
+
+      if (!itemId) return res.json({ received: true });
+
+      const { syncPlaidTransactionsForItem, syncPlaidBalancesForItem } = await import("./plaid-webhooks");
+
+      if (webhookType === "TRANSACTIONS") {
+        if (["SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE"].includes(webhookCode)) {
+          const result = await syncPlaidTransactionsForItem(storage, itemId);
+          console.log(`[Plaid Webhook] Transaction sync: ${result.added} new transactions`);
+
+          const balResult = await syncPlaidBalancesForItem(storage, itemId);
+          console.log(`[Plaid Webhook] Balance sync: ${balResult.updated} accounts updated`);
+        }
+        if (webhookCode === "TRANSACTIONS_REMOVED") {
+          console.log(`[Plaid Webhook] Transactions removed notification — cursor will handle on next sync`);
+        }
+      }
+
+      if (webhookType === "ITEM") {
+        if (webhookCode === "ERROR") {
+          const plaidError = req.body.error;
+          console.error(`[Plaid Webhook] Item error:`, plaidError);
+          const item = await storage.getPlaidItemByItemId(itemId);
+          if (item) {
+            await storage.updatePlaidItem(item.id, { status: "error" } as any);
+          }
+        }
+        if (webhookCode === "PENDING_EXPIRATION") {
+          console.warn(`[Plaid Webhook] Access token pending expiration for item ${itemId}`);
+          const item = await storage.getPlaidItemByItemId(itemId);
+          if (item) {
+            await storage.updatePlaidItem(item.id, { status: "pending_expiration" } as any);
+          }
+        }
+      }
+
+      res.json({ received: true });
+    } catch (err: any) {
+      console.error("[Plaid Webhook] Error:", err.message);
+      res.json({ received: true });
     }
   });
 

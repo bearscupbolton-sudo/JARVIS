@@ -48,7 +48,7 @@ The application is structured as a monorepo, featuring a React 18 frontend built
 *   **Google Maps Directions API**: Traffic data for personalized greetings.
 *   **Twilio (Optional)**: SMS notifications.
 *   **ADP RUN API (Optional)**: Payroll and worker management.
-*   **Plaid**: Bank and credit card integration.
+*   **Plaid**: Bank and credit card integration with webhook-based auto-sync. When Plaid detects new transactions or balance changes, it pushes updates automatically via `POST /api/plaid/webhook`. Handles `TRANSACTIONS` (sync new transactions + balances) and `ITEM` (error/expiration status) webhook types. Shared sync logic in `server/plaid-webhooks.ts`. Enable auto-sync for existing connections via the "Enable Auto-Sync" button in The Firm → Bank Integration.
 
 ## Live Labor Burn & Weekly Cash Flush
 

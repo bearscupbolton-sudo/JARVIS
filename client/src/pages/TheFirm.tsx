@@ -1597,6 +1597,15 @@ function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { acco
     onError: () => toast({ title: "Transaction sync failed", variant: "destructive" }),
   });
 
+  const enableWebhooksMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/plaid/update-webhooks"),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: `Auto-sync enabled for ${data.updated} bank connection${data.updated !== 1 ? "s" : ""}` });
+    },
+    onError: () => toast({ title: "Failed to enable auto-sync", variant: "destructive" }),
+  });
+
   const [historicalRange, setHistoricalRange] = useState({ start: "2025-01-01", end: "2025-12-31" });
   const [showHistorical, setShowHistorical] = useState(false);
 
@@ -1682,6 +1691,9 @@ function AccountsTab({ accounts, loading, onSwitchToLedger, onNavigate }: { acco
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowHistorical(true)} data-testid="button-pull-historical" className="border-amber-300 text-amber-700 hover:bg-amber-50">
                 <Download className="w-4 h-4 mr-1" /> Pull Historical
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => enableWebhooksMut.mutate()} disabled={enableWebhooksMut.isPending} data-testid="button-enable-auto-sync" className="border-green-300 text-green-700 hover:bg-green-50">
+                <Zap className="w-4 h-4 mr-1" /> {enableWebhooksMut.isPending ? "Enabling..." : "Enable Auto-Sync"}
               </Button>
             </>
           )}
