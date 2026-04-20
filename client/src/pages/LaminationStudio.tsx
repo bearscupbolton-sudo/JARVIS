@@ -221,6 +221,8 @@ export default function LaminationStudio() {
   const [bakeBoxPastry, setBakeBoxPastry] = useState<string | null>(null);
   const [bakeBoxCount, setBakeBoxCount] = useState("");
   const [bakeFromBoxPending, setBakeFromBoxPending] = useState(false);
+  const [bakeQty, setBakeQty] = useState<Record<"box1" | "box2" | "box3", Record<string, string>>>({ box1: {}, box2: {}, box3: {} });
+  const [bakeBatchPending, setBakeBatchPending] = useState<"box1" | "box2" | "box3" | null>(null);
   const [proofBoxAssignDough, setProofBoxAssignDough] = useState<LaminationDough | null>(null);
   const [proofBoxAssignTarget, setProofBoxAssignTarget] = useState<"box1" | "box2">("box1");
   const [showPastryGuide, setShowPastryGuide] = useState(false);
@@ -1096,6 +1098,47 @@ export default function LaminationStudio() {
       .finally(() => {
         setBakeFromBoxPending(false);
       });
+  };
+
+  const handleBakeBatch = (boxKey: "box1" | "box2" | "box3", agg: Record<string, number>) => {
+    if (bakeBatchPending) return;
+    const items = Object.entries(bakeQty[boxKey] || {})
+      .map(([pastryName, raw]) => {
+        const requested = parseInt(raw);
+        if (isNaN(requested) || requested <= 0) return null;
+        const available = agg[pastryName] || 0;
+        const count = Math.min(requested, available);
+        if (count <= 0) return null;
+        return { pastryName: normalizePastryName(pastryName), count };
+      })
+      .filter((x): x is { pastryName: string; count: number } => !!x);
+    if (items.length === 0) return;
+    setBakeBatchPending(boxKey);
+    apiRequest("POST", "/api/lamination/bake-off-batch", { box: boxKey, items })
+      .then(r => r.json())
+      .then((data: { results: Array<{ pastryName: string; actuallyBaked: number; remaining: number }> }) => {
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination/freezer-inventory"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/bakeoff-logs"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/home"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/live-inventory"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/insights"] });
+        const totalBaked = data.results.reduce((s, r) => s + r.actuallyBaked, 0);
+        const lines = data.results
+          .filter(r => r.actuallyBaked > 0)
+          .map(r => `${r.actuallyBaked} ${r.pastryName}${r.remaining > 0 ? ` (${r.remaining} short)` : ""}`)
+          .join(", ");
+        toast({
+          title: `Baked Off — ${totalBaked} pcs`,
+          description: lines || "No pieces baked",
+        });
+        setBakeQty(prev => ({ ...prev, [boxKey]: {} }));
+      })
+      .catch((err: any) => {
+        toast({ title: "Bake-off failed", description: err?.message || "Please try again", variant: "destructive" });
+      })
+      .finally(() => setBakeBatchPending(null));
   };
 
   const handleQuickAddToBox = () => {
@@ -1981,23 +2024,77 @@ export default function LaminationStudio() {
                                 }, null as ReturnType<typeof getBoxMorningTimer>)
                               : null;
 
+                            const currentQty = bakeQty[boxKey]?.[name] || "";
+                            const currentNum = parseInt(currentQty);
+                            const isInvalid = !isNaN(currentNum) && currentNum > qty;
+                            const slug = name.replace(/\s+/g, "-").toLowerCase();
                             return (
-                              <div key={name} className="flex items-center justify-between font-mono text-sm gap-2">
-                                <span>{name}</span>
-                                <div className="flex items-center gap-2">
-                                  {activeTimer && !activeTimer.isComplete && (
-                                    <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5" data-testid={`box-timer-${name.replace(/\s+/g, "-").toLowerCase()}`}>
-                                      <Timer className="w-3 h-3" />
-                                      {formatTime(activeTimer.remaining)}
-                                    </span>
-                                  )}
-                                  {activeTimer && activeTimer.isComplete && (
-                                    <span className="text-xs font-bold text-green-600 dark:text-green-400" data-testid={`box-timer-done-${name.replace(/\s+/g, "-").toLowerCase()}`}>
-                                      ✓ Ready
-                                    </span>
-                                  )}
-                                  <span className="font-bold">{qty} pcs</span>
+                              <div key={name} className="space-y-1">
+                                <div className="flex items-center justify-between font-mono text-sm gap-2">
+                                  <span className="truncate">{name}</span>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    {activeTimer && !activeTimer.isComplete && (
+                                      <span className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-0.5" data-testid={`box-timer-${slug}`}>
+                                        <Timer className="w-3 h-3" />
+                                        {formatTime(activeTimer.remaining)}
+                                      </span>
+                                    )}
+                                    {activeTimer && activeTimer.isComplete && (
+                                      <span className="text-xs font-bold text-green-600 dark:text-green-400" data-testid={`box-timer-done-${slug}`}>
+                                        ✓ Ready
+                                      </span>
+                                    )}
+                                    <span className="font-bold">{qty} pcs</span>
+                                  </div>
                                 </div>
+                                {!isGrayedOut && (
+                                  <div className="flex items-center gap-1.5 pl-2">
+                                    <Input
+                                      type="number"
+                                      inputMode="numeric"
+                                      min="0"
+                                      max={qty}
+                                      placeholder="bake"
+                                      value={currentQty}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setBakeQty(prev => ({
+                                          ...prev,
+                                          [boxKey]: { ...prev[boxKey], [name]: v },
+                                        }));
+                                      }}
+                                      className={`h-7 text-xs font-mono w-20 ${isInvalid ? "border-destructive" : ""}`}
+                                      data-testid={`input-bake-qty-${boxKey}-${slug}`}
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() => setBakeQty(prev => ({
+                                        ...prev,
+                                        [boxKey]: { ...prev[boxKey], [name]: String(qty) },
+                                      }))}
+                                      data-testid={`button-bake-all-${boxKey}-${slug}`}
+                                    >
+                                      All
+                                    </Button>
+                                    {currentQty && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-1.5 text-xs text-muted-foreground"
+                                        onClick={() => setBakeQty(prev => {
+                                          const next = { ...prev[boxKey] };
+                                          delete next[name];
+                                          return { ...prev, [boxKey]: next };
+                                        })}
+                                        data-testid={`button-bake-clear-${boxKey}-${slug}`}
+                                      >
+                                        ×
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -2025,30 +2122,40 @@ export default function LaminationStudio() {
                           </Button>
                         )}
 
-                        {!isGrayedOut && (
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              className="flex-1"
-                              size="sm"
-                              onClick={() => { setQuickAddBox(boxKey as "box1" | "box2"); setQuickAddPastry(""); setQuickAddPieces(""); }}
-                              data-testid={`button-quickadd-${boxKey}`}
-                            >
-                              <Plus className="w-4 h-4 mr-1" />
-                              Add
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="flex-1"
-                              size="sm"
-                              onClick={() => { setBakeFromBox(boxKey as "box1" | "box2"); setBakeBoxPastry(null); setBakeBoxCount(""); }}
-                              data-testid={`button-bakeoff-${boxKey}`}
-                            >
-                              <Flame className="w-4 h-4 mr-1 text-orange-600" />
-                              Bake Off
-                            </Button>
-                          </div>
-                        )}
+                        {!isGrayedOut && (() => {
+                          const selectedTotal = Object.entries(bakeQty[boxKey] || {}).reduce((s, [name, raw]) => {
+                            const n = parseInt(raw);
+                            if (isNaN(n) || n <= 0) return s;
+                            return s + Math.min(n, agg[name] || 0);
+                          }, 0);
+                          const isPending = bakeBatchPending === boxKey;
+                          return (
+                            <div className="space-y-2">
+                              {selectedTotal > 0 && (
+                                <Button
+                                  className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                                  size="sm"
+                                  onClick={() => handleBakeBatch(boxKey, agg)}
+                                  disabled={isPending}
+                                  data-testid={`button-bake-batch-${boxKey}`}
+                                >
+                                  <Flame className="w-4 h-4 mr-1" />
+                                  {isPending ? "Baking..." : `Bake Off ${selectedTotal} pcs`}
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                className="w-full"
+                                size="sm"
+                                onClick={() => { setQuickAddBox(boxKey as "box1" | "box2"); setQuickAddPastry(""); setQuickAddPieces(""); }}
+                                data-testid={`button-quickadd-${boxKey}`}
+                              >
+                                <Plus className="w-4 h-4 mr-1" />
+                                Add Items
+                              </Button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </CardContent>
@@ -3813,66 +3920,6 @@ export default function LaminationStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!bakeFromBox} onOpenChange={(open) => { if (!open) { setBakeFromBox(null); setBakeBoxPastry(null); setBakeBoxCount(""); } }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-display text-xl">
-              Bake Off — {bakeFromBox === "box1" ? "Box 1" : "Box 2"}
-            </DialogTitle>
-            <DialogDescription>
-              Select a pastry and enter how many to bake
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {bakeFromBox && (() => {
-              const boxDoughs = bakeFromBox === "box1" ? box1Doughs : box2Doughs;
-              const agg = aggregateBoxPastries(boxDoughs);
-              return (
-                <>
-                  <div className="space-y-2">
-                    {Object.entries(agg).map(([name, qty]) => (
-                      <button
-                        key={name}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-left ${bakeBoxPastry === name ? "bg-orange-100 dark:bg-orange-950/30 ring-2 ring-orange-500" : "bg-muted/50 hover:bg-muted"}`}
-                        onClick={() => { setBakeBoxPastry(name); setBakeBoxCount(String(qty)); }}
-                        data-testid={`bake-select-${name.replace(/\s+/g, "-").toLowerCase()}`}
-                      >
-                        <span className="font-display font-semibold text-sm">{name}</span>
-                        <span className="font-mono font-bold text-sm">{qty} pcs</span>
-                      </button>
-                    ))}
-                  </div>
-                  {bakeBoxPastry && (
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">How many to bake?</label>
-                      <Input
-                        type="number"
-                        min="1"
-                        max={agg[bakeBoxPastry] || 999}
-                        value={bakeBoxCount}
-                        onChange={(e) => setBakeBoxCount(e.target.value)}
-                        data-testid="input-bake-count"
-                      />
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => { setBakeFromBox(null); setBakeBoxPastry(null); setBakeBoxCount(""); }}>Cancel</Button>
-              <Button
-                onClick={handleBakeFromBox}
-                disabled={!bakeBoxPastry || !bakeBoxCount || parseInt(bakeBoxCount) <= 0 || bakeFromBoxPending}
-                className="bg-orange-600 hover:bg-orange-700 text-white"
-                data-testid="button-confirm-bake"
-              >
-                <Flame className="w-4 h-4 mr-1" />
-                {bakeFromBoxPending ? "Baking..." : "Bake Off"}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={!!trashDough} onOpenChange={(open) => { if (!open) { setTrashDough(null); setTrashReason(""); } }}>
         <DialogContent className="sm:max-w-sm">

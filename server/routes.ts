@@ -7690,6 +7690,34 @@ ${sopsHtml}
     }
   });
 
+  app.post("/api/lamination/bake-off-batch", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const schema = z.object({
+        box: z.enum(["box1", "box2", "box3"]),
+        items: z.array(z.object({
+          pastryName: z.string().min(1),
+          count: z.number().int().positive(),
+        })).min(1),
+      });
+      const { box, items } = schema.parse(req.body);
+      const results = await storage.bakeOffBatchFromBox(box, items, user?.id || null);
+
+      for (const r of results) {
+        if (r.actuallyBaked > 0) {
+          const pid = await storage.resolvePastryItemId(r.pastryName);
+          createOvenTimersForItem(r.pastryName, pid, user?.id || null).catch(() => {});
+        }
+      }
+      storage.clearAllBriefingCaches().catch(() => {});
+
+      res.json({ results });
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/lamination/:id/bake", isAuthenticated, isUnlocked, async (req: any, res) => {
     try {
       const user = await getUserFromReq(req);
