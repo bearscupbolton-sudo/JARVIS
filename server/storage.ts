@@ -481,6 +481,8 @@ export interface IStorage {
   getPastryYieldConfig(pastryItemId: number): Promise<PastryYieldConfig | undefined>;
   upsertPastryYieldConfig(config: InsertPastryYieldConfig): Promise<PastryYieldConfig>;
   activateProductionTask(jobId: number, opts?: { notes?: string; department?: string; date?: string }): Promise<TaskListItem | null>;
+  bakeOffFromBox(box: "box1" | "box2" | "box3", pastryName: string, count: number, userId: string | null): Promise<{ actuallyBaked: number; remaining: number; affectedDoughIds: number[]; logId: number | null }>;
+  getFreezerInventory(): Promise<Record<string, { totalPieces: number; doughIds: number[] }>>;
 
   // Dough Type Configs
   getDoughTypeConfigs(): Promise<DoughTypeConfig[]>;
@@ -2453,6 +2455,144 @@ export class DatabaseStorage implements IStorage {
     const [config] = await db.select().from(pastryYieldConfigs)
       .where(eq(pastryYieldConfigs.pastryItemId, pastryItemId));
     return config;
+  }
+
+  async bakeOffFromBox(box: "box1" | "box2" | "box3", pastryName: string, count: number, userId: string | null): Promise<{ actuallyBaked: number; remaining: number; affectedDoughIds: number[]; logId: number | null }> {
+    const normalize = (s: string | null | undefined) => {
+      if (!s) return "";
+      const t = String(s).trim().replace(/\s+/g, " ").toLowerCase();
+      return t.split(" ").map(w => w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)).join(" ");
+    };
+    const target = normalize(pastryName);
+    if (!target || count <= 0) {
+      return { actuallyBaked: 0, remaining: count, affectedDoughIds: [], logId: null };
+    }
+
+    return await db.transaction(async (tx) => {
+      const boxDoughs = await tx.select().from(laminationDoughs)
+        .where(eq(laminationDoughs.status, box))
+        .orderBy(laminationDoughs.createdAt)
+        .for("update");
+
+      const matchesTarget = (s: { pastryType: string }) => normalize(s.pastryType) === target;
+
+      const relevant = boxDoughs.filter(d => {
+        const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+        if (shapings && shapings.length > 0) return shapings.some(matchesTarget);
+        return normalize(d.pastryType || d.doughType) === target;
+      });
+
+      let remaining = count;
+      const now = new Date();
+      const affected: number[] = [];
+
+      for (const dough of relevant) {
+        if (remaining <= 0) break;
+        const shapings = dough.shapings as Array<{ pastryType: string; pieces: number }> | null;
+        const hasShapings = !!(shapings && shapings.length > 0);
+        const doughTargetPieces = hasShapings
+          ? shapings!.reduce((sum, s) => matchesTarget(s) ? sum + s.pieces : sum, 0)
+          : (dough.proofPieces ?? dough.totalPieces ?? 0);
+        if (doughTargetPieces <= 0) continue;
+
+        const take = Math.min(doughTargetPieces, remaining);
+        remaining -= take;
+        affected.push(dough.id);
+
+        if (take >= doughTargetPieces) {
+          if (hasShapings) {
+            const newShapings = shapings!
+              .filter(s => !matchesTarget(s))
+              .map(s => ({ pastryType: normalize(s.pastryType), pieces: s.pieces }));
+            const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
+            if (remainingTotal <= 0) {
+              await tx.update(laminationDoughs).set({
+                status: "baked", bakedAt: now, bakedBy: userId,
+              }).where(eq(laminationDoughs.id, dough.id));
+            } else {
+              await tx.update(laminationDoughs).set({
+                shapings: newShapings, proofPieces: remainingTotal, totalPieces: remainingTotal,
+              }).where(eq(laminationDoughs.id, dough.id));
+            }
+          } else {
+            await tx.update(laminationDoughs).set({
+              status: "baked", bakedAt: now, bakedBy: userId,
+            }).where(eq(laminationDoughs.id, dough.id));
+          }
+        } else {
+          if (hasShapings) {
+            let toRemove = take;
+            const newShapings = shapings!
+              .map(s => {
+                const norm = normalize(s.pastryType);
+                if (toRemove > 0 && matchesTarget(s)) {
+                  const sub = Math.min(s.pieces, toRemove);
+                  toRemove -= sub;
+                  return { pastryType: norm, pieces: s.pieces - sub };
+                }
+                return { pastryType: norm, pieces: s.pieces };
+              })
+              .filter(s => s.pieces > 0);
+            const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
+            await tx.update(laminationDoughs).set({
+              shapings: newShapings, proofPieces: remainingTotal, totalPieces: remainingTotal,
+            }).where(eq(laminationDoughs.id, dough.id));
+          } else {
+            const newPieces = doughTargetPieces - take;
+            await tx.update(laminationDoughs).set({
+              proofPieces: newPieces, totalPieces: newPieces,
+            }).where(eq(laminationDoughs.id, dough.id));
+          }
+        }
+      }
+
+      const actuallyBaked = count - remaining;
+      let logId: number | null = null;
+      if (actuallyBaked > 0) {
+        const dateStr = now.toISOString().split("T")[0];
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        const ampm = hours >= 12 ? "PM" : "AM";
+        const h = hours % 12 || 12;
+        const bakedAtTime = `${h}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+        const [log] = await tx.insert(bakeoffLogs).values({
+          date: dateStr,
+          itemName: target,
+          quantity: actuallyBaked,
+          bakedAt: bakedAtTime,
+          locationId: null,
+        }).returning();
+        logId = log.id;
+      }
+
+      return { actuallyBaked, remaining, affectedDoughIds: affected, logId };
+    });
+  }
+
+  async getFreezerInventory(): Promise<Record<string, { totalPieces: number; doughIds: number[]; oldestDate: string }>> {
+    const normalize = (s: string | null | undefined) => {
+      if (!s) return "Unknown";
+      const t = String(s).trim().replace(/\s+/g, " ").toLowerCase();
+      if (!t) return "Unknown";
+      return t.split(" ").map(w => w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)).join(" ");
+    };
+    const frozen = await db.select().from(laminationDoughs).where(eq(laminationDoughs.status, "frozen"));
+    const inv: Record<string, { totalPieces: number; doughIds: number[]; oldestDate: string }> = {};
+    for (const d of frozen) {
+      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
+      const apply = (key: string, pieces: number) => {
+        if (!inv[key]) inv[key] = { totalPieces: 0, doughIds: [], oldestDate: d.date };
+        inv[key].totalPieces += pieces;
+        if (!inv[key].doughIds.includes(d.id)) inv[key].doughIds.push(d.id);
+        if (d.date < inv[key].oldestDate) inv[key].oldestDate = d.date;
+      };
+      if (shapings && shapings.length > 0) {
+        for (const s of shapings) apply(normalize(s.pastryType), s.pieces || 0);
+      } else {
+        apply(normalize(d.pastryType || d.doughType), d.proofPieces ?? d.totalPieces ?? 0);
+      }
+    }
+    return inv;
   }
 
   async activateProductionTask(jobId: number, opts: { notes?: string; department?: string; date?: string } = {}): Promise<TaskListItem | null> {

@@ -379,6 +379,7 @@ export default function LaminationStudio() {
   const invalidateAllLamination = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lamination", today] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lamination/freezer-inventory"] });
   }, [today]);
 
   const createMutation = useMutation({
@@ -1065,114 +1066,25 @@ export default function LaminationStudio() {
     const count = parseInt(bakeBoxCount);
     if (isNaN(count) || count <= 0) return;
     setBakeFromBoxPending(true);
-    const nowIso = new Date().toISOString();
     const targetName = normalizePastryName(bakeBoxPastry);
-    const boxDoughs = bakeFromBox === "box1" ? box1Doughs : box2Doughs;
 
-    const matchesTarget = (s: { pastryType: string }) => normalizePastryName(s.pastryType) === targetName;
-
-    const relevantDoughs = boxDoughs.filter(d => {
-      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
-      if (shapings && shapings.length > 0) return shapings.some(matchesTarget);
-      return normalizePastryName(d.pastryType || d.doughType) === targetName;
-    });
-
-    let remaining = count;
-    const updates: Promise<any>[] = [];
-
-    for (const dough of relevantDoughs) {
-      if (remaining <= 0) break;
-      const shapings = dough.shapings as Array<{ pastryType: string; pieces: number }> | null;
-      const hasShapings = shapings && shapings.length > 0;
-      const doughTargetPieces = hasShapings
-        ? shapings!.reduce((sum, s) => matchesTarget(s) ? sum + s.pieces : sum, 0)
-        : (dough.proofPieces ?? dough.totalPieces ?? 0);
-      if (doughTargetPieces <= 0) continue;
-
-      const takeFromThis = Math.min(doughTargetPieces, remaining);
-      remaining -= takeFromThis;
-
-      if (takeFromThis >= doughTargetPieces) {
-        // This dough's contribution to the target pastry is fully consumed
-        if (hasShapings) {
-          const newShapings = shapings!
-            .filter(s => !matchesTarget(s))
-            .map(s => ({ pastryType: normalizePastryName(s.pastryType), pieces: s.pieces }));
-          const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
-          if (remainingTotal <= 0) {
-            updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-              status: "baked", bakedAt: nowIso, bakedBy: user?.id || null,
-            }));
-          } else {
-            updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-              shapings: newShapings,
-              proofPieces: remainingTotal,
-              totalPieces: remainingTotal,
-            }));
-          }
-        } else {
-          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-            status: "baked", bakedAt: nowIso, bakedBy: user?.id || null,
-          }));
-        }
-      } else {
-        // Partial bake — decrement and keep dough in the box
-        if (hasShapings) {
-          // Distribute takeFromThis across matching entries (handles duplicates)
-          let toRemove = takeFromThis;
-          const newShapings = shapings!
-            .map(s => {
-              const norm = normalizePastryName(s.pastryType);
-              if (toRemove > 0 && matchesTarget(s)) {
-                const sub = Math.min(s.pieces, toRemove);
-                toRemove -= sub;
-                return { pastryType: norm, pieces: s.pieces - sub };
-              }
-              return { pastryType: norm, pieces: s.pieces };
-            })
-            .filter(s => s.pieces > 0);
-          const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
-          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-            shapings: newShapings,
-            proofPieces: remainingTotal,
-            totalPieces: remainingTotal,
-          }));
-        } else {
-          const newPieces = doughTargetPieces - takeFromThis;
-          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-            proofPieces: newPieces,
-            totalPieces: newPieces,
-          }));
-        }
-      }
-    }
-
-    const actuallyBaked = count - remaining;
-
-    // Bake-Off Ledger: record permanent log of what was baked
-    if (actuallyBaked > 0) {
-      const now = new Date();
-      const dateStr = now.toISOString().split("T")[0];
-      const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-      updates.push(apiRequest("POST", "/api/bakeoff-logs", {
-        itemName: targetName,
-        quantity: actuallyBaked,
-        date: dateStr,
-        bakedAt: timeStr,
-      }));
-    }
-
-    Promise.all(updates)
-      .then(() => {
+    apiRequest("POST", "/api/lamination/bake-off", {
+      box: bakeFromBox,
+      pastryName: targetName,
+      count,
+    })
+      .then(r => r.json())
+      .then((result: { actuallyBaked: number; remaining: number }) => {
         queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
         queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination/freezer-inventory"] });
         queryClient.invalidateQueries({ queryKey: ["/api/bakeoff-logs"] });
         queryClient.invalidateQueries({ queryKey: ["/api/home"] });
         queryClient.invalidateQueries({ queryKey: ["/api/live-inventory"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/insights"] });
         toast({
           title: "Baked Off",
-          description: `${actuallyBaked} ${targetName} from ${bakeFromBox === "box1" ? "Box 1" : "Box 2"}${remaining > 0 ? ` (${remaining} short)` : ""}`,
+          description: `${result.actuallyBaked} ${targetName} from ${bakeFromBox === "box1" ? "Box 1" : "Box 2"}${result.remaining > 0 ? ` (${result.remaining} short)` : ""}`,
         });
         setBakeFromBox(null);
         setBakeBoxPastry(null);
@@ -1307,29 +1219,17 @@ export default function LaminationStudio() {
   const box3Doughs = doughs?.filter(d => d.status === "box3") || [];
   const bakedDoughs = todayDoughs?.filter(d => d.status === "baked") || [];
 
+  const { data: freezerInventoryRaw } = useQuery<Record<string, { totalPieces: number; doughIds: number[]; oldestDate: string }>>({
+    queryKey: ["/api/lamination/freezer-inventory"],
+  });
   const freezerInventory = useMemo(() => {
-    const inv: Record<string, { totalPieces: number; ids: number[]; oldestDate: string }> = {};
-    frozenDoughs.forEach(d => {
-      const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
-      if (shapings && shapings.length > 0) {
-        shapings.forEach(s => {
-          const key = normalizePastryName(s.pastryType);
-          if (!inv[key]) inv[key] = { totalPieces: 0, ids: [], oldestDate: d.date };
-          inv[key].totalPieces += s.pieces;
-          inv[key].ids.push(d.id);
-          if (d.date < inv[key].oldestDate) inv[key].oldestDate = d.date;
-        });
-      } else {
-        const type = normalizePastryName(d.pastryType || d.doughType);
-        const pieces = d.proofPieces ?? d.totalPieces ?? 0;
-        if (!inv[type]) inv[type] = { totalPieces: 0, ids: [], oldestDate: d.date };
-        inv[type].totalPieces += pieces;
-        inv[type].ids.push(d.id);
-        if (d.date < inv[type].oldestDate) inv[type].oldestDate = d.date;
-      }
-    });
-    return inv;
-  }, [frozenDoughs]);
+    const out: Record<string, { totalPieces: number; ids: number[]; oldestDate: string }> = {};
+    if (!freezerInventoryRaw) return out;
+    for (const [name, v] of Object.entries(freezerInventoryRaw)) {
+      out[name] = { totalPieces: v.totalPieces, ids: v.doughIds, oldestDate: v.oldestDate };
+    }
+    return out;
+  }, [freezerInventoryRaw]);
 
   const aggregateBoxPastries = (boxDoughs: LaminationDough[]) => {
     const agg: Record<string, number> = {};
@@ -3806,26 +3706,31 @@ export default function LaminationStudio() {
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-2 block">Pastry type</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {["Plain Croissant", "Chocolate Croissant", "Bearclaw", "Cinnamon Roll", "Cheese Danish", "Apple Nest", "Spinach Feta", "Banana Nutella", "Banoffee"].map(p => (
-                  <Button
-                    key={p}
-                    variant={quickAddPastry === p ? "default" : "outline"}
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => setQuickAddPastry(p)}
-                    data-testid={`quickadd-type-${p.replace(/\s+/g, "-").toLowerCase()}`}
-                  >
-                    {p}
-                  </Button>
-                ))}
-              </div>
-              <Input
-                placeholder="Or type a custom name..."
-                value={quickAddPastry}
-                onChange={(e) => setQuickAddPastry(e.target.value)}
-                data-testid="input-quickadd-pastry"
-              />
+              {allPastryItems && allPastryItems.length > 0 ? (
+                <Select value={quickAddPastry} onValueChange={setQuickAddPastry}>
+                  <SelectTrigger data-testid="select-quickadd-pastry">
+                    <SelectValue placeholder="Select pastry from registry..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...allPastryItems]
+                      .filter(p => p.isActive !== false)
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map(p => (
+                        <SelectItem
+                          key={p.id}
+                          value={p.name}
+                          data-testid={`option-quickadd-pastry-${p.id}`}
+                        >
+                          {p.name}{p.doughType ? ` — ${p.doughType}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="text-sm text-muted-foreground p-3 border rounded-md">
+                  No pastries in the registry yet. Add them in Settings.
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">How many pieces?</label>

@@ -7465,8 +7465,21 @@ ${sopsHtml}
     }
   });
 
+  app.get("/api/lamination/freezer-inventory", isAuthenticated, async (_req: any, res) => {
+    try {
+      const inv = await storage.getFreezerInventory();
+      res.set("Cache-Control", "private, max-age=15");
+      res.json(inv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/lamination/:date", isAuthenticated, async (req: any, res) => {
     try {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const doughs = await storage.getLaminationDoughs(req.params.date);
       res.json(doughs);
     } catch (err: any) {
@@ -7647,6 +7660,30 @@ ${sopsHtml}
 
       storage.clearAllBriefingCaches().catch(() => {});
       res.json({ proofDough, freezerDough });
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lamination/bake-off", isAuthenticated, isUnlocked, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const schema = z.object({
+        box: z.enum(["box1", "box2", "box3"]),
+        pastryName: z.string().min(1),
+        count: z.number().int().positive(),
+      });
+      const { box, pastryName, count } = schema.parse(req.body);
+      const result = await storage.bakeOffFromBox(box, pastryName, count, user?.id || null);
+
+      if (result.actuallyBaked > 0) {
+        const pid = await storage.resolvePastryItemId(pastryName);
+        createOvenTimersForItem(pastryName, pid, user?.id || null).catch(() => {});
+      }
+      storage.clearAllBriefingCaches().catch(() => {});
+
+      res.json(result);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
       res.status(500).json({ message: err.message });
