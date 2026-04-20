@@ -1011,7 +1011,7 @@ export const insertPastryItemSchema = createInsertSchema(pastryItems).omit({ id:
 export type PastryItem = typeof pastryItems.$inferSelect;
 export type InsertPastryItem = z.infer<typeof insertPastryItemSchema>;
 
-// === PASTRY YIELD CONFIGS (Par & Yield Registry) ===
+// === PASTRY YIELD CONFIGS (Par & Yield Registry / PPIE) ===
 export const pastryYieldConfigs = pgTable("pastry_yield_configs", {
   id: serial("id").primaryKey(),
   pastryItemId: integer("pastry_item_id").references(() => pastryItems.id).notNull().unique(),
@@ -1019,12 +1019,39 @@ export const pastryYieldConfigs = pgTable("pastry_yield_configs", {
   componentTaskId: integer("component_task_id"),
   targetPar: integer("target_par").notNull().default(0),
   notes: text("notes"),
+  // PPIE — predictive fields
+  projectedPar: integer("projected_par").notNull().default(0),
+  unmetDemandBuffer: integer("unmet_demand_buffer").notNull().default(0),
+  rolling4WkAvg: doublePrecision("rolling_4wk_avg").notNull().default(0),
+  lastSellOutAt: timestamp("last_sell_out_at"),
+  lastSellOutDow: integer("last_sell_out_dow"),
+  lastSellOutTimeStr: text("last_sell_out_time_str"),
+  vectorB: doublePrecision("vector_b"),
+  vectorC: doublePrecision("vector_c"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertPastryYieldConfigSchema = createInsertSchema(pastryYieldConfigs).omit({ id: true, updatedAt: true });
 export type PastryYieldConfig = typeof pastryYieldConfigs.$inferSelect;
 export type InsertPastryYieldConfig = z.infer<typeof insertPastryYieldConfigSchema>;
+
+// === SELL-OUT EVENTS (PPIE history) ===
+export const sellOutEvents = pgTable("sell_out_events", {
+  id: serial("id").primaryKey(),
+  pastryItemId: integer("pastry_item_id").references(() => pastryItems.id).notNull(),
+  date: text("date").notNull(),
+  soldOutAt: timestamp("sold_out_at").notNull().defaultNow(),
+  bakedToday: integer("baked_today").notNull().default(0),
+  projectedDemand: integer("projected_demand").notNull().default(0),
+  unmetEstimate: integer("unmet_estimate").notNull().default(0),
+  loggedBy: varchar("logged_by"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSellOutEventSchema = createInsertSchema(sellOutEvents).omit({ id: true, createdAt: true });
+export type SellOutEvent = typeof sellOutEvents.$inferSelect;
+export type InsertSellOutEvent = z.infer<typeof insertSellOutEventSchema>;
 
 // === DOUGH TYPE CONFIGS (lamination fat/butter settings per dough type) ===
 export const doughTypeConfigs = pgTable("dough_type_configs", {

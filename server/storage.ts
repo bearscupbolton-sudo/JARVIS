@@ -13,6 +13,7 @@ import {
   laminationDoughs,
   pastryItems,
   pastryYieldConfigs,
+  sellOutEvents,
   doughTypeConfigs,
   timeEntries,
   breakEntries,
@@ -480,6 +481,11 @@ export interface IStorage {
   getPastryYieldConfigs(): Promise<PastryYieldConfig[]>;
   getPastryYieldConfig(pastryItemId: number): Promise<PastryYieldConfig | undefined>;
   upsertPastryYieldConfig(config: InsertPastryYieldConfig): Promise<PastryYieldConfig>;
+  getParRegistryWithStats(): Promise<Array<PastryItem & { config: PastryYieldConfig | null; rolling4WkAvg: number; lastSellOutTimeStr: string | null }>>;
+  getRolling4WkAvg(pastryItemId: number): Promise<number>;
+  refreshAllRolling4WkAvg(): Promise<number>;
+  logSellOut(pastryItemId: number, soldOutAt: Date, userId: string | null, notes?: string): Promise<{ event: SellOutEvent; config: PastryYieldConfig; bakedToday: number; projectedDemand: number }>;
+  getRecentSellOutEvents(days?: number): Promise<SellOutEvent[]>;
   activateProductionTask(jobId: number, opts?: { notes?: string; department?: string; date?: string }): Promise<TaskListItem | null>;
   bakeOffFromBox(box: "box1" | "box2" | "box3", pastryName: string, count: number, userId: string | null): Promise<{ actuallyBaked: number; remaining: number; affectedDoughIds: number[]; logId: number | null }>;
   bakeOffBatchFromBox(box: "box1" | "box2" | "box3", items: Array<{ pastryName: string; count: number }>, userId: string | null): Promise<Array<{ pastryName: string; actuallyBaked: number; remaining: number; affectedDoughIds: number[]; logId: number | null }>>;
@@ -2691,20 +2697,172 @@ export class DatabaseStorage implements IStorage {
   async upsertPastryYieldConfig(config: InsertPastryYieldConfig): Promise<PastryYieldConfig> {
     const existing = await this.getPastryYieldConfig(config.pastryItemId);
     if (existing) {
+      const updates: any = { updatedAt: new Date() };
+      if (config.yieldPerDough !== undefined) updates.yieldPerDough = config.yieldPerDough;
+      if (config.componentTaskId !== undefined) updates.componentTaskId = config.componentTaskId;
+      if (config.targetPar !== undefined) updates.targetPar = config.targetPar;
+      if (config.notes !== undefined) updates.notes = config.notes;
+      if ((config as any).projectedPar !== undefined) updates.projectedPar = (config as any).projectedPar;
+      if ((config as any).unmetDemandBuffer !== undefined) updates.unmetDemandBuffer = (config as any).unmetDemandBuffer;
       const [updated] = await db.update(pastryYieldConfigs)
-        .set({
-          yieldPerDough: config.yieldPerDough,
-          componentTaskId: config.componentTaskId,
-          targetPar: config.targetPar,
-          notes: config.notes,
-          updatedAt: new Date(),
-        })
+        .set(updates)
         .where(eq(pastryYieldConfigs.id, existing.id))
         .returning();
       return updated;
     }
     const [created] = await db.insert(pastryYieldConfigs).values(config).returning();
     return created;
+  }
+
+  // === PPIE: Predictive Production Intelligence Engine ===
+
+  // Sell-out velocity calculation (linear extrapolation with damping)
+  // Defaults: shift 7am→5pm (10hr selling window), damping 0.7, max ratio 2.0x
+  private _calcProjectedDemand(bakedToday: number, soldOutAt: Date): { projected: number; ratio: number; hoursSelling: number; unmet: number } {
+    const SHIFT_START_HR = 7;
+    const SHIFT_END_HR = 17;
+    const DAMPING = 0.7;
+    const MAX_RATIO = 2.0;
+    const MIN_RATIO = 1.0;
+    const totalShift = SHIFT_END_HR - SHIFT_START_HR;
+    const soldOutHr = soldOutAt.getHours() + soldOutAt.getMinutes() / 60;
+    const hoursSelling = Math.max(0.5, Math.min(totalShift, soldOutHr - SHIFT_START_HR));
+    if (hoursSelling >= totalShift || bakedToday <= 0) {
+      return { projected: bakedToday, ratio: 1, hoursSelling, unmet: 0 };
+    }
+    const rawRatio = totalShift / hoursSelling;
+    const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, rawRatio * DAMPING));
+    const projected = Math.ceil(bakedToday * ratio);
+    return { projected, ratio, hoursSelling, unmet: Math.max(0, projected - bakedToday) };
+  }
+
+  async getRolling4WkAvg(pastryItemId: number): Promise<number> {
+    const item = await db.select().from(pastryItems).where(eq(pastryItems.id, pastryItemId)).limit(1);
+    if (item.length === 0) return 0;
+    const name = item[0].name;
+    const since = new Date();
+    since.setDate(since.getDate() - 28);
+    const sinceStr = since.toISOString().split("T")[0];
+    const logs = await db.select().from(bakeoffLogs)
+      .where(and(gte(bakeoffLogs.date, sinceStr), ilike(bakeoffLogs.itemName, name)));
+    const total = logs.reduce((s, l) => s + (l.quantity || 0), 0);
+    const dayCount = new Set(logs.map(l => l.date)).size;
+    return dayCount > 0 ? total / dayCount : 0;
+  }
+
+  async getParRegistryWithStats(): Promise<Array<PastryItem & { config: PastryYieldConfig | null; rolling4WkAvg: number; lastSellOutTimeStr: string | null }>> {
+    const items = await db.select().from(pastryItems).where(eq(pastryItems.isActive, true)).orderBy(pastryItems.name);
+    const allConfigs = await db.select().from(pastryYieldConfigs);
+    const configMap = new Map(allConfigs.map(c => [c.pastryItemId, c]));
+
+    const since = new Date();
+    since.setDate(since.getDate() - 28);
+    const sinceStr = since.toISOString().split("T")[0];
+    const recentLogs = await db.select().from(bakeoffLogs).where(gte(bakeoffLogs.date, sinceStr));
+
+    const norm = (s: string) => s.trim().toLowerCase();
+    const logsByName = new Map<string, BakeoffLog[]>();
+    for (const log of recentLogs) {
+      const k = norm(log.itemName);
+      if (!logsByName.has(k)) logsByName.set(k, []);
+      logsByName.get(k)!.push(log);
+    }
+
+    return items.map(item => {
+      const config = configMap.get(item.id) || null;
+      const matchingLogs = logsByName.get(norm(item.name)) || [];
+      const total = matchingLogs.reduce((s, l) => s + (l.quantity || 0), 0);
+      const dayCount = new Set(matchingLogs.map(l => l.date)).size;
+      const rolling4WkAvg = dayCount > 0 ? Math.round((total / dayCount) * 10) / 10 : 0;
+      return {
+        ...item,
+        config,
+        rolling4WkAvg,
+        lastSellOutTimeStr: config?.lastSellOutTimeStr || null,
+      };
+    });
+  }
+
+  async logSellOut(pastryItemId: number, soldOutAt: Date, userId: string | null, notes?: string): Promise<{ event: SellOutEvent; config: PastryYieldConfig; bakedToday: number; projectedDemand: number }> {
+    const item = await db.select().from(pastryItems).where(eq(pastryItems.id, pastryItemId)).limit(1);
+    if (item.length === 0) throw new Error("Pastry item not found");
+    const itemName = item[0].name;
+    const dateStr = soldOutAt.toISOString().split("T")[0];
+
+    const todaysLogs = await db.select().from(bakeoffLogs)
+      .where(and(eq(bakeoffLogs.date, dateStr), ilike(bakeoffLogs.itemName, itemName)));
+    const bakedToday = todaysLogs.reduce((s, l) => s + (l.quantity || 0), 0);
+
+    const { projected, unmet } = this._calcProjectedDemand(bakedToday, soldOutAt);
+
+    const [event] = await db.insert(sellOutEvents).values({
+      pastryItemId,
+      date: dateStr,
+      soldOutAt,
+      bakedToday,
+      projectedDemand: projected,
+      unmetEstimate: unmet,
+      loggedBy: userId,
+      notes: notes || null,
+    }).returning();
+
+    const hours = soldOutAt.getHours();
+    const mins = soldOutAt.getMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const h12 = hours % 12 || 12;
+    const timeStr = `${h12}:${mins.toString().padStart(2, "0")} ${ampm}`;
+
+    const existing = await this.getPastryYieldConfig(pastryItemId);
+    let config: PastryYieldConfig;
+    if (existing) {
+      const [updated] = await db.update(pastryYieldConfigs).set({
+        projectedPar: projected,
+        unmetDemandBuffer: unmet,
+        lastSellOutAt: soldOutAt,
+        lastSellOutDow: soldOutAt.getDay(),
+        lastSellOutTimeStr: timeStr,
+        updatedAt: new Date(),
+      }).where(eq(pastryYieldConfigs.id, existing.id)).returning();
+      config = updated;
+    } else {
+      const [created] = await db.insert(pastryYieldConfigs).values({
+        pastryItemId,
+        yieldPerDough: 40,
+        targetPar: 0,
+        projectedPar: projected,
+        unmetDemandBuffer: unmet,
+        lastSellOutAt: soldOutAt,
+        lastSellOutDow: soldOutAt.getDay(),
+        lastSellOutTimeStr: timeStr,
+      }).returning();
+      config = created;
+    }
+
+    return { event, config, bakedToday, projectedDemand: projected };
+  }
+
+  async getRecentSellOutEvents(days: number = 14): Promise<SellOutEvent[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return await db.select().from(sellOutEvents)
+      .where(gte(sellOutEvents.soldOutAt, since))
+      .orderBy(desc(sellOutEvents.soldOutAt));
+  }
+
+  async refreshAllRolling4WkAvg(): Promise<number> {
+    const items = await db.select().from(pastryItems).where(eq(pastryItems.isActive, true));
+    let updated = 0;
+    for (const item of items) {
+      const avg = await this.getRolling4WkAvg(item.id);
+      const existing = await this.getPastryYieldConfig(item.id);
+      if (existing) {
+        await db.update(pastryYieldConfigs)
+          .set({ rolling4WkAvg: avg, updatedAt: new Date() })
+          .where(eq(pastryYieldConfigs.id, existing.id));
+        updated++;
+      }
+    }
+    return updated;
   }
 
   // Dough Type Configs

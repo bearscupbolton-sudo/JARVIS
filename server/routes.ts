@@ -7868,6 +7868,55 @@ ${sopsHtml}
     }
   });
 
+  // === PPIE: Par & Yield Registry with stats ===
+  app.get("/api/par-registry/with-stats", isAuthenticated, async (_req: any, res) => {
+    try {
+      const rows = await storage.getParRegistryWithStats();
+      res.set("Cache-Control", "private, max-age=10");
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/par-registry/refresh-rolling-avg", isAuthenticated, isManager, async (_req: any, res) => {
+    try {
+      const updated = await storage.refreshAllRolling4WkAvg();
+      res.json({ updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PPIE: Sell-Out Logger ===
+  app.post("/api/inventory/log-86", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await getUserFromReq(req);
+      const schema = z.object({
+        pastryItemId: z.number().int().positive(),
+        soldOutAt: z.string().datetime().optional(),
+        notes: z.string().nullable().optional(),
+      });
+      const { pastryItemId, soldOutAt, notes } = schema.parse(req.body);
+      const at = soldOutAt ? new Date(soldOutAt) : new Date();
+      const result = await storage.logSellOut(pastryItemId, at, user?.id || null, notes || undefined);
+      res.json(result);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sell-out-events", isAuthenticated, async (req: any, res) => {
+    try {
+      const days = req.query.days ? Math.max(1, Math.min(90, parseInt(req.query.days as string))) : 14;
+      const events = await storage.getRecentSellOutEvents(days);
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === DOUGH TYPE CONFIGS ===
   app.get("/api/dough-type-configs", isAuthenticated, async (req: any, res) => {
     try {

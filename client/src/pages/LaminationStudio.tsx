@@ -1933,24 +1933,54 @@ export default function LaminationStudio() {
             </CardHeader>
             <CardContent className="p-4">
               <div className="space-y-2">
-                {Object.entries(freezerInventory).sort(([a], [b]) => a.localeCompare(b)).map(([pastryType, inv]) => (
-                  <button
-                    key={pastryType}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/30 transition-colors text-left"
-                    onClick={() => { setMoveToBoxPastry(pastryType); setMoveToBoxCount(String(inv.totalPieces)); setMoveToBoxTarget("box1"); }}
-                    data-testid={`freezer-item-${pastryType.replace(/\s+/g, "-").toLowerCase()}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Snowflake className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-display font-semibold text-sm">{pastryType}</span>
+                {Object.entries(freezerInventory).sort(([a], [b]) => a.localeCompare(b)).map(([pastryType, inv]) => {
+                  const slug = pastryType.replace(/\s+/g, "-").toLowerCase();
+                  const matchedItem = allPastryItems?.find(i => normalizePastryName(i.name) === normalizePastryName(pastryType));
+                  return (
+                    <div
+                      key={pastryType}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/30 transition-colors text-left cursor-pointer"
+                      onClick={() => { setMoveToBoxPastry(pastryType); setMoveToBoxCount(String(inv.totalPieces)); setMoveToBoxTarget("box1"); }}
+                      data-testid={`freezer-item-${slug}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Snowflake className="w-3.5 h-3.5 text-blue-500" />
+                        <span className="font-display font-semibold text-sm">{pastryType}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-bold text-sm">{inv.totalPieces} pcs</span>
+                        <span className="text-xs text-muted-foreground">{inv.ids.length} batch{inv.ids.length !== 1 ? "es" : ""}</span>
+                        {matchedItem && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs border-red-300 text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              apiRequest("POST", "/api/inventory/log-86", { pastryItemId: matchedItem.id })
+                                .then((r) => r.json())
+                                .then((data: any) => {
+                                  toast({
+                                    title: `${pastryType} marked 86'd`,
+                                    description: `Baked today: ${data.bakedToday} • Projected demand: ${data.projectedDemand}`,
+                                  });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/par-registry/with-stats"] });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/pastry-yield-configs"] });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/sell-out-events"] });
+                                })
+                                .catch((err: any) => toast({ title: "86 failed", description: err.message, variant: "destructive" }));
+                            }}
+                            data-testid={`button-86-${slug}`}
+                          >
+                            86
+                          </Button>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-bold text-sm">{inv.totalPieces} pcs</span>
-                      <span className="text-xs text-muted-foreground">{inv.ids.length} batch{inv.ids.length !== 1 ? "es" : ""}</span>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
               <p className="text-xs text-muted-foreground text-center mt-3">Tap a pastry to move to a retarder box</p>
             </CardContent>

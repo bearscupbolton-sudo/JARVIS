@@ -54,6 +54,7 @@ const TaskManager = lazy(() => import("@/pages/TaskManager"));
 const AssignedTaskList = lazy(() => import("@/pages/AssignedTaskList"));
 const LaminationStudio = lazy(() => import("@/pages/LaminationStudio"));
 const ProductionMatrix = lazy(() => import("@/pages/ProductionMatrix"));
+const ParYieldRegistry = lazy(() => import("@/pages/ParYieldRegistry"));
 const PastryItems = lazy(() => import("@/pages/PastryItems"));
 const KioskClock = lazy(() => import("@/pages/KioskClock"));
 const TimeCards = lazy(() => import("@/pages/TimeCards"));
@@ -445,6 +446,9 @@ function Router() {
         </Route>
         <Route path="/lamination">
           {() => <ProtectedRoute component={LaminationStudio} />}
+        </Route>
+        <Route path="/par-yield-registry">
+          {() => <ProtectedRoute component={ParYieldRegistry} />}
         </Route>
         <Route path="/production-matrix">
           {() => <ProtectedRoute component={ProductionMatrix} />}
