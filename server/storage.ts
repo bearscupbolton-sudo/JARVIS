@@ -2658,7 +2658,7 @@ export class DatabaseStorage implements IStorage {
     return inv;
   }
 
-  async activateProductionTask(jobId: number, opts: { notes?: string; department?: string; date?: string } = {}): Promise<TaskListItem | null> {
+  async activateProductionTask(jobId: number, opts: { notes?: string; department?: string; date?: string; quantity?: number; quantityUnit?: string } = {}): Promise<TaskListItem | null> {
     const [job] = await db.select().from(taskJobs).where(eq(taskJobs.id, jobId)).limit(1);
     if (!job) return null;
     const department = opts.department ?? "bakery";
@@ -2678,12 +2678,27 @@ export class DatabaseStorage implements IStorage {
       }).returning();
     }
 
+    const qtyStr = opts.quantity && opts.quantity > 0
+      ? ` — Need ${opts.quantity}${opts.quantityUnit ? ` ${opts.quantityUnit}` : ""}`
+      : "";
+    const noteStr = opts.notes ? ` (${opts.notes})` : "";
+    const title = `${job.name}${qtyStr}${noteStr}`;
+
     const existing = await db.select().from(taskListItems)
       .where(and(eq(taskListItems.listId, list.id), eq(taskListItems.jobId, jobId), eq(taskListItems.completed, false)))
       .limit(1);
-    if (existing.length > 0) return existing[0];
+    if (existing.length > 0) {
+      // Refresh the title with the latest computed quantity so PPIE updates flow through.
+      if (opts.quantity && opts.quantity > 0) {
+        const [updated] = await db.update(taskListItems)
+          .set({ manualTitle: title })
+          .where(eq(taskListItems.id, existing[0].id))
+          .returning();
+        return updated;
+      }
+      return existing[0];
+    }
 
-    const title = opts.notes ? `${job.name} — ${opts.notes}` : job.name;
     const [item] = await db.insert(taskListItems).values({
       listId: list.id,
       jobId,
@@ -2702,8 +2717,8 @@ export class DatabaseStorage implements IStorage {
       if (config.componentTaskId !== undefined) updates.componentTaskId = config.componentTaskId;
       if (config.targetPar !== undefined) updates.targetPar = config.targetPar;
       if (config.notes !== undefined) updates.notes = config.notes;
-      if ((config as any).projectedPar !== undefined) updates.projectedPar = (config as any).projectedPar;
-      if ((config as any).unmetDemandBuffer !== undefined) updates.unmetDemandBuffer = (config as any).unmetDemandBuffer;
+      if (config.projectedPar !== undefined) updates.projectedPar = config.projectedPar;
+      if (config.unmetDemandBuffer !== undefined) updates.unmetDemandBuffer = config.unmetDemandBuffer;
       const [updated] = await db.update(pastryYieldConfigs)
         .set(updates)
         .where(eq(pastryYieldConfigs.id, existing.id))

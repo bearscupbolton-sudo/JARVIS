@@ -7579,8 +7579,39 @@ ${sopsHtml}
               if (!pastryItemId) return;
               const config = await storage.getPastryYieldConfig(pastryItemId);
               if (!config?.componentTaskId) return;
+
+              // PPIE Phase 5: compute the cumulative quantity needed across
+              // ALL active doughs intended for this pastry, using the highest
+              // of target par or projected par from the registry.
+              const effectivePar = Math.max(
+                config.targetPar ?? 0,
+                config.projectedPar ?? 0,
+              );
+              const yieldPerDough = config.yieldPerDough || 1;
+
+              let needPieces = 0;
+              if (effectivePar > 0) {
+                // Live shaped pieces across active doughs for this pastry
+                const allActive = await storage.getActiveLaminationDoughs();
+                const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+                const target = norm(intended);
+                let liveShaped = 0;
+                for (const d of allActive) {
+                  const shapings = (d.shapings as Array<{ pastryType: string; pieces: number }> | null) ?? [];
+                  for (const s of shapings) {
+                    if (norm(s.pastryType) === target) liveShaped += s.pieces || 0;
+                  }
+                }
+                needPieces = Math.max(0, effectivePar - liveShaped);
+              } else {
+                // Fallback: at least one dough's worth
+                needPieces = yieldPerDough;
+              }
+
               await storage.activateProductionTask(config.componentTaskId, {
-                notes: `Auto-generated for Dough #${dough.doughNumber ?? dough.id} (${intended})`,
+                notes: `for ${intended}`,
+                quantity: needPieces,
+                quantityUnit: "pcs",
               });
             } catch (e) {
               console.error("[Waterfall] activateProductionTask failed:", e);
