@@ -12,6 +12,7 @@ import {
   pushSubscriptions,
   laminationDoughs,
   pastryItems,
+  pastryYieldConfigs,
   doughTypeConfigs,
   timeEntries,
   breakEntries,
@@ -59,6 +60,7 @@ import {
   type PushSubscription, type InsertPushSubscription,
   type LaminationDough, type InsertLaminationDough,
   type PastryItem, type InsertPastryItem,
+  type PastryYieldConfig, type InsertPastryYieldConfig,
   type DoughTypeConfig, type InsertDoughTypeConfig,
   type TimeEntry, type InsertTimeEntry,
   type BreakEntry, type InsertBreakEntry,
@@ -475,6 +477,9 @@ export interface IStorage {
   createPastryItem(item: InsertPastryItem): Promise<PastryItem>;
   updatePastryItem(id: number, updates: Partial<InsertPastryItem>): Promise<PastryItem>;
   deletePastryItem(id: number): Promise<void>;
+  getPastryYieldConfigs(): Promise<PastryYieldConfig[]>;
+  getPastryYieldConfig(pastryItemId: number): Promise<PastryYieldConfig | undefined>;
+  upsertPastryYieldConfig(config: InsertPastryYieldConfig): Promise<PastryYieldConfig>;
 
   // Dough Type Configs
   getDoughTypeConfigs(): Promise<DoughTypeConfig[]>;
@@ -2436,6 +2441,36 @@ export class DatabaseStorage implements IStorage {
 
   async deletePastryItem(id: number): Promise<void> {
     await db.delete(pastryItems).where(eq(pastryItems.id, id));
+  }
+
+  // Pastry Yield Configs (Par & Yield Registry)
+  async getPastryYieldConfigs(): Promise<PastryYieldConfig[]> {
+    return await db.select().from(pastryYieldConfigs);
+  }
+
+  async getPastryYieldConfig(pastryItemId: number): Promise<PastryYieldConfig | undefined> {
+    const [config] = await db.select().from(pastryYieldConfigs)
+      .where(eq(pastryYieldConfigs.pastryItemId, pastryItemId));
+    return config;
+  }
+
+  async upsertPastryYieldConfig(config: InsertPastryYieldConfig): Promise<PastryYieldConfig> {
+    const existing = await this.getPastryYieldConfig(config.pastryItemId);
+    if (existing) {
+      const [updated] = await db.update(pastryYieldConfigs)
+        .set({
+          yieldPerDough: config.yieldPerDough,
+          componentTaskId: config.componentTaskId,
+          targetPar: config.targetPar,
+          notes: config.notes,
+          updatedAt: new Date(),
+        })
+        .where(eq(pastryYieldConfigs.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(pastryYieldConfigs).values(config).returning();
+    return created;
   }
 
   // Dough Type Configs

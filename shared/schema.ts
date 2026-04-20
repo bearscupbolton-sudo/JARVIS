@@ -1011,6 +1011,21 @@ export const insertPastryItemSchema = createInsertSchema(pastryItems).omit({ id:
 export type PastryItem = typeof pastryItems.$inferSelect;
 export type InsertPastryItem = z.infer<typeof insertPastryItemSchema>;
 
+// === PASTRY YIELD CONFIGS (Par & Yield Registry) ===
+export const pastryYieldConfigs = pgTable("pastry_yield_configs", {
+  id: serial("id").primaryKey(),
+  pastryItemId: integer("pastry_item_id").references(() => pastryItems.id).notNull().unique(),
+  yieldPerDough: integer("yield_per_dough").notNull().default(40),
+  componentTaskId: integer("component_task_id"),
+  targetPar: integer("target_par").notNull().default(0),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPastryYieldConfigSchema = createInsertSchema(pastryYieldConfigs).omit({ id: true, updatedAt: true });
+export type PastryYieldConfig = typeof pastryYieldConfigs.$inferSelect;
+export type InsertPastryYieldConfig = z.infer<typeof insertPastryYieldConfigSchema>;
+
 // === DOUGH TYPE CONFIGS (lamination fat/butter settings per dough type) ===
 export const doughTypeConfigs = pgTable("dough_type_configs", {
   id: serial("id").primaryKey(),

@@ -7751,6 +7751,34 @@ ${sopsHtml}
     }
   });
 
+  // === PASTRY YIELD CONFIGS (Par & Yield Registry) ===
+  app.get("/api/pastry-yield-configs", isAuthenticated, async (req: any, res) => {
+    try {
+      const configs = await storage.getPastryYieldConfigs();
+      res.json(configs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/pastry-yield-configs", isAuthenticated, isManager, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        pastryItemId: z.number().int().positive(),
+        yieldPerDough: z.number().int().min(1).default(40),
+        componentTaskId: z.number().int().nullable().optional(),
+        targetPar: z.number().int().min(0).default(0),
+        notes: z.string().nullable().optional(),
+      });
+      const data = schema.parse(req.body);
+      const config = await storage.upsertPastryYieldConfig(data);
+      res.json(config);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === DOUGH TYPE CONFIGS ===
   app.get("/api/dough-type-configs", isAuthenticated, async (req: any, res) => {
     try {
