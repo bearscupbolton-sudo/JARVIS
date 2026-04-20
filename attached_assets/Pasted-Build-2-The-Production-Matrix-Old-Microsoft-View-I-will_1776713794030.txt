@@ -1,0 +1,46 @@
+Build 2: The Production Matrix (Old Microsoft View)
+I will utilize the existing @tanstack/react-query pattern found in LaminationStudio.tsx to create a high-density table. This view will live in a new ProductionMatrix.tsx file.
+
+TypeScript
+// NEW UI COMPONENT: ProductionMatrix.tsx
+export default function ProductionMatrix() {
+  const { data: activeDoughs } = useQuery<LaminationDough[]>({ queryKey: ["/api/lamination/active"] });
+  const { data: pastryConfigs } = useQuery<PastryYieldConfig[]>({ queryKey: ["/api/pastry-yields"] });
+
+  return (
+    <div className="p-4 bg-white border rounded shadow-sm overflow-x-auto">
+      <table className="w-full border-collapse text-sm font-mono">
+        <thead className="bg-slate-100 border-b">
+          <tr>
+            <th className="p-2 border text-left">PASTRY</th>
+            <th className="p-2 border text-center">TARGET PAR</th>
+            <th className="p-2 border text-center">SHAPED (LIVE)</th>
+            <th className="p-2 border text-center">DOUGH NEEDED</th>
+            <th className="p-2 border text-center">STATUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pastryConfigs?.map(config => {
+            const liveShaped = calculateLiveShaped(config.pastryName, activeDoughs);
+            const deficit = config.targetPar - liveShaped;
+            const doughEquivalent = Math.ceil(deficit / config.yieldPerDough);
+
+            return (
+              <tr key={config.id} className={deficit <= 0 ? "bg-green-50" : ""}>
+                <td className="p-2 border font-bold">{config.pastryName}</td>
+                <td className="p-2 border text-center">{config.targetPar}</td>
+                <td className="p-2 border text-center font-bold text-blue-600">{liveShaped}</td>
+                <td className="p-2 border text-center text-orange-600">
+                  {deficit > 0 ? `${doughEquivalent} Doughs` : "—"}
+                </td>
+                <td className="p-2 border text-center font-bold">
+                  {deficit <= 0 ? "✅ FILLED" : "⚒️ IN PROG"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
