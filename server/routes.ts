@@ -7552,6 +7552,30 @@ ${sopsHtml}
       if (parsed.boxReadyAt) updates.boxReadyAt = new Date(parsed.boxReadyAt);
       const dough = await storage.updateLaminationDough(id, updates);
       storage.clearAllBriefingCaches().catch(() => {});
+
+      // === WATERFALL HOOK ===
+      // When a dough enters "resting" with an intended pastry, look up the
+      // Par & Yield Registry. If the registry assigns a component task
+      // (e.g. "Almond Paste", "Glaze"), drop it into today's bakery task list.
+      if (parsed.status === "resting") {
+        const intended = parsed.intendedPastry ?? dough.intendedPastry ?? null;
+        if (intended && intended.trim()) {
+          (async () => {
+            try {
+              const pastryItemId = await storage.resolvePastryItemId(intended.trim());
+              if (!pastryItemId) return;
+              const config = await storage.getPastryYieldConfig(pastryItemId);
+              if (!config?.componentTaskId) return;
+              await storage.activateProductionTask(config.componentTaskId, {
+                notes: `Auto-generated for Dough #${dough.doughNumber ?? dough.id} (${intended})`,
+              });
+            } catch (e) {
+              console.error("[Waterfall] activateProductionTask failed:", e);
+            }
+          })();
+        }
+      }
+
       res.json(dough);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid input", errors: err.errors });
