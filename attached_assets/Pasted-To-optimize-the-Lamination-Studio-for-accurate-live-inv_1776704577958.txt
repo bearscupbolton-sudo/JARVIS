@@ -1,0 +1,31 @@
+To optimize the Lamination Studio for accurate live inventory and reporting, I will implement a State-Driven Inventory Architecture.
+
+The current system has a major "leak": it treats a batch of dough as a single object that either exists or is deleted. To fix this and provide the reporting you need, we must transition to a system that tracks individual piece counts through three specific stages.
+
+1. The "Partial-Bake" Inventory Logic
+I will rewrite the handleBakeFromBox function to stop marking entire records as "baked".
+
+The Change: When you bake 12 out of 30 croissants, Jarvis will decrement the proofPieces count by 12 and update the shapings array.
+
+The Benefit: The remaining 18 pieces stay in the "Retarder Proofer" state, keeping your live inventory counts 100% accurate throughout the shift.
+
+2. Implementation of a "Bake-Off Ledger"
+Currently, reporting is difficult because baked items are just "status updates" on dough records. I will optimize this by routing every bake-off through the quickLogMutation logic.
+
+The Change: Every time a "Bake Off" button is pressed in a retarder box, Jarvis will automatically create a new entry in the bakeoff-logs table.
+
+The Reporting Advantage: This creates a permanent ledger of exactly what was baked, when, and by whom, which can be fed directly into your Admin Insights and Live Inventory screens.
+
+3. Name Normalization for Reporting
+To prevent your reports from showing "Croissant" and "croissant" as different items, I will implement a normalization layer.
+
+The Change: I will update aggregateBoxPastries to force all pastry names to Trim() and Title Case.
+
+The Result: This ensures that regardless of how an item was added (Freezer, Direct Add, or Rack), it aggregates into a single, clean line item for your totals and inventory reports.
+
+4. Box Assignment Hardening
+I will remove the "Legacy Proof Box" dump that currently forces all rack items into Box 1.
+
+The Change: When moving dough from the Rack to "Proofing," the system will now require you to select Box 1 or Box 2.
+
+The Benefit: This eliminates the "junk drawer" effect and ensures that your physical retarder boxes match your digital dashboard exactly.

@@ -68,6 +68,17 @@ const PROOF_GREEN_MS = 4 * 60 * 60 * 1000;
 const ROOM_TEMP_MIN_MS = 5 * 60 * 60 * 1000;
 const BOX_MORNING_TIMER_MS = 3 * 60 * 60 * 1000;
 
+function normalizePastryName(name: string | null | undefined): string {
+  if (!name) return "Unknown";
+  const trimmed = String(name).trim().replace(/\s+/g, " ");
+  if (!trimmed) return "Unknown";
+  return trimmed
+    .toLowerCase()
+    .split(" ")
+    .map(w => w.length === 0 ? w : w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function isMorningLoad(proofStartedAt: string | Date | null): boolean {
   if (!proofStartedAt) return false;
   const d = new Date(proofStartedAt);
@@ -209,6 +220,9 @@ export default function LaminationStudio() {
   const [bakeFromBox, setBakeFromBox] = useState<"box1" | "box2" | null>(null);
   const [bakeBoxPastry, setBakeBoxPastry] = useState<string | null>(null);
   const [bakeBoxCount, setBakeBoxCount] = useState("");
+  const [bakeFromBoxPending, setBakeFromBoxPending] = useState(false);
+  const [proofBoxAssignDough, setProofBoxAssignDough] = useState<LaminationDough | null>(null);
+  const [proofBoxAssignTarget, setProofBoxAssignTarget] = useState<"box1" | "box2">("box1");
   const [showPastryGuide, setShowPastryGuide] = useState(false);
   const [guideSection, setGuideSection] = useState<"dough" | "butter" | "lamination" | "shaping" | "bakeoff">("dough");
   const [quickAddBox, setQuickAddBox] = useState<"box1" | "box2" | null>(null);
@@ -925,19 +939,35 @@ export default function LaminationStudio() {
   };
 
   const handleMoveToProofBox = (dough: LaminationDough) => {
-    const now = new Date().toISOString();
+    setProofBoxAssignDough(dough);
+    setProofBoxAssignTarget("box1");
+  };
+
+  const handleConfirmProofBoxAssignment = () => {
+    if (!proofBoxAssignDough) return;
+    const now = new Date();
+    const readyAt = new Date(now);
+    readyAt.setDate(readyAt.getDate() + 1);
+    readyAt.setHours(5, 30, 0, 0);
     updateMutation.mutate(
       {
-        id: dough.id,
+        id: proofBoxAssignDough.id,
         updates: {
-          status: "proofing",
+          status: proofBoxAssignTarget,
+          retarderBox: proofBoxAssignTarget,
           destination: "proof",
-          proofStartedAt: now,
+          proofStartedAt: now.toISOString(),
+          boxReadyAt: readyAt.toISOString(),
+          boxProgramConfirmed: false,
         },
       },
       {
         onSuccess: () => {
-          toast({ title: "Moved to Proof Box", description: `${dough.pastryType || dough.doughType} is now proofing.` });
+          toast({
+            title: `Moved to ${proofBoxAssignTarget === "box1" ? "Box 1" : "Box 2"}`,
+            description: `${proofBoxAssignDough.pastryType || proofBoxAssignDough.doughType} — Ready ${format(readyAt, "EEE h:mm a")}`,
+          });
+          setProofBoxAssignDough(null);
         },
       }
     );
@@ -1031,56 +1061,129 @@ export default function LaminationStudio() {
 
   const handleBakeFromBox = () => {
     if (!bakeFromBox || !bakeBoxPastry || !bakeBoxCount) return;
+    if (bakeFromBoxPending) return;
     const count = parseInt(bakeBoxCount);
     if (isNaN(count) || count <= 0) return;
-    const now = new Date().toISOString();
+    setBakeFromBoxPending(true);
+    const nowIso = new Date().toISOString();
+    const targetName = normalizePastryName(bakeBoxPastry);
     const boxDoughs = bakeFromBox === "box1" ? box1Doughs : box2Doughs;
+
+    const matchesTarget = (s: { pastryType: string }) => normalizePastryName(s.pastryType) === targetName;
+
     const relevantDoughs = boxDoughs.filter(d => {
       const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
-      if (shapings) return shapings.some(s => s.pastryType === bakeBoxPastry);
-      return (d.pastryType || d.doughType) === bakeBoxPastry;
+      if (shapings && shapings.length > 0) return shapings.some(matchesTarget);
+      return normalizePastryName(d.pastryType || d.doughType) === targetName;
     });
 
     let remaining = count;
     const updates: Promise<any>[] = [];
+
     for (const dough of relevantDoughs) {
       if (remaining <= 0) break;
-      const doughPieces = dough.shapings
-        ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).reduce((sum, s) => s.pastryType === bakeBoxPastry ? sum + s.pieces : sum, 0)
+      const shapings = dough.shapings as Array<{ pastryType: string; pieces: number }> | null;
+      const hasShapings = shapings && shapings.length > 0;
+      const doughTargetPieces = hasShapings
+        ? shapings!.reduce((sum, s) => matchesTarget(s) ? sum + s.pieces : sum, 0)
         : (dough.proofPieces ?? dough.totalPieces ?? 0);
+      if (doughTargetPieces <= 0) continue;
 
-      if (doughPieces <= remaining) {
-        updates.push(
-          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-            status: "baked",
-            bakedAt: now,
-            bakedBy: user?.id || null,
-          })
-        );
-        remaining -= doughPieces;
+      const takeFromThis = Math.min(doughTargetPieces, remaining);
+      remaining -= takeFromThis;
+
+      if (takeFromThis >= doughTargetPieces) {
+        // This dough's contribution to the target pastry is fully consumed
+        if (hasShapings) {
+          const newShapings = shapings!
+            .filter(s => !matchesTarget(s))
+            .map(s => ({ pastryType: normalizePastryName(s.pastryType), pieces: s.pieces }));
+          const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
+          if (remainingTotal <= 0) {
+            updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+              status: "baked", bakedAt: nowIso, bakedBy: user?.id || null,
+            }));
+          } else {
+            updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+              shapings: newShapings,
+              proofPieces: remainingTotal,
+              totalPieces: remainingTotal,
+            }));
+          }
+        } else {
+          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            status: "baked", bakedAt: nowIso, bakedBy: user?.id || null,
+          }));
+        }
       } else {
-        updates.push(
-          apiRequest("PATCH", `/api/lamination/${dough.id}`, {
-            status: "baked",
-            bakedAt: now,
-            bakedBy: user?.id || null,
-          })
-        );
-        remaining = 0;
+        // Partial bake — decrement and keep dough in the box
+        if (hasShapings) {
+          // Distribute takeFromThis across matching entries (handles duplicates)
+          let toRemove = takeFromThis;
+          const newShapings = shapings!
+            .map(s => {
+              const norm = normalizePastryName(s.pastryType);
+              if (toRemove > 0 && matchesTarget(s)) {
+                const sub = Math.min(s.pieces, toRemove);
+                toRemove -= sub;
+                return { pastryType: norm, pieces: s.pieces - sub };
+              }
+              return { pastryType: norm, pieces: s.pieces };
+            })
+            .filter(s => s.pieces > 0);
+          const remainingTotal = newShapings.reduce((sum, s) => sum + s.pieces, 0);
+          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            shapings: newShapings,
+            proofPieces: remainingTotal,
+            totalPieces: remainingTotal,
+          }));
+        } else {
+          const newPieces = doughTargetPieces - takeFromThis;
+          updates.push(apiRequest("PATCH", `/api/lamination/${dough.id}`, {
+            proofPieces: newPieces,
+            totalPieces: newPieces,
+          }));
+        }
       }
     }
 
-    Promise.all(updates).then(() => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
-      toast({
-        title: "Baked Off",
-        description: `${count} ${bakeBoxPastry} from ${bakeFromBox === "box1" ? "Box 1" : "Box 2"}`,
+    const actuallyBaked = count - remaining;
+
+    // Bake-Off Ledger: record permanent log of what was baked
+    if (actuallyBaked > 0) {
+      const now = new Date();
+      const dateStr = now.toISOString().split("T")[0];
+      const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      updates.push(apiRequest("POST", "/api/bakeoff-logs", {
+        itemName: targetName,
+        quantity: actuallyBaked,
+        date: dateStr,
+        bakedAt: timeStr,
+      }));
+    }
+
+    Promise.all(updates)
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/bakeoff-logs"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/home"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/live-inventory"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/insights"] });
+        toast({
+          title: "Baked Off",
+          description: `${actuallyBaked} ${targetName} from ${bakeFromBox === "box1" ? "Box 1" : "Box 2"}${remaining > 0 ? ` (${remaining} short)` : ""}`,
+        });
+        setBakeFromBox(null);
+        setBakeBoxPastry(null);
+        setBakeBoxCount("");
+      })
+      .catch((err: any) => {
+        toast({ title: "Bake-off failed", description: err?.message || "Please try again", variant: "destructive" });
+      })
+      .finally(() => {
+        setBakeFromBoxPending(false);
       });
-      setBakeFromBox(null);
-      setBakeBoxPastry(null);
-      setBakeBoxCount("");
-    });
   };
 
   const handleQuickAddToBox = () => {
@@ -1088,6 +1191,7 @@ export default function LaminationStudio() {
     const pieces = parseInt(quickAddPieces);
     if (isNaN(pieces) || pieces <= 0) return;
 
+    const normalized = normalizePastryName(quickAddPastry);
     const now = new Date();
     const readyAt = new Date(now);
     readyAt.setDate(readyAt.getDate() + 1);
@@ -1096,7 +1200,7 @@ export default function LaminationStudio() {
     apiRequest("POST", "/api/lamination", {
       date: now.toISOString().split("T")[0],
       doughType: "Direct Add",
-      pastryType: quickAddPastry.trim(),
+      pastryType: normalized,
       status: quickAddBox,
       retarderBox: quickAddBox,
       boxProgramConfirmed: false,
@@ -1104,13 +1208,13 @@ export default function LaminationStudio() {
       proofStartedAt: now.toISOString(),
       proofPieces: pieces,
       totalPieces: pieces,
-      shapings: [{ pastryType: quickAddPastry.trim(), pieces }],
+      shapings: [{ pastryType: normalized, pieces }],
     }).then(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/lamination"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lamination/active"] });
       toast({
         title: `Added to ${quickAddBox === "box1" ? "Box 1" : "Box 2"}`,
-        description: `${pieces} ${quickAddPastry.trim()} — Ready ${format(readyAt, "EEE h:mm a")}`,
+        description: `${pieces} ${normalized} — Ready ${format(readyAt, "EEE h:mm a")}`,
       });
       setQuickAddBox(null);
       setQuickAddPastry("");
@@ -1209,13 +1313,14 @@ export default function LaminationStudio() {
       const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
       if (shapings && shapings.length > 0) {
         shapings.forEach(s => {
-          if (!inv[s.pastryType]) inv[s.pastryType] = { totalPieces: 0, ids: [], oldestDate: d.date };
-          inv[s.pastryType].totalPieces += s.pieces;
-          inv[s.pastryType].ids.push(d.id);
-          if (d.date < inv[s.pastryType].oldestDate) inv[s.pastryType].oldestDate = d.date;
+          const key = normalizePastryName(s.pastryType);
+          if (!inv[key]) inv[key] = { totalPieces: 0, ids: [], oldestDate: d.date };
+          inv[key].totalPieces += s.pieces;
+          inv[key].ids.push(d.id);
+          if (d.date < inv[key].oldestDate) inv[key].oldestDate = d.date;
         });
       } else {
-        const type = d.pastryType || d.doughType || "Unknown";
+        const type = normalizePastryName(d.pastryType || d.doughType);
         const pieces = d.proofPieces ?? d.totalPieces ?? 0;
         if (!inv[type]) inv[type] = { totalPieces: 0, ids: [], oldestDate: d.date };
         inv[type].totalPieces += pieces;
@@ -1231,9 +1336,12 @@ export default function LaminationStudio() {
     boxDoughs.forEach(d => {
       const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
       if (shapings && shapings.length > 0) {
-        shapings.forEach(s => { agg[s.pastryType] = (agg[s.pastryType] || 0) + s.pieces; });
+        shapings.forEach(s => {
+          const key = normalizePastryName(s.pastryType);
+          agg[key] = (agg[key] || 0) + s.pieces;
+        });
       } else {
-        const type = d.pastryType || d.doughType || "Unknown";
+        const type = normalizePastryName(d.pastryType || d.doughType);
         const pieces = d.proofPieces ?? d.totalPieces ?? 0;
         agg[type] = (agg[type] || 0) + pieces;
       }
@@ -1914,7 +2022,7 @@ export default function LaminationStudio() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {(["box1", "box2", "box3"] as const).map(boxKey => {
-              const boxDoughs = boxKey === "box1" ? [...box1Doughs, ...proofingDoughs.filter(d => !d.retarderBox)] : boxKey === "box2" ? box2Doughs : box3Doughs;
+              const boxDoughs = boxKey === "box1" ? box1Doughs : boxKey === "box2" ? box2Doughs : box3Doughs;
               const boxNum = boxKey === "box1" ? 1 : boxKey === "box2" ? 2 : 3;
               const isGrayedOut = boxKey === "box3";
               const isConfirmed = boxDoughs.length > 0 && boxDoughs.every(d => d.boxProgramConfirmed);
@@ -2050,20 +2158,20 @@ export default function LaminationStudio() {
           </div>
       </div>
 
-      {/* Legacy Proof Box — items not yet assigned to a retarder box */}
-      {proofingDoughs.filter(d => d.retarderBox).length > 0 && (
+      {/* Unassigned Proof Items — historic doughs without a retarder box. Tap to assign. */}
+      {proofingDoughs.filter(d => !d.retarderBox).length > 0 && (
         <div>
-          <Card data-testid="proof-box-card">
-            <CardHeader className="pb-2">
+          <Card data-testid="proof-box-card" className="border-amber-300 dark:border-amber-700">
+            <CardHeader className="pb-2 bg-amber-50 dark:bg-amber-950/30 rounded-t-lg">
               <CardTitle className="text-base font-display flex items-center gap-2">
-                <Thermometer className="w-4 h-4 text-amber-600" />
-                Proof Box (Legacy)
-                <Badge variant="secondary" className="ml-auto">{proofingDoughs.filter(d => d.retarderBox).length}</Badge>
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                Unassigned Proof Items — assign each to Box 1 or Box 2
+                <Badge variant="secondary" className="ml-auto">{proofingDoughs.filter(d => !d.retarderBox).length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {proofingDoughs.filter(d => d.retarderBox).map(dough => {
+                {proofingDoughs.filter(d => !d.retarderBox).map(dough => {
                   const proof = getProofState(dough);
                   const roomTemp = getRoomTempState(dough.roomTempAt);
                   const isAtRoomTemp = !!dough.roomTempAt && !dough.roomTempReturnedAt;
@@ -2259,6 +2367,16 @@ export default function LaminationStudio() {
                                 </Button>
                               </>
                             )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-xs border-amber-400 text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                              onClick={() => { setProofBoxAssignDough(dough); setProofBoxAssignTarget("box1"); }}
+                              data-testid={`button-assign-box-${dough.id}`}
+                            >
+                              <Thermometer className="w-3 h-3" />
+                              Assign to Box
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => handleOpenEditDough(dough)} data-testid={`button-edit-proof-${dough.id}`}>
                               <Pencil className="w-4 h-4" />
                             </Button>
@@ -3636,6 +3754,47 @@ export default function LaminationStudio() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!proofBoxAssignDough} onOpenChange={(open) => { if (!open) setProofBoxAssignDough(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Assign to Retarder Box</DialogTitle>
+            <DialogDescription>
+              {proofBoxAssignDough ? `${proofBoxAssignDough.pastryType || proofBoxAssignDough.doughType} — choose Box 1 or Box 2` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Target box</label>
+              <div className="flex gap-2">
+                <Button
+                  variant={proofBoxAssignTarget === "box1" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setProofBoxAssignTarget("box1")}
+                  data-testid="button-assign-target-box1"
+                >
+                  Box 1
+                </Button>
+                <Button
+                  variant={proofBoxAssignTarget === "box2" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setProofBoxAssignTarget("box2")}
+                  data-testid="button-assign-target-box2"
+                >
+                  Box 2
+                </Button>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setProofBoxAssignDough(null)}>Cancel</Button>
+              <Button onClick={handleConfirmProofBoxAssignment} disabled={updateMutation.isPending} data-testid="button-confirm-assign-box">
+                <Thermometer className="w-4 h-4 mr-1" />
+                Move to {proofBoxAssignTarget === "box1" ? "Box 1" : "Box 2"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!quickAddBox} onOpenChange={(open) => { if (!open) { setQuickAddBox(null); setQuickAddPastry(""); setQuickAddPieces(""); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -3761,7 +3920,7 @@ export default function LaminationStudio() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             {bakeFromBox && (() => {
-              const boxDoughs = bakeFromBox === "box1" ? [...box1Doughs, ...proofingDoughs.filter(d => !d.retarderBox)] : box2Doughs;
+              const boxDoughs = bakeFromBox === "box1" ? box1Doughs : box2Doughs;
               const agg = aggregateBoxPastries(boxDoughs);
               return (
                 <>
@@ -3798,12 +3957,12 @@ export default function LaminationStudio() {
               <Button variant="ghost" onClick={() => { setBakeFromBox(null); setBakeBoxPastry(null); setBakeBoxCount(""); }}>Cancel</Button>
               <Button
                 onClick={handleBakeFromBox}
-                disabled={!bakeBoxPastry || !bakeBoxCount || parseInt(bakeBoxCount) <= 0}
+                disabled={!bakeBoxPastry || !bakeBoxCount || parseInt(bakeBoxCount) <= 0 || bakeFromBoxPending}
                 className="bg-orange-600 hover:bg-orange-700 text-white"
                 data-testid="button-confirm-bake"
               >
                 <Flame className="w-4 h-4 mr-1" />
-                Bake Off
+                {bakeFromBoxPending ? "Baking..." : "Bake Off"}
               </Button>
             </DialogFooter>
           </div>

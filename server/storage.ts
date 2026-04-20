@@ -2386,7 +2386,7 @@ export class DatabaseStorage implements IStorage {
 
   async getActiveLaminationDoughs(): Promise<LaminationDough[]> {
     return await db.select().from(laminationDoughs)
-      .where(sql`${laminationDoughs.status} IN ('turning', 'chilling', 'resting', 'proofing', 'frozen', 'fridge')`)
+      .where(sql`${laminationDoughs.status} IN ('turning', 'chilling', 'resting', 'proofing', 'frozen', 'fridge', 'box1', 'box2', 'box3')`)
       .orderBy(laminationDoughs.createdAt);
   }
 
