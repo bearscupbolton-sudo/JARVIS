@@ -4,4 +4,5 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
-uploads/
+uploads/client_secret*.json
+attached_assets/*.pdf
