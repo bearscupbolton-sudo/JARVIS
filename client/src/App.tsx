@@ -57,6 +57,7 @@ const ProductionMatrix = lazy(() => import("@/pages/ProductionMatrix"));
 const ParYieldRegistry = lazy(() => import("@/pages/ParYieldRegistry"));
 const SellOutHistory = lazy(() => import("@/pages/SellOutHistory"));
 const PastryItems = lazy(() => import("@/pages/PastryItems"));
+const PastryCostCenter = lazy(() => import("@/pages/PastryCostCenter"));
 const KioskClock = lazy(() => import("@/pages/KioskClock"));
 const TimeCards = lazy(() => import("@/pages/TimeCards"));
 const TimeReview = lazy(() => import("@/pages/TimeReview"));
@@ -405,6 +406,9 @@ function Router() {
         </Route>
         <Route path="/admin/pastry-items">
           {() => <ProtectedRoute component={PastryItems} />}
+        </Route>
+        <Route path="/pastry-cost">
+          {() => <ProtectedRoute component={PastryCostCenter} />}
         </Route>
         <Route path="/profile">
           {() => <ProtectedRoute component={Profile} />}

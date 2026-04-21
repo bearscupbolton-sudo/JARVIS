@@ -37,6 +37,7 @@ import {
   Coffee,
   UtensilsCrossed,
   Settings2,
+  DollarSign,
 } from "lucide-react";
 import type { PastryItem, PastryPassport, InventoryItem, DoughTypeConfig } from "@shared/schema";
 
@@ -224,10 +225,18 @@ export default function PastryItems() {
             Manage all your pastries. This list is used across the entire system.
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowAdd(true); }} data-testid="button-add-pastry">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Pastry
-        </Button>
+        <div className="flex gap-2">
+          <Link href="/pastry-cost">
+            <Button variant="outline" data-testid="button-cost-center">
+              <DollarSign className="w-4 h-4 mr-2" />
+              Cost Center
+            </Button>
+          </Link>
+          <Button onClick={() => { resetForm(); setShowAdd(true); }} data-testid="button-add-pastry">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Pastry
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
