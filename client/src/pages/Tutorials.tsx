@@ -51,7 +51,6 @@ const PAGE_OPTIONS = [
   { value: "/sentiment", label: "Sentiment Matrix" },
   { value: "/loop", label: "The Loop" },
   { value: "/profile", label: "Profile" },
-  { value: "/starkade", label: "Starkade" },
 ];
 
 const DEPT_OPTIONS = [

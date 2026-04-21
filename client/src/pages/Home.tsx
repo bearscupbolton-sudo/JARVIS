@@ -35,7 +35,7 @@ import {
   LogIn, LogOut, Coffee,
   RefreshCw, X, Pencil, Check, Star,
   Croissant, UtensilsCrossed,
-  Package, Layers, Stamp, Gamepad2,
+  Package, Layers, Stamp,
   Plus, AlertTriangle, CheckCircle2, Eye, EyeOff,
   FileText, Trash2, MapPin, Phone, Cake,
   Settings2, GripVertical, ChevronUp, ChevronDown, RotateCcw,
@@ -159,7 +159,6 @@ const ALL_QUICK_ACTIONS: QuickActionItem[] = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/pastry-passports", label: "Pastry Passports", icon: Stamp },
   { href: "/time-cards", label: "Time Cards", icon: Clock },
-  { href: "/starkade", label: "Starkade", icon: Gamepad2 },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "#email-to-event", label: "Email → Event", icon: CalendarPlus },
 ];

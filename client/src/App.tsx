@@ -67,7 +67,6 @@ const LiveInventory = lazy(() => import("@/pages/LiveInventory"));
 const TTIS = lazy(() => import("@/pages/TTIS"));
 const AdminInsights = lazy(() => import("@/pages/AdminInsights"));
 const Messages = lazy(() => import("@/pages/Messages"));
-const Starkade = lazy(() => import("@/pages/Starkade"));
 const CustomerFeedback = lazy(() => import("@/pages/CustomerFeedback"));
 const FeedbackQRCode = lazy(() => import("@/pages/FeedbackQRCode"));
 const SentimentMatrix = lazy(() => import("@/pages/SentimentMatrix"));
@@ -98,7 +97,6 @@ const WholesaleOnboarding = lazy(() => import("@/pages/wholesale/WholesaleOnboar
 const WholesaleAdmin = lazy(() => import("@/pages/WholesaleAdmin"));
 const TheFirm = lazy(() => import("@/pages/TheFirm"));
 const QuickPayout = lazy(() => import("@/pages/QuickPayout"));
-const JarvisHive = lazy(() => import("@/pages/JarvisHive"));
 const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
 const SquareLaborSync = lazy(() => import("@/pages/SquareLaborSync"));
 const AdpLaborSync = lazy(() => import("@/pages/AdpLaborSync"));
@@ -461,9 +459,6 @@ function Router() {
         <Route path="/production-matrix">
           {() => <ProtectedRoute component={ProductionMatrix} />}
         </Route>
-        <Route path="/hive">
-          {() => <ProtectedRoute component={JarvisHive} />}
-        </Route>
         <Route path="/kiosk">
           {() => <ProtectedRoute component={Kiosk} noLayout />}
         </Route>
@@ -505,9 +500,6 @@ function Router() {
         </Route>
         <Route path="/notes">
           {() => <ProtectedRoute component={Notes} />}
-        </Route>
-        <Route path="/starkade">
-          {() => <ProtectedRoute component={Starkade} />}
         </Route>
         <Route path="/feedback">
           {() => <Suspense fallback={<PageLoader />}><CustomerFeedback /></Suspense>}

@@ -66,10 +66,6 @@ export const PAGE_SECTIONS: Record<string, { key: string; label: string }[]> = {
     { key: "personal", label: "Personal Time Card" },
     { key: "history", label: "History" },
   ],
-  "/starkade": [
-    { key: "games", label: "Games" },
-    { key: "leaderboard", label: "Leaderboard" },
-  ],
   "/test-kitchen": [
     { key: "items", label: "Specials List" },
     { key: "create", label: "Create Special" },

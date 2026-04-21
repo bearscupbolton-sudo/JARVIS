@@ -36,7 +36,6 @@ const routeImportMap: Record<string, () => Promise<unknown>> = {
   "/admin/insights": () => import("@/pages/AdminInsights"),
   "/messages": () => import("@/pages/Messages"),
   "/notes": () => import("@/pages/Notes"),
-  "/starkade": () => import("@/pages/Starkade"),
   "/admin/feedback": () => import("@/pages/FeedbackQRCode"),
   "/sentiment": () => import("@/pages/SentimentMatrix"),
   "/loop": () => import("@/pages/TheLoop"),

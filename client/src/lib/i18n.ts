@@ -216,7 +216,6 @@ const translations: Record<string, Record<string, string>> = {
     "Time Cards": "Fiches de Temps",
     "Task Manager": "Gestionnaire de Tâches",
     "Jarvis": "Jarvis",
-    "Starkade": "Starkade",
     "Kiosk Mode": "Mode Kiosque",
     "Bagel Bros": "Bagel Bros",
     "My Profile": "Mon Profil",

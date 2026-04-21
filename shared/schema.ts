@@ -1216,40 +1216,6 @@ export const activityLogs = pgTable("activity_logs", {
 export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
-
-// === STARKADE GAMES ===
-export const starkadeGames = pgTable("starkade_games", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  type: text("type").notNull(), // quiz, word, memory, reaction
-  source: text("source").notNull().default("built_in"), // built_in, ai
-  status: text("status").notNull().default("active"), // active, disabled, pending
-  config: jsonb("config").notNull(), // game-specific config (questions, words, etc.)
-  description: text("description"),
-  createdBy: text("created_by"),
-  playCount: integer("play_count").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertStarkadeGameSchema = createInsertSchema(starkadeGames).omit({ id: true, createdAt: true, playCount: true });
-export type StarkadeGame = typeof starkadeGames.$inferSelect;
-export type InsertStarkadeGame = z.infer<typeof insertStarkadeGameSchema>;
-
-// === STARKADE GAME SESSIONS ===
-export const starkadeGameSessions = pgTable("starkade_game_sessions", {
-  id: serial("id").primaryKey(),
-  gameId: integer("game_id").notNull().references(() => starkadeGames.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull(),
-  score: integer("score").notNull().default(0),
-  points: integer("points").notNull().default(0),
-  metadata: jsonb("metadata"), // duration, accuracy, attempts, etc.
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertStarkadeGameSessionSchema = createInsertSchema(starkadeGameSessions).omit({ id: true, createdAt: true });
-export type StarkadeGameSession = typeof starkadeGameSessions.$inferSelect;
-export type InsertStarkadeGameSession = z.infer<typeof insertStarkadeGameSessionSchema>;
-
 // === VENDORS ===
 export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
@@ -2598,22 +2564,6 @@ export const vibeAlerts = pgTable("vibe_alerts", {
 export const insertVibeAlertSchema = createInsertSchema(vibeAlerts).omit({ id: true, createdAt: true, dismissedAt: true });
 export type VibeAlert = typeof vibeAlerts.$inferSelect;
 export type InsertVibeAlert = z.infer<typeof insertVibeAlertSchema>;
-
-export const hivePuzzles = pgTable("hive_puzzles", {
-  id: serial("id").primaryKey(),
-  date: text("date").notNull().unique(),
-  centerLetter: text("center_letter").notNull(),
-  outerLetters: text("outer_letters").array().notNull(),
-  validWords: text("valid_words").array().notNull(),
-  pangrams: text("pangrams").array().notNull(),
-  maxScore: integer("max_score").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertHivePuzzleSchema = createInsertSchema(hivePuzzles).omit({ id: true, createdAt: true });
-export type HivePuzzle = typeof hivePuzzles.$inferSelect;
-export type InsertHivePuzzle = z.infer<typeof insertHivePuzzleSchema>;
-
 export const vendorProfiles = pgTable("vendor_profiles", {
   id: serial("id").primaryKey(),
   vendorName: text("vendor_name").notNull().unique(),
@@ -2665,19 +2615,3 @@ export const emailExtractions = pgTable("email_extractions", {
 export const insertEmailExtractionSchema = createInsertSchema(emailExtractions).omit({ id: true, createdAt: true });
 export type EmailExtraction = typeof emailExtractions.$inferSelect;
 export type InsertEmailExtraction = z.infer<typeof insertEmailExtractionSchema>;
-
-export const hiveFoundWords = pgTable("hive_found_words", {
-  id: serial("id").primaryKey(),
-  puzzleId: integer("puzzle_id").notNull().references(() => hivePuzzles.id),
-  userId: text("user_id").notNull(),
-  userName: text("user_name").notNull(),
-  word: text("word").notNull(),
-  points: integer("points").notNull(),
-  isPangram: boolean("is_pangram").default(false).notNull(),
-  foundAt: timestamp("found_at").defaultNow(),
-});
-
-export const insertHiveFoundWordSchema = createInsertSchema(hiveFoundWords).omit({ id: true, foundAt: true });
-export type HiveFoundWord = typeof hiveFoundWords.$inferSelect;
-export type InsertHiveFoundWord = z.infer<typeof insertHiveFoundWordSchema>;
-

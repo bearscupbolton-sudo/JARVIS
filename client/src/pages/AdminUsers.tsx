@@ -595,7 +595,6 @@ function UserDetailDialog({
     { href: "/time-cards", label: "Time Cards" },
     { href: "/tasks", label: "Task Manager" },
     { href: "/assistant", label: "Jarvis" },
-    { href: "/starkade", label: "Starkade" },
     { href: "/kiosk", label: "Kiosk Mode" },
     ...(u.role === "manager" || u.role === "owner" ? [
       { href: "/admin/users", label: "Team" },

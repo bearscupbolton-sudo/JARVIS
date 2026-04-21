@@ -68,9 +68,6 @@ import {
   type UserLocation, type InsertUserLocation,
   type ActivityLog, type InsertActivityLog,
   type RecipeSession, type InsertRecipeSession,
-  starkadeGames, starkadeGameSessions,
-  type StarkadeGame, type InsertStarkadeGame,
-  type StarkadeGameSession, type InsertStarkadeGameSession,
   notes,
   type Note, type InsertNote,
   vendors, vendorItems, purchaseOrders, purchaseOrderLines,
@@ -572,18 +569,6 @@ export interface IStorage {
   updateShowJarvisBriefing(userId: string, show: boolean): Promise<void>;
   setJarvisWelcomeMessage(userId: string, message: string | null): Promise<void>;
   updateJarvisBriefingFocus(userId: string, focus: string): Promise<void>;
-
-  // Starkade
-  getStarkadeGames(): Promise<StarkadeGame[]>;
-  getStarkadeGameById(id: number): Promise<StarkadeGame | null>;
-  createStarkadeGame(game: InsertStarkadeGame): Promise<StarkadeGame>;
-  updateStarkadeGame(id: number, updates: Partial<InsertStarkadeGame>): Promise<StarkadeGame>;
-  deleteStarkadeGame(id: number): Promise<void>;
-  incrementGamePlayCount(id: number): Promise<void>;
-  createGameSession(session: InsertStarkadeGameSession): Promise<StarkadeGameSession>;
-  getGameLeaderboard(gameId: number, limit?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number; bestScore: number }[]>;
-  getGlobalLeaderboard(limit?: number): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number }[]>;
-  getRecentGameSessions(userId?: string, limit?: number): Promise<(StarkadeGameSession & { gameName: string; gameType: string })[]>;
 
   // Vendors
   getVendors(): Promise<Vendor[]>;
@@ -3939,98 +3924,6 @@ export class DatabaseStorage implements IStorage {
     await db.update(users).set({ jarvisBriefingFocus: focus, lastBriefingText: null, lastBriefingAt: null }).where(eq(users.id, userId));
   }
 
-  // Starkade
-  async getStarkadeGames(): Promise<StarkadeGame[]> {
-    return db.select().from(starkadeGames).where(eq(starkadeGames.status, "active")).orderBy(desc(starkadeGames.playCount));
-  }
-
-  async getStarkadeGameById(id: number): Promise<StarkadeGame | null> {
-    const [game] = await db.select().from(starkadeGames).where(eq(starkadeGames.id, id));
-    return game || null;
-  }
-
-  async createStarkadeGame(game: InsertStarkadeGame): Promise<StarkadeGame> {
-    const [created] = await db.insert(starkadeGames).values(game).returning();
-    return created;
-  }
-
-  async updateStarkadeGame(id: number, updates: Partial<InsertStarkadeGame>): Promise<StarkadeGame> {
-    const [updated] = await db.update(starkadeGames).set(updates).where(eq(starkadeGames.id, id)).returning();
-    return updated;
-  }
-
-  async deleteStarkadeGame(id: number): Promise<void> {
-    await db.delete(starkadeGames).where(eq(starkadeGames.id, id));
-  }
-
-  async incrementGamePlayCount(id: number): Promise<void> {
-    await db.update(starkadeGames).set({ playCount: sql`${starkadeGames.playCount} + 1` }).where(eq(starkadeGames.id, id));
-  }
-
-  async createGameSession(session: InsertStarkadeGameSession): Promise<StarkadeGameSession> {
-    const [created] = await db.insert(starkadeGameSessions).values(session).returning();
-    return created;
-  }
-
-  async getGameLeaderboard(gameId: number, limit = 10): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number; bestScore: number }[]> {
-    const results = await db
-      .select({
-        userId: starkadeGameSessions.userId,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        username: users.username,
-        totalPoints: sql<number>`CAST(SUM(${starkadeGameSessions.points}) AS INTEGER)`,
-        gamesPlayed: sql<number>`CAST(COUNT(*) AS INTEGER)`,
-        bestScore: sql<number>`CAST(MAX(${starkadeGameSessions.score}) AS INTEGER)`,
-      })
-      .from(starkadeGameSessions)
-      .innerJoin(users, eq(starkadeGameSessions.userId, users.id))
-      .where(eq(starkadeGameSessions.gameId, gameId))
-      .groupBy(starkadeGameSessions.userId, users.firstName, users.lastName, users.username)
-      .orderBy(sql`SUM(${starkadeGameSessions.points}) DESC`)
-      .limit(limit);
-    return results;
-  }
-
-  async getGlobalLeaderboard(limit = 10): Promise<{ userId: string; firstName: string | null; lastName: string | null; username: string | null; totalPoints: number; gamesPlayed: number }[]> {
-    const results = await db
-      .select({
-        userId: starkadeGameSessions.userId,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        username: users.username,
-        totalPoints: sql<number>`CAST(SUM(${starkadeGameSessions.points}) AS INTEGER)`,
-        gamesPlayed: sql<number>`CAST(COUNT(*) AS INTEGER)`,
-      })
-      .from(starkadeGameSessions)
-      .innerJoin(users, eq(starkadeGameSessions.userId, users.id))
-      .groupBy(starkadeGameSessions.userId, users.firstName, users.lastName, users.username)
-      .orderBy(sql`SUM(${starkadeGameSessions.points}) DESC`)
-      .limit(limit);
-    return results;
-  }
-
-  async getRecentGameSessions(userId?: string, limit = 20): Promise<(StarkadeGameSession & { gameName: string; gameType: string })[]> {
-    const conditions = userId ? eq(starkadeGameSessions.userId, userId) : undefined;
-    const results = await db
-      .select({
-        id: starkadeGameSessions.id,
-        gameId: starkadeGameSessions.gameId,
-        userId: starkadeGameSessions.userId,
-        score: starkadeGameSessions.score,
-        points: starkadeGameSessions.points,
-        metadata: starkadeGameSessions.metadata,
-        createdAt: starkadeGameSessions.createdAt,
-        gameName: starkadeGames.name,
-        gameType: starkadeGames.type,
-      })
-      .from(starkadeGameSessions)
-      .innerJoin(starkadeGames, eq(starkadeGameSessions.gameId, starkadeGames.id))
-      .where(conditions)
-      .orderBy(desc(starkadeGameSessions.createdAt))
-      .limit(limit);
-    return results as any;
-  }
   async getNotes(userId: string): Promise<Note[]> {
     return db.select().from(notes)
       .where(sql`${notes.userId} = ${userId} OR (${notes.sharedWith} IS NOT NULL AND ${notes.sharedWith}::jsonb @> ${JSON.stringify([userId])}::jsonb)`)
