@@ -1,0 +1,10 @@
+Restrict lobby check alerts to front-of-house screens only
+
+Modify the LobbyCheckAlert component to only render and fetch data when the current route matches defined front-of-house paths (/platform, /bagel-bros), preventing global display and unnecessary API calls on other screens.
+
+Replit-Commit-Author: Agent
+Replit-Commit-Session-Id: 6734199c-d35e-4f6a-942f-59e9a29b41e8
+Replit-Commit-Checkpoint-Type: full_checkpoint
+Replit-Commit-Event-Id: 819e8bd7-53c9-4157-9cac-b47b0f8ee088
+Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/b90be5db-28f3-40d0-b81d-42fe32acf904/6734199c-d35e-4f6a-942f-59e9a29b41e8/Z6Lxzow
+Replit-Helium-Checkpoint-Created: true
