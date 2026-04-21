@@ -997,19 +997,31 @@ export default function LaminationStudio() {
     readyAt.setHours(5, 30, 0, 0);
 
     let remaining = count;
+    const targetNorm = normalizePastryName(moveToBoxPastry);
     const sortedDoughs = frozenDoughs
       .filter(d => {
         const shapings = d.shapings as Array<{ pastryType: string; pieces: number }> | null;
-        if (shapings) return shapings.some(s => s.pastryType === moveToBoxPastry);
-        return (d.pastryType || d.doughType) === moveToBoxPastry;
+        if (shapings && shapings.length > 0) {
+          return shapings.some(s => normalizePastryName(s.pastryType) === targetNorm);
+        }
+        return normalizePastryName(d.pastryType || d.doughType) === targetNorm;
       })
       .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (sortedDoughs.length === 0) {
+      toast({
+        title: "No matching doughs found",
+        description: `Could not locate frozen ${moveToBoxPastry} doughs to move.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
     const updates: Promise<any>[] = [];
     for (const dough of sortedDoughs) {
       if (remaining <= 0) break;
       const doughPieces = dough.shapings
-        ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).reduce((sum, s) => s.pastryType === moveToBoxPastry ? sum + s.pieces : sum, 0)
+        ? (dough.shapings as Array<{ pastryType: string; pieces: number }>).reduce((sum, s) => normalizePastryName(s.pastryType) === targetNorm ? sum + s.pieces : sum, 0)
         : (dough.proofPieces ?? dough.totalPieces ?? 0);
 
       if (doughPieces <= remaining) {
