@@ -1,0 +1,98 @@
+I'll audit your project structure first to understand what you're working with.This is a substantial codebase. Let me dig into the key parts — the schema, the server routes, and the bakery production logic specifically.137 tables. That's a lot. Now let me focus on the bakery production tables specifically — there's clearly a lot of overlap there.Now I'm seeing the redundancy clearly. Let me look at the pastry passport / pastry_items / lamination doughs cluster — that's where the schema is duplicating itself.Now let me look at the bagel-related tables and any final production-related ones:Let me look at the client-side bakery production routes and the routes.ts file briefly:Let me see the bakery production-related pages specifically:7,700 lines of overlapping production UI. Let me look at the routes for bakery production endpoints:619 endpoints in a single 17,544-line `routes.ts`. Let me check the replit.md for project intent and look at the production-focused pages briefly:Now I have enough context. Let me peek at one production page briefly to see the UI overlap:I have a clear picture now. Let me also confirm the build files I saw — particularly the most recent "Production Matrix" pasted notes, which signal where the user was heading:Good, that's exactly what they ended up building. I have everything I need. Let me load the diagram module and produce the audit + blueprint.I have everything I need. Let me create the audit document.
+
+# Audit complete — here's what I found
+
+I went through your `shared/schema.ts`, `server/routes.ts`, and the bakery production page cluster (`Bakery`, `Production`, `ProductionMatrix`, `LaminationStudio`, `PastryGoals`, `PastryItems`, `ParYieldRegistry`, `PastryPassportDetail`, `SellOutHistory`). Plus the breadcrumb of "Pasted-..." build notes in `attached_assets/` showing the directional pivots over time.
+
+You're right that you went in too many directions. The schema has **137 tables**. The bakery production module alone is being represented by **roughly 18 of those tables** with significant functional overlap, **~10 page-level UI files totaling ~7,700 lines** that re-fetch and re-display the same underlying entities, and **a 17,544-line `routes.ts` file** with 619 endpoints. The good news: the redundancy is highly compressible. The data model wants to be much smaller than what's there.
+
+## The four overlapping clusters in your bakery module
+
+```
+Cluster 1 — "What is a pastry?" (defined 4 different ways)
+  pastry_items           → name + dough_type + active flag
+  pastry_passports       → name + recipes + photos + assembly text
+  pastry_yield_configs   → name (via FK) + par + yield + PPIE forecast
+  recipes                → also has a name + category + ingredients
+
+Cluster 2 — "How much did we make?" (logged 5 different ways)
+  production_logs        → recipeId + yield_produced
+  shaping_logs           → doughType + pastryItemId + yieldCount
+  bakeoff_logs           → itemName + quantity + bakedAt
+  daily_pastry_tracking  → goal/baked/sold/remaining (the snapshot)
+  lamination_doughs.shapings (jsonb array) → also tracks pieces shaped
+
+Cluster 3 — "What did we set as a goal?" (set 3 different ways)
+  pastry_totals          → date + itemName + targetCount
+  pastry_yield_configs   → targetPar + projectedPar
+  daily_pastry_tracking  → goal field
+
+Cluster 4 — "Did it sell out?" (logged 2 different ways)
+  soldout_logs           → date + itemName + soldOutAt
+  sell_out_events        → date + soldOutAt + projectedDemand + unmetEstimate
+```
+
+The naming inconsistency is its own tell — `itemName` (text) in some tables, `pastryItemId` (FK) in others, sometimes both. That's how I know these tables were added at different times to solve overlapping problems without consolidating.
+
+## What's actually load-bearing
+
+Looking at what `ProductionMatrix.tsx` (your most recent build, per the Nov 2026 build notes) actually consumes:
+
+- `lamination_doughs` for live shaped pieces (via the `shapings` jsonb array)
+- `pastry_yield_configs` joined to `pastry_items` for par + yield-per-dough
+
+Everything else in the production cluster is either historical (kept for analytics), duplicative (logging the same fact twice), or speculative (built for a feature that didn't ship).
+
+## Proposed simplified blueprint
+
+Here's the minimum viable schema for the Bakery Production module:### What each kept table is for
+
+**`pastry_items`** is the master list — what you sell. Name, dough type, active flag. One row per pastry. ~30 rows.
+
+**`pastry_yield_configs`** holds the operational config: target par, projected par, yield-per-dough, the PPIE forecast vectors. One row per `pastry_item`, joined 1:1.
+
+**`lamination_doughs`** stays as-is. It's the only place where in-progress dough lives (with `shapings` jsonb tracking what was shaped from each dough), and `ProductionMatrix.tsx` already treats it as the source of truth for "shaped today."
+
+**`daily_pastry_tracking`** becomes the single end-of-day snapshot table — one row per item per day, holding `goal`, `baked`, `sold`, `eighty_sixed_at`, `remaining`. This replaces `pastry_totals` (goals), `bakeoff_logs` (baked counts), and `soldout_logs` (the 86 timestamp), all of which today are essentially partial views of this same row.
+
+**`sell_out_events`** stays separate from `daily_pastry_tracking` because it carries forecast/unmet-demand context the PPIE engine needs. But you can drop `soldout_logs` entirely — it's the same fact recorded twice.
+
+### Tables to drop or merge
+
+- **`production_logs`** — covered by `daily_pastry_tracking.baked` plus `lamination_doughs` for live granularity. The original `Production.tsx` page is essentially dead; ProductionMatrix has replaced it.
+- **`shaping_logs`** — covered by `lamination_doughs.shapings` jsonb. Pick one.
+- **`bakeoff_logs`** — merge into `daily_pastry_tracking.baked` (increment as bake-offs happen).
+- **`soldout_logs`** — merge into `daily_pastry_tracking.eighty_sixed_at`. Keep `sell_out_events` for the PPIE-specific fields.
+- **`pastry_totals`** — covered by `daily_pastry_tracking.goal` and `pastry_yield_configs.targetPar`. Pick the right home for "today's goal" (I'd put it on `daily_pastry_tracking` since it's per-day) and "default par" (on `pastry_yield_configs` since it's standing).
+- **`pastry_passports`** + `pastry_media` + `pastry_components` + `pastry_addins` — these are encyclopedia/reference content. They aren't part of *production*, they're part of a recipe library. Move them out of the production module entirely. Keep them, but stop letting them muddle the production flow. The `passportId` reference in `component_bom` is the only operational tie, and that whole `prep-eq` system (`production_components`, `component_bom`, `component_transactions`, `prep_closeouts`, `prep_closeout_items`) is a separate "prep & equipment" module that should live next to inventory, not next to production.
+
+### Page-level consolidation
+
+The 10 production-adjacent pages collapse to **3**:
+
+1. **`ProductionMatrix.tsx`** — the live operational view. Reads `pastry_yield_configs` + `lamination_doughs.shapings`. This is your "what do I bake right now" page. Keep it; this is where you ended up and it's correct.
+2. **`LaminationStudio.tsx`** — the dough lifecycle. Already self-contained. Keep it (though 4,006 lines suggests it could be split into smaller components — that's a separate refactor).
+3. **`PastryItems.tsx`** (renamed/merged with `ParYieldRegistry.tsx`) — the master config page. Edit pastry definitions and their pars/yields in one place.
+
+Drop `Production.tsx`, `Bakery.tsx`, `PastryGoals.tsx`, `ParYieldRegistry.tsx` (merge into PastryItems), and move `PastryPassportDetail.tsx` + `SellOutHistory.tsx` to a separate "library/insights" section.
+
+### Endpoint consolidation
+
+You currently have endpoints at `/api/production-logs`, `/api/shaping-logs`, `/api/bakeoff-logs`, `/api/soldout-logs`, `/api/pastry-totals`, `/api/daily-pastry-tracking`, `/api/pastry-yields`, `/api/par-registry`, `/api/lamination/*`. Collapse to:
+
+- `GET/POST /api/pastry-items` (master list with config joined)
+- `GET/PUT /api/pastry-yield-configs/:id`
+- `GET /api/production/today` — returns the unified daily snapshot (goal, baked live from lamination, sold from Square, remaining)
+- `POST /api/production/today/:itemId/baked` — increments `daily_pastry_tracking.baked`
+- `POST /api/production/today/:itemId/sold-out` — sets `eighty_sixed_at` and creates a `sell_out_event`
+- `GET/POST /api/lamination/*` — keep as-is, this domain is well-formed
+
+### Suggested order of operations
+
+1. **Don't touch the database yet.** Start by tagging the redundant tables in `shared/schema.ts` with a `@deprecated` JSDoc comment and a migration target ("merge into daily_pastry_tracking"). This gives you a list to work against.
+2. **Pick a single page to lead the rewrite.** ProductionMatrix is closest to your end state — extend it to the 3-page model rather than rebuilding from scratch.
+3. **Write the unified `/api/production/today` endpoint first** — it lets you replace the 4 separate fetches in `Bakery.tsx` with one call, which immediately tells you whether the consolidation works.
+4. **Then migrate writes.** Have new bakeoff actions write to `daily_pastry_tracking` instead of `bakeoff_logs`. Once nothing reads the old table, drop it.
+5. **`server/routes.ts` at 17,544 lines is its own crisis** — but that's a separate audit. The fact that you already have `server/routes/lamination.ts` and `server/routes/wholesale.ts` extracted suggests you know the pattern. Pull the bakery-production endpoints into `server/routes/production.ts` as part of this refactor.
+
+Want me to draft the migration SQL, the consolidated `/api/production/today` endpoint, or a stripped-down `shared/schema.ts` for just the kept tables?
