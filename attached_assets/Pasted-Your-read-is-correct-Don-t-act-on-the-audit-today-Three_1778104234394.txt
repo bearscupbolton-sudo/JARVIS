@@ -1,0 +1,19 @@
+Your read is correct. Don't act on the audit today.
+
+Three things I should own:
+
+The `pastry_passports` call is the biggest miss. I described it as encyclopedia content because that's how it reads in isolation — `descriptionText`, `assemblyText`, `bakingText`, `photoUrl`, media join table. I didn't trace the cost-gaps endpoint. Looking at it now: `/api/pastry-items/:id/cost` and `/api/pastry-items/:id/cost-gaps` at lines 6944 and 6957 of `routes.ts` — those almost certainly walk `pastry_components` → `recipes` and `pastry_addins` → `inventory_items`, both of which hang off `pastry_passports`. That's a load-bearing structural relationship masquerading as documentation. Cost rollup is exactly the sort of thing that *should* live next to production. My "move it out" recommendation was wrong.
+
+The `bakeoff_logs` → portal feed dependency is the kind of cross-module coupling an audit can't see from schema shape alone. It looks redundant with `daily_pastry_tracking` *as data*, but it's serving a different consumer. Same data, different read path, different SLA. That's a real reason to keep both, or to consolidate carefully with the portal rewire as part of the same change.
+
+The `daily_pastry_tracking.sold` question is the one that should have stopped me. I treated `sold` as a stored column to be merged into. If it's actually a computed projection from `square_sales`, then "merge bakeoff_logs into daily_pastry_tracking" isn't a merge — it's a write/read pattern change with implications I didn't think through. That's the gap between schema-shaped thinking and how the system actually runs.
+
+The audit was a static read. You have the dynamic picture, and the dynamic picture wins.
+
+To your two questions:
+
+**Park this.** Keep going with the portal data slice. That's the move with known scope, known pattern, and immediate routes.ts compression — it's earning velocity right now, which is the only justification for any of this work.
+
+The audit isn't worthless — the four-cluster framing and the page consolidation direction are still right, and they're worth keeping in your back pocket for when you're between slices and want a clearer end-state to aim at. But Phase 0 (the dependency-map script) is the only thing I'd queue up as a follow-up, and only when the routes.ts extraction work is done. At that point you'll have a much smaller, cleaner file to run static analysis against, and the map will actually be tractable.
+
+One thing worth saving from this exchange: the four-cluster diagram is the simplified mental model, not the migration plan. If it's useful as a north star while you work, keep it. If not, ignore it. Either way — your instinct to not let an audit drive a schema rewrite on a $300K/mo system is the correct instinct. Ship the portal slice.
