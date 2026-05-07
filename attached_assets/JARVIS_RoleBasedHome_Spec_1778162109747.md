@@ -1,6 +1,15 @@
 # Jarvis Bakery OS — Role-Based Home Screens & Permissions Spec
 
-**Version 1.0 — Owner-Configurable Home Layouts and Position-Based Access**
+**Version 1.1 — Owner-Configurable Home Layouts and Position-Based Access**
+
+> **Revisions in v1.1 (locked-in decisions):**
+> - **Sequenced after the `routes.ts` refactor.** No work on Home.tsx starts until the in-flight routes.ts slicing is done and stable for ~1 week.
+> - **Phase 1 (widget registry refactor) budget raised** from 2–3 days to **5–8 working days** for an experienced engineer (longer with Replit Agent). Home.tsx is 1,966 lines with significant cross-widget state; the original estimate was the happy path.
+> - **v1 ships with layouts locked.** Users cannot reorder or hide their own widgets. Customization is deferred to v2 only if real demand appears.
+> - **Decision #2 (user customization) removed from Part 10** as a result.
+> - **"Position" UI rename deferred** until the home-layout tab actually lands, so we don't churn copy twice.
+> - **Phase ordering revised:** Phase 3 (editor + "Preview as") ships before Phase 2 (new widgets), so the system is end-to-end-validated with familiar widgets before new ones get bolted on. Phase 2 + Phase 5 then run in parallel; whichever has the harder deadline wins priority.
+> - **Confirmed defaults on Part 10 decisions #1, #3, #4, #5** — see updated Part 10.
 
 ---
 
@@ -239,7 +248,9 @@ return (
 );
 ```
 
-Each widget becomes its own file in `client/src/components/home-widgets/`. This is the largest piece of work in the spec. Budget: 2–3 days for an experienced engineer, 4–6 days if you're driving Replit Agent.
+Each widget becomes its own file in `client/src/components/home-widgets/`. This is the largest piece of work in the spec. **Revised budget: 5–8 working days for an experienced engineer, 10–14 days driving Replit Agent.** The original 2–3 day estimate was the happy path; the real number includes regression checking and untangling cross-widget state (briefing polling, section visibility, layout editor state, drag-and-drop, multiple dialogs).
+
+**Behavior must be identical after this refactor.** Layouts are locked to current behavior for every existing user. No user-visible change.
 
 ### 6.4 — `useEffectiveHomeLayout` hook
 
@@ -330,50 +341,57 @@ This is a meaningful perf win once the widget registry is in place.
 
 A safe, low-risk path. The system has live employees already.
 
+### Phase −1 — Prerequisite (in flight)
+**Finish the `routes.ts` refactor and let it bake for ~1 week.** No work on Home starts until then. Running two big concurrent refactors on a live revenue system is how you end up with a Tuesday where neither schedules nor financial reports work and you can't tell which refactor caused it.
+
 ### Phase 0 — No user-facing change (1 day)
 - Add the migration (Part 4.3)
 - Add `homeLayout` and `defaultPage` columns to `permission_levels`
 - Deploy. Nothing breaks because no code reads the new columns yet.
 
-### Phase 1 — Widget registry refactor (2–3 days)
+### Phase 1 — Widget registry refactor (5–8 days)
 - Move every existing Home widget into its own file under `client/src/components/home-widgets/`
 - Build the `WIDGET_REGISTRY` and `useEffectiveHomeLayout` hook
 - Home.tsx still renders the same widgets in the same order — but now via the registry
-- **Critical:** at this point, behavior is identical for users. Pure refactor.
+- **Critical:** at this point, behavior is identical for users. Pure refactor. Layouts locked to current behavior.
 
-### Phase 2 — New employee widgets (2 days)
+### Phase 3 — Position editor UI (2 days) *— ships before Phase 2*
+- Add the "Home Screen" tab to `PermissionLevelManager.tsx`
+- Add the "Preview as this Position" feature
+- Seed the five default Positions (Part 3) using **only existing widgets** so the system is end-to-end-validated with familiar parts before new widgets are bolted on.
+- This is also the moment to do the **"Permission Level" → "Position"** UI rename in one pass.
+
+### Phase 2 — New employee widgets (2 days) *— parallel with Phase 5*
 - Build `nextShift`, `availableShifts`, `todaysPreShiftNote`, `quickActionsEmployee`
 - These can be tested in isolation before being added to anyone's layout
 
-### Phase 3 — Position editor UI (2 days)
-- Add the "Home Screen" tab to `PermissionLevelManager.tsx`
-- Add the "Preview as this Position" feature
-- Seed the five default Positions (Part 3)
+### Phase 5 — HR Position widgets (2 days) *— parallel with Phase 2*
+- Build `hrPulse`, `pendingApprovals`, `recentHires`, `scheduleSnapshot`
+- **Whichever of Phase 2 or Phase 5 has the harder external deadline gets priority.** If the new HR hire starts in 3 weeks, Phase 5 jumps the line; if she's 8+ weeks out, Phase 2 goes first because more existing employees benefit.
 
 ### Phase 4 — Roll out per Position, one at a time (gradual)
 - Week 1: Configure the **Employee** Position. Move 2–3 trusted employees onto it. Get feedback.
 - Week 2: Roll all FOH/BOH employees onto Employee Position.
 - Week 3: Configure **Shift Lead** and **Manager** Positions.
-- When you hire HR: configure her Position the day before she starts. She logs in and sees her own world.
+- When HR starts: configure her Position the day before. She logs in and sees her own world. If Phase 5 widgets aren't ready yet, ship her a **minimal HR Position** (sidebar access + `defaultPage: /hr` + the existing HR page) on day one. A clean sidebar and the right landing page is 80% of the experience; the bespoke `hrPulse` widget is polish.
 
-### Phase 5 — HR Position widgets (2 days, do *just before* she starts)
-- Build `hrPulse`, `pendingApprovals`, `recentHires`, `scheduleSnapshot`
-
-**Total engineering budget:** ~10–12 working days for an experienced full-stack TypeScript engineer. Likely 18–25 days driving Replit Agent, depending on prompt quality and how much rework each phase needs.
+**Total engineering budget:** ~13–17 working days for an experienced full-stack TypeScript engineer. Likely 22–30 days driving Replit Agent, depending on prompt quality and how much rework each phase needs. **This is on top of the remaining `routes.ts` refactor work** (~3–5 weeks at slice-a-week pace).
 
 ---
 
-## Part 10 — Decisions you need to make before this starts
+## Part 10 — Decisions (locked in)
 
-1. **Naming.** "Position" or "Permission Level" or something else (e.g., "Role Profile")? I recommend **Position**.
+All four open decisions have been confirmed by the owner. Recorded here for the record:
 
-2. **Owner override flag.** Should employees be allowed to customize their *own* Home layout (reorder, hide widgets), or is the Position layout locked? Recommendation: **owners can customize. Everyone else can hide widgets but not add ones outside their Position's allowed set.**
+1. **Naming: "Position"** — confirmed. UI rename happens in Phase 3 when the home-layout tab ships, not before. Database table stays `permission_levels`.
 
-3. **One Position per user, or stacked?** Right now `permissionLevelId` is a single FK. Stacked positions (e.g., "Employee + Shift Lead") would be more flexible but more complex. Recommendation: **one Position per user for v1**, use the `isShiftManager` / `isDepartmentLead` boolean flags for layered overrides like you have today.
+2. ~~**User customization.**~~ **Removed.** v1 ships with layouts locked for everyone. Customization is deferred to v2 only if real demand appears. This drops a meaningful amount of edge-case surface area from v1.
 
-4. **What happens to the user's `defaultPage` field?** Recommendation: **user-level `defaultPage` overrides Position-level `defaultPage`**, both fall back to `/`. This lets you say "the HR Position lands at /hr by default, but Sarah specifically lands at /messages because she likes it that way."
+3. **One Position per user — confirmed.** Single FK on `users.permissionLevelId`. Layered overrides (Shift Lead, Department Lead) continue to use the existing `isShiftManager` / `isDepartmentLead` boolean flags.
 
-5. **Should hidden widgets in a Position be truly hidden, or hidden-by-default-but-toggleable?** Recommendation: **truly hidden**. If the Owner wants an Employee to see Production, they should add Production to that Employee's Position (or use a per-user override later).
+4. **User `defaultPage` overrides Position `defaultPage` — confirmed.** Both fall back to `/`. Resolution order: `user.defaultPage` → `position.defaultPage` → `/`.
+
+5. **Hidden widgets are truly hidden — confirmed.** No "show me the hidden ones" toggle for end users. If a Position needs a widget, the owner adds it to that Position.
 
 ---
 
