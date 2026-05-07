@@ -5,17 +5,16 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocationContext } from "@/hooks/use-location-context";
 import { format, addDays, isSameDay, parseISO } from "date-fns";
 import {
-  Sun, AlertCircle, AlertTriangle, CheckCircle2,
+  AlertCircle, AlertTriangle, CheckCircle2,
   Calendar, Clock, CheckSquare, Package,
   MessageSquare, Settings, Users, ChefHat, Coffee,
-  MapPin, BellRing, ChevronRight, Pin,
+  MapPin, BellRing, ChevronRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import type {
   Shift, Announcement, DirectMessage, MessageRecipient,
   CalendarEvent, Problem, PastryTotal, PreShiftNote, BakeoffLog,
@@ -36,13 +35,6 @@ type HomeData = {
   myUpcomingShifts: Shift[];
   pinnedAnnouncements: Announcement[];
   myTaggedEvents: CalendarEvent[];
-};
-
-type JarvisBriefingData = {
-  briefingText: string | null;
-  showWelcome: boolean;
-  welcomeMessage: string | null;
-  disabled: boolean;
 };
 
 function greeting(): string {
@@ -77,9 +69,6 @@ export default function HomeV2() {
   const todayDate = format(today, "yyyy-MM-dd");
 
   const { data: homeData } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
-  const { data: briefingData, isLoading: loadingBriefing } = useQuery<JarvisBriefingData>({
-    queryKey: ["/api/home/jarvis-briefing"],
-  });
   const { data: preShiftNotes = [] } = useQuery<(PreShiftNote & { authorName?: string })[]>({
     queryKey: [`/api/pre-shift-notes?date=${todayDate}`],
   });
@@ -215,39 +204,6 @@ export default function HomeV2() {
               </div>
             </Link>
           )}
-
-          <Card className="bg-stone-900 text-stone-50 border-none shadow-md overflow-hidden" data-testid="card-briefing">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <Avatar className="w-12 h-12 border-2 border-stone-700 bg-stone-800 shrink-0">
-                  <AvatarFallback className="bg-stone-800 text-2xl">🐻</AvatarFallback>
-                </Avatar>
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-bold text-stone-100">Jarvis Briefing</h2>
-                    <Badge variant="secondary" className="bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border-amber-500/30">
-                      AI Morning Summary
-                    </Badge>
-                  </div>
-                  {loadingBriefing ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-full bg-stone-700" />
-                      <Skeleton className="h-4 w-5/6 bg-stone-700" />
-                      <Skeleton className="h-4 w-3/4 bg-stone-700" />
-                    </div>
-                  ) : briefingData?.briefingText ? (
-                    <p className="text-stone-300 leading-relaxed text-lg" data-testid="text-briefing">
-                      {briefingData.briefingText}
-                    </p>
-                  ) : (
-                    <p className="text-stone-400 italic text-base">
-                      No briefing available right now. Jarvis will share one shortly.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           {latestPreShift && (
             <div className="bg-stone-100 border border-stone-200 p-4 rounded-xl" data-testid={`preshift-${latestPreShift.id}`}>
