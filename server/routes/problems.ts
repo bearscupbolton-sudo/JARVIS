@@ -1,8 +1,18 @@
 import type { Express } from "express";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { storage } from "../storage";
+import { db } from "../db";
 import { api } from "@shared/routes";
 import { isAuthenticated, isUnlocked, isOwner } from "../replit_integrations/auth";
+import { users } from "@shared/models/auth";
+import {
+  directMessages,
+  messageRecipients,
+  insertServiceContactSchema,
+  insertEquipmentSchema,
+  insertEquipmentMaintenanceSchema,
+} from "@shared/schema";
 import { getUserFromReq } from "./_helpers";
 
 export function registerProblemsRoutes(app: Express) {
@@ -30,7 +40,7 @@ export function registerProblemsRoutes(app: Express) {
 
       let photoUrls: string[] = [];
       if (pendingPhotos && Array.isArray(pendingPhotos) && pendingPhotos.length > 0) {
-        const { uploadMediaWithThumbnail } = await import("./media");
+        const { uploadMediaWithThumbnail } = await import("../media");
         const crypto = await import("crypto");
         const results = await Promise.all(
           pendingPhotos.slice(0, 5).map((b64: string) => uploadMediaWithThumbnail(b64, "problem", crypto.randomUUID()))
@@ -100,7 +110,7 @@ export function registerProblemsRoutes(app: Express) {
                 archived: false,
               });
               try {
-                const { sendPushToUser } = await import("./push");
+                const { sendPushToUser } = await import("../push");
                 await sendPushToUser(assignedUser.id, {
                   title: "Problem Needs Your Attention",
                   body: existing.title,
@@ -144,7 +154,7 @@ export function registerProblemsRoutes(app: Express) {
               archived: false,
             });
             try {
-              const { sendPushToUser } = await import("./push");
+              const { sendPushToUser } = await import("../push");
               await sendPushToUser(existing.reportedById, {
                 title: "Problem Resolved",
                 body: `"${existing.title}" has been resolved`,
@@ -183,7 +193,7 @@ export function registerProblemsRoutes(app: Express) {
 
     let photoUrls: string[] = [];
     if (req.body.pendingPhotos && Array.isArray(req.body.pendingPhotos) && req.body.pendingPhotos.length > 0) {
-      const { uploadMediaWithThumbnail } = await import("./media");
+      const { uploadMediaWithThumbnail } = await import("../media");
       const crypto = await import("crypto");
       const results = await Promise.all(
         req.body.pendingPhotos.slice(0, 5).map((b64: string) => uploadMediaWithThumbnail(b64, "problem-note", crypto.randomUUID()))
@@ -225,7 +235,7 @@ export function registerProblemsRoutes(app: Express) {
             archived: false,
           });
           try {
-            const { sendPushToUser } = await import("./push");
+            const { sendPushToUser } = await import("../push");
             await sendPushToUser(problem.reportedById, {
               title: "Problem Updated",
               body: `Note added to "${problem.title}"`,
