@@ -7142,6 +7142,56 @@ ${sopsHtml}
     }
   }
 
+  // Public weather endpoint for the home page widget.
+  // Optional ?locationId — when provided and the location matches Saratoga
+  // Springs, also returns a doorsOpen flag (temp >= 65 AND clear/mostly sunny).
+  app.get("/api/weather/current", async (req, res) => {
+    try {
+      const locationParam = (req.query.location as string | undefined)?.trim();
+      const locationIdRaw = req.query.locationId as string | undefined;
+      const locationId = locationIdRaw ? parseInt(locationIdRaw, 10) : undefined;
+
+      let queryLocation = locationParam;
+      let resolvedLocationName: string | undefined;
+      if (!queryLocation && locationId && !Number.isNaN(locationId)) {
+        const loc = await storage.getLocation(locationId);
+        if (loc) {
+          resolvedLocationName = loc.name;
+          // Prefer address (more precise for OWM) and fall back to name
+          queryLocation = loc.address || loc.name;
+        }
+      }
+      if (!queryLocation) {
+        return res.status(400).json({ error: "location or locationId required" });
+      }
+
+      const weather = await fetchWeather(queryLocation);
+      if (!weather) {
+        return res.status(503).json({ error: "weather unavailable" });
+      }
+
+      // Doors-open rule (Saratoga, locationId 3): >= 65°F AND mostly sunny.
+      // OpenWeather icon codes: "01" = clear, "02" = few clouds.
+      const isMostlySunny =
+        typeof weather.icon === "string" &&
+        (weather.icon.startsWith("01") || weather.icon.startsWith("02"));
+      const doorsOpen = weather.temp >= 65 && isMostlySunny;
+      const doorsApplicable = locationId === 3;
+
+      res.json({
+        ...weather,
+        locationId: locationId ?? null,
+        locationName: resolvedLocationName ?? weather.location,
+        doorsApplicable,
+        doorsOpen: doorsApplicable ? doorsOpen : null,
+        mostlySunny: isMostlySunny,
+      });
+    } catch (e) {
+      console.error("[Weather] /api/weather/current error:", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
   const trafficCache = new Map<string, { data: any; fetchedAt: number }>();
   const TRAFFIC_CACHE_TTL = 10 * 60 * 1000;
 

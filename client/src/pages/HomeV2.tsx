@@ -8,7 +8,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2,
   Calendar, Clock, CheckSquare, Package,
   MessageSquare, Settings, Users, ChefHat, Coffee,
-  MapPin, BellRing, ChevronRight,
+  MapPin, BellRing, ChevronRight, Cloud, DoorOpen, DoorClosed,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -70,6 +70,34 @@ export default function HomeV2() {
   const todayDate = format(today, "yyyy-MM-dd");
 
   const { data: homeData } = useQuery<HomeData>({ queryKey: ["/api/home"], refetchInterval: 30000 });
+
+  const weatherLocationId = selectedLocation?.id;
+  const { data: weather } = useQuery<{
+    temp: number;
+    feelsLike: number;
+    description: string;
+    icon: string;
+    humidity: number;
+    windSpeed: number;
+    locationName: string;
+    doorsApplicable: boolean;
+    doorsOpen: boolean | null;
+    mostlySunny: boolean;
+  }>({
+    queryKey: ["/api/weather/current", weatherLocationId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/weather/current?locationId=${weatherLocationId}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("weather fetch failed");
+      return res.json();
+    },
+    enabled: !!weatherLocationId,
+    refetchInterval: 15 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+  });
+
   const { data: preShiftNotes = [] } = useQuery<(PreShiftNote & { authorName?: string })[]>({
     queryKey: [`/api/pre-shift-notes?date=${todayDate}`],
   });
@@ -170,7 +198,7 @@ export default function HomeV2() {
           <h1 className="text-2xl font-bold tracking-tight text-stone-900" data-testid="text-greeting">
             {greeting()}, {userName}
           </h1>
-          <div className="flex items-center text-stone-500 text-sm mt-1 gap-3">
+          <div className="flex items-center text-stone-500 text-sm mt-1 gap-3 flex-wrap">
             <span className="flex items-center gap-1" data-testid="text-date">
               <Calendar className="w-4 h-4" /> {dateHeader}
             </span>
@@ -178,6 +206,40 @@ export default function HomeV2() {
               <span className="flex items-center gap-1" data-testid="text-location">
                 <MapPin className="w-4 h-4" /> {selectedLocation.name}
               </span>
+            )}
+            {weather && (
+              <span className="flex items-center gap-1.5" data-testid="text-weather">
+                {weather.icon ? (
+                  <img
+                    src={`https://openweathermap.org/img/wn/${weather.icon}.png`}
+                    alt={weather.description}
+                    className="w-6 h-6 -my-1"
+                  />
+                ) : (
+                  <Cloud className="w-4 h-4" />
+                )}
+                <span className="font-medium text-stone-700">{weather.temp}°F</span>
+                <span className="capitalize">{weather.description}</span>
+              </span>
+            )}
+            {weather?.doorsApplicable && weather.doorsOpen !== null && (
+              weather.doorsOpen ? (
+                <Badge
+                  className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100 gap-1"
+                  data-testid="badge-doors-open"
+                >
+                  <DoorOpen className="w-3.5 h-3.5" />
+                  Doors Open
+                </Badge>
+              ) : (
+                <Badge
+                  className="bg-stone-200 text-stone-700 border-stone-300 hover:bg-stone-200 gap-1"
+                  data-testid="badge-doors-closed"
+                >
+                  <DoorClosed className="w-3.5 h-3.5" />
+                  Doors Closed
+                </Badge>
+              )
             )}
           </div>
         </div>
