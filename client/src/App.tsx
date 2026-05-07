@@ -22,7 +22,8 @@ import { prefetchCoreRoutes, cancelPrefetch } from "@/lib/prefetch";
 
 import Login from "@/pages/Login";
 
-const Home = lazy(() => import("@/pages/Home"));
+const Home = lazy(() => import("@/pages/HomeV2"));
+const HomeLegacy = lazy(() => import("@/pages/Home"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Bakery = lazy(() => import("@/pages/Bakery"));
 const Coffee = lazy(() => import("@/pages/Coffee"));
@@ -357,6 +358,9 @@ function Router() {
         <Route path="/login" component={Login} />
         
         {/* Protected Routes */}
+        <Route path="/home-legacy">
+          {() => <ProtectedRoute component={HomeLegacy} />}
+        </Route>
         <Route path="/">
           {() => <ProtectedRoute component={Home} />}
         </Route>
