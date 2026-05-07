@@ -1,0 +1,53 @@
+Your pushback is correct on every point. Let me respond to each honestly, including where I undersold the work.
+
+1. Home.tsx timeline — you're right, I undersold it.
+
+Looking back at it: 1,966 lines, 16 widgets, polling logic, section visibility hooks, layout editor state, mutations for problems/events/email-to-event, drag-and-drop, multiple dialogs. The "2–3 days experienced engineer" estimate was the happy path — pure mechanical extraction with no surprises. The real number, with verification, regression checking, and the inevitable "oh this widget secretly depends on state from that other widget" discoveries, is closer to 5–8 working days even for someone who knows the codebase cold. With Agent driving, double it. Spec should say a week minimum.
+
+2. Don't run two big refactors at once — agreed, full stop.
+
+This is the most important point in your reply. Routes.ts and Home.tsx are both load-bearing. Refactoring either one is a controlled-burn operation. Running both concurrently on a live system that real employees use is how you end up with a Tuesday where neither shift schedules nor financial reports work and you can't tell which refactor caused it. Finish routes.ts first. That's the call.
+
+3. HR start date drives Phase 5 — yes, exactly.
+
+This is the only thing on the timeline that has an external clock. Everything else is internally paced. If she starts in 8 weeks you have plenty of runway; if she starts in 3, the order of operations changes — you might ship her a minimal HR Position (sidebar access + defaultPage: /hr + the existing HR page) on day one, and add custom HR widgets in Phase 5 a month later. She'll be fine. A clean sidebar and the right landing page is 80% of the experience; the bespoke hrPulse widget is polish.
+
+4. Hold the "Position" rename — agreed.
+
+Fair point. Renaming labels is easy but it's churn-y, and doing it twice (once now, once after the home-layout tab ships) makes both changes feel half-done. Land the home-layout feature first, then rename in one pass when the new tab lands. That way "Position" enters the vocabulary at the moment it actually means something new.
+
+5. Lock layouts in v1, ship customization in v2 — better call than mine.
+
+You're right and I should have recommended this. v1 customization is a debugging tax for a feature nobody has asked for yet. Ship it locked. The first time someone asks "can I move my messages widget to the top," that's your signal to build it. Until then it's surface area without demand.
+
+This also kills Decision #2 entirely from Part 10, which is a nice simplification.
+
+6. /api/me/home-layout as a separate endpoint — confirmed.
+
+Catch-all endpoints are how routes.ts got to 17,544 lines. Don't make the same mistake on the home data layer.
+
+Revised order of operations
+Locking this in:
+
+Now → finish routes.ts slicing. No new work on Home until that's done. Resist the urge to start in parallel.
+Once routes.ts is shipped and stable for ~1 week, start Phase 0 (the migration — adds columns, ships nothing user-visible). Low risk, gets the schema ready.
+Then Phase 1 (Home.tsx widget registry refactor). Budget a full week, not 2–3 days. Pure refactor, no behavior change. Lock layouts to current behavior for everyone.
+Phase 3 before Phase 2 — build the Position editor and "Preview as" first, with the existing widgets, before building new widgets. This validates the system end-to-end with familiar parts.
+Phase 2 + Phase 5 in parallel — new employee widgets and HR widgets get built once the editor exists to drop them into. Whichever has the harder deadline (HR start date) gets priority.
+What I need from you to lock this in
+Two things I genuinely need answered, plus the four remaining Part 10 decisions:
+
+HR start date — even a rough one. "6–8 weeks" vs "by end of next month" vs "I haven't found the right person yet" all change the plan.
+Routes.ts current state — how far along is the slicing? You said "in the middle of" — does that mean 3 of 30 domains extracted, or 25 of 30? That tells me whether we're 2 weeks or 2 months from being able to start Home work.
+Then the trimmed Part 10:
+
+#1 Naming: Position (you've already agreed in spirit by deferring the rename — just confirming the eventual label)
+#3 One Position per user vs stacked: recommend one + boolean flags for v1
+#4 User defaultPage overrides Position defaultPage: recommend yes
+#5 Hidden widgets are truly hidden: recommend yes
+Default-thumbs-up all four and we move on. Push back on any and we discuss.
+
+Want me to update the spec doc with these revisions baked in (lengthened Phase 1 estimate, dropped customization, locked layouts, sequenced after routes.ts), or leave the original as-is and treat this conversation as the addendum?
+
+
+
