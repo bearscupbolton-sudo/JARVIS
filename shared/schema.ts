@@ -1466,6 +1466,12 @@ export type CustomerOrder = typeof customerOrders.$inferSelect;
 export type InsertCustomerOrder = z.infer<typeof insertCustomerOrderSchema>;
 
 // === PERMISSION LEVELS ===
+export type HomeLayoutConfig = {
+  visibleWidgets: string[];
+  hiddenWidgets: string[];
+  pinnedTop?: string[];
+};
+
 export const permissionLevels = pgTable("permission_levels", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
@@ -1474,6 +1480,8 @@ export const permissionLevels = pgTable("permission_levels", {
   sidebarPermissions: jsonb("sidebar_permissions").$type<string[] | null>(),
   sectionPermissions: jsonb("section_permissions").$type<Record<string, string[]> | null>(),
   rank: integer("rank").default(0).notNull(),
+  homeLayout: jsonb("home_layout").$type<HomeLayoutConfig | null>(),
+  defaultPage: text("default_page"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

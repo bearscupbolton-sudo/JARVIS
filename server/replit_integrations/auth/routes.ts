@@ -78,6 +78,45 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/me/home-layout", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.appUser as User;
+      const FALLBACK_OWNER = {
+        visibleWidgets: ["briefing","announcements","laminationPulse","preShiftNotes","whosOn","production","problems","forwardLook","todayOrders","myEvents","myEventJobs","myTasks","ownerFinancialPulse"],
+        hiddenWidgets: [] as string[],
+      };
+      const FALLBACK_MANAGER = {
+        visibleWidgets: ["briefing","announcements","laminationPulse","preShiftNotes","whosOn","production","problems","forwardLook","todayOrders","myEvents","myTasks","managerStats"],
+        hiddenWidgets: [] as string[],
+      };
+      const FALLBACK_MEMBER = {
+        visibleWidgets: ["nextShift","unreadMessages","availableShifts","todaysPreShiftNote","myEvents","myTasks","quickActionsEmployee"],
+        hiddenWidgets: [] as string[],
+      };
+
+      let layout: { visibleWidgets: string[]; hiddenWidgets: string[]; pinnedTop?: string[] } | null = null;
+      let defaultPage: string | null = (user as any).defaultPage ?? null;
+
+      const permLevelId = (user as any).permissionLevelId;
+      if (permLevelId) {
+        const level = await storage.getPermissionLevel(permLevelId);
+        if (level?.homeLayout) layout = level.homeLayout as any;
+        if (!defaultPage && level?.defaultPage) defaultPage = level.defaultPage;
+      }
+
+      if (!layout) {
+        layout = user.role === "owner" ? FALLBACK_OWNER
+              : user.role === "manager" ? FALLBACK_MANAGER
+              : FALLBACK_MEMBER;
+      }
+
+      res.json({ layout, defaultPage: defaultPage ?? "/" });
+    } catch (error) {
+      console.error("Error fetching home layout:", error);
+      res.status(500).json({ message: "Failed to fetch home layout" });
+    }
+  });
+
   app.post("/api/auth/acknowledge", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.appUser.id;
